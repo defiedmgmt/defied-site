@@ -217,7 +217,7 @@ function seed() {
     { id: uid(), email: "stacke@defiedmgmt.com", password: "client123", role: "client", name: "Stack!e", clientId: stacke.id },
   ];
 
-  return { staff, clients, placements, site, users, submissions: [] };
+  return { staff, clients, placements, site, users, submissions: [], notableReleases: [] };
 }
 
 /* ------------------------------------------------------------------ */
@@ -651,7 +651,7 @@ function Footer({ go }) {
 function Home({ db }) {
   const relRef = useRef(null);
   const scrollToRel = () => relRef.current && relRef.current.scrollIntoView({ behavior: "smooth" });
-  const notable = db.placements.filter((p) => p.notable && p.song);
+  const notable = (db.notableReleases || []).filter((r) => r.song);
   return (
     <main className="home">
       <section className="home-hero">
@@ -666,7 +666,7 @@ function Home({ db }) {
       <section className="home-releases" ref={relRef}>
         <h2 className="releases-head">Notable Releases</h2>
         {notable.length === 0 ? (
-          <p className="muted releases-empty-note">Mark placements as “notable” in the dashboard to feature them here.</p>
+          <p className="muted releases-empty-note">Add notable releases in the dashboard to feature them here.</p>
         ) : (
           <div className="rel-grid">
             {notable.map((r) => {
@@ -897,16 +897,17 @@ function StaffDashboard({ db, commit, logout }) {
 }
 
 /* generic editable list ------------------------------------------------ */
-function Editor({ title, items, columns, blank, onSave, onDelete, extra }) {
+function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems }) {
   const [editing, setEditing] = useState(null); // object or null
   const start = (obj) => setEditing(obj ? { ...obj } : { id: null, ...blank });
   const save = async () => { await onSave(editing); setEditing(null); };
   const gridCols = { "--cols": columns.map((c) => c.w || "1fr").join(" ") + " 72px" };
+  const atMax = !!maxItems && items.length >= maxItems;
   return (
     <div>
       <div className="admin-head">
-        <h2>{title}</h2>
-        <button className="btn sm" onClick={() => start(null)}><Plus size={15} /> Add</button>
+        <h2>{title}{maxItems ? ` — ${items.length}/${maxItems}` : ""}</h2>
+        <button className="btn sm" onClick={() => start(null)} disabled={atMax} title={atMax ? `Remove one to add another (max ${maxItems})` : undefined}><Plus size={15} /> Add</button>
       </div>
       <div className="admin-table">
         <div className="admin-row admin-hd" style={gridCols}>
@@ -1014,7 +1015,7 @@ function PlacementsAdmin({ db, commit }) {
           <SplitsEditor splits={e.splits} onChange={(v) => set({ ...e, splits: v })} />
           <label className="check-row">
             <input type="checkbox" checked={!!e.notable} onChange={(ev) => set({ ...e, notable: ev.target.checked })} />
-            <span>Feature as a Notable Release — shows on the home page and on the artist's profile. Split data stays private.</span>
+            <span>Feature as a Notable Release — shows on the artist's profile. Split data stays private.</span>
           </label>
         </>
       )}
@@ -1265,7 +1266,7 @@ function SongManager({ db, commit, clientId }) {
               <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} />
               <label className="check-row">
                 <input type="checkbox" checked={!!editing.notable} onChange={(ev) => setEditing({ ...editing, notable: ev.target.checked })} />
-                <span>Feature as a Notable Release on the public site.</span>
+                <span>Feature as a Notable Release on your artist profile.</span>
               </label>
             </div>
             <div className="modal-foot">
@@ -1361,26 +1362,34 @@ function AboutEditor({ db, commit }) {
 }
 
 function NotableAdmin({ db, commit }) {
-  const clientName = (id) => db.clients.find((c) => c.id === id)?.name || "—";
-  const [q, setQ] = useState("");
-  const toggle = async (id) => commit({ ...db, placements: db.placements.map((p) => p.id === id ? { ...p, notable: !p.notable } : p) });
-  const featured = db.placements.filter((p) => p.notable).length;
-  const list = db.placements.filter((p) => (p.song + " " + p.artist + " " + clientName(p.clientId)).toLowerCase().includes(q.toLowerCase()));
+  const list = db.notableReleases || [];
+  const save = async (o) => {
+    const notableReleases = o.id ? list.map((r) => r.id === o.id ? o : r) : [...list, { ...o, id: uid() }];
+    await commit({ ...db, notableReleases });
+  };
+  const del = async (id) => commit({ ...db, notableReleases: list.filter((r) => r.id !== id) });
+  const cols = [
+    { key: "cover", label: "", w: "44px", render: (r) => r.cover ? <img className="rel-thumb" src={r.cover} alt="" /> : <span className="rel-thumb rel-thumb-empty" /> },
+    { key: "song", label: "Song", w: "1.3fr" },
+    { key: "artist", label: "Artist", w: "1fr" },
+  ];
   return (
     <div>
-      <div className="admin-head"><h2>Notable releases</h2><span className="muted">{featured} featured on the site</span></div>
-      <p className="muted mb">Toggle which songs appear on the home page and artist profiles. Splits and figures stay private.</p>
-      <input className="notable-search" placeholder="Search songs…" value={q} onChange={(e) => setQ(e.target.value)} />
-      <div className="notable-list">
-        {list.map((p) => (
-          <label key={p.id} className="notable-row">
-            <input type="checkbox" checked={!!p.notable} onChange={() => toggle(p.id)} />
-            <span className="nr-song">{p.song}</span>
-            <span className="nr-client">{clientName(p.clientId)}</span>
-            <span className="nr-artist">{p.artist}</span>
-          </label>
-        ))}
-      </div>
+      <p className="muted mb">Manually curated — these are the exact songs shown in the homepage “Notable Releases” section, independent of any artist’s song list. Paste a Spotify link below to auto-fill the details.</p>
+      <Editor title="Notable releases" items={list} columns={cols} maxItems={10}
+        blank={{ song: "", artist: "", releaseDate: "", link: "", cover: "" }}
+        onSave={save} onDelete={del}
+        extra={(e, set) => (
+          <>
+            <SpotifyFill e={e} set={set} />
+            <PhotoUpload label="Cover art" value={e.cover} onChange={(v) => set({ ...e, cover: v })} />
+            <Field label="Song" value={e.song} onChange={(ev) => set({ ...e, song: ev.target.value })} />
+            <Field label="Artist" value={e.artist} onChange={(ev) => set({ ...e, artist: ev.target.value })} />
+            <Field label="Release date" type="date" value={e.releaseDate} onChange={(ev) => set({ ...e, releaseDate: ev.target.value })} />
+            <Field label="Streaming link (opens on click)" value={e.link} onChange={(ev) => set({ ...e, link: ev.target.value })} />
+          </>
+        )}
+      />
     </div>
   );
 }
@@ -1751,15 +1760,6 @@ function StyleTag() {
     .cc-count{color:var(--mut2);font-size:12px;font-variant-numeric:tabular-nums}
     .catalog-main{min-width:0}
 
-    /* staff notable toggles */
-    .notable-search{width:100%;max-width:320px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:9px 12px;font-size:13.5px;font-family:inherit;margin-bottom:14px}
-    .notable-search:focus{outline:none;border-color:#4a4a4a}
-    .notable-list{border:1px solid var(--line);border-radius:12px;overflow:hidden;max-height:60vh;overflow-y:auto}
-    .notable-row{display:grid;grid-template-columns:26px 1.4fr 1fr 1fr;gap:12px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--line);font-size:13.5px;cursor:pointer}
-    .notable-row:last-child{border-bottom:none}
-    .notable-row:hover{background:var(--panel2)}
-    .notable-row input{width:16px;height:16px;accent-color:#fff}
-    .nr-client,.nr-artist{color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
     /* dashboard misc */
     .badge-yes{display:inline-flex;align-items:center;gap:4px;color:#8fce8f;font-size:12px}
@@ -1825,8 +1825,6 @@ function StyleTag() {
       .catalog-clients{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;max-height:none}
       .cc{flex-direction:column;gap:4px;min-width:76px;text-align:center}
       .cc .cc-count{display:none}
-      .notable-row{grid-template-columns:22px 1fr;gap:6px 10px}
-      .notable-row .nr-client,.notable-row .nr-artist{grid-column:2}
       .artist-top{grid-template-columns:1fr;gap:26px}
       .artist-photo{max-width:320px;margin:0 auto;width:100%}
       .artist-info{align-items:center;text-align:center}
