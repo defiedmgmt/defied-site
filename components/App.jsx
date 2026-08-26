@@ -489,7 +489,7 @@ function Socials({ c, size = 26 }) {
 /* ------------------------------------------------------------------ */
 /*  splits: pie chart + editor                                          */
 /* ------------------------------------------------------------------ */
-const PIE_COLORS = ["#ffffff", "#5a5a5e", "#c4c4c8", "#37373b", "#9a9aa0", "#e2e2e6", "#4a4a72", "#7a7a80"];
+const PIE_COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"];
 const splitTotal = (splits) => (splits || []).reduce((a, s) => a + Number(s.percent || 0), 0);
 
 function SplitsPie({ splits, size = 220 }) {
@@ -503,7 +503,7 @@ function SplitsPie({ splits, size = 220 }) {
           outerRadius={size * 0.38} innerRadius={size * 0.22} paddingAngle={2} stroke="#000" strokeWidth={2}>
           {data.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
         </Pie>
-        <Tooltip formatter={(v, n) => [`${v}%`, n]} contentStyle={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 8, color: "#fff" }} />
+        <Tooltip formatter={(v, n) => [`${v}%`, n]} contentStyle={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: 8, color: "#f5f5f5" }} itemStyle={{ color: "#f5f5f5" }} labelStyle={{ color: "#f5f5f5" }} />
         <Legend verticalAlign="bottom" height={30} formatter={(value) => <span style={{ color: "#c8c8cc", fontSize: 12 }}>{value}</span>} />
       </PieChart>
     </ResponsiveContainer>
