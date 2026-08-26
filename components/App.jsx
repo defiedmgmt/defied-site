@@ -1022,70 +1022,56 @@ function PlacementsAdmin({ db, commit }) {
   );
 }
 
-// Ask the in-artifact Anthropic API for a JSON answer, with web search when available.
-// Tries several model strings and with/without web search, since the accepted config
-// varies by environment. Returns a parsed object or null.
-// Metadata + cover autofill via Apple's iTunes Search API (free, no key, CORS-enabled).
-async function lookupRelease(term) {
-  const t = (term || "").trim();
-  if (!t) return null;
-  for (const entity of ["song", "album"]) {
-    try {
-      const res = await fetch("https://itunes.apple.com/search?limit=1&entity=" + entity + "&term=" + encodeURIComponent(t));
-      const data = await res.json();
-      const r = data && data.results && data.results[0];
-      if (r) {
-        return {
-          title: r.trackName || r.collectionName || "",
-          artist: r.artistName || "",
-          releaseDate: (r.releaseDate || "").slice(0, 10),
-          cover: (r.artworkUrl100 || "").replace(/100x100bb/, "600x600bb"),
-          link: r.trackViewUrl || r.collectionViewUrl || "",
-        };
-      }
-    } catch (err) { /* try next entity */ }
-  }
-  return null;
+// Resolves a pasted Spotify track link to its title, artist, and cover art
+// via our own /api/spotify route (Spotify's track page has no CORS headers,
+// so this can't be fetched directly from the browser).
+async function lookupSpotifyTrack(link) {
+  const res = await fetch("/api/spotify?url=" + encodeURIComponent(link));
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Lookup failed");
+  return data;
 }
 
 function SpotifyFill({ e, set }) {
-  const [term, setTerm] = useState("");
+  const [link, setLink] = useState("");
   const [status, setStatus] = useState(null); // null | loading | ok | err
+  const [errMsg, setErrMsg] = useState("");
   const run = async () => {
-    const t = (term || ((e.song || "") + " " + (e.artist || ""))).trim();
+    const t = (link || e.link || "").trim();
     if (!t) return;
     setStatus("loading");
-    const meta = await lookupRelease(t);
-    if (meta) {
+    try {
+      const meta = await lookupSpotifyTrack(t);
       set({
         ...e,
         song: meta.title || e.song,
         artist: meta.artist || e.artist,
-        releaseDate: meta.releaseDate || e.releaseDate,
+        releaseDate: e.releaseDate || meta.releaseDate || "",
         cover: meta.cover || e.cover,
-        link: e.link || meta.link,
+        link: meta.link || e.link || t,
       });
       setStatus("ok");
-    } else {
+    } catch (err) {
+      setErrMsg(err.message || "Lookup failed");
       setStatus("err");
     }
   };
   return (
     <div className="sp-fill">
-      <span className="fld-label">Auto-fill from Apple Music / iTunes — type a song and artist, then Auto-fill</span>
+      <span className="fld-label">Paste a Spotify song link, then Auto-fill</span>
       <div className="sp-row">
         <input
-          value={term}
-          placeholder={e.song ? (e.song + " " + (e.artist || "")) : "song name  artist"}
-          onChange={(ev) => setTerm(ev.target.value)}
+          value={link}
+          placeholder="https://open.spotify.com/track/..."
+          onChange={(ev) => setLink(ev.target.value)}
           onKeyDown={(ev) => { if (ev.key === "Enter") { ev.preventDefault(); run(); } }}
         />
         <button type="button" className="btn sm" onClick={run} disabled={status === "loading"}>
-          {status === "loading" ? "Searching…" : "Auto-fill"}
+          {status === "loading" ? "Fetching…" : "Auto-fill"}
         </button>
       </div>
       {status === "ok" && <span className="sp-note ok"><Check size={12} /> Filled in. Review the fields below.</span>}
-      {status === "err" && <span className="sp-note err">No match found — enter the details and upload a cover below.</span>}
+      {status === "err" && <span className="sp-note err">{errMsg} — enter the details and upload a cover below.</span>}
     </div>
   );
 }
