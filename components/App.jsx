@@ -1903,8 +1903,9 @@ function StyleTag() {
     /* minimal home — just the mark, click through to About */
     .home{display:flex;flex-direction:column}
     .home-hero{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px 28px}
-    .home-logo{background:none;border:none;padding:0;display:flex;justify-content:center;text-align:center;cursor:pointer;transition:opacity .18s ease}
+    .home-logo{background:none;border:none;padding:0;display:flex;justify-content:center;text-align:center;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
     .home-logo:hover{opacity:.82}
+    .home-logo:active{transform:scale(1.06)}
     .about-releases{width:100%;max-width:1240px;margin:64px auto 0;padding:0;text-align:center}
     .releases-head{font-size:clamp(24px,3.4vw,34px);font-weight:400;color:var(--ink);margin:0 0 34px;text-align:center;text-transform:uppercase;font-family:'Suntage','Inter',sans-serif;letter-spacing:.06em}
     .releases-empty-note{text-align:center;padding:20px 0}
