@@ -1926,7 +1926,7 @@ function StyleTag() {
 
     /* about — bio + notable releases */
     .about{max-width:1240px}
-    .about-head{font-size:clamp(32px,5.8vw,58px);font-weight:800;letter-spacing:.01em;line-height:1.1;margin:0 0 32px;max-width:980px;font-family:'Suntage','Inter',sans-serif}
+    .about-head{font-size:clamp(32px,5.8vw,58px);font-weight:800;letter-spacing:.01em;line-height:1.1;margin:0 auto 32px;max-width:980px;font-family:'Suntage','Inter',sans-serif}
     .about-body{color:var(--mut);font-size:18.5px;line-height:1.8;max-width:760px;margin:0 auto 20px}
     .about-body:last-of-type{margin-bottom:0}
 
