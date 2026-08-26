@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import {
   Instagram, Mail, Menu, X, LogOut, Plus, Trash2, Pencil, Users, Disc3,
-  ListMusic, UserCog, Inbox, Check, ChevronDown,
+  ListMusic, UserCog, Inbox, Check,
 } from "lucide-react";
 
 /* ---- embedded brand assets (base64, no external requests) ---- */
@@ -721,7 +721,7 @@ export default function App() {
       )}
 
       <div className="view" key={route}>
-        {route === "home" && <Home db={db} />}
+        {route === "home" && <Home go={go} />}
         {route === "about" && <About db={db} />}
         {route === "staffpage" && <StaffPage db={db} />}
         {route === "roster" && <Roster db={db} />}
@@ -781,44 +781,43 @@ function Footer({ go }) {
 /* ------------------------------------------------------------------ */
 /*  HOME                                                                */
 /* ------------------------------------------------------------------ */
-function Home({ db }) {
-  const relRef = useRef(null);
-  const scrollToRel = () => relRef.current && relRef.current.scrollIntoView({ behavior: "smooth" });
-  const notable = (db.notableReleases || []).filter((r) => r.song);
+function Home({ go }) {
   return (
     <main className="home">
       <section className="home-hero">
-        <div className="home-logo">
+        <button className="home-logo" onClick={() => go("about")} aria-label="Enter site">
           <Wordmark hero />
-        </div>
-        <button className="scroll-down" onClick={scrollToRel} aria-label="Scroll to notable releases">
-          <ChevronDown size={30} />
         </button>
       </section>
-
-      <section className="home-releases" ref={relRef}>
-        <h2 className="releases-head">Notable Releases</h2>
-        {notable.length === 0 ? (
-          <p className="muted releases-empty-note">Add notable releases in the dashboard to feature them here.</p>
-        ) : (
-          <div className="rel-grid">
-            {notable.map((r) => {
-              const Tag = r.link ? "a" : "div";
-              return (
-                <Tag key={r.id} className="rel-card" {...(r.link ? { href: r.link, target: "_blank", rel: "noreferrer" } : {})}>
-                  {r.cover ? <img src={r.cover} alt={r.song} /> : <div className="rel-ph"><Disc3 size={30} /></div>}
-                  <div className="rel-meta">
-                    <strong>{r.song}</strong>
-                    <span>{r.artist}</span>
-                    {r.releaseDate && <time className="rel-date">{new Date(r.releaseDate).toLocaleDateString(undefined, { month: "short", year: "numeric" })}</time>}
-                  </div>
-                </Tag>
-              );
-            })}
-          </div>
-        )}
-      </section>
     </main>
+  );
+}
+
+function NotableReleases({ db }) {
+  const notable = (db.notableReleases || []).filter((r) => r.song);
+  return (
+    <section className="about-releases">
+      <h2 className="releases-head">Notable Releases</h2>
+      {notable.length === 0 ? (
+        <p className="muted releases-empty-note">Add notable releases in the dashboard to feature them here.</p>
+      ) : (
+        <div className="rel-grid">
+          {notable.map((r) => {
+            const Tag = r.link ? "a" : "div";
+            return (
+              <Tag key={r.id} className="rel-card" {...(r.link ? { href: r.link, target: "_blank", rel: "noreferrer" } : {})}>
+                {r.cover ? <img src={r.cover} alt={r.song} /> : <div className="rel-ph"><Disc3 size={30} /></div>}
+                <div className="rel-meta">
+                  <strong>{r.song}</strong>
+                  <span>{r.artist}</span>
+                  {r.releaseDate && <time className="rel-date">{new Date(r.releaseDate).toLocaleDateString(undefined, { month: "short", year: "numeric" })}</time>}
+                </div>
+              </Tag>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -833,6 +832,7 @@ function About({ db }) {
       {about.split(/\n{2,}/).map((para, i) => (
         <p key={i} className="about-body">{para}</p>
       ))}
+      <NotableReleases db={db} />
     </main>
   );
 }
@@ -1561,7 +1561,6 @@ function StyleTag() {
     @media(prefers-reduced-motion:reduce){
       .view{animation:none}
       .logo-shine .shine{animation:none;display:none}
-      .scroll-down{animation:none}
       html{scroll-behavior:auto}
     }
     .boot{background:#000;color:#666;height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui}
@@ -1901,14 +1900,12 @@ function StyleTag() {
     .check-row input{margin-top:2px;width:16px;height:16px;accent-color:#fff;flex-shrink:0}
     .check-row span{font-size:13px;color:var(--ink);line-height:1.5}
 
-    /* minimal home (matches original) */
+    /* minimal home — just the mark, click through to About */
     .home{display:flex;flex-direction:column}
-    .home-hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;padding:40px 28px 32vh}
-    .home-logo{display:flex;justify-content:center;text-align:center}
-    .scroll-down{position:absolute;bottom:14vh;left:50%;transform:translateX(-50%);background:none;border:none;color:var(--mut);padding:8px;animation:bob 1.8s ease-in-out infinite}
-    .scroll-down:hover{color:var(--ink)}
-    @keyframes bob{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,8px)}}
-    .home-releases{width:100%;max-width:1240px;margin:0 auto;padding:70px 28px 90px;scroll-margin-top:80px;text-align:center}
+    .home-hero{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px 28px}
+    .home-logo{background:none;border:none;padding:0;display:flex;justify-content:center;text-align:center;cursor:pointer;transition:opacity .18s ease}
+    .home-logo:hover{opacity:.82}
+    .about-releases{width:100%;max-width:1240px;margin:64px auto 0;padding:0;text-align:center}
     .releases-head{font-size:clamp(24px,3.4vw,34px);font-weight:400;color:var(--ink);margin:0 0 34px;text-align:center;text-transform:uppercase;font-family:'Suntage','Inter',sans-serif;letter-spacing:.06em}
     .releases-empty-note{text-align:center;padding:20px 0}
     .rel-filter{display:flex;justify-content:center;margin:0 0 30px}
@@ -1926,11 +1923,11 @@ function StyleTag() {
     .email-inline:hover{color:var(--mut)}
     .copied-tag{color:#8fce8f;text-decoration:none;font-size:12px}
 
-    /* about (matches original) */
-    .about{min-height:calc(100vh - 160px);display:flex;flex-direction:column;justify-content:center;align-items:center}
+    /* about — bio + notable releases */
+    .about{max-width:1240px}
     .about-head{font-size:clamp(32px,5.8vw,58px);font-weight:800;letter-spacing:.01em;line-height:1.1;margin:0 0 32px;max-width:980px;font-family:'Suntage','Inter',sans-serif}
     .about-body{color:var(--mut);font-size:18.5px;line-height:1.8;max-width:760px;margin:0 auto 20px}
-    .about-body:last-child{margin-bottom:0}
+    .about-body:last-of-type{margin-bottom:0}
 
     /* footer login */
 
@@ -1970,8 +1967,8 @@ function StyleTag() {
     }
     @media(max-width:520px){
       .page{padding:64px 20px 48px}
-      .home-hero{padding:40px 20px 34vh}
-      .home-releases{padding:56px 20px 72px}
+      .home-hero{padding:40px 20px}
+      .about-releases{margin-top:48px}
       .rel-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
       .rel-meta{padding:12px}
       .rel-meta strong{font-size:14px}
