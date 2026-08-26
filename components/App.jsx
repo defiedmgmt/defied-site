@@ -679,7 +679,16 @@ export default function App() {
           if (!Array.isArray(merged[k]) || merged[k].length === 0) merged[k] = base[k];
         }
         merged.site = { ...base.site, ...(saved.site || {}) };
+        // backfill Spotify metadata matched after this save was made — only
+        // fills fields the save left blank, never overwrites an edited value.
+        merged.placements = merged.placements.map((p) => {
+          const meta = SPOTIFY_META[p.song];
+          if (!meta) return p;
+          const [link, cover, releaseDate] = meta;
+          return { ...p, link: p.link || link, cover: p.cover || cover, releaseDate: p.releaseDate || releaseDate };
+        });
         setDb(merged);
+        saveDB(merged);
       } else {
         saveDB(seed()); // establish a baseline (no-op if storage absent)
       }
