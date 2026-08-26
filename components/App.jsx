@@ -1416,6 +1416,7 @@ function StyleTag() {
       --r:12px;
     }
     *{box-sizing:border-box}
+    html,body{background:var(--bg);min-height:100%}
     html{scroll-behavior:smooth}
     .app{background:var(--bg);color:var(--ink);min-height:100vh;
       font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
