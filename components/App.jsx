@@ -2172,9 +2172,11 @@ function StyleTag() {
       .team-grid{grid-template-columns:repeat(2,1fr);gap:24px}
       .about-body{font-size:16px}
       .form-card{padding:20px}
-      /* footer stacks and centers */
-      .footer{grid-template-columns:1fr;justify-items:center;gap:16px;text-align:center;padding:30px 20px}
-      .foot-mark,.foot-copy,.foot-social{justify-self:center}
+      /* footer keeps the same logo / copyright / socials row as desktop,
+         just tighter — the text wraps in its own column if it needs to */
+      .footer{padding:24px 16px;gap:10px}
+      .foot-copy{font-size:11px}
+      .foot-social{gap:12px}
       /* modals sit comfortably in view on phones */
       .modal{align-items:flex-start;padding:16px 14px 28px}
       .modal-body{padding:18px}
