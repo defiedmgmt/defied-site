@@ -1891,7 +1891,7 @@ function StyleTag() {
     .artist-photo img{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
     .artist-photo-empty{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:96px;font-weight:800;color:#2c2c2e;font-family:'Suntage','Inter',sans-serif}
     .artist-info{display:flex;flex-direction:column;gap:20px;min-width:0}
-    .artist-name{font-size:clamp(34px,5vw,58px);line-height:1.05;margin:0;letter-spacing:.01em;text-transform:uppercase;overflow-wrap:break-word}
+    .artist-name{font-size:clamp(30px,4.4vw,52px);line-height:1.05;margin:0;letter-spacing:.01em;text-transform:uppercase;overflow-wrap:break-word}
     .artist-role{color:var(--mut);font-size:20px;margin-top:-6px}
     .socials{display:flex;gap:22px;align-items:center}
     .social-ic{color:var(--ink);display:inline-flex;opacity:.92;transition:opacity .12s,transform .12s}
