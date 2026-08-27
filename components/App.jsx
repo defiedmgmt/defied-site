@@ -168,6 +168,16 @@ const CATALOG = [
   ["prodchxse","Two Faced","Rroxket",[["prodchxse","Producer",25],["Rroxket","Artist",75]],false],
   ["prodchxse","Who That Is","Rroxket",[["prodchxse","Producer",17],["Rroxket","Artist",83]],false],
   ["prodyel1ow","Brock Purdy","A2P Fred",[["prodyel1ow","Producer",17],["A2P Fred","Artist",83]],true],
+  // Notable songs for artists added from defiedmgmt.com's roster — splits left
+  // empty (no breakdown available from the source) for staff to fill in.
+  ["Liyakk!","Wembenyama","Noid4l, Liyakk!",[],true],
+  ["Liyakk!","Andaconda (feat. noid4l)","Liyakk!, Noid4l",[],true],
+  ["Liyakk!","Gtfo","Noid4l, Liyakk!",[],true],
+  ["vontnt","Clean me up","vontnt",[],true],
+  ["vontnt","believe it or not","vontnt",[],true],
+  ["GloryTonio","larry bird","GloryTonio",[],true],
+  ["GloryTonio","Our Own Ways","GloryTonio",[],true],
+  ["GloryTonio","I Shot At Their Houses","GloryTonio, larcenyx",[],true],
 ];
 
 // Matched against Spotify's search API by song + credited artist(s), keyed by
@@ -291,6 +301,14 @@ const SPOTIFY_META = {
   "Two Faced": ["https://open.spotify.com/track/5OEmI0nPxRkVvpAAWvjqJD", "https://i.scdn.co/image/ab67616d0000b273f64e279c69af2095b5b51ecf", "2025-12-07"],
   "Who That Is": ["https://open.spotify.com/track/5N9bPktY0JaZE1B9fkn1YZ", "https://i.scdn.co/image/ab67616d0000b2731d8516dcd2819389a3d074f7", "2024-11-29"],
   "Brock Purdy": ["https://open.spotify.com/track/6zGT10fvNp1gOzSBabEcba", "https://i.scdn.co/image/ab67616d0000b273214c447a3bc437d5f26c7d01", "2025-06-10"],
+  "Wembenyama": ["https://open.spotify.com/track/6DASt4cqVLpha7ZJUeT880", "https://i.scdn.co/image/ab67616d0000b273b09ae54acc27402ea9451a9e", "2026-01-01"],
+  "Andaconda (feat. noid4l)": ["https://open.spotify.com/track/3ohbxZcPVjEE3NWWRd7Utx", "https://i.scdn.co/image/ab67616d0000b2733a05b7982ca767991448b84a", "2025-01-01"],
+  "Gtfo": ["https://open.spotify.com/track/0YcVQcAwuerWxhitMWdOwp", "https://i.scdn.co/image/ab67616d0000b27323b78ab9f9aa55244a4127ea", "2026-01-01"],
+  "Clean me up": ["https://open.spotify.com/track/5zgTIS2GuOtAiyxBgLA74b", "https://i.scdn.co/image/ab67616d0000b273bdf9966723905519b49bb72c", "2026-01-01"],
+  "believe it or not": ["https://open.spotify.com/track/5xP4vHLTc43bEJK5uWmPod", "https://i.scdn.co/image/ab67616d0000b273a8974462f80a525f34cda759", "2026-01-01"],
+  "larry bird": ["https://open.spotify.com/track/5IdiLNZ4fBHqJrn68rMNuu", "https://i.scdn.co/image/ab67616d0000b273863478dc7b8c7b4f272314f0", "2025-01-01"],
+  "Our Own Ways": ["https://open.spotify.com/track/2n9yeHo1ihOBf7GS8Ikzay", "https://i.scdn.co/image/ab67616d0000b273aa9863cd8ae4a17dc79b9103", "2026-01-01"],
+  "I Shot At Their Houses": ["https://open.spotify.com/track/4fXlgomMfHietb6Weybhit", "https://i.scdn.co/image/ab67616d0000b27371d110b72c367583fa0b74dc", "2026-01-01"],
 };
 
 // Pulled from defiedmgmt.com's own roster page, keyed by our roster name.
@@ -307,6 +325,10 @@ const ROSTER_SOCIALS = {
   "prodchxse": ["", "prodchxse", "prodchxse", "https://www.youtube.com/@chxsewya", "https://soundcloud.com/chxsewya"],
   "prodyel1ow": ["", "prodyel1ow", "", "https://www.youtube.com/@yel1ow", ""],
   "Kxrma": ["", "diedwithkarma", "", "https://www.youtube.com/@diedwithkarma", ""],
+  "Liyakk!": ["https://open.spotify.com/artist/2tZXDw2vWiSvTJXgLo9BxC", "ohitzyakk", "svndaygng7", "https://www.youtube.com/channel/UCcA38sx1JMWR3CtbtXJnsNA", "https://soundcloud.com/yakkbitch"],
+  "vontnt": ["https://open.spotify.com/artist/5IlUnwMr4j98hMbO2nQNSx", "vontntt", "vontntt", "https://www.youtube.com/@vontntt", "https://soundcloud.com/vontnt"],
+  "prodgavin": ["", "prodgavin", "prodgavin", "https://www.youtube.com/@prodgavin9", ""],
+  "GloryTonio": ["https://open.spotify.com/artist/2aulP4DbhhlZK92sOCE5Pz", "glorytonio", "stick2theplanorfail", "https://www.youtube.com/@glorytonioo", "https://soundcloud.com/glorytonio"],
 };
 
 // Song titles defiedmgmt.com features as an artist's notable release — forced
@@ -316,6 +338,21 @@ const NOTABLE_TITLES = new Set([
   "GIRL U SO SEXY #jerseyclub", "Body Party. (Nola Bounce)", "Tummy Ache", "Swag 2",
   "Swing My Door", "Run Da Souf", "Hot Out", "Dawg Baby", "10 Pack", "YMM SUIT",
 ]);
+
+// The 10 songs defiedmgmt.com features in its own homepage Notable Releases
+// list, in the same order, autofilled the same way SpotifyFill would.
+const HOME_NOTABLE_RELEASES = [
+  { song: "Q&A", artist: "Drake", cover: "https://i.scdn.co/image/ab67616d0000b273539bb112d7c970545dd971e3", releaseDate: "2026-01-01", link: "https://open.spotify.com/track/7ppIKUHCFQGCQny1Se2jLV" },
+  { song: "Presidential (with Jenn Carter, Kyle Richh, TaTa)", artist: "41, Jenn Carter, Kyle Richh, TaTa", cover: "https://i.scdn.co/image/ab67616d0000b27358fd2c31d3f28d82ece96fac", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/5RhLGbNLr8oGGbLuxJkjf5" },
+  { song: "On Your Own", artist: "Lil Tecca", cover: "https://i.scdn.co/image/ab67616d0000b27386c8cd0e15776fa1e18715ec", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/6paXxvEqAIa38FfPY2vuWB" },
+  { song: "Auntie Ain't Playin (feat. Skrilla)", artist: "1900Rugrat, Skrilla", cover: "https://i.scdn.co/image/ab67616d0000b273e8994f8d740ed7e47fd1edbd", releaseDate: "2024-01-01", link: "https://open.spotify.com/track/6wbNcTY3gPK5yEgmJbN1TS" },
+  { song: "Tummy Ache", artist: "Yhapojj", cover: "https://i.scdn.co/image/ab67616d0000b2737bdc167d2d6d9b687b1507ef", releaseDate: "2022-01-01", link: "https://open.spotify.com/track/3J4lp638NeJAIXbo10Tmdw" },
+  { song: "Hot Out", artist: "Frisco, BabyChiefDoit", cover: "https://i.scdn.co/image/ab67616d0000b27330539b4667211b811a2b6349", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/0O3BqKcIPH0EQTLJ8uTo1v" },
+  { song: "Swag 2", artist: "PlaqueBoyMax", cover: "https://i.scdn.co/image/ab67616d0000b2730737a1bf6ff7ae7c3609e382", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/6YV4X72hjhWf2SlsQ7Qj8Z" },
+  { song: "Body Party. (Nola Bounce)", artist: "Stack!e, Pr0d.k4y", cover: "https://i.scdn.co/image/ab67616d0000b2732c24945137bb334364549eec", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/2OZSEJLKPotroRj75HvF3i" },
+  { song: "Dawg Baby", artist: "YFG FATSO", cover: "https://i.scdn.co/image/ab67616d0000b2732d81aa2fd0bef9a8a40c7df3", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/6TQyzUCWYmgbj7Mf5sdBE8" },
+  { song: "10 Outta 10", artist: "DC THE DON", cover: "https://i.scdn.co/image/ab67616d0000b273e0f32e16b6adb9917bdcf009", releaseDate: "2026-01-01", link: "https://open.spotify.com/track/1T746YaR7b27ZIB6t6jNSt" },
+];
 
 function seed() {
   const IMG = "https://www.defiedmgmt.com/assets";
@@ -327,12 +364,15 @@ function seed() {
     { id: uid(), name: "Jordan", role: "Talent Manager", email: "Dsrkoyi@gmail.com", instagram: "1koyi", bio: "", photo: `${IMG}/team/jordan.jpg` },
     { id: uid(), name: "Mag", role: "Talent Manager", email: "Nonfactora@gmail.com", instagram: "nonfactora", bio: "", photo: `${IMG}/team/mag.png` },
   ];
+  // Order matches defiedmgmt.com's own roster page.
   const roster = [
     ["Stack!e", "Producer", "stackie.png"], ["Sauceproducedit", "Producer", "sauce.png"],
-    ["Reallyindig0", "Artist", "indigo.png"], ["prodbylandn", "Producer", "landn.png"],
-    ["Jjxcksnn", "Artist", "jjxcksnn.png"], ["Midtwos", "Artist", "midtwos.jpeg"],
-    ["PG13k", "Artist", "pg13k.jpg"], ["prodbyVK", "Producer", "prodbyvk.jpg"],
-    ["prodchxse", "Producer", "prodchxse.jpeg"], ["prodyel1ow", "Producer", "yellow.png"],
+    ["Reallyindig0", "Artist", "indigo.png"], ["Liyakk!", "Artist", "liyakk.png"],
+    ["prodbylandn", "Producer", "landn.png"], ["Jjxcksnn", "Artist", "jjxcksnn.png"],
+    ["prodbyVK", "Producer", "prodbyvk.jpg"], ["Midtwos", "Artist", "midtwos.jpeg"],
+    ["vontnt", "Artist", "vontnt.jpg"], ["PG13k", "Artist", "pg13k.jpg"],
+    ["prodchxse", "Producer", "prodchxse.jpeg"], ["prodgavin", "Producer", "prodgavin.jpg"],
+    ["prodyel1ow", "Producer", "yellow.png"], ["GloryTonio", "Artist", "glorytonio.jpg"],
     ["Kxrma", "Artist", "kxrma.png"],
   ];
   const clients = roster.map(([name, role, img]) => {
@@ -368,7 +408,8 @@ function seed() {
     { id: uid(), email: "stacke@defiedmgmt.com", password: "client123", role: "client", name: "Stack!e", clientId: stacke.id },
   ];
 
-  return { staff, clients, placements, site, users, submissions: [], notableReleases: [] };
+  const notableReleases = HOME_NOTABLE_RELEASES.map((r) => ({ id: uid(), ...r }));
+  return { staff, clients, placements, site, users, submissions: [], notableReleases };
 }
 
 /* ------------------------------------------------------------------ */
@@ -749,6 +790,35 @@ export default function App() {
             soundcloud: c.soundcloud || soundcloud,
           };
         });
+        // add roster members this save predates (matched by name), plus their
+        // catalog songs — never touches an existing client or placement.
+        const existingNames = new Set(merged.clients.map((c) => c.name.toLowerCase()));
+        const newClients = base.clients.filter((c) => !existingNames.has(c.name.toLowerCase()));
+        if (newClients.length) {
+          merged.clients = [...merged.clients, ...newClients];
+          const byName = {};
+          merged.clients.forEach((c) => { byName[c.name.toLowerCase()] = c.id; });
+          const newNames = new Set(newClients.map((c) => c.name.toLowerCase()));
+          const existingSongs = new Set(merged.placements.map((p) => p.song));
+          const newPlacements = [];
+          for (const [cname, song, artist, splits, notable] of CATALOG) {
+            if (!newNames.has(cname.toLowerCase()) || existingSongs.has(song)) continue;
+            const cid = byName[cname.toLowerCase()];
+            if (!cid) continue;
+            const meta = SPOTIFY_META[song] || [];
+            newPlacements.push({
+              id: uid(), clientId: cid, song, artist, notable,
+              releaseDate: meta[2] || "", link: meta[0] || "", cover: meta[1] || "",
+              splits: splits.map(([name, role, percent]) => ({ id: uid(), name, role, percent })),
+            });
+          }
+          if (newPlacements.length) merged.placements = [...merged.placements, ...newPlacements];
+        }
+        // homepage Notable Releases is hand-curated — only seed it once, never
+        // touch it again once staff has added anything of their own.
+        if (!merged.notableReleases || merged.notableReleases.length === 0) {
+          merged.notableReleases = HOME_NOTABLE_RELEASES.map((r) => ({ id: uid(), ...r }));
+        }
         setDb(merged);
         saveDB(merged);
       } else {
