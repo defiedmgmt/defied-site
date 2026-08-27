@@ -343,16 +343,16 @@ const NOTABLE_TITLES = new Set([
 // The 10 songs defiedmgmt.com features in its own homepage Notable Releases
 // list, in the same order, autofilled the same way SpotifyFill would.
 const HOME_NOTABLE_RELEASES = [
-  { song: "Q&A", artist: "Drake", cover: "https://i.scdn.co/image/ab67616d0000b273539bb112d7c970545dd971e3", releaseDate: "2026-01-01", link: "https://open.spotify.com/track/7ppIKUHCFQGCQny1Se2jLV" },
-  { song: "Presidential (with Jenn Carter, Kyle Richh, TaTa)", artist: "41, Jenn Carter, Kyle Richh, TaTa", cover: "https://i.scdn.co/image/ab67616d0000b27358fd2c31d3f28d82ece96fac", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/5RhLGbNLr8oGGbLuxJkjf5" },
-  { song: "On Your Own", artist: "Lil Tecca", cover: "https://i.scdn.co/image/ab67616d0000b27386c8cd0e15776fa1e18715ec", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/6paXxvEqAIa38FfPY2vuWB" },
-  { song: "Auntie Ain't Playin (feat. Skrilla)", artist: "1900Rugrat, Skrilla", cover: "https://i.scdn.co/image/ab67616d0000b273e8994f8d740ed7e47fd1edbd", releaseDate: "2024-01-01", link: "https://open.spotify.com/track/6wbNcTY3gPK5yEgmJbN1TS" },
-  { song: "Tummy Ache", artist: "Yhapojj", cover: "https://i.scdn.co/image/ab67616d0000b2737bdc167d2d6d9b687b1507ef", releaseDate: "2022-01-01", link: "https://open.spotify.com/track/3J4lp638NeJAIXbo10Tmdw" },
-  { song: "Hot Out", artist: "Frisco, BabyChiefDoit", cover: "https://i.scdn.co/image/ab67616d0000b27330539b4667211b811a2b6349", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/0O3BqKcIPH0EQTLJ8uTo1v" },
-  { song: "Swag 2", artist: "PlaqueBoyMax", cover: "https://i.scdn.co/image/ab67616d0000b2730737a1bf6ff7ae7c3609e382", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/6YV4X72hjhWf2SlsQ7Qj8Z" },
-  { song: "Body Party. (Nola Bounce)", artist: "Stack!e, Pr0d.k4y", cover: "https://i.scdn.co/image/ab67616d0000b2732c24945137bb334364549eec", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/2OZSEJLKPotroRj75HvF3i" },
-  { song: "Dawg Baby", artist: "YFG FATSO", cover: "https://i.scdn.co/image/ab67616d0000b2732d81aa2fd0bef9a8a40c7df3", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/6TQyzUCWYmgbj7Mf5sdBE8" },
-  { song: "10 Outta 10", artist: "DC THE DON", cover: "https://i.scdn.co/image/ab67616d0000b273e0f32e16b6adb9917bdcf009", releaseDate: "2026-01-01", link: "https://open.spotify.com/track/1T746YaR7b27ZIB6t6jNSt" },
+  { song: "Q&A", artist: "Drake", client: "Stack!e", cover: "https://i.scdn.co/image/ab67616d0000b273539bb112d7c970545dd971e3", releaseDate: "2026-01-01", link: "https://open.spotify.com/track/7ppIKUHCFQGCQny1Se2jLV" },
+  { song: "Presidential (with Jenn Carter, Kyle Richh, TaTa)", artist: "41, Jenn Carter, Kyle Richh, TaTa", client: "Sauceproducedit", cover: "https://i.scdn.co/image/ab67616d0000b27358fd2c31d3f28d82ece96fac", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/5RhLGbNLr8oGGbLuxJkjf5" },
+  { song: "On Your Own", artist: "Lil Tecca", client: "", cover: "https://i.scdn.co/image/ab67616d0000b27386c8cd0e15776fa1e18715ec", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/6paXxvEqAIa38FfPY2vuWB" },
+  { song: "Auntie Ain't Playin (feat. Skrilla)", artist: "1900Rugrat, Skrilla", client: "Reallyindig0, prodbylandn", cover: "https://i.scdn.co/image/ab67616d0000b273e8994f8d740ed7e47fd1edbd", releaseDate: "2024-01-01", link: "https://open.spotify.com/track/6wbNcTY3gPK5yEgmJbN1TS" },
+  { song: "Tummy Ache", artist: "Yhapojj", client: "Sauceproducedit", cover: "https://i.scdn.co/image/ab67616d0000b2737bdc167d2d6d9b687b1507ef", releaseDate: "2022-01-01", link: "https://open.spotify.com/track/3J4lp638NeJAIXbo10Tmdw" },
+  { song: "Hot Out", artist: "Frisco, BabyChiefDoit", client: "Reallyindig0", cover: "https://i.scdn.co/image/ab67616d0000b27330539b4667211b811a2b6349", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/0O3BqKcIPH0EQTLJ8uTo1v" },
+  { song: "Swag 2", artist: "PlaqueBoyMax", client: "Sauceproducedit", cover: "https://i.scdn.co/image/ab67616d0000b2730737a1bf6ff7ae7c3609e382", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/6YV4X72hjhWf2SlsQ7Qj8Z" },
+  { song: "Body Party. (Nola Bounce)", artist: "Stack!e, Pr0d.k4y", client: "Stack!e", cover: "https://i.scdn.co/image/ab67616d0000b2732c24945137bb334364549eec", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/2OZSEJLKPotroRj75HvF3i" },
+  { song: "Dawg Baby", artist: "YFG FATSO", client: "Reallyindig0", cover: "https://i.scdn.co/image/ab67616d0000b2732d81aa2fd0bef9a8a40c7df3", releaseDate: "2025-01-01", link: "https://open.spotify.com/track/6TQyzUCWYmgbj7Mf5sdBE8" },
+  { song: "10 Outta 10", artist: "DC THE DON", client: "Sauceproducedit", cover: "https://i.scdn.co/image/ab67616d0000b273e0f32e16b6adb9917bdcf009", releaseDate: "2026-01-01", link: "https://open.spotify.com/track/1T746YaR7b27ZIB6t6jNSt" },
 ];
 
 function seed() {
@@ -837,6 +837,14 @@ export default function App() {
         // touch it again once staff has added anything of their own.
         if (!merged.notableReleases || merged.notableReleases.length === 0) {
           merged.notableReleases = HOME_NOTABLE_RELEASES.map((r) => ({ id: uid(), ...r }));
+        } else {
+          // the "client" field is new — backfill it by song title on entries
+          // that already exist, same fill-blanks-only rule as everywhere else.
+          const byTitle = {};
+          HOME_NOTABLE_RELEASES.forEach((r) => { byTitle[r.song] = r.client; });
+          merged.notableReleases = merged.notableReleases.map((r) =>
+            r.client ? r : { ...r, client: byTitle[r.song] || "" }
+          );
         }
         setDb(merged);
         saveDB(merged);
@@ -961,7 +969,7 @@ function NotableReleases({ db }) {
                 <div className="rel-meta">
                   <strong>{r.song}</strong>
                   <span>{r.artist}</span>
-                  {r.releaseDate && <time className="rel-date">{new Date(r.releaseDate).toLocaleDateString(undefined, { month: "short", year: "numeric" })}</time>}
+                  {r.client && <em className="rel-client">{r.client}</em>}
                 </div>
               </Tag>
             );
@@ -1673,14 +1681,15 @@ function NotableAdmin({ db, commit }) {
   const del = async (id) => commit({ ...db, notableReleases: list.filter((r) => r.id !== id) });
   const cols = [
     { key: "cover", label: "", w: "44px", render: (r) => r.cover ? <img className="rel-thumb" src={r.cover} alt="" /> : <span className="rel-thumb rel-thumb-empty" /> },
-    { key: "song", label: "Song", w: "1.3fr" },
-    { key: "artist", label: "Artist", w: "1fr" },
+    { key: "song", label: "Song", w: "1.2fr" },
+    { key: "artist", label: "Artist", w: "0.9fr" },
+    { key: "client", label: "Client", w: "0.9fr" },
   ];
   return (
     <div>
-      <p className="muted mb">Manually curated — these are the exact songs shown in the homepage “Notable Releases” section, independent of any artist’s song list. Paste a Spotify link below to auto-fill the details.</p>
+      <p className="muted mb">Manually curated — these are the exact songs shown in the homepage “Notable Releases” section, independent of any artist’s song list. Paste a Spotify link below to auto-fill the song details, then enter which of our clients it's for.</p>
       <Editor title="Notable releases" items={list} columns={cols} maxItems={10}
-        blank={{ song: "", artist: "", releaseDate: "", link: "", cover: "" }}
+        blank={{ song: "", artist: "", client: "", releaseDate: "", link: "", cover: "" }}
         onSave={save} onDelete={del}
         extra={(e, set) => (
           <>
@@ -1688,6 +1697,7 @@ function NotableAdmin({ db, commit }) {
             <PhotoUpload label="Cover art" value={e.cover} onChange={(v) => set({ ...e, cover: v })} />
             <Field label="Song" value={e.song} onChange={(ev) => set({ ...e, song: ev.target.value })} />
             <Field label="Artist" value={e.artist} onChange={(ev) => set({ ...e, artist: ev.target.value })} />
+            <Field label="Client" value={e.client} onChange={(ev) => set({ ...e, client: ev.target.value })} />
             <Field label="Release date" type="date" value={e.releaseDate} onChange={(ev) => set({ ...e, releaseDate: ev.target.value })} />
             <Field label="Streaming link (opens on click)" value={e.link} onChange={(ev) => set({ ...e, link: ev.target.value })} />
           </>
@@ -1788,18 +1798,15 @@ function StyleTag() {
     .link-btn:hover{color:var(--mut)}
     .link-btn.center{display:flex;margin:14px auto 0}
 
-    .rel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:22px}
+    .rel-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px}
     .rel-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;text-decoration:none;transition:border-color .15s ease,transform .15s ease}
     .rel-card:hover{border-color:#3a3a3a;transform:translateY(-3px)}
     .rel-card img,.rel-ph{width:100%;aspect-ratio:1;object-fit:cover;display:block}
     .rel-ph{display:flex;align-items:center;justify-content:center;color:#3a3a3a;background:var(--panel2)}
-    .rel-meta{padding:16px}
-    .rel-meta strong{display:block;font-size:16px}
-    .rel-meta span{display:block;color:var(--mut);font-size:13.5px}
-    .rel-meta em{color:var(--mut2);font-size:11.5px;font-style:normal}
-    .rel-sub{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px}
-    .rel-sub time{color:var(--mut2);font-size:11px;white-space:nowrap}
-    .rel-date{display:block;color:var(--mut2);font-size:11.5px;margin-top:3px}
+    .rel-meta{padding:12px}
+    .rel-meta strong{display:block;font-size:13.5px;line-height:1.3}
+    .rel-meta span{display:block;color:var(--mut);font-size:12px;margin-top:1px}
+    .rel-meta em{display:block;color:var(--mut2);font-size:11px;font-style:normal;margin-top:3px}
 
     /* dashboard: photo upload */
     .photo-up{display:flex;align-items:center;gap:14px}
@@ -2126,6 +2133,7 @@ function StyleTag() {
       .nav-links .nav-auth{margin-top:8px;padding:9px 18px !important}
       .page-wide{padding-left:28px;padding-right:28px}
       .ros-grid,.team-grid{grid-template-columns:repeat(2,1fr);gap:24px}
+      .rel-grid{grid-template-columns:repeat(3,1fr);gap:14px}
       .stat-row{grid-template-columns:1fr}
       .dash{flex-direction:column}
       .dash-side{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px}
