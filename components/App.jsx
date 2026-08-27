@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import NextImage from "next/image";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
@@ -480,6 +480,41 @@ function Photo({ src, alt, className = "", fill, sizes, ...rest }) {
       {...rest}
     />
   );
+}
+
+// Shrinks an element's own font-size just enough to keep its text on one
+// line, no matter how long it is — measured against its own container each
+// time `text` changes, rather than guessing a font size that happens to
+// work for today's names.
+function FitText({ text, tag: Tag = "span", className, ...rest }) {
+  const ref = useRef(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      el.style.fontSize = "";
+      const cs = getComputedStyle(el);
+      const baseSize = parseFloat(cs.fontSize);
+      const avail = el.clientWidth;
+      if (!avail || !baseSize) return;
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;left:-9999px;top:0;white-space:nowrap;";
+      probe.style.font = cs.font;
+      probe.style.letterSpacing = cs.letterSpacing;
+      probe.style.textTransform = cs.textTransform;
+      probe.textContent = text;
+      document.body.appendChild(probe);
+      const natural = probe.getBoundingClientRect().width;
+      probe.remove();
+      if (natural > avail) {
+        el.style.fontSize = `${(baseSize * (avail / natural) * 0.98).toFixed(1)}px`;
+      }
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [text]);
+  return <Tag ref={ref} className={className} {...rest}>{text}</Tag>;
 }
 
 // Lazy-load the HEIC decoder (iPhone photos) from CDN, once.
@@ -1059,7 +1094,7 @@ function Roster({ db }) {
                   : <div className="artist-photo-empty">{active.name[0].toUpperCase()}</div>}
               </div>
               <div className="artist-info">
-                <h2 className="artist-name font-display">{active.name}</h2>
+                <FitText tag="h2" text={active.name} className="artist-name font-display" />
                 <span className="artist-role">{active.role}</span>
                 <Socials c={active} size={26} />
                 {active.bio && <p className="artist-bio">{active.bio}</p>}
