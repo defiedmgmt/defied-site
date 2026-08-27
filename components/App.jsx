@@ -866,6 +866,12 @@ function StaffPage({ db }) {
 function Roster({ db }) {
   const [active, setActive] = useState(null); // selected client
   const notableFor = (client) => db.placements.filter((p) => p.clientId === client.id && p.notable);
+  useEffect(() => {
+    if (!active) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [active]);
   return (
     <main className="page">
       <h1 className="page-head font-display">Roster</h1>
@@ -1693,8 +1699,8 @@ function StyleTag() {
     .team-links a:hover,.ros-links a:hover{color:var(--ink)}
 
     /* artist detail panel */
-    .artist-overlay{padding:0;align-items:stretch;justify-content:stretch}
-    .artist-panel{position:relative;width:100%;min-height:100vh;background:var(--bg);padding:56px clamp(24px,6vw,80px) 80px;overflow-y:auto;text-align:left;animation:fadeIn .3s ease both}
+    .artist-overlay{padding:0;align-items:stretch;justify-content:stretch;overflow:hidden}
+    .artist-panel{position:relative;width:100%;min-height:100%;background:var(--bg);padding:56px clamp(24px,6vw,80px) 80px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;text-align:left;animation:fadeIn .3s ease both}
     .modal-x{position:fixed;top:22px;right:26px;background:none;border:none;color:var(--mut);z-index:5}
     .modal-x:hover{color:var(--ink)}
     .artist-top{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(30px,5vw,64px);align-items:center;padding-bottom:44px;border-bottom:1px solid var(--line)}
@@ -1902,7 +1908,7 @@ function StyleTag() {
 
     /* minimal home — just the mark, click through to About */
     .home{display:flex;flex-direction:column}
-    .home-hero{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px 28px}
+    .home-hero{min-height:calc(100vh - 64px);min-height:calc(100dvh - 64px);display:flex;align-items:center;justify-content:center;padding:40px 28px}
     .home-logo{background:none;border:none;padding:0;display:flex;justify-content:center;text-align:center;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
     .home-logo:hover{opacity:.9;transform:scale(1.04)}
     .home-logo:active{transform:scale(1.08)}
