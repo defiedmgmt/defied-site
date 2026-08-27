@@ -633,7 +633,7 @@ const ICONS = {
   youtube: (s) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.12C19.5 3.56 12 3.56 12 3.56s-7.5 0-9.4.52A3 3 0 0 0 .5 6.2 31.3 31.3 0 0 0 0 12a31.3 31.3 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.12c1.9.52 9.4.52 9.4.52s7.5 0 9.4-.52a3 3 0 0 0 2.1-2.12A31.3 31.3 0 0 0 24 12a31.3 31.3 0 0 0-.5-5.8zM9.6 15.6V8.4l6.25 3.6z" /></svg>,
   spotify: (s) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.6 14.42a.62.62 0 0 1-.86.2c-2.35-1.44-5.3-1.76-8.8-.96a.62.62 0 1 1-.27-1.22c3.82-.87 7.1-.5 9.73 1.11.3.18.4.58.2.87zm1.23-2.74a.78.78 0 0 1-1.07.26c-2.7-1.66-6.8-2.14-9.98-1.17a.78.78 0 1 1-.45-1.5c3.63-1.1 8.15-.56 11.24 1.34.36.22.48.7.26 1.07zm.1-2.85C14.82 8.98 9.5 8.8 6.4 9.75a.94.94 0 1 1-.54-1.8c3.56-1.08 9.44-.88 13.16 1.33a.94.94 0 0 1-.96 1.62z" /></svg>,
   apple: (s) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 12.04c-.03-2.6 2.12-3.85 2.22-3.9-1.21-1.78-3.1-2.02-3.78-2.05-1.6-.16-3.13.94-3.94.94-.81 0-2.07-.92-3.4-.9-1.75.03-3.36 1.02-4.26 2.58-1.82 3.16-.47 7.83 1.3 10.4.86 1.25 1.9 2.65 3.25 2.6 1.3-.05 1.79-.84 3.36-.84 1.56 0 2 .84 3.38.81 1.4-.02 2.28-1.27 3.14-2.53.99-1.45 1.4-2.86 1.42-2.93-.03-.02-2.72-1.05-2.75-4.13zM14.6 4.5c.72-.87 1.2-2.08 1.07-3.28-1.03.04-2.28.69-3.02 1.56-.66.77-1.25 2-1.08 3.18 1.15.09 2.32-.58 3.03-1.46z" /></svg>,
-  soundcloud: (s) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><rect x="1" y="15" width="1.6" height="6" rx="0.8" /><rect x="3.4" y="11" width="1.6" height="10" rx="0.8" /><rect x="5.8" y="13" width="1.6" height="8" rx="0.8" /><rect x="8.2" y="10" width="1.6" height="11" rx="0.8" /><circle cx="14.5" cy="15.5" r="4" /><circle cx="17.5" cy="17" r="3" /><rect x="9.6" y="17" width="11.4" height="4" rx="2" /></svg>,
+  soundcloud: (s) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><rect x="2" y="13" width="1.4" height="5" rx="0.7" /><rect x="4.2" y="9.5" width="1.4" height="8.5" rx="0.7" /><rect x="6.4" y="11.5" width="1.4" height="6.5" rx="0.7" /><rect x="8.6" y="8.5" width="1.4" height="9.5" rx="0.7" /><circle cx="14.5" cy="12.5" r="3.5" /><circle cx="17.5" cy="13.7" r="2.8" /><rect x="10.5" y="14" width="10" height="4" rx="2" /></svg>,
 };
 
 // Email action that actually works everywhere: copies the address to the clipboard
@@ -871,7 +871,7 @@ export default function App() {
         <PublicNav route={route} go={go} menuOpen={menuOpen} setMenuOpen={setMenuOpen} session={session} />
       )}
 
-      <div className="view" key={route}>
+      <div className={route === "home" ? "view view-home" : "view"} key={route}>
         {route === "home" && <Home go={go} />}
         {route === "about" && <About db={db} />}
         {route === "staffpage" && <StaffPage db={db} />}
@@ -1714,9 +1714,11 @@ function StyleTag() {
       --r:12px;
     }
     *{box-sizing:border-box}
+    body{margin:0}
     html,body{background:var(--bg);min-height:100%}
     html{scroll-behavior:smooth}
-    .app{background:var(--bg);color:var(--ink);min-height:100vh;
+    .app{background:var(--bg);color:var(--ink);min-height:100vh;min-height:100dvh;
+      display:flex;flex-direction:column;
       font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
       -webkit-font-smoothing:antialiased;line-height:1.5}
 
@@ -1725,6 +1727,10 @@ function StyleTag() {
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
     @keyframes popIn{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
     .view{animation:fadeIn .4s ease both}
+    /* only the home route needs to exactly fill the viewport (no scroll) —
+       everywhere else should size to its own content, or a short page
+       (e.g. Contact) would strand the footer far below it on a tall screen */
+    .view-home{flex:1;display:flex;flex-direction:column}
 
     /* static, centered landing logo */
     .logo-shine{position:relative;display:inline-block;line-height:0}
@@ -2080,8 +2086,8 @@ function StyleTag() {
     .check-row span{font-size:13px;color:var(--ink);line-height:1.5}
 
     /* minimal home — just the mark, click through to About */
-    .home{display:flex;flex-direction:column}
-    .home-hero{min-height:calc(100vh - 64px);min-height:calc(100dvh - 64px);display:flex;align-items:center;justify-content:center;padding:40px 28px}
+    .home{flex:1;display:flex;flex-direction:column}
+    .home-hero{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 28px}
     .home-logo{background:none;border:none;padding:0;display:flex;justify-content:center;text-align:center;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
     .home-logo:hover{opacity:.9;transform:scale(1.04)}
     .home-logo:active{transform:scale(1.08)}
