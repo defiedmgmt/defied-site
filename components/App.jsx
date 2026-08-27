@@ -895,7 +895,7 @@ export default function App() {
         )}
       </div>
 
-      {!inPortal && <Footer go={go} />}
+      {!inPortal && <Footer />}
     </div>
   );
 }
@@ -924,10 +924,9 @@ function PublicNav({ route, go, menuOpen, setMenuOpen, session }) {
   );
 }
 
-function Footer({ go }) {
+function Footer() {
   return (
     <footer className="footer">
-      <button className="foot-mark" onClick={() => go("home")}><Mark size={32} /></button>
       <div className="foot-copy">© {new Date().getFullYear()} Defied MGMT. All rights reserved.</div>
       <div className="foot-social">
         <ExtLink href="https://instagram.com/defiedmgmt" label="Instagram"><Instagram size={20} /></ExtLink>
@@ -1929,10 +1928,9 @@ function StyleTag() {
     .sent{background:var(--panel);border:1px solid #2a4a2a;color:#9ad39a;border-radius:12px;padding:18px;display:flex;gap:10px;align-items:center;justify-content:center;max-width:520px;margin:0 auto 16px}
 
     /* footer */
-    .footer{border-top:1px solid var(--line);margin-top:60px;padding:30px clamp(24px,5vw,56px);display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px}
-    .foot-mark{background:none;border:none;padding:0;display:flex;justify-self:start}
-    .foot-copy{color:var(--mut2);font-size:12px;justify-self:center;text-align:center}
-    .foot-social{display:flex;gap:16px;align-items:center;justify-self:end}
+    .footer{border-top:1px solid var(--line);margin-top:60px;padding:30px clamp(24px,5vw,56px);display:flex;align-items:center;justify-content:space-between;gap:16px}
+    .foot-copy{color:var(--mut2);font-size:12px;text-align:left}
+    .foot-social{display:flex;gap:16px;align-items:center}
     .foot-social a{color:var(--mut);text-decoration:none;display:inline-flex}
     .foot-social a:hover{color:var(--ink)}
     .x-link{font-size:18px;line-height:1}
