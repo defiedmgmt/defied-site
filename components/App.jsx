@@ -6,7 +6,7 @@ import {
 } from "recharts";
 import {
   Instagram, Mail, Menu, X, LogOut, Plus, Trash2, Pencil, Users, Disc3,
-  ListMusic, UserCog, Inbox, Check,
+  ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown,
 } from "lucide-react";
 
 /* ---- embedded brand assets (base64, no external requests) ---- */
@@ -1229,7 +1229,7 @@ function StaffDashboard({ db, commit, logout }) {
 }
 
 /* generic editable list ------------------------------------------------ */
-function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems }) {
+function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder }) {
   const [editing, setEditing] = useState(null); // object or null
   useEffect(() => {
     if (!editing) return;
@@ -1239,7 +1239,7 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
   }, [editing]);
   const start = (obj) => setEditing(obj ? { ...obj } : { id: null, ...blank });
   const save = async () => { await onSave(editing); setEditing(null); };
-  const gridCols = { "--cols": columns.map((c) => c.w || "1fr").join(" ") + " 72px" };
+  const gridCols = { "--cols": columns.map((c) => c.w || "1fr").join(" ") + (onReorder ? " 128px" : " 72px") };
   const atMax = !!maxItems && items.length >= maxItems;
   return (
     <div>
@@ -1253,10 +1253,16 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
           <span className="admin-act">Actions</span>
         </div>
         {items.length === 0 && <div className="admin-empty">Nothing here yet. Click “Add”.</div>}
-        {items.map((it) => (
+        {items.map((it, i) => (
           <div className="admin-row" key={it.id} style={gridCols}>
             {columns.map((c) => <span key={c.key} className="cell">{c.render ? c.render(it) : (it[c.key] || "—")}</span>)}
             <span className="admin-act">
+              {onReorder && (
+                <>
+                  <button onClick={() => onReorder(it.id, -1)} disabled={i === 0} title="Move up"><ChevronUp size={14} /></button>
+                  <button onClick={() => onReorder(it.id, 1)} disabled={i === items.length - 1} title="Move down"><ChevronDown size={14} /></button>
+                </>
+              )}
               <button onClick={() => start(it)}><Pencil size={14} /></button>
               <button onClick={() => onDelete(it.id)}><Trash2 size={14} /></button>
             </span>
@@ -1293,10 +1299,20 @@ function ClientsAdmin({ db, commit }) {
     await commit({ ...db, clients });
   };
   const del = async (id) => commit({ ...db, clients: db.clients.filter((c) => c.id !== id), placements: db.placements.filter((p) => p.clientId !== id) });
+  const reorder = async (id, dir) => {
+    const i = db.clients.findIndex((c) => c.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= db.clients.length) return;
+    const clients = [...db.clients];
+    [clients[i], clients[j]] = [clients[j], clients[i]];
+    await commit({ ...db, clients });
+  };
   return (
+    <div>
+    <p className="muted mb">Order here is the order they appear on the public Roster page — use the arrows to move someone up or down.</p>
     <Editor title="Clients" items={db.clients} columns={cols}
       blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "" }}
-      onSave={save} onDelete={del}
+      onSave={save} onDelete={del} onReorder={reorder}
       extra={(e, set) => (
         <>
           <Field label="Name" value={e.name} onChange={(ev) => set({ ...e, name: ev.target.value })} />
@@ -1317,6 +1333,7 @@ function ClientsAdmin({ db, commit }) {
         </>
       )}
     />
+    </div>
   );
 }
 
@@ -2004,6 +2021,7 @@ function StyleTag() {
     .cell-name{display:flex;align-items:center;gap:10px}
     .admin-act{display:flex;gap:6px;justify-content:flex-end}
     .admin-act button{background:var(--panel2);border:1px solid var(--line);color:var(--mut);border-radius:7px;padding:6px;display:flex}
+    .admin-act button:disabled{opacity:.35;cursor:not-allowed}
     .admin-act button:hover{color:var(--ink);border-color:#3a3a3a}
     .admin-empty{padding:26px 16px;color:var(--mut2);font-size:13.5px;text-align:center}
 
