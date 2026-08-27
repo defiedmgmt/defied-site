@@ -39,7 +39,7 @@ const CATALOG = [
   ["Stack!e","Troupeternal Anthem (Jersey Club)","Stack!e, WokeVl",[["Stack!e","Producer",50],["WokeVl","Artist",50]],false],
   ["Stack!e","TRUST WHO #jerseyclub","Ziahfyah, Stack!e",[["Stack!e","Producer",50],["Ziahfyah","Artist",50]],false],
   ["Stack!e","Love and Affection","Stack!e, prodbyabnormal, loog, Chillz NYC",[["Stack!e","Producer",25],["prodbyabnormal","Artist",25],["loog","Artist",25],["Chillz NYC","Artist",25]],false],
-  ["Stack!e","GIRL U SO SEXY #jerseyclub","Ziahfyah, Indo2x, Stack!e",[["Stack!e","Producer",33],["Ziahfyah","Artist",34],["Indo2x","Artist",33]],false],
+  ["Stack!e","GIRL U SO SEXY #jerseyclub","Ziahfyah, Indo2x, Stack!e",[["Stack!e","Producer",33],["Ziahfyah","Artist",34],["Indo2x","Artist",33]],true],
   ["Stack!e","Squidrific. (Jersey Club)","Stack!e, Indo2x",[["Stack!e","Producer",50],["Indo2x","Artist",50]],false],
   ["Stack!e","Frontin Nola Bounce","Pr0d.k4y, Stack!e, Rifty",[["Stack!e","Producer",33],["Pr0d.k4y","Artist",34],["Rifty","Artist",33]],false],
   ["Stack!e","Go Go Who's Next Nola Bounce","Pr0d.k4y, Stack!e",[["Stack!e","Producer",50],["Pr0d.k4y","Artist",50]],false],
@@ -56,7 +56,7 @@ const CATALOG = [
   ["Stack!e","Castle","Lilswerv",[["Stack!e","Producer",25],["Lilswerv","Artist",75]],false],
   ["Stack!e","All of the lights","Lilswerv",[["Stack!e","Producer",25],["Lilswerv","Artist",75]],false],
   ["Stack!e","Nobody's Perfect (Jersey Club)","Stack!e, 1heyyrhyn",[["Stack!e","Producer",50],["1heyyrhyn","Artist",50]],false],
-  ["Stack!e","Body Party. (Nola Bounce)","Stack!e, Pr0d.k4y",[["Stack!e","Producer",50],["Pr0d.k4y","Artist",50]],false],
+  ["Stack!e","Body Party. (Nola Bounce)","Stack!e, Pr0d.k4y",[["Stack!e","Producer",50],["Pr0d.k4y","Artist",50]],true],
   ["Stack!e","Big Girl. (Jersey Club)","Stack!e, prodbyescobar",[["Stack!e","Producer",50],["prodbyescobar","Artist",50]],false],
   ["Stack!e","so anxious. #jerseyclub","prodbyescobar, Stack!e",[["Stack!e","Producer",50],["prodbyescobar","Artist",50]],false],
   ["Stack!e","lets bounce #jerseyclub","prodbyescobar, Stack!e, DJ Taj",[["Stack!e","Producer",33],["prodbyescobar","Artist",34],["DJ Taj","Artist",33]],false],
@@ -72,10 +72,10 @@ const CATALOG = [
   ["Stack!e","Versiora.","Stack!e",[["Stack!e","Producer",100]],false],
   ["Stack!e","Time Babe","ProdRighteousReborn, Stack!e",[["Stack!e","Producer",50],["ProdRighteousReborn","Artist",50]],false],
   ["Stack!e","For3va Jersey Club","Pr0d.k4y, Obvdiah, Stack!e",[["Stack!e","Producer",33],["Pr0d.k4y","Artist",34],["Obvdiah","Artist",33]],false],
-  ["Sauceproducedit","Tummy Ache","Yhapojj",[["Sauceproducedit","Producer",50],["Yhapojj","Artist",50]],false],
+  ["Sauceproducedit","Tummy Ache","Yhapojj",[["Sauceproducedit","Producer",50],["Yhapojj","Artist",50]],true],
   ["Sauceproducedit","Presidential","41, Jenn Carter, Kyle Richh & TaTa",[["Sauceproducedit","Producer",50],["41","Artist",14],["Jenn Carter","Artist",12],["Kyle Richh","Artist",12],["TaTa","Artist",12]],true],
   ["Sauceproducedit","maggy (with Len)","PlaqueBoyMax, Len & 5STAR",[["Sauceproducedit","Producer",17],["PlaqueBoyMax","Artist",29],["Len","Artist",27],["5STAR","Artist",27]],false],
-  ["Sauceproducedit","Swag 2","Plaqueboymax",[["Sauceproducedit","Producer",17],["Plaqueboymax","Artist",83]],false],
+  ["Sauceproducedit","Swag 2","Plaqueboymax",[["Sauceproducedit","Producer",17],["Plaqueboymax","Artist",83]],true],
   ["Sauceproducedit","Give Me All Of You","Chrisnxtdoor, Jahvor, BTB Dezz & Punga",[["Sauceproducedit","Producer",25],["Chrisnxtdoor","Artist",21],["Jahvor","Artist",18],["BTB Dezz","Artist",18],["Punga","Artist",18]],false],
   ["Sauceproducedit","Celestial!","Jahvor, Chrisnxtdoor",[["Sauceproducedit","Producer",17],["Jahvor","Artist",42],["Chrisnxtdoor","Artist",41]],false],
   ["Sauceproducedit","BE RIGHT THERE.","Corbwtf, Yves!",[["Sauceproducedit","Producer",25],["Corbwtf","Artist",38],["Yves!","Artist",37]],false],
@@ -83,16 +83,16 @@ const CATALOG = [
   ["Sauceproducedit","Email","Echstacy",[["Sauceproducedit","Producer",25],["Echstacy","Artist",75]],false],
   ["Sauceproducedit","Where Did You Go","Seth Melrose",[["Sauceproducedit","Producer",25],["Seth Melrose","Artist",75]],false],
   ["Reallyindig0","Auntie Ain't Playin","1900Rugrat & Skrilla",[["Reallyindig0","Artist",10],["1900Rugrat","Artist",45],["Skrilla","Artist",45]],true],
-  ["Reallyindig0","Swing My Door","Drenchszn x JokerOTV",[["Reallyindig0","Artist",25],["Drenchszn","Artist",38],["JokerOTV","Artist",37]],false],
+  ["Reallyindig0","Swing My Door","Drenchszn x JokerOTV",[["Reallyindig0","Artist",25],["Drenchszn","Artist",38],["JokerOTV","Artist",37]],true],
   ["Reallyindig0","FreeRackies","Drenchszn",[["Reallyindig0","Artist",25],["Drenchszn","Artist",75]],false],
   ["Reallyindig0","Blood In My Circle","Drenchszn",[["Reallyindig0","Artist",25],["Drenchszn","Artist",75]],false],
   ["Reallyindig0","Damn Fool","Q Da Fool",[["Reallyindig0","Artist",25],["Q Da Fool","Artist",75]],false],
   ["Reallyindig0","Road to Riches","Frisco",[["Reallyindig0","Artist",25],["Frisco","Artist",75]],false],
-  ["Reallyindig0","Run Da Souf","No Savage",[["Reallyindig0","Artist",25],["No Savage","Artist",75]],false],
+  ["Reallyindig0","Run Da Souf","No Savage",[["Reallyindig0","Artist",25],["No Savage","Artist",75]],true],
   ["Reallyindig0","Anxiety","Lady Binladen",[["Reallyindig0","Artist",50],["Lady Binladen","Artist",50]],false],
   ["Reallyindig0","Done Talkin'","OneWay LiSteve",[["Reallyindig0","Artist",25],["OneWay LiSteve","Artist",75]],false],
-  ["Reallyindig0","Hot Out","Frisco & BabyChiefDoit",[["Reallyindig0","Artist",50],["Frisco","Artist",25],["BabyChiefDoit","Artist",25]],false],
-  ["Reallyindig0","Dawg Baby","YFG Fatso",[["Reallyindig0","Artist",25],["YFG Fatso","Artist",75]],false],
+  ["Reallyindig0","Hot Out","Frisco & BabyChiefDoit",[["Reallyindig0","Artist",50],["Frisco","Artist",25],["BabyChiefDoit","Artist",25]],true],
+  ["Reallyindig0","Dawg Baby","YFG Fatso",[["Reallyindig0","Artist",25],["YFG Fatso","Artist",75]],true],
   ["Reallyindig0","Thump","No Savage",[["Reallyindig0","Artist",25],["No Savage","Artist",75]],false],
   ["Reallyindig0","Time & Place","1luh2hark",[["Reallyindig0","Artist",25],["1luh2hark","Artist",75]],false],
   ["Reallyindig0","Posed 2 Be Chillin","1luh2hark",[["Reallyindig0","Artist",25],["1luh2hark","Artist",75]],false],
@@ -113,13 +113,13 @@ const CATALOG = [
   ["Reallyindig0","Mark Cuban","Drenchszn",[["Reallyindig0","Artist",25],["Drenchszn","Artist",75]],false],
   ["Reallyindig0","the warm up","RW 5ive",[["Reallyindig0","Artist",17],["RW 5ive","Artist",83]],false],
   ["prodbylandn","Auntie Ain't Playin","1900Rugrat & Skrilla",[["prodbylandn","Producer",10],["1900Rugrat","Artist",45],["Skrilla","Artist",45]],true],
-  ["prodbylandn","Swing My Door","Drenchszn x JokerOTV",[["prodbylandn","Producer",25],["Drenchszn","Artist",38],["JokerOTV","Artist",37]],false],
+  ["prodbylandn","Swing My Door","Drenchszn x JokerOTV",[["prodbylandn","Producer",25],["Drenchszn","Artist",38],["JokerOTV","Artist",37]],true],
   ["Jjxcksnn","FreeRackies","Drenchszn",[["Jjxcksnn","Artist",25],["Drenchszn","Artist",75]],false],
   ["Jjxcksnn","The One","Lil Twin",[["Jjxcksnn","Artist",25],["Lil Twin","Artist",75]],false],
   ["Jjxcksnn","Jackson 5","Lil Twin",[["Jjxcksnn","Artist",25],["Lil Twin","Artist",75]],true],
   ["Jjxcksnn","Blood In My Circle","Drenchszn",[["Jjxcksnn","Artist",25],["Drenchszn","Artist",75]],false],
   ["Jjxcksnn","Out West","Lil Twin",[["Jjxcksnn","Artist",25],["Lil Twin","Artist",75]],false],
-  ["Jjxcksnn","Run Da Souf","No Savage",[["Jjxcksnn","Artist",25],["No Savage","Artist",75]],false],
+  ["Jjxcksnn","Run Da Souf","No Savage",[["Jjxcksnn","Artist",25],["No Savage","Artist",75]],true],
   ["Jjxcksnn","Southside","A2P Fred",[["Jjxcksnn","Artist",25],["A2P Fred","Artist",75]],false],
   ["Jjxcksnn","Hate Bein Sober","yahstrike",[["Jjxcksnn","Artist",25],["yahstrike","Artist",75]],false],
   ["Jjxcksnn","Alcohol","Lil Take",[["Jjxcksnn","Artist",25],["Lil Take","Artist",75]],false],
@@ -133,12 +133,12 @@ const CATALOG = [
   ["Midtwos","SMOKE A CLIP","Baby Osamaa",[["Midtwos","Artist",17],["Baby Osamaa","Artist",83]],false],
   ["Midtwos","Sharkz","luhbrod7",[["Midtwos","Artist",25],["luhbrod7","Artist",75]],false],
   ["Midtwos","Givenchy Coat","Rroxket",[["Midtwos","Artist",25],["Rroxket","Artist",75]],true],
-  ["Midtwos","10 Pack","Baby Osamaa",[["Midtwos","Artist",17],["Baby Osamaa","Artist",83]],false],
+  ["Midtwos","10 Pack","Baby Osamaa",[["Midtwos","Artist",17],["Baby Osamaa","Artist",83]],true],
   ["Midtwos","Teach U How To Trap","Baby Osamaa",[["Midtwos","Artist",17],["Baby Osamaa","Artist",83]],false],
   ["Midtwos","Monclair Bubble Coat","Tezzus",[["Midtwos","Artist",50],["Tezzus","Artist",50]],false],
   ["Kxrma","LVL 10000 YN","Drenchszn",[["Kxrma","Artist",25],["Drenchszn","Artist",75]],true],
   ["Kxrma","TED BUNDY","Drenchszn",[["Kxrma","Artist",17],["Drenchszn","Artist",83]],false],
-  ["prodbyVK","YMM SUIT","Ealuhri, Double XL, Ydouble",[["prodbyVK","Producer",50],["Ealuhri","Artist",18],["Double XL","Artist",16],["Ydouble","Artist",16]],false],
+  ["prodbyVK","YMM SUIT","Ealuhri, Double XL, Ydouble",[["prodbyVK","Producer",50],["Ealuhri","Artist",18],["Double XL","Artist",16],["Ydouble","Artist",16]],true],
   ["prodbyVK","Jennys Body","5unna",[["prodbyVK","Producer",50],["5unna","Artist",50]],false],
   ["prodbyVK","Fully gVng","Yung 5th, Launt5, Lil Red",[["prodbyVK","Producer",50],["Yung 5th","Artist",18],["Launt5","Artist",16],["Lil Red","Artist",16]],false],
   ["prodbyVK","Im Always Ok.","Launt5",[["prodbyVK","Producer",50],["Launt5","Artist",50]],false],
@@ -293,6 +293,30 @@ const SPOTIFY_META = {
   "Brock Purdy": ["https://open.spotify.com/track/6zGT10fvNp1gOzSBabEcba", "https://i.scdn.co/image/ab67616d0000b273214c447a3bc437d5f26c7d01", "2025-06-10"],
 };
 
+// Pulled from defiedmgmt.com's own roster page, keyed by our roster name.
+// [spotify, instagram, tiktok, youtube, soundcloud] — "" where they don't list one.
+const ROSTER_SOCIALS = {
+  "Stack!e": ["https://open.spotify.com/artist/4Ux81TydBFenxKiXOsrnWS", "stackkie", "1stackie", "https://www.youtube.com/channel/UCYJ-y4kMDUeeKdhA7ukK3Yg", "https://soundcloud.com/1stackie"],
+  "Sauceproducedit": ["", "sauceproducedit_", "sauceproducedit", "https://www.youtube.com/@sauceproducedit", ""],
+  "Reallyindig0": ["", "reallyindig0", "reallyindig0", "https://www.youtube.com/@reallyindig0beats", ""],
+  "prodbylandn": ["", "prodbyylandn", "prodbylandn", "", ""],
+  "Jjxcksnn": ["", "jjxcksnn", "", "", ""],
+  "prodbyVK": ["", "prodbyvk", "1prodbyvk", "", ""],
+  "Midtwos": ["", "midtwos_", "", "", ""],
+  "PG13k": ["https://open.spotify.com/artist/29yw0KICDhcRJXP3J4MUnR", "pg13k", "pg13k", "https://www.youtube.com/@PG13kMUSIC", "https://soundcloud.com/pg13k"],
+  "prodchxse": ["", "prodchxse", "prodchxse", "https://www.youtube.com/@chxsewya", "https://soundcloud.com/chxsewya"],
+  "prodyel1ow": ["", "prodyel1ow", "", "https://www.youtube.com/@yel1ow", ""],
+  "Kxrma": ["", "diedwithkarma", "", "https://www.youtube.com/@diedwithkarma", ""],
+};
+
+// Song titles defiedmgmt.com features as an artist's notable release — forced
+// to notable:true below (title-only match is safe: every repeated title in
+// CATALOG is intentionally the same shared song across two client credits).
+const NOTABLE_TITLES = new Set([
+  "GIRL U SO SEXY #jerseyclub", "Body Party. (Nola Bounce)", "Tummy Ache", "Swag 2",
+  "Swing My Door", "Run Da Souf", "Hot Out", "Dawg Baby", "10 Pack", "YMM SUIT",
+]);
+
 function seed() {
   const IMG = "https://www.defiedmgmt.com/assets";
   const staff = [
@@ -311,10 +335,13 @@ function seed() {
     ["prodchxse", "Producer", "prodchxse.jpeg"], ["prodyel1ow", "Producer", "yellow.png"],
     ["Kxrma", "Artist", "kxrma.png"],
   ];
-  const clients = roster.map(([name, role, img]) => ({
-    id: uid(), name, role, credit: "", bio: "", photo: `${IMG}/roster/${img}`,
-    spotify: "", apple: "", instagram: "", tiktok: "", youtube: "",
-  }));
+  const clients = roster.map(([name, role, img]) => {
+    const [spotify, instagram, tiktok, youtube, soundcloud] = ROSTER_SOCIALS[name] || ["", "", "", "", ""];
+    return {
+      id: uid(), name, role, credit: "", bio: "", photo: `${IMG}/roster/${img}`,
+      spotify, apple: "", instagram, tiktok, youtube, soundcloud,
+    };
+  });
 
   // demo client login linked to Stack!e
   const stacke = clients[0];
@@ -546,6 +573,7 @@ const ICONS = {
   youtube: (s) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.12C19.5 3.56 12 3.56 12 3.56s-7.5 0-9.4.52A3 3 0 0 0 .5 6.2 31.3 31.3 0 0 0 0 12a31.3 31.3 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.12c1.9.52 9.4.52 9.4.52s7.5 0 9.4-.52a3 3 0 0 0 2.1-2.12A31.3 31.3 0 0 0 24 12a31.3 31.3 0 0 0-.5-5.8zM9.6 15.6V8.4l6.25 3.6z" /></svg>,
   spotify: (s) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.6 14.42a.62.62 0 0 1-.86.2c-2.35-1.44-5.3-1.76-8.8-.96a.62.62 0 1 1-.27-1.22c3.82-.87 7.1-.5 9.73 1.11.3.18.4.58.2.87zm1.23-2.74a.78.78 0 0 1-1.07.26c-2.7-1.66-6.8-2.14-9.98-1.17a.78.78 0 1 1-.45-1.5c3.63-1.1 8.15-.56 11.24 1.34.36.22.48.7.26 1.07zm.1-2.85C14.82 8.98 9.5 8.8 6.4 9.75a.94.94 0 1 1-.54-1.8c3.56-1.08 9.44-.88 13.16 1.33a.94.94 0 0 1-.96 1.62z" /></svg>,
   apple: (s) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M17.05 12.04c-.03-2.6 2.12-3.85 2.22-3.9-1.21-1.78-3.1-2.02-3.78-2.05-1.6-.16-3.13.94-3.94.94-.81 0-2.07-.92-3.4-.9-1.75.03-3.36 1.02-4.26 2.58-1.82 3.16-.47 7.83 1.3 10.4.86 1.25 1.9 2.65 3.25 2.6 1.3-.05 1.79-.84 3.36-.84 1.56 0 2 .84 3.38.81 1.4-.02 2.28-1.27 3.14-2.53.99-1.45 1.4-2.86 1.42-2.93-.03-.02-2.72-1.05-2.75-4.13zM14.6 4.5c.72-.87 1.2-2.08 1.07-3.28-1.03.04-2.28.69-3.02 1.56-.66.77-1.25 2-1.08 3.18 1.15.09 2.32-.58 3.03-1.46z" /></svg>,
+  soundcloud: (s) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M1.5 12.5v4h1v-4h-1zm2-1.5v5.5h1V11h-1zm2-1v6.5h1V9.5h-1zm2 .8v5.7h1v-5.7h-1zm2-2.2v7.9h1V8.1h-1zm2.2-1.1c-.3 0-.55.06-.8.15v8.85h.8c2.2 0 3.98-1.78 3.98-3.98v-.02c.3.09.6.15.92.15 1.7 0 3.08-1.38 3.08-3.08S22.02 6 20.32 6c-.5 0-.98.12-1.4.34C18.5 4.4 16.72 3 14.62 3c-.24 0-.42.02-.62.05v3.95c-.24-.02-.5-.04-.78-.04z" /></svg>,
 };
 
 // Email action that actually works everywhere: copies the address to the clipboard
@@ -617,6 +645,7 @@ function Socials({ c, size = 26 }) {
     ["instagram", ig(c.instagram)],
     ["tiktok", tk(c.tiktok)],
     ["youtube", c.youtube],
+    ["soundcloud", c.soundcloud],
   ].filter(([, url]) => url);
   if (items.length === 0) return null;
   return (
@@ -701,9 +730,24 @@ export default function App() {
         // fills fields the save left blank, never overwrites an edited value.
         merged.placements = merged.placements.map((p) => {
           const meta = SPOTIFY_META[p.song];
-          if (!meta) return p;
-          const [link, cover, releaseDate] = meta;
-          return { ...p, link: p.link || link, cover: p.cover || cover, releaseDate: p.releaseDate || releaseDate };
+          const withMeta = meta
+            ? { ...p, link: p.link || meta[0], cover: p.cover || meta[1], releaseDate: p.releaseDate || meta[2] }
+            : p;
+          return NOTABLE_TITLES.has(p.song) ? { ...withMeta, notable: true } : withMeta;
+        });
+        // same idea for roster socials pulled from defiedmgmt.com — fill blanks only.
+        merged.clients = merged.clients.map((c) => {
+          const s = ROSTER_SOCIALS[c.name];
+          if (!s) return c;
+          const [spotify, instagram, tiktok, youtube, soundcloud] = s;
+          return {
+            ...c,
+            spotify: c.spotify || spotify,
+            instagram: c.instagram || instagram,
+            tiktok: c.tiktok || tiktok,
+            youtube: c.youtube || youtube,
+            soundcloud: c.soundcloud || soundcloud,
+          };
         });
         setDb(merged);
         saveDB(merged);
@@ -857,7 +901,7 @@ function About({ db }) {
 
 function StaffPage({ db }) {
   return (
-    <main className="page">
+    <main className="page page-wide">
       <h1 className="page-head">Staff</h1>
       <div className="team-grid">
         {db.staff.map((s) => (
@@ -891,7 +935,7 @@ function Roster({ db }) {
     return () => { document.body.style.overflow = prev; };
   }, [active]);
   return (
-    <main className="page">
+    <main className="page page-wide">
       <h1 className="page-head font-display">Roster</h1>
       <div className="ros-grid">
         {db.clients.map((c) => (
@@ -1114,7 +1158,7 @@ function ClientsAdmin({ db, commit }) {
   const del = async (id) => commit({ ...db, clients: db.clients.filter((c) => c.id !== id), placements: db.placements.filter((p) => p.clientId !== id) });
   return (
     <Editor title="Clients" items={db.clients} columns={cols}
-      blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "" }}
+      blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "" }}
       onSave={save} onDelete={del}
       extra={(e, set) => (
         <>
@@ -1132,6 +1176,7 @@ function ClientsAdmin({ db, commit }) {
           <Field label="YouTube URL" value={e.youtube} onChange={(ev) => set({ ...e, youtube: ev.target.value })} />
           <Field label="Instagram handle" value={e.instagram} onChange={(ev) => set({ ...e, instagram: ev.target.value })} />
           <Field label="TikTok handle" value={e.tiktok} onChange={(ev) => set({ ...e, tiktok: ev.target.value })} />
+          <Field label="SoundCloud URL" value={e.soundcloud} onChange={(ev) => set({ ...e, soundcloud: ev.target.value })} />
         </>
       )}
     />
@@ -1683,6 +1728,7 @@ function StyleTag() {
 
     /* generic page */
     .page{max-width:1000px;margin:0 auto;padding:80px 28px 60px;text-align:center}
+    .page-wide{max-width:none;padding-left:56px;padding-right:56px}
     .page-head{font-size:clamp(30px,5vw,46px);font-weight:800;letter-spacing:-.01em;margin:0 0 24px;font-family:'Suntage','Inter',sans-serif}
     .lead{color:var(--mut);font-size:17px;max-width:620px;margin:0 auto 34px}
     .how-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:0 0 34px}
@@ -1698,9 +1744,9 @@ function StyleTag() {
     .svc-row li{display:flex;align-items:center;gap:7px;font-size:13.5px;color:var(--ink)}
     .svc-row li svg{color:var(--mut2)}
 
-    .team-grid,.ros-grid{display:grid;gap:28px}
-    .team-grid{grid-template-columns:repeat(auto-fill,minmax(222px,1fr))}
-    .ros-grid{grid-template-columns:repeat(auto-fill,minmax(212px,1fr))}
+    .team-grid,.ros-grid{display:grid;gap:40px}
+    .team-grid{grid-template-columns:repeat(4,1fr)}
+    .ros-grid{grid-template-columns:repeat(4,1fr)}
     .ros-card{background:none;border:none;padding:0;display:flex;flex-direction:column;gap:13px;color:var(--ink);text-align:center;align-items:stretch}
     .team-card{background:none;border:none;padding:0;display:flex;flex-direction:column;gap:13px;text-align:center;align-items:stretch}
     .ros-photo{aspect-ratio:1;border-radius:14px;overflow:hidden;background:var(--panel2);border:1px solid var(--line);transition:transform .15s ease,border-color .15s ease}
@@ -1966,6 +2012,8 @@ function StyleTag() {
       .nav-links.open{max-height:420px;opacity:1;padding:14px 28px 20px;border-color:var(--line);pointer-events:auto}
       .nav-links button{padding:10px 0;font-size:14px}
       .nav-links .nav-auth{margin-top:8px;padding:9px 18px !important}
+      .page-wide{padding-left:28px;padding-right:28px}
+      .ros-grid,.team-grid{grid-template-columns:repeat(2,1fr);gap:24px}
       .stat-row{grid-template-columns:1fr}
       .dash{flex-direction:column}
       .dash-side{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px}
