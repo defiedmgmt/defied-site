@@ -374,8 +374,26 @@ const Area = ({ label, ...p }) => (
 );
 const Avatar = ({ src, name, size = 56 }) =>
   src
-    ? <img className="avatar" src={src} alt={name} style={{ width: size, height: size }} />
+    ? <Photo className="avatar" src={src} alt={name} style={{ width: size, height: size }} />
     : <div className="avatar avatar-ph" style={{ width: size, height: size, fontSize: size * 0.4 }}>{(name || "?")[0].toUpperCase()}</div>;
+
+// Fades a photo in once it's actually decoded, instead of popping in abruptly —
+// the panel-colored background behind it (set per usage in CSS) shows as a
+// placeholder until then.
+function Photo({ src, alt, className = "", ...rest }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      onLoad={() => setLoaded(true)}
+      className={`ph-fade${loaded ? " ph-in" : ""}${className ? " " + className : ""}`}
+      {...rest}
+    />
+  );
+}
 
 // Lazy-load the HEIC decoder (iPhone photos) from CDN, once.
 let _heicPromise = null;
@@ -806,7 +824,7 @@ function NotableReleases({ db }) {
             const Tag = r.link ? "a" : "div";
             return (
               <Tag key={r.id} className="rel-card" {...(r.link ? { href: r.link, target: "_blank", rel: "noreferrer" } : {})}>
-                {r.cover ? <img src={r.cover} alt={r.song} /> : <div className="rel-ph"><Disc3 size={30} /></div>}
+                {r.cover ? <Photo src={r.cover} alt={r.song} /> : <div className="rel-ph"><Disc3 size={30} /></div>}
                 <div className="rel-meta">
                   <strong>{r.song}</strong>
                   <span>{r.artist}</span>
@@ -845,7 +863,7 @@ function StaffPage({ db }) {
         {db.staff.map((s) => (
           <div key={s.id} className="team-card">
             <div className="ros-photo">
-              {s.photo ? <img src={s.photo} alt={s.name} /> : <div className="ros-photo-empty">{s.name[0].toUpperCase()}</div>}
+              {s.photo ? <Photo src={s.photo} alt={s.name} /> : <div className="ros-photo-empty">{s.name[0].toUpperCase()}</div>}
             </div>
             <div className="ros-cap">
               <strong>{s.name}</strong>
@@ -879,7 +897,7 @@ function Roster({ db }) {
         {db.clients.map((c) => (
           <button key={c.id} className="ros-card" onClick={() => setActive(c)}>
             <div className="ros-photo">
-              {c.photo ? <img src={c.photo} alt={c.name} /> : <div className="ros-photo-empty">{c.name[0].toUpperCase()}</div>}
+              {c.photo ? <Photo src={c.photo} alt={c.name} /> : <div className="ros-photo-empty">{c.name[0].toUpperCase()}</div>}
             </div>
             <div className="ros-cap">
               <strong>{c.name}</strong>
@@ -897,7 +915,7 @@ function Roster({ db }) {
             <div className="artist-top">
               <div className="artist-photo">
                 {active.photo
-                  ? <img src={active.photo} alt={active.name} />
+                  ? <Photo src={active.photo} alt={active.name} />
                   : <div className="artist-photo-empty">{active.name[0].toUpperCase()}</div>}
               </div>
               <div className="artist-info">
@@ -917,7 +935,7 @@ function Roster({ db }) {
                     return (
                       <Tag key={r.id} className="artist-rel-card" {...(r.link ? { href: r.link, target: "_blank", rel: "noreferrer" } : {})}>
                         <div className="artist-rel-cover">
-                          {r.cover ? <img src={r.cover} alt={r.song} /> : <div className="artist-rel-cover-empty"><Disc3 size={34} /></div>}
+                          {r.cover ? <Photo src={r.cover} alt={r.song} /> : <div className="artist-rel-cover-empty"><Disc3 size={34} /></div>}
                         </div>
                         <strong>{r.song}</strong>
                         <span>{r.artist}</span>
@@ -1343,7 +1361,7 @@ function SongManager({ db, commit, clientId }) {
           {songs.map((p) => (
             <button key={p.id} className="song-card" onClick={() => setOpenId(p.id)}>
               <div className="song-cover">
-                {p.cover ? <img src={p.cover} alt={p.song} /> : <div className="song-cover-empty"><Disc3 size={26} /></div>}
+                {p.cover ? <Photo src={p.cover} alt={p.song} /> : <div className="song-cover-empty"><Disc3 size={26} /></div>}
               </div>
               <div className="song-info">
                 <strong>{p.song || "Untitled"}</strong>
@@ -1362,7 +1380,7 @@ function SongManager({ db, commit, clientId }) {
             <div className="modal-body">
               <div className="song-detail-top">
                 <div className="song-detail-cover">
-                  {active.cover ? <img src={active.cover} alt="" /> : <div className="song-cover-empty"><Disc3 size={30} /></div>}
+                  {active.cover ? <Photo src={active.cover} alt="" /> : <div className="song-cover-empty"><Disc3 size={30} /></div>}
                 </div>
                 <div>
                   <div className="song-detail-artist">{active.artist}</div>
@@ -1700,7 +1718,7 @@ function StyleTag() {
 
     /* artist detail panel */
     .artist-overlay{padding:0;align-items:stretch;justify-content:stretch;overflow:hidden}
-    .artist-panel{position:relative;width:100%;min-height:100%;background:var(--bg);padding:56px clamp(24px,6vw,80px) 80px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;text-align:left;animation:fadeIn .3s ease both}
+    .artist-panel{position:relative;width:100%;height:100%;background:var(--bg);padding:56px clamp(24px,6vw,80px) 80px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;text-align:left;animation:fadeIn .3s ease both}
     .modal-x{position:fixed;top:22px;right:26px;background:none;border:none;color:var(--mut);z-index:5}
     .modal-x:hover{color:var(--ink)}
     .artist-top{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(30px,5vw,64px);align-items:center;padding-bottom:44px;border-bottom:1px solid var(--line)}
@@ -1728,6 +1746,9 @@ function StyleTag() {
     .artist-empty{max-width:1080px;margin:40px auto;text-align:center;font-size:14px}
 
     .avatar{border-radius:10px;object-fit:cover;object-position:center;background:#1c1c1e;flex-shrink:0;aspect-ratio:1}
+    .ph-fade{opacity:0;transition:opacity .4s ease}
+    .ph-fade.ph-in{opacity:1}
+    @media(prefers-reduced-motion:reduce){ .ph-fade{transition:none;opacity:1} }
     .avatar-ph{border-radius:10px;display:flex;align-items:center;justify-content:center;background:#1c1c1e;color:#666;font-weight:700;flex-shrink:0;aspect-ratio:1}
 
     .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:26px}
