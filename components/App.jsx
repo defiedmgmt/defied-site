@@ -1170,6 +1170,12 @@ function StaffDashboard({ db, commit, logout }) {
 /* generic editable list ------------------------------------------------ */
 function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems }) {
   const [editing, setEditing] = useState(null); // object or null
+  useEffect(() => {
+    if (!editing) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [editing]);
   const start = (obj) => setEditing(obj ? { ...obj } : { id: null, ...blank });
   const save = async () => { await onSave(editing); setEditing(null); };
   const gridCols = { "--cols": columns.map((c) => c.w || "1fr").join(" ") + " 72px" };
@@ -1445,6 +1451,12 @@ function SongManager({ db, commit, clientId }) {
   const [openId, setOpenId] = useState(null);
   const [editing, setEditing] = useState(null);
   const active = songs.find((p) => p.id === openId);
+  useEffect(() => {
+    if (!active && !editing) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [active, editing]);
 
   const saveSong = async (o) => {
     const placements = o.id
@@ -1950,7 +1962,7 @@ function StyleTag() {
     .modal-head{display:flex;align-items:center;justify-content:space-between;padding:20px 22px;border-bottom:1px solid var(--line)}
     .modal-head h3{margin:0;font-size:17px}
     .modal-head button{background:none;border:none;color:var(--mut)}
-    .modal-body{padding:22px;display:flex;flex-direction:column;gap:14px;max-height:64vh;overflow-y:auto}
+    .modal-body{padding:22px;display:flex;flex-direction:column;gap:14px}
     .modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid var(--line)}
 
     /* ============ PORTAL ============ */
@@ -2127,7 +2139,7 @@ function StyleTag() {
       .foot-mark,.foot-copy,.foot-social{justify-self:center}
       /* modals sit comfortably in view on phones */
       .modal{align-items:flex-start;padding:16px 14px 28px}
-      .modal-body{max-height:none;padding:18px}
+      .modal-body{padding:18px}
       .modal-head{padding:16px 18px}
       .song-detail-top{gap:12px}
       .song-detail-cover{width:70px;height:70px}
