@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import NextImage from "next/image";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -447,9 +448,27 @@ const Avatar = ({ src, name, size = 56 }) =>
 
 // Fades a photo in once it's actually decoded, instead of popping in abruptly —
 // the panel-colored background behind it (set per usage in CSS) shows as a
-// placeholder until then.
-function Photo({ src, alt, className = "", ...rest }) {
+// placeholder until then. `fill` routes remote (http/https) sources through
+// Next's image optimizer — some of the roster source photos are raw
+// multi-megabyte originals; this serves a properly sized, compressed,
+// modern-format copy instead. Needs a position:relative container.
+function Photo({ src, alt, className = "", fill, sizes, ...rest }) {
   const [loaded, setLoaded] = useState(false);
+  const cls = `ph-fade${loaded ? " ph-in" : ""}${className ? " " + className : ""}`;
+  if (fill && /^https?:\/\//i.test(src || "")) {
+    return (
+      <NextImage
+        src={src}
+        alt={alt}
+        fill
+        sizes={sizes || "(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 280px"}
+        style={{ objectFit: "cover" }}
+        onLoad={() => setLoaded(true)}
+        className={cls}
+        {...rest}
+      />
+    );
+  }
   return (
     <img
       src={src}
@@ -457,7 +476,7 @@ function Photo({ src, alt, className = "", ...rest }) {
       loading="lazy"
       decoding="async"
       onLoad={() => setLoaded(true)}
-      className={`ph-fade${loaded ? " ph-in" : ""}${className ? " " + className : ""}`}
+      className={cls}
       {...rest}
     />
   );
@@ -977,7 +996,7 @@ function StaffPage({ db }) {
         {db.staff.map((s) => (
           <div key={s.id} className="team-card">
             <div className="ros-photo">
-              {s.photo ? <Photo src={s.photo} alt={s.name} /> : <div className="ros-photo-empty">{s.name[0].toUpperCase()}</div>}
+              {s.photo ? <Photo src={s.photo} alt={s.name} fill /> : <div className="ros-photo-empty">{s.name[0].toUpperCase()}</div>}
             </div>
             <div className="ros-cap">
               <strong>{s.name}</strong>
@@ -1011,7 +1030,7 @@ function Roster({ db }) {
         {db.clients.map((c) => (
           <button key={c.id} className="ros-card" onClick={() => setActive(c)}>
             <div className="ros-photo">
-              {c.photo ? <Photo src={c.photo} alt={c.name} /> : <div className="ros-photo-empty">{c.name[0].toUpperCase()}</div>}
+              {c.photo ? <Photo src={c.photo} alt={c.name} fill /> : <div className="ros-photo-empty">{c.name[0].toUpperCase()}</div>}
             </div>
             <div className="ros-cap">
               <strong>{c.name}</strong>
@@ -1029,7 +1048,7 @@ function Roster({ db }) {
             <div className="artist-top">
               <div className="artist-photo">
                 {active.photo
-                  ? <Photo src={active.photo} alt={active.name} />
+                  ? <Photo src={active.photo} alt={active.name} fill sizes="(max-width: 820px) 90vw, 480px" />
                   : <div className="artist-photo-empty">{active.name[0].toUpperCase()}</div>}
               </div>
               <div className="artist-info">
@@ -1729,10 +1748,11 @@ function StyleTag() {
     /* nav */
     .nav{position:sticky;top:0;z-index:40;display:flex;align-items:center;justify-content:space-between;
       padding:16px 28px;background:rgba(10,10,10,.82);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-    /* a sticky nav can out-paint a fixed modal despite its lower z-index in
-       some engines — force it inert (it's dimmed behind the backdrop anyway
-       whenever a modal is open, so nothing behind it should be reachable) */
-    .app:has(.modal) .nav{pointer-events:none}
+    /* a sticky nav can out-paint (and swallow clicks meant for) a fixed
+       modal despite its lower z-index in some engines, which also hid the
+       modal's own close button behind it — just hide it outright whenever
+       a modal is open, nothing behind one should be visible or reachable */
+    .app:has(.modal) .nav{pointer-events:none;opacity:0;transition:opacity .15s ease}
     .nav-mark{background:none;border:none;padding:0;display:flex}
     .nav-links{display:flex;align-items:center;gap:26px}
     .nav-links button{background:none;border:none;color:var(--mut);font-size:13px;letter-spacing:.16em;padding:4px 0;position:relative;font-family:'Suntage','Inter',sans-serif;transition:color .18s ease}
@@ -1835,7 +1855,7 @@ function StyleTag() {
     .ros-grid{grid-template-columns:repeat(4,1fr)}
     .ros-card{background:none;border:none;padding:0;display:flex;flex-direction:column;gap:13px;color:var(--ink);text-align:center;align-items:stretch}
     .team-card{background:none;border:none;padding:0;display:flex;flex-direction:column;gap:13px;text-align:center;align-items:stretch}
-    .ros-photo{aspect-ratio:1;border-radius:14px;overflow:hidden;background:var(--panel2);border:1px solid var(--line);transition:transform .15s ease,border-color .15s ease}
+    .ros-photo{position:relative;aspect-ratio:1;border-radius:14px;overflow:hidden;background:var(--panel2);border:1px solid var(--line);transition:transform .15s ease,border-color .15s ease}
     .ros-card:hover .ros-photo{transform:translateY(-5px);border-color:#3d3d40}
     .ros-photo img{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
     .ros-photo-empty{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:60px;font-weight:800;color:#2c2c2e;font-family:'Suntage','Inter',sans-serif}
@@ -1854,11 +1874,11 @@ function StyleTag() {
     .modal-x{position:fixed;top:22px;right:26px;background:none;border:none;color:var(--mut);z-index:65}
     .modal-x:hover{color:var(--ink)}
     .artist-top{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(30px,5vw,64px);align-items:center;padding-bottom:44px;border-bottom:1px solid var(--line)}
-    .artist-photo{aspect-ratio:1;border-radius:16px;overflow:hidden;background:var(--panel2);border:1px solid var(--line)}
+    .artist-photo{position:relative;aspect-ratio:1;border-radius:16px;overflow:hidden;background:var(--panel2);border:1px solid var(--line)}
     .artist-photo img{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
     .artist-photo-empty{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:96px;font-weight:800;color:#2c2c2e;font-family:'Suntage','Inter',sans-serif}
-    .artist-info{display:flex;flex-direction:column;gap:20px}
-    .artist-name{font-size:clamp(34px,5vw,58px);line-height:1;margin:0;letter-spacing:.01em;text-transform:uppercase}
+    .artist-info{display:flex;flex-direction:column;gap:20px;min-width:0}
+    .artist-name{font-size:clamp(34px,5vw,58px);line-height:1.05;margin:0;letter-spacing:.01em;text-transform:uppercase;overflow-wrap:break-word}
     .artist-role{color:var(--mut);font-size:20px;margin-top:-6px}
     .socials{display:flex;gap:22px;align-items:center}
     .social-ic{color:var(--ink);display:inline-flex;opacity:.92;transition:opacity .12s,transform .12s}
