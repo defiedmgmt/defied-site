@@ -1600,8 +1600,25 @@ function SongManager({ db, commit, clientId, isStaff }) {
     });
   };
   const removeSong = async (id) => {
+    const target = songs.find((p) => p.id === id);
     await commit({ ...db, placements: db.placements.filter((p) => p.id !== id) });
     setOpenId(null); setEditing(null);
+    if (!target) return;
+    const splits = (target.splits || []).map((s) => ({
+      name: s.name === client?.name ? (client?.sheetTabName || client?.name) : s.name,
+    }));
+    fetch("/api/sheets-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ placementId: id, splits }),
+    }).then(async (res) => {
+      if (res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Sheet delete failed (${res.status})`);
+    }).catch((err) => {
+      console.error("Sheet delete failed:", err);
+      if (isStaff) setPushWarn(err.message || "Deleted locally, but the pub sheet row wasn't cleared.");
+    });
   };
   const startAdd = () => setEditing({ id: null, clientId, song: "", artist: client?.name || "", releaseDate: "", link: "", cover: "", notable: false, luminateId: "", splits: [{ id: uid(), name: client?.name || "", role: client?.role || "", percent: 100 }] });
 
@@ -1782,11 +1799,13 @@ function CatalogAdmin({ db, commit }) {
         totalsByClient[c.clientId] = c.totalStreams;
         rowsByClient[c.clientId] = c.rows;
       }
+      const claimedRows = new Set(); // `${clientId}:${row}` — rows already matched to a placement below
       const placements = db.placements.map((p) => {
         const rows = rowsByClient[p.clientId] || [];
         const bySyncId = rows.find((r) => r.syncId && r.syncId.split(":")[0] === p.id);
         const row = bySyncId || rows.find((r) => !r.syncId && normalizeTitle(r.song) === normalizeTitle(p.song));
         if (!row) return p;
+        claimedRows.add(`${p.clientId}:${row.row}`);
         return {
           ...p,
           streams: row.grossStreams,
@@ -1795,8 +1814,53 @@ function CatalogAdmin({ db, commit }) {
           luminateId: p.luminateId || row.luminateId,
         };
       });
+
+      // a client's tab can hold more than one row for the same title (an old
+      // duplicate row from before this feature existed, a re-typed entry,
+      // etc.) — the match above only ever claims ONE row per placement, so
+      // track every title a client already has on the site and skip the
+      // rest rather than importing each leftover duplicate as a new song.
+      const existingTitles = new Map(); // clientId -> Set(normalizedTitle)
+      for (const p of db.placements) {
+        const set = existingTitles.get(p.clientId) || new Set();
+        set.add(normalizeTitle(p.song));
+        existingTitles.set(p.clientId, set);
+      }
+
+      // any row left over in a client's own tab — after both the syncId/title
+      // match above AND the already-tracked-title check — is a genuinely new
+      // song staff typed straight into the sheet. Bring it onto the site,
+      // then stamp its Site Sync ID so future syncs match it directly.
+      const created = [];
+      const claims = [];
+      for (const c of db.clients) {
+        const rows = rowsByClient[c.id] || [];
+        for (const row of rows) {
+          if (claimedRows.has(`${c.id}:${row.row}`)) continue;
+          if (existingTitles.get(c.id)?.has(normalizeTitle(row.song))) continue;
+          const id = uid();
+          created.push({
+            id, clientId: c.id, song: row.song, artist: row.artist || c.name,
+            releaseDate: "", link: "", cover: "", notable: false,
+            luminateId: row.luminateId || "",
+            splits: [{ id: uid(), name: c.name, role: c.role || "", percent: row.writerShare || 100 }],
+            streams: row.grossStreams, revenue: row.grossRevenue, adminFee: row.adminFee,
+          });
+          const tabName = c.sheetTabName || c.name;
+          claims.push({ tab: tabName, row: row.row, syncId: `${id}:${tabName.toLowerCase()}` });
+        }
+      }
+
       const clients = db.clients.map((c) => ({ ...c, totalStreams: totalsByClient[c.id] ?? c.totalStreams }));
-      await commit({ ...db, placements, clients, sheetSync: { lastSyncedAt: data.syncedAt } });
+      await commit({ ...db, placements: [...placements, ...created], clients, sheetSync: { lastSyncedAt: data.syncedAt } });
+
+      if (claims.length) {
+        fetch("/api/sheets-claim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ claims }),
+        }).catch((err) => console.error("Claim-back failed:", err));
+      }
     } catch (err) {
       setSyncErr(err.message || "Sync failed.");
     } finally {
