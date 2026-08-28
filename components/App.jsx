@@ -381,6 +381,7 @@ function seed() {
     return {
       id: uid(), name, role, credit: "", bio: "", photo: `${IMG}/roster/${img}`,
       spotify, apple: "", instagram, tiktok, youtube, soundcloud,
+      sheetTabName: "", totalStreams: 0,
     };
   });
 
@@ -397,6 +398,7 @@ function seed() {
     placements.push({
       id: uid(), clientId: cid, song, artist, releaseDate, link, cover, notable,
       splits: splits.map(([name, role, percent]) => ({ id: uid(), name, role, percent })),
+      luminateId: "", streams: 0, revenue: 0, adminFee: 0,
     });
   }
 
@@ -410,7 +412,7 @@ function seed() {
   ];
 
   const notableReleases = HOME_NOTABLE_RELEASES.map((r) => ({ id: uid(), ...r }));
-  return { staff, clients, placements, site, users, submissions: [], notableReleases };
+  return { staff, clients, placements, site, users, submissions: [], notableReleases, sheetSync: { lastSyncedAt: null } };
 }
 
 /* ------------------------------------------------------------------ */
@@ -435,8 +437,8 @@ function Mark({ size = 30 }) {
 /* ------------------------------------------------------------------ */
 /*  tiny UI atoms                                                       */
 /* ------------------------------------------------------------------ */
-const Field = ({ label, ...p }) => (
-  <label className="fld"><span>{label}</span><input {...p} /></label>
+const Field = ({ label, hint, ...p }) => (
+  <label className="fld"><span>{label}</span><input {...p} />{hint && <span className="hint">{hint}</span>}</label>
 );
 const Area = ({ label, ...p }) => (
   <label className="fld"><span>{label}</span><textarea rows={3} {...p} /></label>
@@ -828,22 +830,33 @@ export default function App() {
           const withMeta = meta
             ? { ...p, link: p.link || meta[0], cover: p.cover || meta[1], releaseDate: p.releaseDate || meta[2] }
             : p;
-          return NOTABLE_TITLES.has(p.song) ? { ...withMeta, notable: true } : withMeta;
+          const withDefaults = {
+            ...withMeta,
+            luminateId: withMeta.luminateId || "",
+            streams: withMeta.streams || 0,
+            revenue: withMeta.revenue || 0,
+            adminFee: withMeta.adminFee || 0,
+          };
+          return NOTABLE_TITLES.has(p.song) ? { ...withDefaults, notable: true } : withDefaults;
         });
         // same idea for roster socials pulled from defiedmgmt.com — fill blanks only.
         merged.clients = merged.clients.map((c) => {
           const s = ROSTER_SOCIALS[c.name];
-          if (!s) return c;
-          const [spotify, instagram, tiktok, youtube, soundcloud] = s;
-          return {
+          const withSocials = !s ? c : {
             ...c,
-            spotify: c.spotify || spotify,
-            instagram: c.instagram || instagram,
-            tiktok: c.tiktok || tiktok,
-            youtube: c.youtube || youtube,
-            soundcloud: c.soundcloud || soundcloud,
+            spotify: c.spotify || s[0],
+            instagram: c.instagram || s[1],
+            tiktok: c.tiktok || s[2],
+            youtube: c.youtube || s[3],
+            soundcloud: c.soundcloud || s[4],
+          };
+          return {
+            ...withSocials,
+            sheetTabName: withSocials.sheetTabName || "",
+            totalStreams: withSocials.totalStreams || 0,
           };
         });
+        if (!merged.sheetSync) merged.sheetSync = { lastSyncedAt: null };
         // add roster members this save predates (matched by name), plus their
         // catalog songs — never touches an existing client or placement.
         const existingNames = new Set(merged.clients.map((c) => c.name.toLowerCase()));
@@ -864,6 +877,7 @@ export default function App() {
               id: uid(), clientId: cid, song, artist, notable,
               releaseDate: meta[2] || "", link: meta[0] || "", cover: meta[1] || "",
               splits: splits.map(([name, role, percent]) => ({ id: uid(), name, role, percent })),
+              luminateId: "", streams: 0, revenue: 0, adminFee: 0,
             });
           }
           if (newPlacements.length) merged.placements = [...merged.placements, ...newPlacements];
@@ -1311,7 +1325,7 @@ function ClientsAdmin({ db, commit }) {
     <div>
     <p className="muted mb">Order here is the order they appear on the public Roster page — use the arrows to move someone up or down.</p>
     <Editor title="Clients" items={db.clients} columns={cols}
-      blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "" }}
+      blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "", sheetTabName: "" }}
       onSave={save} onDelete={del} onReorder={reorder}
       extra={(e, set) => (
         <>
@@ -1330,6 +1344,7 @@ function ClientsAdmin({ db, commit }) {
           <Field label="Instagram handle" value={e.instagram} onChange={(ev) => set({ ...e, instagram: ev.target.value })} />
           <Field label="TikTok handle" value={e.tiktok} onChange={(ev) => set({ ...e, tiktok: ev.target.value })} />
           <Field label="SoundCloud URL" value={e.soundcloud} onChange={(ev) => set({ ...e, soundcloud: ev.target.value })} />
+          <Field label="Sheet tab name" value={e.sheetTabName} onChange={(ev) => set({ ...e, sheetTabName: ev.target.value })} hint="Only needed if it doesn't match this client's name exactly — e.g. this client is Stack!e but their tab on the pub sheet is named Stackie." />
         </>
       )}
     />
@@ -1523,7 +1538,7 @@ function SubsAdmin({ db }) {
 /*  CLIENT PORTAL                                                       */
 /* ------------------------------------------------------------------ */
 /*  shared: song + splits manager (used by client portal and staff)    */
-function SongManager({ db, commit, clientId }) {
+function SongManager({ db, commit, clientId, isStaff }) {
   const client = db.clients.find((c) => c.id === clientId);
   const songs = useMemo(() => db.placements.filter((p) => p.clientId === clientId), [db.placements, clientId]);
   const [openId, setOpenId] = useState(null);
@@ -1537,17 +1552,30 @@ function SongManager({ db, commit, clientId }) {
   }, [active, editing]);
 
   const saveSong = async (o) => {
+    const placementId = o.id || uid();
+    const saved = { ...o, id: placementId, clientId };
     const placements = o.id
-      ? db.placements.map((p) => p.id === o.id ? o : p)
-      : [...db.placements, { ...o, id: uid(), clientId }];
+      ? db.placements.map((p) => p.id === o.id ? saved : p)
+      : [...db.placements, saved];
     await commit({ ...db, placements });
     setEditing(null);
+    // push to the pub sheet in the background — a slow/failed network call
+    // should never block or undo the local save that already succeeded.
+    const splits = (saved.splits || []).map((s) => ({
+      name: s.name === client?.name ? (client?.sheetTabName || client?.name) : s.name,
+      percent: s.percent,
+    }));
+    fetch("/api/sheets-push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ placementId, song: saved.song, artist: saved.artist, luminateId: saved.luminateId, splits }),
+    }).catch((err) => console.error("Sheet push failed:", err));
   };
   const removeSong = async (id) => {
     await commit({ ...db, placements: db.placements.filter((p) => p.id !== id) });
     setOpenId(null); setEditing(null);
   };
-  const startAdd = () => setEditing({ id: null, clientId, song: "", artist: client?.name || "", releaseDate: "", link: "", cover: "", notable: false, splits: [{ id: uid(), name: client?.name || "", role: client?.role || "", percent: 100 }] });
+  const startAdd = () => setEditing({ id: null, clientId, song: "", artist: client?.name || "", releaseDate: "", link: "", cover: "", notable: false, luminateId: "", splits: [{ id: uid(), name: client?.name || "", role: client?.role || "", percent: 100 }] });
 
   return (
     <>
@@ -1555,6 +1583,11 @@ function SongManager({ db, commit, clientId }) {
         <div>
           <h2>Songs &amp; splits</h2>
           <p className="muted">{songs.length} song{songs.length === 1 ? "" : "s"} · click any to see the breakdown.</p>
+          {!isStaff && db.sheetSync?.lastSyncedAt && (
+            <p className="muted">
+              {fmt(client?.totalStreams || 0)} total streams as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+            </p>
+          )}
         </div>
         <button className="btn sm" onClick={startAdd}><Plus size={15} /> Add song</button>
       </div>
@@ -1605,6 +1638,18 @@ function SongManager({ db, commit, clientId }) {
                   <span>Total</span><span className={splitTotal(active.splits) === 100 ? "split-ok" : "split-warn"}>{splitTotal(active.splits)}%</span>
                 </div>
               </div>
+              {db.sheetSync?.lastSyncedAt && (
+                <div className="split-list">
+                  <div className="split-list-row"><span className="split-name">Streams</span><span className="split-pct">{fmt(active.streams)}</span></div>
+                  {isStaff && (
+                    <>
+                      <div className="split-list-row"><span className="split-name">Gross revenue</span><span className="split-pct">${fmt(active.revenue?.toFixed(2))}</span></div>
+                      <div className="split-list-row"><span className="split-name">Admin fee</span><span className="split-pct">${fmt(active.adminFee?.toFixed(2))}</span></div>
+                    </>
+                  )}
+                  <p className="hint">as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</p>
+                </div>
+              )}
             </div>
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => removeSong(active.id)}>Delete</button>
@@ -1626,6 +1671,9 @@ function SongManager({ db, commit, clientId }) {
               <Field label="Release date" type="date" value={editing.releaseDate} onChange={(ev) => setEditing({ ...editing, releaseDate: ev.target.value })} />
               <Field label="Streaming link" value={editing.link} onChange={(ev) => setEditing({ ...editing, link: ev.target.value })} />
               <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} />
+              {isStaff && (
+                <Field label="Luminate ID" value={editing.luminateId || ""} onChange={(ev) => setEditing({ ...editing, luminateId: ev.target.value })} hint="Leave blank if you haven't looked it up yet — the pub sheet row will just come through blank until you fill it in there." />
+              )}
               <label className="check-row">
                 <input type="checkbox" checked={!!editing.notable} onChange={(ev) => setEditing({ ...editing, notable: ev.target.checked })} />
                 <span>Feature as a Notable Release on your artist profile.</span>
@@ -1663,13 +1711,64 @@ function ClientPortal({ db, commit, session, logout }) {
 }
 
 /* staff: full client catalog with splits ------------------------------ */
+const normalizeTitle = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
 function CatalogAdmin({ db, commit }) {
   const [clientId, setClientId] = useState(db.clients[0]?.id || null);
   const client = db.clients.find((c) => c.id === clientId);
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;
+  const [syncing, setSyncing] = useState(false);
+  const [syncErr, setSyncErr] = useState(null);
+
+  const syncFromSheet = async () => {
+    setSyncing(true); setSyncErr(null);
+    try {
+      const res = await fetch("/api/sheets-pull", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clients: db.clients.map((c) => ({ id: c.id, name: c.name, sheetTabName: c.sheetTabName })) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Sync failed");
+
+      const totalsByClient = {};
+      const rowsByClient = {};
+      for (const c of data.clients) {
+        totalsByClient[c.clientId] = c.totalStreams;
+        rowsByClient[c.clientId] = c.rows;
+      }
+      const placements = db.placements.map((p) => {
+        const rows = rowsByClient[p.clientId] || [];
+        const bySyncId = rows.find((r) => r.syncId && r.syncId.split(":")[0] === p.id);
+        const row = bySyncId || rows.find((r) => !r.syncId && normalizeTitle(r.song) === normalizeTitle(p.song));
+        if (!row) return p;
+        return {
+          ...p,
+          streams: row.grossStreams,
+          revenue: row.grossRevenue,
+          adminFee: row.adminFee,
+          luminateId: p.luminateId || row.luminateId,
+        };
+      });
+      const clients = db.clients.map((c) => ({ ...c, totalStreams: totalsByClient[c.id] ?? c.totalStreams }));
+      await commit({ ...db, placements, clients, sheetSync: { lastSyncedAt: data.syncedAt } });
+    } catch (err) {
+      setSyncErr(err.message || "Sync failed.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <div>
-      <div className="admin-head"><h2>Clients &amp; catalog</h2></div>
+      <div className="admin-head">
+        <h2>Clients &amp; catalog</h2>
+        <div className="sync-block">
+          <button className="btn ghost sm" onClick={syncFromSheet} disabled={syncing}>{syncing ? "Syncing…" : "Sync from sheet"}</button>
+          {db.sheetSync?.lastSyncedAt && <span className="hint">as of {new Date(db.sheetSync.lastSyncedAt).toLocaleString()}</span>}
+          {syncErr && <span className="hint err-text">{syncErr}</span>}
+        </div>
+      </div>
       <div className="catalog-wrap">
         <div className="catalog-clients">
           {db.clients.map((c) => (
@@ -1681,7 +1780,7 @@ function CatalogAdmin({ db, commit }) {
           ))}
         </div>
         <div className="catalog-main">
-          {client ? <SongManager db={db} commit={commit} clientId={clientId} /> : <p className="muted">Select a client.</p>}
+          {client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff /> : <p className="muted">Select a client.</p>}
         </div>
       </div>
     </div>
@@ -2011,6 +2110,9 @@ function StyleTag() {
     .dash-role{font-size:12px;color:var(--mut2);letter-spacing:.06em;margin-bottom:22px;text-transform:uppercase}
 
     .admin-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    .sync-block{display:flex;align-items:center;gap:12px}
+    .sync-block .hint{margin-top:0}
+    .sync-block .err-text{color:#e59a9a}
     .admin-head h2{font-size:22px;margin:0}
     .admin-table{border:1px solid var(--line);border-radius:12px;overflow:hidden}
     .admin-row{display:grid;grid-template-columns:var(--cols, 1fr 1fr 1fr 72px);gap:14px;align-items:center;padding:13px 16px;border-bottom:1px solid var(--line);font-size:13.5px}
