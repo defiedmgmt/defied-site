@@ -962,7 +962,7 @@ function PublicNav({ route, go, menuOpen, setMenuOpen, session }) {
 function Footer() {
   return (
     <footer className="footer">
-      <div className="foot-copy">© {new Date().getFullYear()} Defied MGMT. All rights reserved.</div>
+      <div className="foot-copy">© {new Date().getFullYear()} Defied Management. All rights reserved.</div>
       <div className="foot-social">
         <ExtLink href="https://instagram.com/defiedmgmt" label="Instagram"><Instagram size={20} /></ExtLink>
         <ExtLink href="https://x.com/defiedmgmt" className="x-link" label="X">𝕏</ExtLink>
@@ -1933,7 +1933,6 @@ function StyleTag() {
     .team-links a:hover,.ros-links a:hover{color:var(--ink)}
 
     /* artist detail panel */
-    .artist-overlay{padding:0;align-items:stretch;justify-content:stretch;overflow:hidden}
     .artist-panel{position:relative;width:100%;height:100%;background:var(--bg);padding:56px clamp(24px,6vw,80px) 80px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;text-align:left;animation:fadeIn .3s ease both}
     .modal-x{position:fixed;top:22px;right:26px;background:none;border:none;color:var(--mut);z-index:65}
     .modal-x:hover{color:var(--ink)}
@@ -2035,6 +2034,7 @@ function StyleTag() {
 
     /* modal */
     .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;z-index:60;overflow-y:auto}
+    .artist-overlay{padding:0;align-items:stretch;justify-content:stretch;overflow:hidden}
     .crop-overlay{align-items:center;z-index:80}
     .crop-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:100%;max-width:380px;animation:popIn .28s cubic-bezier(.22,.61,.36,1) both}
     .crop-body{padding:22px;display:flex;flex-direction:column;align-items:center;gap:16px}
@@ -2230,6 +2230,7 @@ function StyleTag() {
       .foot-social{gap:12px}
       /* modals sit comfortably in view on phones */
       .modal{align-items:flex-start;padding:16px 14px 28px}
+      .artist-overlay{padding:0}
       .modal-body{padding:18px}
       .modal-head{padding:16px 18px}
       .song-detail-top{gap:12px}
