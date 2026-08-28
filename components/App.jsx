@@ -1544,6 +1544,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
   const [openId, setOpenId] = useState(null);
   const [editing, setEditing] = useState(null);
   const active = songs.find((p) => p.id === openId);
+  const [pushWarn, setPushWarn] = useState(null);
   useEffect(() => {
     if (!active && !editing) return;
     const prev = document.body.style.overflow;
@@ -1560,7 +1561,10 @@ function SongManager({ db, commit, clientId, isStaff }) {
     await commit({ ...db, placements });
     setEditing(null);
     // push to the pub sheet in the background — a slow/failed network call
-    // should never block or undo the local save that already succeeded.
+    // should never block or undo the local save that already succeeded —
+    // but staff still need to know if the sheet side silently fell out of
+    // sync, so surface (not throw) whatever the route reports.
+    setPushWarn(null);
     const splits = (saved.splits || []).map((s) => ({
       name: s.name === client?.name ? (client?.sheetTabName || client?.name) : s.name,
       percent: s.percent,
@@ -1569,7 +1573,14 @@ function SongManager({ db, commit, clientId, isStaff }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ placementId, song: saved.song, artist: saved.artist, luminateId: saved.luminateId, splits }),
-    }).catch((err) => console.error("Sheet push failed:", err));
+    }).then(async (res) => {
+      if (res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || `Sheet sync failed (${res.status})`);
+    }).catch((err) => {
+      console.error("Sheet push failed:", err);
+      if (isStaff) setPushWarn(err.message || "Sheet sync failed — the local save is fine, but the pub sheet wasn't updated.");
+    });
   };
   const removeSong = async (id) => {
     await commit({ ...db, placements: db.placements.filter((p) => p.id !== id) });
@@ -1588,6 +1599,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
               {fmt(client?.totalStreams || 0)} total streams as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
             </p>
           )}
+          {isStaff && pushWarn && <p className="hint err-text">{pushWarn}</p>}
         </div>
         <button className="btn sm" onClick={startAdd}><Plus size={15} /> Add song</button>
       </div>
@@ -1719,6 +1731,22 @@ function CatalogAdmin({ db, commit }) {
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;
   const [syncing, setSyncing] = useState(false);
   const [syncErr, setSyncErr] = useState(null);
+  const [addingClient, setAddingClient] = useState(false);
+  const [newClientForm, setNewClientForm] = useState({ name: "", role: "Producer" });
+
+  const addClient = async () => {
+    const name = newClientForm.name.trim();
+    if (!name) return;
+    const client = {
+      id: uid(), name, role: newClientForm.role, credit: "", bio: "", photo: "",
+      spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "",
+      sheetTabName: "", totalStreams: 0,
+    };
+    await commit({ ...db, clients: [...db.clients, client] });
+    setClientId(client.id);
+    setAddingClient(false);
+    setNewClientForm({ name: "", role: "Producer" });
+  };
 
   const syncFromSheet = async () => {
     setSyncing(true); setSyncErr(null);
@@ -1771,6 +1799,7 @@ function CatalogAdmin({ db, commit }) {
       </div>
       <div className="catalog-wrap">
         <div className="catalog-clients">
+          <button className="cc cc-add" onClick={() => setAddingClient(true)}><Plus size={14} /> Add client</button>
           {db.clients.map((c) => (
             <button key={c.id} className={c.id === clientId ? "cc active" : "cc"} onClick={() => setClientId(c.id)}>
               <Avatar src={c.photo} name={c.name} size={30} />
@@ -1783,6 +1812,27 @@ function CatalogAdmin({ db, commit }) {
           {client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff /> : <p className="muted">Select a client.</p>}
         </div>
       </div>
+
+      {addingClient && (
+        <div className="modal" onClick={(e) => e.target === e.currentTarget && setAddingClient(false)}>
+          <div className="modal-card">
+            <div className="modal-head"><h3>New client</h3><button onClick={() => setAddingClient(false)}><X size={18} /></button></div>
+            <div className="modal-body">
+              <Field label="Name" value={newClientForm.name} onChange={(ev) => setNewClientForm({ ...newClientForm, name: ev.target.value })} onKeyDown={(ev) => ev.key === "Enter" && addClient()} />
+              <label className="fld"><span>Role</span>
+                <select value={newClientForm.role} onChange={(ev) => setNewClientForm({ ...newClientForm, role: ev.target.value })}>
+                  <option>Producer</option><option>Artist</option><option>Producer / Artist</option>
+                </select>
+              </label>
+              <p className="hint">Add a photo, bio, and socials any time from Website → Roster. Their pub sheet tab is created automatically the first time you add a song for them.</p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost sm" onClick={() => setAddingClient(false)}>Cancel</button>
+              <button className="btn sm" onClick={addClient} disabled={!newClientForm.name.trim()}>Add client</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2234,6 +2284,8 @@ function StyleTag() {
     .cc:hover{background:var(--panel2)}
     .cc.active{background:var(--panel2)}
     .cc-name{flex:1;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .cc-add{border:1px dashed var(--line);color:var(--mut);font-size:13px;justify-content:center;margin-bottom:2px}
+    .cc-add:hover{color:var(--ink);border-color:var(--mut2);background:var(--panel2)}
     .cc-count{color:var(--mut2);font-size:12px;font-variant-numeric:tabular-nums}
     .catalog-main{min-width:0}
 
