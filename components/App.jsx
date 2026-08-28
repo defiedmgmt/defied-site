@@ -29,8 +29,9 @@ async function loadDB() {
   return null;
 }
 async function saveDB(db) {
-  if (!hasStore()) return;
-  try { window.localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { /* ignore */ }
+  if (!hasStore()) return true; // nothing to persist to (SSR) — not a failure
+  try { window.localStorage.setItem(KEY, JSON.stringify(db)); return true; }
+  catch (e) { return false; } // most likely quota exceeded — caller surfaces this
 }
 
 /* ------------------------------------------------------------------ */
@@ -809,6 +810,7 @@ export default function App() {
   const [route, setRoute] = useState("home");
   const [session, setSession] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [storageWarn, setStorageWarn] = useState(false);
 
   // hydrate from persistent storage if available; if it fails or is absent, keep the seed.
   // merge over a fresh seed so a stale save can never blank out a whole section.
@@ -904,7 +906,16 @@ export default function App() {
     return () => { alive = false; };
   }, []);
 
-  const commit = async (next) => { setDb(next); saveDB(next); };
+  const commit = async (next) => {
+    setDb(next);
+    const ok = await saveDB(next);
+    // Every write is JSON-serialized straight into localStorage (photos and
+    // covers included, as base64), so a bad-luck browser quota can silently
+    // drop a save — the in-memory state still looks fine until the next
+    // reload wipes it back to whatever last actually persisted. Surface it
+    // immediately rather than let staff discover it days later.
+    setStorageWarn(!ok);
+  };
 
   const go = (r) => { setRoute(r); setMenuOpen(false); window.scrollTo(0, 0); };
 
@@ -924,6 +935,12 @@ export default function App() {
   return (
     <div className="app">
       <StyleTag />
+      {storageWarn && (
+        <div className="storage-warn">
+          Your last change couldn't be saved — this browser's storage is full (usually from too many
+          uploaded photos). Remove a photo or two, then try again, or it won't stick past this session.
+        </div>
+      )}
       {!inPortal && (
         <PublicNav route={route} go={go} menuOpen={menuOpen} setMenuOpen={setMenuOpen} session={session} />
       )}
@@ -1931,6 +1948,9 @@ function StyleTag() {
       display:flex;flex-direction:column;
       font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
       -webkit-font-smoothing:antialiased;line-height:1.5}
+
+    .storage-warn{position:sticky;top:0;z-index:400;background:#3a1f1f;color:#f2c9c9;font-size:13px;
+      text-align:center;padding:10px 20px;border-bottom:1px solid #5a2c2c}
 
     /* smooth entrance on load + navigation */
     @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
