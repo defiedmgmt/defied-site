@@ -1330,6 +1330,51 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
   );
 }
 
+// Shared by ClientsAdmin (Website -> Roster) and CatalogAdmin (Clients tab) —
+// deleting a client removes them and every one of their songs locally, then
+// clears each song's row off the pub sheet (only this client's own row —
+// never a co-writer's) and finally releases the client's own tab back into
+// the generic WRITER pool. Returns a warning string on partial failure, or
+// null if everything cleared cleanly.
+async function deleteClientCascade(db, commit, id) {
+  const client = db.clients.find((c) => c.id === id);
+  const clientPlacements = db.placements.filter((p) => p.clientId === id);
+  await commit({ ...db, clients: db.clients.filter((c) => c.id !== id), placements: db.placements.filter((p) => p.clientId !== id) });
+
+  const results = await Promise.allSettled(
+    clientPlacements
+      .filter((p) => (p.splits || []).some((s) => s.name === client?.name))
+      .map(async (p) => {
+        const splits = [{ name: client?.sheetTabName || client?.name }];
+        const res = await fetch("/api/sheets-delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ placementId: p.id, splits }),
+        });
+        if (!res.ok) throw new Error(p.song);
+      })
+  );
+  const failed = results.filter((r) => r.status === "rejected").length;
+  if (failed) {
+    return `Deleted locally, but ${failed} of ${clientPlacements.length} song row${clientPlacements.length === 1 ? "" : "s"} couldn't be cleared from the pub sheet. Check it manually if needed.`;
+  }
+
+  try {
+    const tabName = client?.sheetTabName || client?.name;
+    if (tabName) {
+      const res = await fetch("/api/sheets-release-tab", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tabName }),
+      });
+      if (!res.ok) throw new Error();
+    }
+  } catch {
+    return `Deleted and cleared their songs, but couldn't reset their tab on the pub sheet. It'll just sit empty under their old name — harmless, but you can rename it back to a WRITER slot by hand if you'd like.`;
+  }
+  return null;
+}
+
 function ClientsAdmin({ db, commit }) {
   const cols = [
     { key: "name", label: "Name", render: (c) => <span className="cell-name"><Avatar src={c.photo} name={c.name} size={30} />{c.name}</span> },
@@ -1342,27 +1387,9 @@ function ClientsAdmin({ db, commit }) {
     await commit({ ...db, clients });
   };
   const del = async (id) => {
-    const client = db.clients.find((c) => c.id === id);
-    const clientPlacements = db.placements.filter((p) => p.clientId === id);
-    await commit({ ...db, clients: db.clients.filter((c) => c.id !== id), placements: db.placements.filter((p) => p.clientId !== id) });
     setDeleteWarn(null);
-    // deleting a client takes every one of their songs with it — clear each
-    // one off the pub sheet too, same as a single-song delete would.
-    const results = await Promise.allSettled(clientPlacements.map(async (p) => {
-      const splits = (p.splits || []).map((s) => ({
-        name: s.name === client?.name ? (client?.sheetTabName || client?.name) : s.name,
-      }));
-      const res = await fetch("/api/sheets-delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ placementId: p.id, splits }),
-      });
-      if (!res.ok) throw new Error(p.song);
-    }));
-    const failed = results.filter((r) => r.status === "rejected").length;
-    if (failed) {
-      setDeleteWarn(`Deleted locally, but ${failed} of ${clientPlacements.length} song row${clientPlacements.length === 1 ? "" : "s"} couldn't be cleared from the pub sheet. Check it manually if needed.`);
-    }
+    const warn = await deleteClientCascade(db, commit, id);
+    if (warn) setDeleteWarn(warn);
   };
   const reorder = async (id, dir) => {
     const i = db.clients.findIndex((c) => c.id === id);
@@ -1625,10 +1652,13 @@ function SongManager({ db, commit, clientId, isStaff }) {
     // but staff still need to know if the sheet side silently fell out of
     // sync, so surface (not throw) whatever the route reports.
     setPushWarn(null);
-    const splits = (saved.splits || []).map((s) => ({
-      name: s.name === client?.name ? (client?.sheetTabName || client?.name) : s.name,
-      percent: s.percent,
-    }));
+    // only ever push the split that belongs to whoever's catalog page this
+    // is — a co-writer typed into another split is just a name on the site,
+    // not someone we auto-provision sheet tracking for. If that person is
+    // also a client, their own row comes from adding this same song under
+    // their own page, the same way this one did.
+    const mine = (saved.splits || []).find((s) => s.name === client?.name);
+    const splits = mine ? [{ name: client?.sheetTabName || client?.name, percent: mine.percent }] : [];
     fetch("/api/sheets-push", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1647,9 +1677,9 @@ function SongManager({ db, commit, clientId, isStaff }) {
     await commit({ ...db, placements: db.placements.filter((p) => p.id !== id) });
     setOpenId(null); setEditing(null);
     if (!target) return;
-    const splits = (target.splits || []).map((s) => ({
-      name: s.name === client?.name ? (client?.sheetTabName || client?.name) : s.name,
-    }));
+    const mine = (target.splits || []).find((s) => s.name === client?.name);
+    if (!mine) return; // nothing was ever pushed under this client for this song
+    const splits = [{ name: client?.sheetTabName || client?.name }];
     fetch("/api/sheets-delete", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1810,6 +1840,7 @@ function CatalogAdmin({ db, commit }) {
   const [syncErr, setSyncErr] = useState(null);
   const [addingClient, setAddingClient] = useState(false);
   const [newClientForm, setNewClientForm] = useState({ name: "", role: "Producer" });
+  const [deleteWarn, setDeleteWarn] = useState(null);
 
   const addClient = async () => {
     const name = newClientForm.name.trim();
@@ -1823,6 +1854,16 @@ function CatalogAdmin({ db, commit }) {
     setClientId(client.id);
     setAddingClient(false);
     setNewClientForm({ name: "", role: "Producer" });
+  };
+
+  const removeClient = async (c) => {
+    const n = db.placements.filter((p) => p.clientId === c.id).length;
+    const ok = window.confirm(`Delete ${c.name}? This also permanently deletes their ${n} song${n === 1 ? "" : "s"}, clears them from the pub sheet, and removes them from the public roster if they're on it. This can't be undone.`);
+    if (!ok) return;
+    setDeleteWarn(null);
+    if (clientId === c.id) setClientId(db.clients.find((x) => x.id !== c.id)?.id || null);
+    const warn = await deleteClientCascade(db, commit, c.id);
+    if (warn) setDeleteWarn(warn);
   };
 
   const syncFromSheet = async () => {
@@ -1924,12 +1965,16 @@ function CatalogAdmin({ db, commit }) {
       <div className="catalog-wrap">
         <div className="catalog-clients">
           <button className="cc cc-add" onClick={() => setAddingClient(true)}><Plus size={14} /> Add client</button>
+          {deleteWarn && <p className="hint err-text">{deleteWarn}</p>}
           {db.clients.map((c) => (
-            <button key={c.id} className={c.id === clientId ? "cc active" : "cc"} onClick={() => setClientId(c.id)}>
-              <Avatar src={c.photo} name={c.name} size={30} />
-              <span className="cc-name">{c.name}</span>
-              <span className="cc-count">{count(c.id)}</span>
-            </button>
+            <div key={c.id} className="cc-row">
+              <button className={c.id === clientId ? "cc active" : "cc"} onClick={() => setClientId(c.id)}>
+                <Avatar src={c.photo} name={c.name} size={30} />
+                <span className="cc-name">{c.name}</span>
+                <span className="cc-count">{count(c.id)}</span>
+              </button>
+              <button className="cc-del" onClick={() => removeClient(c)} title={`Delete ${c.name}`}><Trash2 size={13} /></button>
+            </div>
           ))}
         </div>
         <div className="catalog-main">
@@ -2410,6 +2455,10 @@ function StyleTag() {
     .cc{display:flex;align-items:center;gap:10px;background:none;border:none;color:var(--ink);padding:8px 10px;border-radius:8px;cursor:pointer;text-align:left;width:100%}
     .cc:hover{background:var(--panel2)}
     .cc.active{background:var(--panel2)}
+    .cc-row{display:flex;align-items:center;gap:2px}
+    .cc-row .cc{flex:1;width:auto}
+    .cc-del{background:none;border:none;color:var(--mut2);padding:6px;border-radius:6px;cursor:pointer;display:flex;align-items:center;flex-shrink:0;transition:color .15s ease,background-color .15s ease}
+    .cc-del:hover{color:#e59a9a;background:var(--panel2)}
     .cc-name{flex:1;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .cc-add{border:1px dashed var(--line);color:var(--mut);font-size:13px;justify-content:center;margin-bottom:2px}
     .cc-add:hover{color:var(--ink);border-color:var(--mut2);background:var(--panel2)}
@@ -2482,6 +2531,7 @@ function StyleTag() {
       .song-grid{grid-template-columns:repeat(2,1fr);gap:16px}
       .catalog-wrap{grid-template-columns:1fr}
       .catalog-clients{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;max-height:none}
+      .cc-row{flex-shrink:0}
       .cc{flex-direction:column;gap:4px;min-width:76px;text-align:center}
       .cc .cc-count{display:none}
       .artist-top{grid-template-columns:1fr;gap:26px}
