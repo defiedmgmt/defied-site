@@ -1640,6 +1640,28 @@ function SongManager({ db, commit, clientId, isStaff }) {
   }, [active, editing]);
 
   const saveSong = async (o) => {
+    // catch likely duplicates before they happen — same title plus at least
+    // one more matching signal (the credited artist, or a shared name in
+    // the splits) is "probably a dupe"; same title alone isn't (two real,
+    // different songs can share a title with different people on them).
+    const normTitle = normalizeTitle(o.song);
+    const normArtist = normalizeTitle(o.artist);
+    const myName = normalizeTitle(client?.name);
+    // exclude the client's own name — they're on every song on their own
+    // page, so that alone would "match" any two same-titled entries.
+    const mySplitNames = new Set((o.splits || []).map((s) => normalizeTitle(s.name)).filter((n) => n && n !== myName));
+    const possibleDup = songs.find((p) => {
+      if (p.id === o.id) return false;
+      if (normalizeTitle(p.song) !== normTitle || !normTitle) return false;
+      const artistMatch = normArtist && normalizeTitle(p.artist) === normArtist;
+      const splitMatch = (p.splits || []).some((s) => mySplitNames.has(normalizeTitle(s.name)));
+      return artistMatch || splitMatch;
+    });
+    if (possibleDup) {
+      const n = (possibleDup.splits || []).length;
+      const ok = window.confirm(`This looks like it might already exist here: "${possibleDup.song}" by ${possibleDup.artist || "—"} (${n} split${n === 1 ? "" : "s"}). Save this as a separate song anyway?`);
+      if (!ok) return;
+    }
     const placementId = o.id || uid();
     const saved = { ...o, id: placementId, clientId };
     const placements = o.id
