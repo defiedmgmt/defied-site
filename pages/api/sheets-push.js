@@ -6,7 +6,7 @@
 // duplicating it.
 import {
   getSheetsClient, getSheetId, listTabs, findTab,
-  claimTabForNewCollaborator, findRowBySyncId, writeSongRow, appendSongRow,
+  claimTabForNewCollaborator, findRowBySyncId, findUnclaimedRowByTitle, writeSongRow, appendSongRow,
 } from "../../lib/sheets";
 
 export default async function handler(req, res) {
@@ -36,7 +36,12 @@ export default async function handler(req, res) {
       }
 
       const syncId = `${placementId}:${name.toLowerCase()}`;
-      const existingRow = await findRowBySyncId(sheets, spreadsheetId, tab.title, syncId);
+      // an already-claimed row (has this exact syncId) always wins; failing
+      // that, a real pre-existing row with the same title and no Site Sync
+      // ID of its own is almost certainly this same song typed in before
+      // this feature existed — claim it instead of appending a duplicate.
+      const existingRow = await findRowBySyncId(sheets, spreadsheetId, tab.title, syncId)
+        ?? await findUnclaimedRowByTitle(sheets, spreadsheetId, tab.title, song);
       const payload = { song, artist: artist || "", percent, luminateId, syncId };
       if (existingRow) {
         await writeSongRow(sheets, spreadsheetId, tab.title, existingRow, payload);
