@@ -1919,9 +1919,15 @@ function CatalogAdmin({ db, commit }) {
       const claims = [];
       for (const c of db.clients) {
         const rows = rowsByClient[c.id] || [];
+        // seen tracks titles claimed *within this pass* too — two unclaimed
+        // rows sharing a title (a re-typed duplicate, a copy-paste mistake)
+        // must only ever produce one new placement, not one each.
+        const seen = existingTitles.get(c.id) || new Set();
         for (const row of rows) {
           if (claimedRows.has(`${c.id}:${row.row}`)) continue;
-          if (existingTitles.get(c.id)?.has(normalizeTitle(row.song))) continue;
+          const title = normalizeTitle(row.song);
+          if (seen.has(title)) continue;
+          seen.add(title);
           const id = uid();
           created.push({
             id, clientId: c.id, song: row.song, artist: row.artist || c.name,
