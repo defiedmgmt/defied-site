@@ -6,7 +6,7 @@
 // duplicating it.
 import {
   getSheetsClient, getSheetId, listTabs, findTab,
-  claimTabForNewCollaborator, findRowBySyncId, findUnclaimedRowByTitle, writeSongRow, appendSongRow,
+  claimTabForNewCollaborator, findRowBySyncId, findRowByLuminateId, findUnclaimedRowByTitle, writeSongRow, appendSongRow,
 } from "../../lib/sheets";
 
 export default async function handler(req, res) {
@@ -36,11 +36,17 @@ export default async function handler(req, res) {
       }
 
       const syncId = `${placementId}:${name.toLowerCase()}`;
-      // an already-claimed row (has this exact syncId) always wins; failing
-      // that, a real pre-existing row with the same title and no Site Sync
-      // ID of its own is almost certainly this same song typed in before
-      // this feature existed — claim it instead of appending a duplicate.
+      // priority: (1) this exact syncId already owns a row — the normal
+      // case; (2) the Luminate ID is the one field that identifies the
+      // actual song regardless of what the site currently says about it —
+      // title/artist/splits can all change, so a shared Luminate ID means
+      // "this is obviously the same song" even if the local placement's id
+      // changed (deleted and re-added, a stale re-sync) and its old syncId
+      // is now sitting on the row unmatched; (3) a real pre-existing row
+      // with the same title and no Site Sync ID of its own is almost
+      // certainly this song typed in before this feature existed.
       const existingRow = await findRowBySyncId(sheets, spreadsheetId, tab.title, syncId)
+        ?? (luminateId ? await findRowByLuminateId(sheets, spreadsheetId, tab.title, luminateId) : null)
         ?? await findUnclaimedRowByTitle(sheets, spreadsheetId, tab.title, song);
       const payload = { song, artist: artist || "", percent, luminateId, syncId };
       if (existingRow) {
