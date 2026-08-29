@@ -382,7 +382,7 @@ function seed() {
     return {
       id: uid(), name, role, credit: "", bio: "", photo: `${IMG}/roster/${img}`,
       spotify, apple: "", instagram, tiktok, youtube, soundcloud,
-      sheetTabName: "", totalStreams: 0,
+      sheetTabName: "", totalStreams: 0, onRoster: true,
     };
   });
 
@@ -782,7 +782,7 @@ function SplitsPie({ splits, size = 220 }) {
 function SplitsEditor({ splits, onChange }) {
   const rows = splits || [];
   const update = (id, key, val) => onChange(rows.map((r) => r.id === id ? { ...r, [key]: val } : r));
-  const add = () => onChange([...rows, { id: uid(), name: "", role: "", percent: 0 }]);
+  const add = () => onChange([...rows, { id: uid(), name: "", role: "", percent: 50 }]);
   const remove = (id) => onChange(rows.filter((r) => r.id !== id));
   const total = splitTotal(rows);
   return (
@@ -856,6 +856,11 @@ export default function App() {
             ...withSocials,
             sheetTabName: withSocials.sheetTabName || "",
             totalStreams: withSocials.totalStreams || 0,
+            // a save from before this toggle existed predates it because the
+            // client was already live on the public roster — never silently
+            // pull an existing client off the site. Only a client created
+            // after this shipped starts hidden (see addClient/ClientsAdmin).
+            onRoster: withSocials.onRoster === undefined ? true : withSocials.onRoster,
           };
         });
         if (!merged.sheetSync) merged.sheetSync = { lastSyncedAt: null };
@@ -1100,7 +1105,7 @@ function Roster({ db }) {
     <main className="page page-wide">
       <h1 className="page-head font-display">Roster</h1>
       <div className="ros-grid">
-        {db.clients.map((c) => (
+        {db.clients.filter((c) => c.onRoster !== false).map((c) => (
           <button key={c.id} className="ros-card" onClick={() => setActive(c)}>
             <div className="ros-photo">
               {c.photo ? <Photo src={c.photo} alt={c.name} fill /> : <div className="ros-photo-empty">{c.name[0].toUpperCase()}</div>}
@@ -1324,6 +1329,7 @@ function ClientsAdmin({ db, commit }) {
   const cols = [
     { key: "name", label: "Name", render: (c) => <span className="cell-name"><Avatar src={c.photo} name={c.name} size={30} />{c.name}</span> },
     { key: "role", label: "Role" }, { key: "credit", label: "Credit" },
+    { key: "onRoster", label: "Public", render: (c) => c.onRoster !== false ? <span className="badge-yes"><Check size={12} /> Live</span> : <span className="badge-no">Hidden</span> },
   ];
   const save = async (o) => {
     const clients = o.id ? db.clients.map((c) => c.id === o.id ? o : c) : [...db.clients, { ...o, id: uid() }];
@@ -1342,10 +1348,14 @@ function ClientsAdmin({ db, commit }) {
     <div>
     <p className="muted mb">Order here is the order they appear on the public Roster page — use the arrows to move someone up or down.</p>
     <Editor title="Clients" items={db.clients} columns={cols}
-      blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "", sheetTabName: "" }}
+      blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "", sheetTabName: "", onRoster: false }}
       onSave={save} onDelete={del} onReorder={reorder}
       extra={(e, set) => (
         <>
+          <label className="check-row">
+            <input type="checkbox" checked={e.onRoster !== false} onChange={(ev) => set({ ...e, onRoster: ev.target.checked })} />
+            <span>Show on the public roster page.</span>
+          </label>
           <Field label="Name" value={e.name} onChange={(ev) => set({ ...e, name: ev.target.value })} />
           <label className="fld"><span>Role</span>
             <select value={e.role} onChange={(ev) => set({ ...e, role: ev.target.value })}>
@@ -1620,7 +1630,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
       if (isStaff) setPushWarn(err.message || "Deleted locally, but the pub sheet row wasn't cleared.");
     });
   };
-  const startAdd = () => setEditing({ id: null, clientId, song: "", artist: client?.name || "", releaseDate: "", link: "", cover: "", notable: false, luminateId: "", splits: [{ id: uid(), name: client?.name || "", role: client?.role || "", percent: 100 }] });
+  const startAdd = () => setEditing({ id: null, clientId, song: "", artist: client?.name || "", releaseDate: "", link: "", cover: "", notable: false, luminateId: "", splits: [{ id: uid(), name: client?.name || "", role: client?.role || "", percent: 0 }] });
 
   return (
     <>
@@ -1774,7 +1784,7 @@ function CatalogAdmin({ db, commit }) {
     const client = {
       id: uid(), name, role: newClientForm.role, credit: "", bio: "", photo: "",
       spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "",
-      sheetTabName: "", totalStreams: 0,
+      sheetTabName: "", totalStreams: 0, onRoster: false,
     };
     await commit({ ...db, clients: [...db.clients, client] });
     setClientId(client.id);
@@ -1905,7 +1915,7 @@ function CatalogAdmin({ db, commit }) {
                   <option>Producer</option><option>Artist</option><option>Producer / Artist</option>
                 </select>
               </label>
-              <p className="hint">Add a photo, bio, and socials any time from Website → Roster. Their pub sheet tab is created automatically the first time you add a song for them.</p>
+              <p className="hint">Starts hidden from the public roster. Add a photo, bio, socials, and publish them any time from Website → Roster. Their pub sheet tab is created automatically the first time you add a song for them.</p>
             </div>
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setAddingClient(false)}>Cancel</button>
