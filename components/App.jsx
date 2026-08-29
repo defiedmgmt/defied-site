@@ -1820,6 +1820,9 @@ function SongManager({ db, commit, clientId, isStaff }) {
                 <span>Feature as a Notable Release on your artist profile.</span>
               </label>
             </div>
+            {isStaff && splitTotal(editing.splits) <= 0 && (
+              <p className="hint err-text modal-save-warn">Nothing has a split percentage set — give at least one person a % above 0, or this song saves here but won't sync to the pub sheet at all.</p>
+            )}
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button>
               <button className="btn sm" onClick={() => saveSong(editing)}>Save</button>
@@ -2362,7 +2365,8 @@ function StyleTag() {
     .admin-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
     .sync-block{display:flex;align-items:center;gap:12px}
     .sync-block .hint{margin-top:0}
-    .sync-block .err-text{color:#e59a9a}
+    .err-text{color:#e59a9a}
+    .modal-save-warn{margin:0 20px 14px;padding:10px 12px;border-radius:8px;background:#3a1f1f;border:1px solid #5a2c2c;font-size:13px}
     .admin-head h2{font-size:22px;margin:0}
     .admin-table{border:1px solid var(--line);border-radius:12px;overflow:hidden}
     .admin-row{display:grid;grid-template-columns:var(--cols, 1fr 1fr 1fr 72px);gap:14px;align-items:center;padding:13px 16px;border-bottom:1px solid var(--line);font-size:13.5px}
