@@ -46,6 +46,13 @@ export default async function handler(req, res) {
       results.push({ name, tab: tab.title, tabCreated: created, updated: !!existingRow });
     }
 
+    // every split was skipped (blank name or 0%) — nothing was written
+    // anywhere. That's silent data loss from the caller's point of view if
+    // it comes back looking like success, so make it a real error instead.
+    if (results.length === 0) {
+      return res.status(400).json({ error: "Nothing was synced — no split has a name and a percentage above 0%." });
+    }
+
     return res.status(200).json({ ok: true, results });
   } catch (err) {
     return res.status(502).json({ error: err.message || "Sheet push failed." });

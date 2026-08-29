@@ -1265,7 +1265,7 @@ function StaffDashboard({ db, commit, logout }) {
 }
 
 /* generic editable list ------------------------------------------------ */
-function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder }) {
+function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete }) {
   const [editing, setEditing] = useState(null); // object or null
   useEffect(() => {
     if (!editing) return;
@@ -1275,6 +1275,11 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
   }, [editing]);
   const start = (obj) => setEditing(obj ? { ...obj } : { id: null, ...blank });
   const save = async () => { await onSave(editing); setEditing(null); };
+  const remove = (it) => {
+    const label = it.name || it.song || it.email || "this entry";
+    const msg = confirmDelete ? confirmDelete(it) : `Delete "${label}"? This can't be undone.`;
+    if (window.confirm(msg)) onDelete(it.id);
+  };
   const gridCols = { "--cols": columns.map((c) => c.w || "1fr").join(" ") + (onReorder ? " 128px" : " 72px") };
   const atMax = !!maxItems && items.length >= maxItems;
   return (
@@ -1300,7 +1305,7 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
                 </>
               )}
               <button onClick={() => start(it)}><Pencil size={14} /></button>
-              <button onClick={() => onDelete(it.id)}><Trash2 size={14} /></button>
+              <button onClick={() => remove(it)}><Trash2 size={14} /></button>
             </span>
           </div>
         ))}
@@ -1331,11 +1336,34 @@ function ClientsAdmin({ db, commit }) {
     { key: "role", label: "Role" }, { key: "credit", label: "Credit" },
     { key: "onRoster", label: "Public", render: (c) => c.onRoster !== false ? <span className="badge-yes"><Check size={12} /> Live</span> : <span className="badge-no">Hidden</span> },
   ];
+  const [deleteWarn, setDeleteWarn] = useState(null);
   const save = async (o) => {
     const clients = o.id ? db.clients.map((c) => c.id === o.id ? o : c) : [...db.clients, { ...o, id: uid() }];
     await commit({ ...db, clients });
   };
-  const del = async (id) => commit({ ...db, clients: db.clients.filter((c) => c.id !== id), placements: db.placements.filter((p) => p.clientId !== id) });
+  const del = async (id) => {
+    const client = db.clients.find((c) => c.id === id);
+    const clientPlacements = db.placements.filter((p) => p.clientId === id);
+    await commit({ ...db, clients: db.clients.filter((c) => c.id !== id), placements: db.placements.filter((p) => p.clientId !== id) });
+    setDeleteWarn(null);
+    // deleting a client takes every one of their songs with it — clear each
+    // one off the pub sheet too, same as a single-song delete would.
+    const results = await Promise.allSettled(clientPlacements.map(async (p) => {
+      const splits = (p.splits || []).map((s) => ({
+        name: s.name === client?.name ? (client?.sheetTabName || client?.name) : s.name,
+      }));
+      const res = await fetch("/api/sheets-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ placementId: p.id, splits }),
+      });
+      if (!res.ok) throw new Error(p.song);
+    }));
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed) {
+      setDeleteWarn(`Deleted locally, but ${failed} of ${clientPlacements.length} song row${clientPlacements.length === 1 ? "" : "s"} couldn't be cleared from the pub sheet. Check it manually if needed.`);
+    }
+  };
   const reorder = async (id, dir) => {
     const i = db.clients.findIndex((c) => c.id === id);
     const j = i + dir;
@@ -1347,9 +1375,14 @@ function ClientsAdmin({ db, commit }) {
   return (
     <div>
     <p className="muted mb">Order here is the order they appear on the public Roster page — use the arrows to move someone up or down.</p>
+    {deleteWarn && <p className="hint err-text mb">{deleteWarn}</p>}
     <Editor title="Clients" items={db.clients} columns={cols}
       blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "", sheetTabName: "", onRoster: false }}
       onSave={save} onDelete={del} onReorder={reorder}
+      confirmDelete={(c) => {
+        const n = db.placements.filter((p) => p.clientId === c.id).length;
+        return `Delete ${c.name}? This also permanently deletes their ${n} song${n === 1 ? "" : "s"} and clears them from the pub sheet. This can't be undone.`;
+      }}
       extra={(e, set) => (
         <>
           <label className="check-row">
@@ -1708,7 +1741,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
               )}
             </div>
             <div className="modal-foot">
-              <button className="btn ghost sm" onClick={() => removeSong(active.id)}>Delete</button>
+              <button className="btn ghost sm" onClick={() => { if (window.confirm(`Delete "${active.song || "this song"}"? This can't be undone.`)) removeSong(active.id); }}>Delete</button>
               <button className="btn sm" onClick={() => setEditing({ ...active })}>Edit</button>
             </div>
           </div>
