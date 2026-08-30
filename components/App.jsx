@@ -9,6 +9,7 @@ import {
 import {
   Instagram, Mail, Menu, X, LogOut, Plus, Trash2, Pencil, Users, Disc3,
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
+  Folder, ExternalLink,
 } from "lucide-react";
 
 /* ---- embedded brand assets (base64, no external requests) ---- */
@@ -2150,12 +2151,18 @@ function CatalogOverview({ db, onSelectClient }) {
     return db.clients.find((c) => norm(c.sheetTabName || c.name) === target) || null;
   };
 
+  const links = state.data?.links || {};
   return (
     <div>
       <div className="admin-head">
         <h2>Overview</h2>
-        <span className="hint">Read-only — pulled live from the MASTER tab.</span>
+        <div className="overview-links">
+          {links.folder && <ExtLink href={links.folder} className="btn ghost sm" title="Open the pub sheet's Drive folder"><Folder size={14} /> Folder</ExtLink>}
+          {links.portfolioA && <ExtLink href={links.portfolioA} className="btn ghost sm" title="Open Luminate portfolio A"><ExternalLink size={14} /> Portfolio A</ExtLink>}
+          {links.portfolioB && <ExtLink href={links.portfolioB} className="btn ghost sm" title="Open Luminate portfolio B"><ExternalLink size={14} /> Portfolio B</ExtLink>}
+        </div>
       </div>
+      <p className="hint overview-subhint">Read-only — pulled live from the MASTER tab.</p>
 
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
@@ -2732,10 +2739,13 @@ function StyleTag() {
     .nav-badge{background:#e5484d;color:#fff;font-size:11px;font-weight:700;line-height:1;min-width:18px;height:18px;border-radius:100px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0}
     .dash-out{display:flex;align-items:center;gap:9px;background:none;border:1px solid var(--line);color:var(--mut);padding:10px 12px;border-radius:9px;font-size:13px;transition:color .15s ease,border-color .15s ease}
     .dash-out:hover{color:var(--ink);border-color:#3a3a3a}
-    .dash-main{flex:1;padding:30px 34px;max-width:920px}
+    .dash-main{flex:1;padding:30px 34px;max-width:1240px}
     .dash-role{font-size:12px;color:var(--mut2);letter-spacing:.06em;margin-bottom:22px;text-transform:uppercase}
 
     .admin-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px 16px}
+    .overview-links{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .overview-links a.btn{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+    .overview-subhint{margin:-10px 0 18px}
     .sync-block{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}
     .sync-block .btn{flex-shrink:0}
     .sync-block .hint{margin-top:0}
@@ -2813,9 +2823,9 @@ function StyleTag() {
     .portal-block-head h2{margin:0 0 4px}
     .portal-block-head .muted{margin:0}
     .cat-summary{margin-bottom:22px}
-    .cat-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+    .cat-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
     .cat-stat{container-type:inline-size;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
-    .cat-stat-label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .cat-stat-label{font-size:clamp(9px,6.5cqi,11px);letter-spacing:.06em;text-transform:uppercase;color:var(--mut2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .cat-stat-val{font-size:clamp(15px,9cqi,20px);font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .cat-stat-asof{font-size:12px;color:var(--mut2);margin:8px 0 0}
     .chart-wrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 8px 8px}
@@ -2865,7 +2875,7 @@ function StyleTag() {
     .subpill:hover{color:var(--ink)}
     .subpill.active{background:var(--ink);color:#000;border-color:var(--ink);font-weight:600}
     .mb{margin-bottom:16px}
-    .about-editor{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:14px;font-size:14px;line-height:1.6;font-family:inherit;resize:vertical}
+    .about-editor{width:100%;max-width:760px;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:14px;font-size:14px;line-height:1.6;font-family:inherit;resize:vertical}
     .about-editor:focus{outline:none;border-color:#4a4a4a}
 
     /* staff catalog: client list + song manager */
