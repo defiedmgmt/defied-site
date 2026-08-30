@@ -1268,7 +1268,7 @@ function Contact({ db, commit }) {
   const subjects = ["General Inquiry", "Artist Management", "Booking", "Publishing / Admin", "Sync Licensing", "Press / Media", "Other"];
   const submit = async () => {
     if (!f.name || !f.email || !f.message) return;
-    const sub = { id: uid(), ...f, at: new Date().toISOString() };
+    const sub = { id: uid(), ...f, at: new Date().toISOString(), read: false };
     await commit({ ...db, submissions: [sub, ...db.submissions] });
     setSent(true);
     setF({ name: "", email: "", subject: "General Inquiry", message: "" });
@@ -1331,18 +1331,20 @@ function Login({ login }) {
 /* ------------------------------------------------------------------ */
 function StaffDashboard({ db, commit, logout }) {
   const [tab, setTab] = useState("website");
+  const unreadCount = db.submissions.filter((s) => !s.read).length;
   const tabs = [
     ["website", "Website", Pencil], ["catalog", "Clients", Users],
-    ["users", "Users", UserCog], ["subs", "Messages", Inbox],
+    ["users", "Users", UserCog], ["subs", "Messages", Inbox, unreadCount],
   ];
   return (
     <div className="dash">
       <aside className="dash-side">
         <div className="dash-brand"><Wordmark height={26} /></div>
         <nav>
-          {tabs.map(([id, label, Icon]) => (
+          {tabs.map(([id, label, Icon, badge]) => (
             <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
-              <Icon size={17} /> {label}
+              <Icon size={17} /> <span className="nav-label">{label}</span>
+              {!!badge && <span className="nav-badge">{badge}</span>}
             </button>
           ))}
         </nav>
@@ -1353,7 +1355,7 @@ function StaffDashboard({ db, commit, logout }) {
         {tab === "website" && <WebsiteAdmin db={db} commit={commit} />}
         {tab === "catalog" && <CatalogAdmin db={db} commit={commit} />}
         {tab === "users" && <UsersAdmin db={db} commit={commit} />}
-        {tab === "subs" && <SubsAdmin db={db} />}
+        {tab === "subs" && <SubsAdmin db={db} commit={commit} />}
       </main>
     </div>
   );
@@ -1699,15 +1701,30 @@ function UsersAdmin({ db, commit }) {
   );
 }
 
-function SubsAdmin({ db }) {
+function SubsAdmin({ db, commit }) {
+  const unreadCount = db.submissions.filter((s) => !s.read).length;
+  const toggleRead = (id) => {
+    commit({ ...db, submissions: db.submissions.map((s) => (s.id === id ? { ...s, read: !s.read } : s)) });
+  };
   return (
     <div>
-      <div className="admin-head"><h2>Messages</h2></div>
+      <div className="admin-head">
+        <h2>Messages{unreadCount > 0 && <span className="nav-badge msg-count-badge">{unreadCount}</span>}</h2>
+      </div>
       {db.submissions.length === 0 ? <div className="admin-empty">No messages yet.</div> : (
         <div className="subs">
           {db.submissions.map((s) => (
-            <div key={s.id} className="sub-card">
-              <div className="sub-top"><strong>{s.name}</strong><span className="tag">{s.subject}</span></div>
+            <div key={s.id} className={s.read ? "sub-card" : "sub-card unread"}>
+              <div className="sub-top">
+                <div className="sub-top-info">
+                  {!s.read && <span className="sub-dot" title="Unread" />}
+                  <strong>{s.name}</strong>
+                  <span className="tag">{s.subject}</span>
+                </div>
+                <button className="btn ghost sm" onClick={() => toggleRead(s.id)}>
+                  {s.read ? "Mark unread" : <><Check size={13} /> Mark read</>}
+                </button>
+              </div>
               <EmailButton email={s.email} inline />
               <p>{s.message}</p>
               <span className="sub-date">{new Date(s.at).toLocaleString()}</span>
@@ -2702,6 +2719,8 @@ function StyleTag() {
     .dash-side nav button{display:flex;align-items:center;gap:11px;background:none;border:none;color:var(--mut);padding:11px 12px;border-radius:9px;font-size:14px;text-align:left;transition:color .15s ease,background-color .15s ease}
     .dash-side nav button:hover{color:var(--ink);background:var(--panel2)}
     .dash-side nav button.active{color:#000;background:#fff}
+    .nav-label{flex:1}
+    .nav-badge{background:#e5484d;color:#fff;font-size:11px;font-weight:700;line-height:1;min-width:18px;height:18px;border-radius:100px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;flex-shrink:0}
     .dash-out{display:flex;align-items:center;gap:9px;background:none;border:1px solid var(--line);color:var(--mut);padding:10px 12px;border-radius:9px;font-size:13px;transition:color .15s ease,border-color .15s ease}
     .dash-out:hover{color:var(--ink);border-color:#3a3a3a}
     .dash-main{flex:1;padding:30px 34px;max-width:920px}
@@ -2729,11 +2748,15 @@ function StyleTag() {
 
     .subs{display:flex;flex-direction:column;gap:12px}
     .sub-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
-    .sub-top{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+    .sub-card.unread{border-left:3px solid #e5484d}
+    .sub-top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 10px;margin-bottom:4px}
+    .sub-top-info{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+    .sub-dot{width:8px;height:8px;border-radius:50%;background:#e5484d;flex-shrink:0}
     .tag{font-size:11px;background:var(--panel2);border:1px solid var(--line);color:var(--mut);padding:3px 9px;border-radius:100px}
     .sub-email{color:var(--mut);font-size:13px;text-decoration:none}
     .sub-card p{margin:8px 0;font-size:14px}
     .sub-date{font-size:11.5px;color:var(--mut2)}
+    .msg-count-badge{margin-left:9px;vertical-align:middle}
 
     /* modal */
     .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;z-index:60;overflow-y:auto}
@@ -2920,7 +2943,7 @@ function StyleTag() {
       .dash-side{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px}
       .dash-brand{padding:6px 8px;width:100%}
       .dash-side nav{flex-direction:row;flex-wrap:wrap}
-      .dash-side nav button span{display:none}
+      .dash-side nav button .nav-label{display:none}
       .dash-side nav button{padding:11px 13px}
       .dash-main{padding:24px 20px}
       .admin-row{grid-template-columns:1.4fr 1fr 60px !important;gap:8px}
