@@ -8,7 +8,7 @@ import {
 } from "recharts";
 import {
   Instagram, Mail, Menu, X, LogOut, Plus, Trash2, Pencil, Users, Disc3,
-  ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown,
+  ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
 } from "lucide-react";
 
 /* ---- embedded brand assets (base64, no external requests) ---- */
@@ -684,6 +684,9 @@ function PhotoUpload({ label, value, onChange }) {
 }
 
 const fmt = (n) => Number(n || 0).toLocaleString();
+// fmt(x.toFixed(2)) can drop a trailing zero (43510.90 -> "43,510.9") since
+// toLocaleString() doesn't pad fraction digits on its own — force exactly 2.
+const money = (n) => `$${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /* brand social icons (inline SVG so they always render) */
 const ICONS = {
@@ -1854,8 +1857,8 @@ function SongManager({ db, commit, clientId, isStaff }) {
             <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(Math.round(summary.net))}</span></div>
             {isStaff ? (
               <>
-                <div className="cat-stat"><span className="cat-stat-label">Pub Money</span><span className="cat-stat-val">${fmt(summary.revenue.toFixed(2))}</span></div>
-                <div className="cat-stat"><span className="cat-stat-label">Admin Money</span><span className="cat-stat-val">${fmt(summary.adminFee.toFixed(2))}</span></div>
+                <div className="cat-stat"><span className="cat-stat-label">Pub Money</span><span className="cat-stat-val">{money(summary.revenue)}</span></div>
+                <div className="cat-stat"><span className="cat-stat-label">Admin Money</span><span className="cat-stat-val">{money(summary.adminFee)}</span></div>
               </>
             ) : (
               <div className="cat-stat"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
@@ -1916,8 +1919,8 @@ function SongManager({ db, commit, clientId, isStaff }) {
                   <div className="split-list-row"><span className="split-name">Streams</span><span className="split-pct">{fmt(active.streams)}</span></div>
                   {isStaff && (
                     <>
-                      <div className="split-list-row"><span className="split-name">Gross revenue</span><span className="split-pct">${fmt(active.revenue?.toFixed(2))}</span></div>
-                      <div className="split-list-row"><span className="split-name">Admin fee</span><span className="split-pct">${fmt(active.adminFee?.toFixed(2))}</span></div>
+                      <div className="split-list-row"><span className="split-name">Gross revenue</span><span className="split-pct">{money(active.revenue)}</span></div>
+                      <div className="split-list-row"><span className="split-name">Admin fee</span><span className="split-pct">{money(active.adminFee)}</span></div>
                     </>
                   )}
                   <p className="hint">as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</p>
@@ -2085,8 +2088,129 @@ async function pullAndMergeSheetData(db, clients) {
   return { data, totalsByClient, rowsByClient, claimedRows, placements };
 }
 
+// Read-only roster-wide rollup — the landing view of the Clients tab, before
+// staff pick an individual client. Pulls the MASTER tab's own precomputed
+// per-writer totals directly (rather than re-deriving them from placements)
+// so the numbers always match the sheet exactly, including the 3-year
+// forecast columns the site doesn't otherwise track anywhere.
+function CatalogOverview({ db, onSelectClient }) {
+  const [state, setState] = useState({ loading: true, error: null, data: null });
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/sheets-master");
+        const data = await res.json();
+        if (!alive) return;
+        if (!res.ok) throw new Error(data.error || "Failed to load.");
+        setState({ loading: false, error: null, data });
+      } catch (err) {
+        if (!alive) return;
+        setState({ loading: false, error: err.message || "Failed to load master sheet data.", data: null });
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  // MASTER's "Writer" column holds the sheet TAB name, which doesn't always
+  // match a client's on-site display name (e.g. tab "Yellow" vs client
+  // "prodyel1ow") — same punctuation-tolerant comparison as findTab server-
+  // side, so a row here can still link back to a real client to click into.
+  const findClient = (writer) => {
+    const norm = (s) => (s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const target = norm(writer);
+    if (!target) return null;
+    return db.clients.find((c) => norm(c.sheetTabName || c.name) === target) || null;
+  };
+
+  return (
+    <div>
+      <div className="admin-head">
+        <h2>Overview</h2>
+        <span className="hint">Read-only — pulled live from the MASTER tab.</span>
+      </div>
+
+      {state.loading && <p className="muted">Loading master sheet data…</p>}
+      {state.error && <p className="hint err-text">{state.error}</p>}
+
+      {state.data && (
+        <>
+          <div className="cat-summary">
+            <div className="cat-summary-grid">
+              <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterNetStreams)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Revenue Pool</span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Catalog To Date</span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">3-Year Forecast</span><span className="cat-stat-val">{money(state.data.totals.threeYearForecast)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Est. Admin Fee</span><span className="cat-stat-val">{money(state.data.totals.totalEstAdminFee)}</span></div>
+            </div>
+          </div>
+
+          <div className="master-table-wrap">
+            <table className="master-table">
+              <thead>
+                <tr>
+                  <th>Writer</th><th>Songs</th><th>Gross streams</th><th>Net streams</th>
+                  <th>Gross revenue</th><th>Admin fee</th><th>Yr 1</th><th>Yr 2</th><th>Yr 3</th>
+                  <th>3-yr forecast</th><th>Total est. fee</th><th>% of roster</th>
+                </tr>
+              </thead>
+              <tbody>
+                {state.data.rows.map((r) => {
+                  const client = findClient(r.writer);
+                  return (
+                    <tr
+                      key={r.writer}
+                      className={client ? "master-row-link" : ""}
+                      onClick={client ? () => onSelectClient(client.id) : undefined}
+                      title={client ? `Open ${client.name}` : "Not linked to a client on the site"}
+                    >
+                      <td>{client ? client.name : r.writer}</td>
+                      <td>{r.songs}</td>
+                      <td>{fmt(r.grossStreams)}</td>
+                      <td>{fmt(r.netStreams)}</td>
+                      <td>{money(r.grossRevenue)}</td>
+                      <td>{money(r.adminFee)}</td>
+                      <td>{money(r.year1)}</td>
+                      <td>{money(r.year2)}</td>
+                      <td>{money(r.year3)}</td>
+                      <td>{money(r.forecastTotal)}</td>
+                      <td>{money(r.totalEstAdminFee)}</td>
+                      <td>{r.pctOfRoster}%</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {state.data.rosterTotal && (
+                <tfoot>
+                  <tr className="master-total-row">
+                    <td>Roster total</td>
+                    <td>{state.data.rosterTotal.songs}</td>
+                    <td>{fmt(state.data.rosterTotal.grossStreams)}</td>
+                    <td>{fmt(state.data.rosterTotal.netStreams)}</td>
+                    <td>{money(state.data.rosterTotal.grossRevenue)}</td>
+                    <td>{money(state.data.rosterTotal.adminFee)}</td>
+                    <td>{money(state.data.rosterTotal.year1)}</td>
+                    <td>{money(state.data.rosterTotal.year2)}</td>
+                    <td>{money(state.data.rosterTotal.year3)}</td>
+                    <td>{money(state.data.rosterTotal.forecastTotal)}</td>
+                    <td>{money(state.data.rosterTotal.totalEstAdminFee)}</td>
+                    <td>{state.data.rosterTotal.pctOfRoster}%</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function CatalogAdmin({ db, commit }) {
-  const [clientId, setClientId] = useState(db.clients[0]?.id || null);
+  // null clientId = the read-only Overview landing page, not "no selection"
+  const [clientId, setClientId] = useState(null);
   const client = db.clients.find((c) => c.id === clientId);
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;
   const [syncing, setSyncing] = useState(false);
@@ -2212,6 +2336,10 @@ function CatalogAdmin({ db, commit }) {
       </div>
       <div className="catalog-wrap">
         <div className="catalog-clients">
+          <button className={clientId === null ? "cc active" : "cc"} onClick={() => setClientId(null)}>
+            <span className="cc-overview-ic"><LayoutGrid size={16} /></span>
+            <span className="cc-name">Overview</span>
+          </button>
           <button className="cc cc-add" onClick={() => setAddingClient(true)}><Plus size={14} /> Add client</button>
           {deleteWarn && <p className="hint err-text">{deleteWarn}</p>}
           {db.clients.map((c) => (
@@ -2226,7 +2354,9 @@ function CatalogAdmin({ db, commit }) {
           ))}
         </div>
         <div className="catalog-main">
-          {client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff /> : <p className="muted">Select a client.</p>}
+          {clientId === null
+            ? <CatalogOverview db={db} onSelectClient={setClientId} />
+            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff /> : <p className="muted">Select a client.</p>)}
         </div>
       </div>
 
@@ -2720,7 +2850,20 @@ function StyleTag() {
     .cc-add{border:1px dashed var(--line);color:var(--mut);font-size:13px;justify-content:center;margin-bottom:2px}
     .cc-add:hover{color:var(--ink);border-color:var(--mut2);background:var(--panel2)}
     .cc-count{color:var(--mut2);font-size:12px;font-variant-numeric:tabular-nums}
+    .cc-overview-ic{width:30px;height:30px;border-radius:50%;background:var(--panel2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--mut)}
     .catalog-main{min-width:0}
+
+    /* staff overview: read-only MASTER-tab rollup */
+    .master-table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+    .master-table{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
+    .master-table th,.master-table td{padding:11px 14px;text-align:right;font-variant-numeric:tabular-nums}
+    .master-table th:first-child,.master-table td:first-child{text-align:left;font-variant-numeric:normal}
+    .master-table thead th{background:var(--panel2);color:var(--mut);font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;border-bottom:1px solid var(--line)}
+    .master-table tbody td{border-bottom:1px solid var(--line);color:var(--ink)}
+    .master-table tbody tr:last-child td{border-bottom:none}
+    .master-row-link{cursor:pointer;transition:background-color .15s ease}
+    .master-row-link:hover{background:var(--panel2)}
+    .master-total-row td{font-weight:700;border-top:1px solid var(--line);border-bottom:none;background:var(--panel2)}
 
 
     /* dashboard misc */
