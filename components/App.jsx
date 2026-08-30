@@ -1984,7 +1984,11 @@ function ClientPortal({ db, commit, session, logout }) {
 }
 
 /* staff: full client catalog with splits ------------------------------ */
-const normalizeTitle = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+// keep in sync with lib/sheets.js's normalizeTitle — staff often hand-type
+// a "(feat. X)" tag onto the sheet's title cell that the site never stores,
+// so a title match has to tolerate that tag or it never links up.
+const normalizeTitle = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
+  .replace(/\s+(feat|ft|featuring)\s+.*$/, "").trim();
 
 function CatalogAdmin({ db, commit }) {
   const [clientId, setClientId] = useState(db.clients[0]?.id || null);
@@ -2038,6 +2042,12 @@ function CatalogAdmin({ db, commit }) {
         rowsByClient[c.clientId] = c.rows;
       }
       const claimedRows = new Set(); // `${clientId}:${row}` — rows already matched to a placement below
+      // a row's syncId only means something if the placement it names still
+      // exists — if that placement was deleted/re-added since the last push,
+      // the row is really unclaimed even though its Site Sync ID column
+      // isn't blank, so title-fallback needs to be able to reclaim it too.
+      const livePlacementIds = new Set(db.placements.map((p) => p.id));
+      const rowIsAvailableForTitleMatch = (r) => !r.syncId || !livePlacementIds.has(r.syncId.split(":")[0]);
       const placements = db.placements.map((p) => {
         const rows = rowsByClient[p.clientId] || [];
         // same priority as the push side: an exact syncId always wins; next,
@@ -2047,12 +2057,17 @@ function CatalogAdmin({ db, commit }) {
         // duplicate that got merged), its old syncId may now be stuck on a
         // row that isn't "unclaimed" by the title-fallback's definition, so
         // streams/revenue would never update again without this; finally,
-        // fall back to an unclaimed row with a matching title.
+        // fall back to a row with a matching title that's genuinely
+        // unclaimed OR whose syncId points at a placement that no longer
+        // exists (see rowIsAvailableForTitleMatch above) — a placement with
+        // no locally-stored Luminate ID at all would otherwise never be
+        // able to reclaim its own row through either of the first two paths.
         const bySyncId = rows.find((r) => r.syncId && r.syncId.split(":")[0] === p.id);
         const byLuminateId = !bySyncId && p.luminateId
           ? rows.find((r) => r.luminateId && r.luminateId === p.luminateId)
           : null;
-        const row = bySyncId || byLuminateId || rows.find((r) => !r.syncId && normalizeTitle(r.song) === normalizeTitle(p.song));
+        const row = bySyncId || byLuminateId
+          || rows.find((r) => rowIsAvailableForTitleMatch(r) && normalizeTitle(r.song) === normalizeTitle(p.song));
         if (!row) return p;
         claimedRows.add(`${p.clientId}:${row.row}`);
         return {
