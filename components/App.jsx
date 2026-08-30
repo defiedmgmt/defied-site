@@ -1246,11 +1246,6 @@ function Login({ login }) {
         <Field label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
         {err && <div className="err">{err}</div>}
         <button className="btn full" onClick={submit}>Sign in</button>
-        <div className="demo">
-          <span>Demo logins</span>
-          <code>admin@defiedmgmt.com · defied123 (staff)</code>
-          <code>stacke@defiedmgmt.com · client123 (client)</code>
-        </div>
         <Link href={ROUTE_TO_PATH.home} className="link-btn center">← Back to site</Link>
       </div>
     </main>
@@ -1654,6 +1649,24 @@ function SubsAdmin({ db }) {
 function SongManager({ db, commit, clientId, isStaff }) {
   const client = db.clients.find((c) => c.id === clientId);
   const songs = useMemo(() => db.placements.filter((p) => p.clientId === clientId), [db.placements, clientId]);
+  // MASTER-tab-style rollup across this client's whole catalog. Gross
+  // streams (and $ figures) come straight off each placement — the sheet's
+  // own Gross Revenue/Admin Fee columns are already this person's share,
+  // not the whole song's, since they cascade from Net Streams (Gross ×
+  // their own Writer Share %). Net streams isn't stored anywhere, so it's
+  // recomputed here the same way the sheet computes it per row.
+  const summary = useMemo(() => {
+    let gross = 0, net = 0, revenue = 0, adminFee = 0;
+    for (const p of songs) {
+      const streams = p.streams || 0;
+      gross += streams;
+      const mine = (p.splits || []).find((s) => s.name === client?.name);
+      net += streams * ((Number(mine?.percent) || 0) / 100);
+      revenue += p.revenue || 0;
+      adminFee += p.adminFee || 0;
+    }
+    return { gross, net, revenue, adminFee };
+  }, [songs, client?.name]);
   const [openId, setOpenId] = useState(null);
   const [editing, setEditing] = useState(null);
   const active = songs.find((p) => p.id === openId);
@@ -1749,15 +1762,26 @@ function SongManager({ db, commit, clientId, isStaff }) {
         <div>
           <h2>Songs &amp; splits</h2>
           <p className="muted">{songs.length} song{songs.length === 1 ? "" : "s"} · click any to see the breakdown.</p>
-          {!isStaff && db.sheetSync?.lastSyncedAt && (
-            <p className="muted">
-              {fmt(client?.totalStreams || 0)} total streams as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-            </p>
-          )}
           {isStaff && pushWarn && <p className="hint err-text">{pushWarn}</p>}
         </div>
         <button className="btn sm" onClick={startAdd}><Plus size={15} /> Add song</button>
       </div>
+
+      {db.sheetSync?.lastSyncedAt && (
+        <div className="cat-summary">
+          <div className="cat-stat"><span className="cat-stat-label">Gross streams</span><span className="cat-stat-val">{fmt(summary.gross)}</span></div>
+          <div className="cat-stat"><span className="cat-stat-label">Net streams</span><span className="cat-stat-val">{fmt(Math.round(summary.net))}</span></div>
+          {isStaff ? (
+            <>
+              <div className="cat-stat"><span className="cat-stat-label">Pub money</span><span className="cat-stat-val">${fmt(summary.revenue.toFixed(2))}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Admin money</span><span className="cat-stat-val">${fmt(summary.adminFee.toFixed(2))}</span></div>
+            </>
+          ) : (
+            <div className="cat-stat"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
+          )}
+          <span className="cat-stat-asof">as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
+        </div>
+      )}
 
       {songs.length === 0 ? (
         <p className="muted">No songs yet — add the first one.</p>
@@ -2371,9 +2395,6 @@ function StyleTag() {
     .login-card h2{margin:0;font-size:22px}
     .login-card .muted{margin:-8px 0 6px}
     .err{background:#2a1414;border:1px solid #5a2a2a;color:#e59a9a;border-radius:8px;padding:10px 12px;font-size:13px}
-    .demo{margin-top:8px;border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:6px}
-    .demo span{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2)}
-    .demo code{font-size:12px;color:var(--mut);background:var(--panel2);padding:6px 9px;border-radius:6px}
 
     /* ============ DASHBOARD ============ */
     .dash{display:flex;min-height:100vh}
@@ -2457,6 +2478,11 @@ function StyleTag() {
     .portal-block-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
     .portal-block-head h2{margin:0 0 4px}
     .portal-block-head .muted{margin:0}
+    .cat-summary{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:22px}
+    .cat-stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;display:flex;flex-direction:column;gap:4px;min-width:120px}
+    .cat-stat-label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2)}
+    .cat-stat-val{font-size:20px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+    .cat-stat-asof{font-size:12px;color:var(--mut2);margin-left:4px}
     .chart-wrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 8px 8px}
 
     /* client portal: songs + splits */
