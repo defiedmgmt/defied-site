@@ -36,6 +36,25 @@ async function saveDB(db) {
   catch (e) { return false; } // most likely quota exceeded — caller surfaces this
 }
 
+// "Remember me" persistence — deliberately stores only {role, userId}, never
+// the password, and only when the box was checked at login. Restoring it
+// still re-validates against the current user list on every load (see
+// App's mount effect), so a deleted account or changed role can't leave a
+// stale, still-privileged session sitting in a browser.
+const SESSION_KEY = "defied:session";
+function loadSession() {
+  if (!hasStore()) return null;
+  try { const v = window.localStorage.getItem(SESSION_KEY); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+}
+function saveSession(session) {
+  if (!hasStore()) return;
+  try { window.localStorage.setItem(SESSION_KEY, JSON.stringify(session)); } catch (e) { /* ignore */ }
+}
+function clearSession() {
+  if (!hasStore()) return;
+  try { window.localStorage.removeItem(SESSION_KEY); } catch (e) { /* ignore */ }
+}
+
 /* ------------------------------------------------------------------ */
 /*  seed data — real info from defiedmgmt.com, cleaned up              */
 /* ------------------------------------------------------------------ */
@@ -823,14 +842,43 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [storageWarn, setStorageWarn] = useState(false);
+  // guards the protected-route redirect below from firing before a
+  // remembered session has had a chance to load — loadDB/restoreSession are
+  // async, so on first mount session is briefly null even when a valid
+  // remembered one is about to be restored a tick later.
+  const [hydrated, setHydrated] = useState(false);
+
+  // "remember me" restoration — only ever runs against the real, final user
+  // list (never the transient seed before hydration finishes), and only
+  // accepts a session whose userId + role still exist. A deleted account or
+  // a role changed since the box was checked just quietly signs out instead
+  // of restoring stale access.
+  const restoreSession = (users) => {
+    const saved = loadSession();
+    if (!saved) return;
+    const u = users.find((x) => x.id === saved.userId && x.role === saved.role);
+    if (u) setSession(saved);
+    else clearSession();
+  };
 
   // hydrate from persistent storage if available; if it fails or is absent, keep the seed.
   // merge over a fresh seed so a stale save can never blank out a whole section.
+  //
+  // React dev mode intentionally double-invokes this effect (mount, cleanup,
+  // mount again) to surface exactly the bug that used to live here: the
+  // *fallback* ("no saved data") branch below was never actually gated by
+  // `alive`, so a StrictMode-cancelled first pass could still run seed(),
+  // overwrite a just-restored save with a brand-new random-ID one, and
+  // (once "remember me" existed) blow away a just-restored session in the
+  // process — all before the real, non-cancelled pass ever got to run.
+  // Wrapping both branches in one `if (alive)` makes a cancelled pass a
+  // true no-op, same as the merge branch already correctly was.
   useEffect(() => {
     let alive = true;
     (async () => {
       const saved = await loadDB();
-      if (alive && saved && saved.users) {
+      if (!alive) return;
+      if (saved && saved.users) {
         const base = seed();
         const merged = { ...base, ...saved };
         for (const k of ["staff", "clients", "placements", "users", "submissions"]) {
@@ -916,9 +964,20 @@ export default function App() {
         }
         setDb(merged);
         saveDB(merged);
+        restoreSession(merged.users);
       } else {
-        saveDB(seed()); // establish a baseline (no-op if storage absent)
+        const base = seed();
+        // the initial useState(() => seed()) call already rendered a
+        // *different* freshly-random-IDed seed — without this, that first
+        // render and whatever gets persisted here would permanently
+        // disagree on every id in the app (users included), which is
+        // exactly what broke session restoration: the id a fresh login
+        // authenticated against wasn't the id that ended up saved.
+        setDb(base);
+        saveDB(base); // establish a baseline (no-op if storage absent)
+        restoreSession(base.users);
       }
+      setHydrated(true); // already returned above if this pass was cancelled
     })();
     return () => { alive = false; };
   }, []);
@@ -941,24 +1000,31 @@ export default function App() {
     window.scrollTo(0, 0);
   };
 
-  const login = (email, password) => {
+  const login = (email, password, remember) => {
     const u = db.users.find(
       (x) => x.email.toLowerCase() === email.trim().toLowerCase() && x.password === password
     );
     if (!u) return "Incorrect email or password.";
-    setSession({ role: u.role, userId: u.id });
+    const next = { role: u.role, userId: u.id };
+    setSession(next);
+    // only ever persists {role, userId} — never the password — and only
+    // when the box was checked; otherwise this stays in-memory exactly
+    // like before, gone the moment the tab closes or reloads.
+    if (remember) saveSession(next); else clearSession();
     go(u.role === "staff" ? "staff" : "client");
     return null;
   };
-  const logout = () => { setSession(null); go("home"); };
+  const logout = () => { setSession(null); clearSession(); go("home"); };
 
-  // sessions live only in memory (no login persistence), so a direct visit
-  // to /dashboard or /portal — a bookmark, a refresh, a shared link — never
-  // has one yet. Bounce straight to sign-in instead of rendering nothing.
+  // a direct visit to /dashboard or /portal — a bookmark, a refresh, a
+  // shared link — with no session (remembered or otherwise) bounces to
+  // sign-in instead of rendering nothing. Gated on hydrated so this never
+  // fires before a remembered session has had its one async tick to load.
   useEffect(() => {
+    if (!hydrated) return;
     if (route === "staff" && session?.role !== "staff") router.replace("/login");
     if (route === "client" && session?.role !== "client") router.replace("/login");
-  }, [route, session]);
+  }, [route, session, hydrated]);
 
   const inPortal = route === "staff" || route === "client";
 
@@ -975,7 +1041,7 @@ export default function App() {
         <PublicNav route={route} go={go} menuOpen={menuOpen} setMenuOpen={setMenuOpen} session={session} />
       )}
 
-      <div className={route === "home" ? "view view-home" : "view"} key={route}>
+      <div className={route === "home" || route === "login" ? "view view-home" : "view"} key={route}>
         {route === "home" && <Home />}
         {route === "about" && <About db={db} />}
         {route === "staffpage" && <StaffPage db={db} />}
@@ -1234,8 +1300,9 @@ function Contact({ db, commit }) {
 function Login({ login }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(false);
   const [err, setErr] = useState(null);
-  const submit = () => { const e = login(email, password); setErr(e); };
+  const submit = () => { const e = login(email, password, remember); setErr(e); };
   return (
     <main className="login">
       <Link href={ROUTE_TO_PATH.home} className="login-mark"><Wordmark height={40} /></Link>
@@ -1244,6 +1311,10 @@ function Login({ login }) {
         <p className="muted">Staff and client access.</p>
         <Field label="Email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
         <Field label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        <label className="check-row">
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+          <span>Remember me on this device</span>
+        </label>
         {err && <div className="err">{err}</div>}
         <button className="btn full" onClick={submit}>Sign in</button>
         <Link href={ROUTE_TO_PATH.home} className="link-btn center">← Back to site</Link>
@@ -1760,26 +1831,34 @@ function SongManager({ db, commit, clientId, isStaff }) {
     <>
       <div className="portal-block-head">
         <div>
-          <h2>Songs &amp; splits</h2>
-          <p className="muted">{songs.length} song{songs.length === 1 ? "" : "s"} · click any to see the breakdown.</p>
+          <h2>Songs &amp; Splits</h2>
+          <p className="muted">
+            {/* the song count already lives in the summary's Songs stat for
+                clients — repeating it here would just be the same number
+                twice. Staff never see a Songs stat there, so keep it here. */}
+            {(isStaff || !db.sheetSync?.lastSyncedAt) && `${songs.length} Song${songs.length === 1 ? "" : "s"} · `}
+            Click any to see the breakdown.
+          </p>
           {isStaff && pushWarn && <p className="hint err-text">{pushWarn}</p>}
         </div>
-        <button className="btn sm" onClick={startAdd}><Plus size={15} /> Add song</button>
+        <button className="btn sm" onClick={startAdd}><Plus size={15} /> Add Song</button>
       </div>
 
       {db.sheetSync?.lastSyncedAt && (
         <div className="cat-summary">
-          <div className="cat-stat"><span className="cat-stat-label">Gross streams</span><span className="cat-stat-val">{fmt(summary.gross)}</span></div>
-          <div className="cat-stat"><span className="cat-stat-label">Net streams</span><span className="cat-stat-val">{fmt(Math.round(summary.net))}</span></div>
-          {isStaff ? (
-            <>
-              <div className="cat-stat"><span className="cat-stat-label">Pub money</span><span className="cat-stat-val">${fmt(summary.revenue.toFixed(2))}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Admin money</span><span className="cat-stat-val">${fmt(summary.adminFee.toFixed(2))}</span></div>
-            </>
-          ) : (
-            <div className="cat-stat"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
-          )}
-          <span className="cat-stat-asof">as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
+          <div className="cat-summary-grid">
+            <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(summary.gross)}</span></div>
+            <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(Math.round(summary.net))}</span></div>
+            {isStaff ? (
+              <>
+                <div className="cat-stat"><span className="cat-stat-label">Pub Money</span><span className="cat-stat-val">${fmt(summary.revenue.toFixed(2))}</span></div>
+                <div className="cat-stat"><span className="cat-stat-label">Admin Money</span><span className="cat-stat-val">${fmt(summary.adminFee.toFixed(2))}</span></div>
+              </>
+            ) : (
+              <div className="cat-stat"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
+            )}
+          </div>
+          <p className="cat-stat-asof">as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</p>
         </div>
       )}
 
@@ -1795,7 +1874,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
               <div className="song-info">
                 <strong>{p.song || "Untitled"}</strong>
                 <span>{p.artist}</span>
-                <em>{(p.splits || []).length} splits · {splitTotal(p.splits)}%{p.notable ? " · ★ featured" : ""}</em>
+                <em>{(p.splits || []).length} Splits · {splitTotal(p.splits)}%{p.notable ? " · ★ Featured" : ""}</em>
               </div>
             </button>
           ))}
@@ -1961,8 +2040,19 @@ function CatalogAdmin({ db, commit }) {
       const claimedRows = new Set(); // `${clientId}:${row}` — rows already matched to a placement below
       const placements = db.placements.map((p) => {
         const rows = rowsByClient[p.clientId] || [];
+        // same priority as the push side: an exact syncId always wins; next,
+        // the Luminate ID is the one field that identifies the actual song
+        // regardless of what's sitting in the sheet's Site Sync ID column —
+        // if this placement's id ever changed (deleted and re-added, a stale
+        // duplicate that got merged), its old syncId may now be stuck on a
+        // row that isn't "unclaimed" by the title-fallback's definition, so
+        // streams/revenue would never update again without this; finally,
+        // fall back to an unclaimed row with a matching title.
         const bySyncId = rows.find((r) => r.syncId && r.syncId.split(":")[0] === p.id);
-        const row = bySyncId || rows.find((r) => !r.syncId && normalizeTitle(r.song) === normalizeTitle(p.song));
+        const byLuminateId = !bySyncId && p.luminateId
+          ? rows.find((r) => r.luminateId && r.luminateId === p.luminateId)
+          : null;
+        const row = bySyncId || byLuminateId || rows.find((r) => !r.syncId && normalizeTitle(r.song) === normalizeTitle(p.song));
         if (!row) return p;
         claimedRows.add(`${p.clientId}:${row.row}`);
         return {
@@ -1970,7 +2060,14 @@ function CatalogAdmin({ db, commit }) {
           streams: row.grossStreams,
           revenue: row.grossRevenue,
           adminFee: row.adminFee,
-          luminateId: p.luminateId || row.luminateId,
+          // the sheet wins here, not fill-blanks-only like everything else
+          // on this route — staff correct/update Luminate IDs directly on
+          // the sheet as part of the weekly refresh, and a fill-blanks rule
+          // would mean a sheet-side correction could never take effect once
+          // any value (even a wrong one) was ever set. Only falls back to
+          // the site's own value when the sheet cell is genuinely blank —
+          // e.g. staff typed it on the site before it ever reached the sheet.
+          luminateId: row.luminateId || p.luminateId,
         };
       });
 
@@ -2190,9 +2287,10 @@ function StyleTag() {
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
     @keyframes popIn{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
     .view{animation:fadeIn .4s ease both}
-    /* only the home route needs to exactly fill the viewport (no scroll) —
-       everywhere else should size to its own content, or a short page
-       (e.g. Contact) would strand the footer far below it on a tall screen */
+    /* only routes with little enough content to always fit one screen (home,
+       login) use this — everywhere else should size to its own content, or
+       a short page (e.g. Contact) would strand the footer far below it on
+       a tall screen */
     .view-home{flex:1;display:flex;flex-direction:column}
 
     /* static, centered landing logo */
@@ -2389,7 +2487,7 @@ function StyleTag() {
     .x-link{font-size:18px;line-height:1}
 
     /* login */
-    .login{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;gap:26px}
+    .login{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;gap:26px}
     .login-mark{background:none;border:none;display:inline-flex;text-decoration:none}
     .login-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:32px;width:100%;max-width:400px;display:flex;flex-direction:column;gap:14px}
     .login-card h2{margin:0;font-size:22px}
@@ -2478,11 +2576,12 @@ function StyleTag() {
     .portal-block-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
     .portal-block-head h2{margin:0 0 4px}
     .portal-block-head .muted{margin:0}
-    .cat-summary{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:22px}
-    .cat-stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;display:flex;flex-direction:column;gap:4px;min-width:120px}
+    .cat-summary{margin-bottom:22px}
+    .cat-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+    .cat-stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;display:flex;flex-direction:column;gap:4px}
     .cat-stat-label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2)}
     .cat-stat-val{font-size:20px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
-    .cat-stat-asof{font-size:12px;color:var(--mut2);margin-left:4px}
+    .cat-stat-asof{font-size:12px;color:var(--mut2);margin:8px 0 0}
     .chart-wrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 8px 8px}
 
     /* client portal: songs + splits */
