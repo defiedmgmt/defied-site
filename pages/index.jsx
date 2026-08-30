@@ -1,22 +1,10 @@
-import Head from "next/head";
-import dynamic from "next/dynamic";
+import PageShell from "../components/PageShell";
 
-// The app uses the browser (localStorage), so render it client-side only.
-const App = dynamic(() => import("../components/App"), { ssr: false });
-
-export default function Home() {
+export default function HomePage() {
   return (
-    <>
-      <Head>
-        <title>Defied MGMT</title>
-        <meta name="description" content="Defied Management — independent music management and publishing administration." />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#000000" />
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="icon" type="image/png" href="/icon-512.png" sizes="512x512" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-      </Head>
-      <App />
-    </>
+    <PageShell
+      title="Defied MGMT"
+      description="Defied Management — independent music management and publishing administration."
+    />
   );
 }

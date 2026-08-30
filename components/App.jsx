@@ -1,6 +1,8 @@
 "use client";
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import NextImage from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/router";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -805,9 +807,19 @@ function SplitsEditor({ splits, onChange }) {
 /* ================================================================== */
 /*  APP                                                                */
 /* ================================================================== */
+// every internal route name maps to a real, bookmarkable URL — each has its
+// own page file (pages/about.jsx etc.) that just renders <App/>; the route
+// itself is derived from the current URL, not kept as separate React state.
+const ROUTE_TO_PATH = {
+  home: "/", about: "/about", staffpage: "/staff", roster: "/roster",
+  contact: "/contact", login: "/login", staff: "/dashboard", client: "/portal",
+};
+const PATH_TO_ROUTE = Object.fromEntries(Object.entries(ROUTE_TO_PATH).map(([k, v]) => [v, k]));
+
 export default function App() {
+  const router = useRouter();
+  const route = PATH_TO_ROUTE[router.pathname] || "home";
   const [db, setDb] = useState(() => seed());  // synchronous seed → never blocks, login always works
-  const [route, setRoute] = useState("home");
   const [session, setSession] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [storageWarn, setStorageWarn] = useState(false);
@@ -922,7 +934,12 @@ export default function App() {
     setStorageWarn(!ok);
   };
 
-  const go = (r) => { setRoute(r); setMenuOpen(false); window.scrollTo(0, 0); };
+  const go = (r) => {
+    const path = ROUTE_TO_PATH[r] || "/";
+    if (router.pathname !== path) router.push(path);
+    setMenuOpen(false);
+    window.scrollTo(0, 0);
+  };
 
   const login = (email, password) => {
     const u = db.users.find(
@@ -934,6 +951,14 @@ export default function App() {
     return null;
   };
   const logout = () => { setSession(null); go("home"); };
+
+  // sessions live only in memory (no login persistence), so a direct visit
+  // to /dashboard or /portal — a bookmark, a refresh, a shared link — never
+  // has one yet. Bounce straight to sign-in instead of rendering nothing.
+  useEffect(() => {
+    if (route === "staff" && session?.role !== "staff") router.replace("/login");
+    if (route === "client" && session?.role !== "client") router.replace("/login");
+  }, [route, session]);
 
   const inPortal = route === "staff" || route === "client";
 
@@ -951,12 +976,12 @@ export default function App() {
       )}
 
       <div className={route === "home" ? "view view-home" : "view"} key={route}>
-        {route === "home" && <Home go={go} />}
+        {route === "home" && <Home />}
         {route === "about" && <About db={db} />}
         {route === "staffpage" && <StaffPage db={db} />}
         {route === "roster" && <Roster db={db} />}
         {route === "contact" && <Contact db={db} commit={commit} />}
-        {route === "login" && <Login login={login} go={go} />}
+        {route === "login" && <Login login={login} />}
 
         {route === "staff" && session?.role === "staff" && (
           <StaffDashboard db={db} commit={commit} logout={logout} />
@@ -978,15 +1003,16 @@ function PublicNav({ route, go, menuOpen, setMenuOpen, session }) {
   const links = [
     ["about", "ABOUT"], ["staffpage", "STAFF"], ["roster", "ROSTER"], ["contact", "CONTACT"],
   ];
-  const goAuth = () => go(session ? (session.role === "staff" ? "staff" : "client") : "login");
+  const authRoute = session ? (session.role === "staff" ? "staff" : "client") : "login";
+  const closeMenu = () => setMenuOpen(false);
   return (
     <header className="nav">
-      <button className="nav-mark" onClick={() => go("home")}><Mark size={30} /></button>
+      <Link href={ROUTE_TO_PATH.home} className="nav-mark" onClick={closeMenu}><Mark size={30} /></Link>
       <nav className={`nav-links ${menuOpen ? "open" : ""}`}>
         {links.map(([r, label]) => (
-          <button key={r} className={route === r ? "active" : ""} onClick={() => go(r)}>{label}</button>
+          <Link key={r} href={ROUTE_TO_PATH[r]} className={route === r ? "active" : ""} onClick={closeMenu}>{label}</Link>
         ))}
-        <button className="nav-auth" onClick={goAuth}>{session ? "DASHBOARD" : "SIGN IN"}</button>
+        <Link href={ROUTE_TO_PATH[authRoute]} className="nav-auth" onClick={closeMenu}>{session ? "DASHBOARD" : "SIGN IN"}</Link>
       </nav>
       <button className="nav-burger" onClick={() => setMenuOpen((m) => !m)}>
         {menuOpen ? <X size={22} /> : <Menu size={22} />}
@@ -1010,13 +1036,13 @@ function Footer() {
 /* ------------------------------------------------------------------ */
 /*  HOME                                                                */
 /* ------------------------------------------------------------------ */
-function Home({ go }) {
+function Home() {
   return (
     <main className="home">
       <section className="home-hero">
-        <button className="home-logo" onClick={() => go("about")} aria-label="Enter site">
+        <Link href={ROUTE_TO_PATH.about} className="home-logo" aria-label="Enter site">
           <Wordmark hero />
-        </button>
+        </Link>
       </section>
     </main>
   );
@@ -1205,14 +1231,14 @@ function Contact({ db, commit }) {
 /* ------------------------------------------------------------------ */
 /*  LOGIN                                                               */
 /* ------------------------------------------------------------------ */
-function Login({ login, go }) {
+function Login({ login }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState(null);
   const submit = () => { const e = login(email, password); setErr(e); };
   return (
     <main className="login">
-      <button className="login-mark" onClick={() => go("home")}><Wordmark height={40} /></button>
+      <Link href={ROUTE_TO_PATH.home} className="login-mark"><Wordmark height={40} /></Link>
       <div className="login-card">
         <h2>Sign in</h2>
         <p className="muted">Staff and client access.</p>
@@ -1225,7 +1251,7 @@ function Login({ login, go }) {
           <code>admin@defiedmgmt.com · defied123 (staff)</code>
           <code>stacke@defiedmgmt.com · client123 (client)</code>
         </div>
-        <button className="link-btn center" onClick={() => go("home")}>← Back to site</button>
+        <Link href={ROUTE_TO_PATH.home} className="link-btn center">← Back to site</Link>
       </div>
     </main>
   );
@@ -2172,11 +2198,11 @@ function StyleTag() {
        modal's own close button behind it — just hide it outright whenever
        a modal is open, nothing behind one should be visible or reachable */
     .app:has(.modal) .nav{pointer-events:none;opacity:0;transition:opacity .15s ease}
-    .nav-mark{background:none;border:none;padding:0;display:flex}
+    .nav-mark{background:none;border:none;padding:0;display:flex;text-decoration:none}
     .nav-links{display:flex;align-items:center;gap:26px}
-    .nav-links button{background:none;border:none;color:var(--mut);font-size:13px;letter-spacing:.16em;padding:4px 0;position:relative;font-family:'Suntage','Inter',sans-serif;transition:color .18s ease}
-    .nav-links button:hover,.nav-links button.active{color:var(--ink)}
-    .nav-auth{color:var(--ink) !important;border:1px solid var(--line) !important;border-radius:100px;padding:7px 16px !important;font-size:12px !important;transition:border-color .18s ease,background-color .18s ease}
+    .nav-links a,.nav-links button{background:none;border:none;color:var(--mut);font-size:13px;letter-spacing:.16em;padding:4px 0;position:relative;font-family:'Suntage','Inter',sans-serif;transition:color .18s ease;text-decoration:none;cursor:pointer}
+    .nav-links a:hover,.nav-links a.active,.nav-links button:hover,.nav-links button.active{color:var(--ink)}
+    .nav-auth{color:var(--ink) !important;border:1px solid var(--line) !important;border-radius:100px;padding:7px 16px !important;font-size:12px !important;transition:border-color .18s ease,background-color .18s ease;text-decoration:none;display:inline-block}
     .nav-auth:hover{border-color:#4a4a4a !important;background:#141416}
     .nav-burger{display:none;background:none;border:none;color:var(--ink)}
 
@@ -2197,7 +2223,7 @@ function StyleTag() {
     .block{max-width:1080px;margin:0 auto;padding:44px 28px}
     .block-head{display:flex;align-items:baseline;justify-content:space-between}
     .eyebrow{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--mut);font-weight:600;margin:0 0 22px}
-    .link-btn{background:none;border:none;color:var(--ink);font-size:13px;display:inline-flex;align-items:center;gap:4px;transition:color .15s ease}
+    .link-btn{background:none;border:none;color:var(--ink);font-size:13px;display:inline-flex;align-items:center;gap:4px;transition:color .15s ease;text-decoration:none;cursor:pointer}
     .link-btn:hover{color:var(--mut)}
     .link-btn.center{display:flex;margin:14px auto 0}
 
@@ -2340,7 +2366,7 @@ function StyleTag() {
 
     /* login */
     .login{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;gap:26px}
-    .login-mark{background:none;border:none}
+    .login-mark{background:none;border:none;display:inline-flex;text-decoration:none}
     .login-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:32px;width:100%;max-width:400px;display:flex;flex-direction:column;gap:14px}
     .login-card h2{margin:0;font-size:22px}
     .login-card .muted{margin:-8px 0 6px}
@@ -2508,7 +2534,7 @@ function StyleTag() {
     /* minimal home — just the mark, click through to About */
     .home{flex:1;display:flex;flex-direction:column}
     .home-hero{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 28px}
-    .home-logo{background:none;border:none;padding:0;display:flex;justify-content:center;text-align:center;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
+    .home-logo{background:none;border:none;padding:0;display:flex;justify-content:center;text-align:center;cursor:pointer;transition:opacity .18s ease,transform .18s ease;text-decoration:none}
     .home-logo:hover{opacity:.9;transform:scale(1.04)}
     .home-logo:active{transform:scale(1.08)}
     .about-releases{width:100%;max-width:1240px;margin:64px auto 0;padding:0;text-align:center}
