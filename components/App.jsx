@@ -9,7 +9,7 @@ import {
 import {
   Instagram, Mail, Menu, X, LogOut, Plus, Trash2, Pencil, Users, Disc3,
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
-  Folder, ExternalLink,
+  Folder, ExternalLink, RefreshCw,
 } from "lucide-react";
 
 /* ---- embedded brand assets (base64, no external requests) ---- */
@@ -2119,6 +2119,7 @@ async function pullAndMergeSheetData(db, clients) {
 // forecast columns the site doesn't otherwise track anywhere.
 function CatalogOverview({ db, onSelectClient }) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
+  const [streamSync, setStreamSync] = useState({ syncing: false, error: null });
 
   useEffect(() => {
     let alive = true;
@@ -2136,6 +2137,25 @@ function CatalogOverview({ db, onSelectClient }) {
     })();
     return () => { alive = false; };
   }, []);
+
+  // triggers the "Luminate Portfolio Sync" Apps Script bound to the sheet
+  // (reads the latest CSV exports from its Drive folder into STREAM DATA,
+  // which every client tab's Gross Streams formula reads from live) — then
+  // re-pulls the overview so the numbers on screen reflect it immediately.
+  const runStreamSync = async () => {
+    setStreamSync({ syncing: true, error: null });
+    try {
+      const res = await fetch("/api/sync-streams", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Stream sync failed.");
+      const res2 = await fetch("/api/sheets-master");
+      const data2 = await res2.json();
+      if (res2.ok) setState({ loading: false, error: null, data: data2 });
+      setStreamSync({ syncing: false, error: null });
+    } catch (err) {
+      setStreamSync({ syncing: false, error: err.message || "Stream sync failed." });
+    }
+  };
 
   // MASTER's "Writer" column is just hand-typed display text — it can go
   // stale (a client renamed their tab but not this cell) or even be
@@ -2157,12 +2177,16 @@ function CatalogOverview({ db, onSelectClient }) {
       <div className="admin-head">
         <h2>Overview</h2>
         <div className="overview-links">
+          <button className="btn ghost sm" onClick={runStreamSync} disabled={streamSync.syncing} title="Run the Luminate portfolio sync script">
+            <RefreshCw size={14} className={streamSync.syncing ? "spin" : ""} /> {streamSync.syncing ? "Syncing streams…" : "Sync Streams"}
+          </button>
           {links.folder && <ExtLink href={links.folder} className="btn ghost sm" title="Open the pub sheet's Drive folder"><Folder size={14} /> Folder</ExtLink>}
           {links.portfolioA && <ExtLink href={links.portfolioA} className="btn ghost sm" title="Open Luminate portfolio A"><ExternalLink size={14} /> Portfolio A</ExtLink>}
           {links.portfolioB && <ExtLink href={links.portfolioB} className="btn ghost sm" title="Open Luminate portfolio B"><ExternalLink size={14} /> Portfolio B</ExtLink>}
         </div>
       </div>
       <p className="hint overview-subhint">Read-only — pulled live from the MASTER tab.</p>
+      {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
 
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
@@ -2519,6 +2543,8 @@ function StyleTag() {
     @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
     @keyframes popIn{from{opacity:0;transform:translateY(8px) scale(.98)}to{opacity:1;transform:none}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .spin{animation:spin 1s linear infinite}
     .view{animation:fadeIn .4s ease both}
     /* only routes with little enough content to always fit one screen (home,
        login) use this — everywhere else should size to its own content, or
