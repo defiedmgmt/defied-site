@@ -1969,6 +1969,30 @@ function SongManager({ db, commit, clientId, isStaff }) {
 function ClientPortal({ db, commit, session, logout }) {
   const user = db.users.find((u) => u.id === session.userId);
   const client = db.clients.find((c) => c.id === user?.clientId);
+
+  // db.sheetSync lives in this browser's localStorage — a client opening
+  // the portal on a device that's never synced (their own phone, say,
+  // since only staff have a "Sync from sheet" button) would otherwise never
+  // see streams/revenue at all. Silently pull just their own data once, the
+  // first time this loads with no sheet data yet. Read-only: never creates
+  // new placements or claims rows back to the sheet the way staff sync does.
+  useEffect(() => {
+    if (db.sheetSync?.lastSyncedAt || !client) return;
+    let alive = true;
+    (async () => {
+      try {
+        const { data, totalsByClient, placements } = await pullAndMergeSheetData(db, [client]);
+        if (!alive) return;
+        const clients = db.clients.map((c) => c.id === client.id ? { ...c, totalStreams: totalsByClient[c.id] ?? c.totalStreams } : c);
+        await commit({ ...db, placements, clients, sheetSync: { lastSyncedAt: data.syncedAt } });
+      } catch (err) {
+        console.error("Client portal auto-sync failed:", err);
+      }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client?.id]);
+
   return (
     <div className="portal">
       <header className="portal-nav">
@@ -1992,6 +2016,74 @@ function ClientPortal({ db, commit, session, logout }) {
 // so a title match has to tolerate that tag or it never links up.
 const normalizeTitle = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
   .replace(/\s+(feat|ft|featuring)\s+.*$/, "").trim();
+
+// Shared by the staff "Sync from sheet" button and each portal's silent
+// first-load refresh (see the auto-sync effects below) — pulls sheet rows
+// for the given clients and merges streams/revenue/adminFee/luminateId onto
+// matching placements. Doesn't create new placements or claim rows back to
+// the sheet; the staff sync flow layers that on top using rowsByClient.
+async function pullAndMergeSheetData(db, clients) {
+  const res = await fetch("/api/sheets-pull", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clients: clients.map((c) => ({ id: c.id, name: c.name, sheetTabName: c.sheetTabName })) }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Sync failed");
+
+  const totalsByClient = {};
+  const rowsByClient = {};
+  for (const c of data.clients) {
+    totalsByClient[c.clientId] = c.totalStreams;
+    rowsByClient[c.clientId] = c.rows;
+  }
+  const claimedRows = new Set(); // `${clientId}:${row}` — rows already matched to a placement below
+  // a row's syncId only means something if the placement it names still
+  // exists — if that placement was deleted/re-added since the last push,
+  // the row is really unclaimed even though its Site Sync ID column isn't
+  // blank, so title-fallback needs to be able to reclaim it too.
+  const livePlacementIds = new Set(db.placements.map((p) => p.id));
+  const rowIsAvailableForTitleMatch = (r) => !r.syncId || !livePlacementIds.has(r.syncId.split(":")[0]);
+  const placements = db.placements.map((p) => {
+    const rows = rowsByClient[p.clientId] || [];
+    // same priority as the push side: an exact syncId always wins; next,
+    // the Luminate ID is the one field that identifies the actual song
+    // regardless of what's sitting in the sheet's Site Sync ID column —
+    // if this placement's id ever changed (deleted and re-added, a stale
+    // duplicate that got merged), its old syncId may now be stuck on a row
+    // that isn't "unclaimed" by the title-fallback's definition, so
+    // streams/revenue would never update again without this; finally, fall
+    // back to a row with a matching title that's genuinely unclaimed OR
+    // whose syncId points at a placement that no longer exists (see
+    // rowIsAvailableForTitleMatch above) — a placement with no locally-
+    // stored Luminate ID at all would otherwise never be able to reclaim
+    // its own row through either of the first two paths.
+    const bySyncId = rows.find((r) => r.syncId && r.syncId.split(":")[0] === p.id);
+    const byLuminateId = !bySyncId && p.luminateId
+      ? rows.find((r) => r.luminateId && r.luminateId === p.luminateId)
+      : null;
+    const row = bySyncId || byLuminateId
+      || rows.find((r) => rowIsAvailableForTitleMatch(r) && normalizeTitle(r.song) === normalizeTitle(p.song));
+    if (!row) return p;
+    claimedRows.add(`${p.clientId}:${row.row}`);
+    return {
+      ...p,
+      streams: row.grossStreams,
+      revenue: row.grossRevenue,
+      adminFee: row.adminFee,
+      // the sheet wins here, not fill-blanks-only like everything else on
+      // this route — staff correct/update Luminate IDs directly on the
+      // sheet as part of the weekly refresh, and a fill-blanks rule would
+      // mean a sheet-side correction could never take effect once any
+      // value (even a wrong one) was ever set. Only falls back to the
+      // site's own value when the sheet cell is genuinely blank — e.g.
+      // staff typed it on the site before it ever reached the sheet.
+      luminateId: row.luminateId || p.luminateId,
+    };
+  });
+
+  return { data, totalsByClient, rowsByClient, claimedRows, placements };
+}
 
 function CatalogAdmin({ db, commit }) {
   const [clientId, setClientId] = useState(db.clients[0]?.id || null);
@@ -2030,64 +2122,7 @@ function CatalogAdmin({ db, commit }) {
   const syncFromSheet = async () => {
     setSyncing(true); setSyncErr(null);
     try {
-      const res = await fetch("/api/sheets-pull", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clients: db.clients.map((c) => ({ id: c.id, name: c.name, sheetTabName: c.sheetTabName })) }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Sync failed");
-
-      const totalsByClient = {};
-      const rowsByClient = {};
-      for (const c of data.clients) {
-        totalsByClient[c.clientId] = c.totalStreams;
-        rowsByClient[c.clientId] = c.rows;
-      }
-      const claimedRows = new Set(); // `${clientId}:${row}` — rows already matched to a placement below
-      // a row's syncId only means something if the placement it names still
-      // exists — if that placement was deleted/re-added since the last push,
-      // the row is really unclaimed even though its Site Sync ID column
-      // isn't blank, so title-fallback needs to be able to reclaim it too.
-      const livePlacementIds = new Set(db.placements.map((p) => p.id));
-      const rowIsAvailableForTitleMatch = (r) => !r.syncId || !livePlacementIds.has(r.syncId.split(":")[0]);
-      const placements = db.placements.map((p) => {
-        const rows = rowsByClient[p.clientId] || [];
-        // same priority as the push side: an exact syncId always wins; next,
-        // the Luminate ID is the one field that identifies the actual song
-        // regardless of what's sitting in the sheet's Site Sync ID column —
-        // if this placement's id ever changed (deleted and re-added, a stale
-        // duplicate that got merged), its old syncId may now be stuck on a
-        // row that isn't "unclaimed" by the title-fallback's definition, so
-        // streams/revenue would never update again without this; finally,
-        // fall back to a row with a matching title that's genuinely
-        // unclaimed OR whose syncId points at a placement that no longer
-        // exists (see rowIsAvailableForTitleMatch above) — a placement with
-        // no locally-stored Luminate ID at all would otherwise never be
-        // able to reclaim its own row through either of the first two paths.
-        const bySyncId = rows.find((r) => r.syncId && r.syncId.split(":")[0] === p.id);
-        const byLuminateId = !bySyncId && p.luminateId
-          ? rows.find((r) => r.luminateId && r.luminateId === p.luminateId)
-          : null;
-        const row = bySyncId || byLuminateId
-          || rows.find((r) => rowIsAvailableForTitleMatch(r) && normalizeTitle(r.song) === normalizeTitle(p.song));
-        if (!row) return p;
-        claimedRows.add(`${p.clientId}:${row.row}`);
-        return {
-          ...p,
-          streams: row.grossStreams,
-          revenue: row.grossRevenue,
-          adminFee: row.adminFee,
-          // the sheet wins here, not fill-blanks-only like everything else
-          // on this route — staff correct/update Luminate IDs directly on
-          // the sheet as part of the weekly refresh, and a fill-blanks rule
-          // would mean a sheet-side correction could never take effect once
-          // any value (even a wrong one) was ever set. Only falls back to
-          // the site's own value when the sheet cell is genuinely blank —
-          // e.g. staff typed it on the site before it ever reached the sheet.
-          luminateId: row.luminateId || p.luminateId,
-        };
-      });
+      const { data, totalsByClient, rowsByClient, claimedRows, placements } = await pullAndMergeSheetData(db, db.clients);
 
       // a client's tab can hold more than one row for the same title (an old
       // duplicate row from before this feature existed, a re-typed entry,
@@ -2153,6 +2188,17 @@ function CatalogAdmin({ db, commit }) {
       setSyncing(false);
     }
   };
+
+  // db.sheetSync lives in this browser's localStorage, not on a server — a
+  // device that's never had "Sync from sheet" clicked from it has no sheet
+  // data at all, which is why summaries silently didn't show up the first
+  // time this was opened on a new device. Auto-sync once, the first time
+  // this loads with no sheet data yet; after that staff control refreshes
+  // via the button as before.
+  useEffect(() => {
+    if (!db.sheetSync?.lastSyncedAt) syncFromSheet();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div>
