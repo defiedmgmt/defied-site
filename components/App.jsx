@@ -2138,6 +2138,12 @@ function CatalogAdmin({ db, commit }) {
           body: JSON.stringify({ claims }),
         }).catch((err) => console.error("Claim-back failed:", err));
       }
+
+      // a client whose tab couldn't be found by name gets nothing synced at
+      // all, with no other signal that anything's wrong — surface it here
+      // so staff know to set that client's "Sheet tab name" override.
+      const missing = data.clients.filter((c) => !c.tabFound).map((c) => db.clients.find((x) => x.id === c.clientId)?.name).filter(Boolean);
+      setSyncErr(missing.length ? `No sheet tab found for: ${missing.join(", ")}. If they do have a tab under a different name, set "Sheet tab name" on their client profile.` : null);
     } catch (err) {
       setSyncErr(err.message || "Sync failed.");
     } finally {
@@ -2592,15 +2598,15 @@ function StyleTag() {
     .portal-block-head h2{margin:0 0 4px}
     .portal-block-head .muted{margin:0}
     .cat-summary{margin-bottom:22px}
-    .cat-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
-    .cat-stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;display:flex;flex-direction:column;gap:4px}
-    .cat-stat-label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut2)}
-    .cat-stat-val{font-size:20px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+    .cat-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+    .cat-stat{container-type:inline-size;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
+    .cat-stat-label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .cat-stat-val{font-size:clamp(15px,9cqi,20px);font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .cat-stat-asof{font-size:12px;color:var(--mut2);margin:8px 0 0}
     .chart-wrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 8px 8px}
 
     /* client portal: songs + splits */
-    .song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:20px}
+    .song-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:16px}
     .song-card{background:none;border:none;padding:0;text-align:left;color:var(--ink);display:flex;flex-direction:column;gap:11px;cursor:pointer}
     .song-cover{aspect-ratio:1;border-radius:12px;overflow:hidden;background:var(--panel2);border:1px solid var(--line);transition:transform .15s ease,border-color .15s ease}
     .song-card:hover .song-cover{transform:translateY(-4px);border-color:#3d3d40}
