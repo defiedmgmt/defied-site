@@ -1888,7 +1888,6 @@ function SongManager({ db, commit, clientId, isStaff }) {
               <div className="cat-stat"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
             )}
           </div>
-          <p className="cat-stat-asof">as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</p>
         </div>
       )}
 
@@ -1998,13 +1997,14 @@ function ClientPortal({ db, commit, session, logout }) {
   const client = db.clients.find((c) => c.id === user?.clientId);
 
   // db.sheetSync lives in this browser's localStorage — a client opening
-  // the portal on a device that's never synced (their own phone, say,
-  // since only staff have a "Sync from sheet" button) would otherwise never
-  // see streams/revenue at all. Silently pull just their own data once, the
-  // first time this loads with no sheet data yet. Read-only: never creates
-  // new placements or claims rows back to the sheet the way staff sync does.
+  // the portal on a device that's never synced (their own phone, say, since
+  // clients have no manual sync button) would otherwise never see streams/
+  // revenue at all, and a device that synced a while ago would go stale
+  // indefinitely with no way to notice. Silently pull just their own data
+  // whenever it's gone stale. Read-only: never creates new placements or
+  // claims rows back to the sheet the way fullSiteSync does for staff.
   useEffect(() => {
-    if (db.sheetSync?.lastSyncedAt || !client) return;
+    if (!isSheetSyncStale(db) || !client) return;
     let alive = true;
     (async () => {
       try {
@@ -2044,11 +2044,25 @@ function ClientPortal({ db, commit, session, logout }) {
 const normalizeTitle = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
   .replace(/\s+(feat|ft|featuring)\s+.*$/, "").trim();
 
-// Shared by the staff "Sync from sheet" button and each portal's silent
-// first-load refresh (see the auto-sync effects below) — pulls sheet rows
-// for the given clients and merges streams/revenue/adminFee/luminateId onto
-// matching placements. Doesn't create new placements or claim rows back to
-// the sheet; the staff sync flow layers that on top using rowsByClient.
+// db.sheetSync lives in this browser's own localStorage, not on a server, so
+// "is this data current" can't just mean "has this browser ever synced" —
+// a device that synced once, a while ago (including before some bug fix
+// that only affects sync logic itself), would otherwise sit stale
+// indefinitely with no way to notice. Both silent background auto-syncs
+// (CatalogAdmin, ClientPortal) re-check against this instead of a one-time
+// gate, so nobody has to remember to press a button for routine staleness.
+const SYNC_STALE_MS = 5 * 60 * 1000; // 5 minutes
+const isSheetSyncStale = (db) => {
+  const at = db.sheetSync?.lastSyncedAt;
+  return !at || Date.now() - new Date(at).getTime() > SYNC_STALE_MS;
+};
+
+// Shared by the Overview page's "Sync Streams" flow (via fullSiteSync) and
+// each portal's silent background refresh (see the auto-sync effects
+// below) — pulls sheet rows for the given clients and merges streams/
+// revenue/adminFee/luminateId onto matching placements. Doesn't create new
+// placements or claim rows back to the sheet; fullSiteSync layers that on
+// top using rowsByClient.
 async function pullAndMergeSheetData(db, clients) {
   const res = await fetch("/api/sheets-pull", {
     method: "POST",
@@ -2210,22 +2224,24 @@ function CatalogOverview({ db, commit, onSelectClient }) {
   // triggers the "Luminate Portfolio Sync" Apps Script bound to the sheet
   // (reads the latest CSV exports from its Drive folder into STREAM DATA,
   // which every client tab's Gross Streams formula reads from live), then
-  // chains a full site sync (fullSiteSync — same as the "Sync from sheet"
-  // button) so this one click updates the sheet AND the site together —
-  // otherwise the site's "as of" date reflects whenever it last happened to
-  // pull, not whenever the Luminate data actually refreshed, and staff
-  // would still need a second click for the site to catch up.
+  // chains a full site sync (fullSiteSync) so this one click — the only
+  // manual sync action left anywhere on the site — updates the sheet AND
+  // every client's numbers together, with the "as of" date below reflecting
+  // that exact moment rather than whenever something last happened to pull.
   const runStreamSync = async () => {
     setStreamSync({ syncing: true, error: null });
     try {
       const res = await fetch("/api/sync-streams", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Stream sync failed.");
-      await fullSiteSync(db, commit);
+      const { missing } = await fullSiteSync(db, commit);
       const res2 = await fetch("/api/sheets-master");
       const data2 = await res2.json();
       if (res2.ok) setState({ loading: false, error: null, data: data2 });
-      setStreamSync({ syncing: false, error: null });
+      setStreamSync({
+        syncing: false,
+        error: missing.length ? `No sheet tab found for: ${missing.join(", ")}. If they do have a tab under a different name, set "Sheet tab name" on their client profile.` : null,
+      });
     } catch (err) {
       setStreamSync({ syncing: false, error: err.message || "Stream sync failed." });
     }
@@ -2259,7 +2275,10 @@ function CatalogOverview({ db, commit, onSelectClient }) {
           {links.portfolioB && <ExtLink href={links.portfolioB} className="btn ghost sm" title="Open Luminate portfolio B"><ExternalLink size={14} /> Portfolio B</ExtLink>}
         </div>
       </div>
-      <p className="hint overview-subhint">Read-only — pulled live from the MASTER tab.</p>
+      <p className="hint overview-subhint">
+        Read-only — pulled live from the MASTER tab.
+        {db.sheetSync?.lastSyncedAt && ` Streams as of ${new Date(db.sheetSync.lastSyncedAt).toLocaleString()}.`}
+      </p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
 
       {state.loading && <p className="muted">Loading master sheet data…</p>}
@@ -2344,8 +2363,6 @@ function CatalogAdmin({ db, commit }) {
   const [clientId, setClientId] = useState(null);
   const client = db.clients.find((c) => c.id === clientId);
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;
-  const [syncing, setSyncing] = useState(false);
-  const [syncErr, setSyncErr] = useState(null);
   const [addingClient, setAddingClient] = useState(false);
   const [newClientForm, setNewClientForm] = useState({ name: "", role: "Producer" });
   const [deleteWarn, setDeleteWarn] = useState(null);
@@ -2374,26 +2391,16 @@ function CatalogAdmin({ db, commit }) {
     if (warn) setDeleteWarn(warn);
   };
 
-  const syncFromSheet = async () => {
-    setSyncing(true); setSyncErr(null);
-    try {
-      const { missing } = await fullSiteSync(db, commit);
-      setSyncErr(missing.length ? `No sheet tab found for: ${missing.join(", ")}. If they do have a tab under a different name, set "Sheet tab name" on their client profile.` : null);
-    } catch (err) {
-      setSyncErr(err.message || "Sync failed.");
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   // db.sheetSync lives in this browser's localStorage, not on a server — a
-  // device that's never had "Sync from sheet" clicked from it has no sheet
-  // data at all, which is why summaries silently didn't show up the first
-  // time this was opened on a new device. Auto-sync once, the first time
-  // this loads with no sheet data yet; after that staff control refreshes
-  // via the button as before.
+  // device whose local copy is stale (never synced, or synced a while ago,
+  // including before some bug fix here) would otherwise sit stale until
+  // someone remembers to press a button. There's now exactly one manual
+  // sync action (the Overview page's "Sync Streams" button, which chains a
+  // full site sync after refreshing Luminate data) — this silently keeps
+  // every other view current in the background instead of asking staff to
+  // think about it, refreshing automatically whenever it's gone stale.
   useEffect(() => {
-    if (!db.sheetSync?.lastSyncedAt) syncFromSheet();
+    if (isSheetSyncStale(db)) fullSiteSync(db, commit).catch((err) => console.error("Background sync failed:", err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2401,11 +2408,6 @@ function CatalogAdmin({ db, commit }) {
     <div>
       <div className="admin-head">
         <h2>Clients &amp; catalog</h2>
-        <div className="sync-block">
-          <button className="btn ghost sm" onClick={syncFromSheet} disabled={syncing}>{syncing ? "Syncing…" : "Sync from sheet"}</button>
-          {db.sheetSync?.lastSyncedAt && <span className="hint">as of {new Date(db.sheetSync.lastSyncedAt).toLocaleString()}</span>}
-          {syncErr && <span className="hint err-text">{syncErr}</span>}
-        </div>
       </div>
       <div className="catalog-wrap">
         <div className="catalog-clients">
@@ -2788,10 +2790,6 @@ function StyleTag() {
     .overview-links{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
     .overview-links a.btn{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
     .overview-subhint{margin:-10px 0 18px}
-    .sync-block{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}
-    .sync-block .btn{flex-shrink:0}
-    .sync-block .hint{margin-top:0}
-    .sync-block .err-text{flex-basis:100%}
     .err-text{color:#e59a9a}
     .modal-save-warn{margin:0 20px 14px;padding:10px 12px;border-radius:8px;background:#3a1f1f;border:1px solid #5a2c2c;font-size:13px}
     .admin-head h2{font-size:22px;margin:0}
@@ -2869,7 +2867,6 @@ function StyleTag() {
     .cat-stat{container-type:inline-size;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:4px;min-width:0}
     .cat-stat-label{font-size:clamp(9px,6.5cqi,11px);letter-spacing:.06em;text-transform:uppercase;color:var(--mut2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .cat-stat-val{font-size:clamp(15px,9cqi,20px);font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .cat-stat-asof{font-size:12px;color:var(--mut2);margin:8px 0 0}
     .chart-wrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 8px 8px}
 
     /* client portal: songs + splits */
