@@ -2112,12 +2112,81 @@ async function pullAndMergeSheetData(db, clients) {
   return { data, totalsByClient, rowsByClient, claimedRows, placements };
 }
 
+// Full site-wide sync — merges sheet data onto existing placements (via
+// pullAndMergeSheetData) AND picks up any genuinely new song staff typed
+// straight into the sheet, claiming its row back with a Site Sync ID.
+// Shared by the "Sync from sheet" button and the Overview page's "Sync
+// Streams" button, which chains this right after refreshing STREAM DATA so
+// one click keeps both the sheet and the site current — see runStreamSync.
+async function fullSiteSync(db, commit) {
+  const { data, totalsByClient, rowsByClient, claimedRows, placements } = await pullAndMergeSheetData(db, db.clients);
+
+  // a client's tab can hold more than one row for the same title (an old
+  // duplicate row from before this feature existed, a re-typed entry,
+  // etc.) — the match above only ever claims ONE row per placement, so
+  // track every title a client already has on the site and skip the
+  // rest rather than importing each leftover duplicate as a new song.
+  const existingTitles = new Map(); // clientId -> Set(normalizedTitle)
+  for (const p of db.placements) {
+    const set = existingTitles.get(p.clientId) || new Set();
+    set.add(normalizeTitle(p.song));
+    existingTitles.set(p.clientId, set);
+  }
+
+  // any row left over in a client's own tab — after both the syncId/title
+  // match above AND the already-tracked-title check — is a genuinely new
+  // song staff typed straight into the sheet. Bring it onto the site,
+  // then stamp its Site Sync ID so future syncs match it directly.
+  const created = [];
+  const claims = [];
+  for (const c of db.clients) {
+    const rows = rowsByClient[c.id] || [];
+    // seen tracks titles claimed *within this pass* too — two unclaimed
+    // rows sharing a title (a re-typed duplicate, a copy-paste mistake)
+    // must only ever produce one new placement, not one each.
+    const seen = existingTitles.get(c.id) || new Set();
+    for (const row of rows) {
+      if (claimedRows.has(`${c.id}:${row.row}`)) continue;
+      const title = normalizeTitle(row.song);
+      if (seen.has(title)) continue;
+      seen.add(title);
+      const id = uid();
+      created.push({
+        id, clientId: c.id, song: row.song, artist: row.artist || c.name,
+        releaseDate: "", link: "", cover: "", notable: false,
+        luminateId: row.luminateId || "",
+        splits: [{ id: uid(), name: c.name, role: c.role || "", percent: row.writerShare || 100 }],
+        streams: row.grossStreams, revenue: row.grossRevenue, adminFee: row.adminFee,
+      });
+      const tabName = c.sheetTabName || c.name;
+      claims.push({ tab: tabName, row: row.row, syncId: `${id}:${tabName.toLowerCase()}` });
+    }
+  }
+
+  const clients = db.clients.map((c) => ({ ...c, totalStreams: totalsByClient[c.id] ?? c.totalStreams }));
+  await commit({ ...db, placements: [...placements, ...created], clients, sheetSync: { lastSyncedAt: data.syncedAt } });
+
+  if (claims.length) {
+    fetch("/api/sheets-claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ claims }),
+    }).catch((err) => console.error("Claim-back failed:", err));
+  }
+
+  // a client whose tab couldn't be found by name gets nothing synced at
+  // all, with no other signal that anything's wrong — surface it here so
+  // staff know to set that client's "Sheet tab name" override.
+  const missing = data.clients.filter((c) => !c.tabFound).map((c) => db.clients.find((x) => x.id === c.clientId)?.name).filter(Boolean);
+  return { missing };
+}
+
 // Read-only roster-wide rollup — the landing view of the Clients tab, before
 // staff pick an individual client. Pulls the MASTER tab's own precomputed
 // per-writer totals directly (rather than re-deriving them from placements)
 // so the numbers always match the sheet exactly, including the 3-year
 // forecast columns the site doesn't otherwise track anywhere.
-function CatalogOverview({ db, onSelectClient }) {
+function CatalogOverview({ db, commit, onSelectClient }) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [streamSync, setStreamSync] = useState({ syncing: false, error: null });
 
@@ -2140,14 +2209,19 @@ function CatalogOverview({ db, onSelectClient }) {
 
   // triggers the "Luminate Portfolio Sync" Apps Script bound to the sheet
   // (reads the latest CSV exports from its Drive folder into STREAM DATA,
-  // which every client tab's Gross Streams formula reads from live) — then
-  // re-pulls the overview so the numbers on screen reflect it immediately.
+  // which every client tab's Gross Streams formula reads from live), then
+  // chains a full site sync (fullSiteSync — same as the "Sync from sheet"
+  // button) so this one click updates the sheet AND the site together —
+  // otherwise the site's "as of" date reflects whenever it last happened to
+  // pull, not whenever the Luminate data actually refreshed, and staff
+  // would still need a second click for the site to catch up.
   const runStreamSync = async () => {
     setStreamSync({ syncing: true, error: null });
     try {
       const res = await fetch("/api/sync-streams", { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Stream sync failed.");
+      await fullSiteSync(db, commit);
       const res2 = await fetch("/api/sheets-master");
       const data2 = await res2.json();
       if (res2.ok) setState({ loading: false, error: null, data: data2 });
@@ -2303,65 +2377,7 @@ function CatalogAdmin({ db, commit }) {
   const syncFromSheet = async () => {
     setSyncing(true); setSyncErr(null);
     try {
-      const { data, totalsByClient, rowsByClient, claimedRows, placements } = await pullAndMergeSheetData(db, db.clients);
-
-      // a client's tab can hold more than one row for the same title (an old
-      // duplicate row from before this feature existed, a re-typed entry,
-      // etc.) — the match above only ever claims ONE row per placement, so
-      // track every title a client already has on the site and skip the
-      // rest rather than importing each leftover duplicate as a new song.
-      const existingTitles = new Map(); // clientId -> Set(normalizedTitle)
-      for (const p of db.placements) {
-        const set = existingTitles.get(p.clientId) || new Set();
-        set.add(normalizeTitle(p.song));
-        existingTitles.set(p.clientId, set);
-      }
-
-      // any row left over in a client's own tab — after both the syncId/title
-      // match above AND the already-tracked-title check — is a genuinely new
-      // song staff typed straight into the sheet. Bring it onto the site,
-      // then stamp its Site Sync ID so future syncs match it directly.
-      const created = [];
-      const claims = [];
-      for (const c of db.clients) {
-        const rows = rowsByClient[c.id] || [];
-        // seen tracks titles claimed *within this pass* too — two unclaimed
-        // rows sharing a title (a re-typed duplicate, a copy-paste mistake)
-        // must only ever produce one new placement, not one each.
-        const seen = existingTitles.get(c.id) || new Set();
-        for (const row of rows) {
-          if (claimedRows.has(`${c.id}:${row.row}`)) continue;
-          const title = normalizeTitle(row.song);
-          if (seen.has(title)) continue;
-          seen.add(title);
-          const id = uid();
-          created.push({
-            id, clientId: c.id, song: row.song, artist: row.artist || c.name,
-            releaseDate: "", link: "", cover: "", notable: false,
-            luminateId: row.luminateId || "",
-            splits: [{ id: uid(), name: c.name, role: c.role || "", percent: row.writerShare || 100 }],
-            streams: row.grossStreams, revenue: row.grossRevenue, adminFee: row.adminFee,
-          });
-          const tabName = c.sheetTabName || c.name;
-          claims.push({ tab: tabName, row: row.row, syncId: `${id}:${tabName.toLowerCase()}` });
-        }
-      }
-
-      const clients = db.clients.map((c) => ({ ...c, totalStreams: totalsByClient[c.id] ?? c.totalStreams }));
-      await commit({ ...db, placements: [...placements, ...created], clients, sheetSync: { lastSyncedAt: data.syncedAt } });
-
-      if (claims.length) {
-        fetch("/api/sheets-claim", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ claims }),
-        }).catch((err) => console.error("Claim-back failed:", err));
-      }
-
-      // a client whose tab couldn't be found by name gets nothing synced at
-      // all, with no other signal that anything's wrong — surface it here
-      // so staff know to set that client's "Sheet tab name" override.
-      const missing = data.clients.filter((c) => !c.tabFound).map((c) => db.clients.find((x) => x.id === c.clientId)?.name).filter(Boolean);
+      const { missing } = await fullSiteSync(db, commit);
       setSyncErr(missing.length ? `No sheet tab found for: ${missing.join(", ")}. If they do have a tab under a different name, set "Sheet tab name" on their client profile.` : null);
     } catch (err) {
       setSyncErr(err.message || "Sync failed.");
@@ -2412,7 +2428,7 @@ function CatalogAdmin({ db, commit }) {
         </div>
         <div className="catalog-main">
           {clientId === null
-            ? <CatalogOverview db={db} onSelectClient={setClientId} />
+            ? <CatalogOverview db={db} commit={commit} onSelectClient={setClientId} />
             : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff /> : <p className="muted">Select a client.</p>)}
         </div>
       </div>
