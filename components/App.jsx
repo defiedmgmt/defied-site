@@ -1817,7 +1817,13 @@ function SongManager({ db, commit, clientId, isStaff }) {
     fetch("/api/sheets-push", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ placementId, song: saved.song, artist: saved.artist, luminateId: saved.luminateId, splits }),
+      body: JSON.stringify({
+        placementId, song: saved.song, artist: saved.artist, luminateId: saved.luminateId, splits,
+        // lets the push route tell a genuinely-still-claimed sheet row apart
+        // from one whose syncId belongs to a placement that no longer
+        // exists on this browser — see findUnclaimedRowByTitle.
+        liveIds: placements.map((p) => p.id),
+      }),
     }).then(async (res) => {
       if (res.ok) return;
       const data = await res.json().catch(() => ({}));

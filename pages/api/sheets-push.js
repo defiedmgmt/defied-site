@@ -11,7 +11,7 @@ import {
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const { placementId, song, artist, luminateId, splits } = req.body || {};
+  const { placementId, song, artist, luminateId, splits, liveIds } = req.body || {};
   if (!placementId || !song || !Array.isArray(splits) || splits.length === 0) {
     return res.status(400).json({ error: "placementId, song, and splits are required." });
   }
@@ -43,11 +43,15 @@ export default async function handler(req, res) {
       // "this is obviously the same song" even if the local placement's id
       // changed (deleted and re-added, a stale re-sync) and its old syncId
       // is now sitting on the row unmatched; (3) a real pre-existing row
-      // with the same title and no Site Sync ID of its own is almost
-      // certainly this song typed in before this feature existed.
+      // with the same title, where any syncId already there is either
+      // blank or points at a placement that no longer exists in the
+      // pushing browser's own placement list (liveIds) — everything else
+      // on the site is per-browser localStorage, so two staff members' (or
+      // one staff member's two devices') local copies of "the same" song
+      // can carry different ids with no other way to reconcile them.
       const existingRow = await findRowBySyncId(sheets, spreadsheetId, tab.title, syncId)
         ?? (luminateId ? await findRowByLuminateId(sheets, spreadsheetId, tab.title, luminateId) : null)
-        ?? await findUnclaimedRowByTitle(sheets, spreadsheetId, tab.title, song);
+        ?? await findUnclaimedRowByTitle(sheets, spreadsheetId, tab.title, song, liveIds);
       const payload = { song, artist: artist || "", percent, luminateId, syncId };
       if (existingRow) {
         await writeSongRow(sheets, spreadsheetId, tab.title, existingRow, payload);
