@@ -1374,6 +1374,9 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
   };
   const gridCols = { "--cols": columns.map((c) => c.w || "1fr").join(" ") + (onReorder ? " 128px" : " 72px") };
   const atMax = !!maxItems && items.length >= maxItems;
+  // reorder rows carry 4 action buttons (up/down/edit/delete) instead of 2,
+  // so they need their own, wider mobile column — see .admin-row-reorder.
+  const rowCls = "admin-row" + (onReorder ? " admin-row-reorder" : "");
   return (
     <div>
       <div className="admin-head">
@@ -1381,13 +1384,13 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
         <button className="btn sm" onClick={() => start(null)} disabled={atMax} title={atMax ? `Remove one to add another (max ${maxItems})` : undefined}><Plus size={15} /> Add</button>
       </div>
       <div className="admin-table">
-        <div className="admin-row admin-hd" style={gridCols}>
+        <div className={`${rowCls} admin-hd`} style={gridCols}>
           {columns.map((c) => <span key={c.key}>{c.label}</span>)}
           <span className="admin-act">Actions</span>
         </div>
         {items.length === 0 && <div className="admin-empty">Nothing here yet. Click “Add”.</div>}
         {items.map((it, i) => (
-          <div className="admin-row" key={it.id} style={gridCols}>
+          <div className={rowCls} key={it.id} style={gridCols}>
             {columns.map((c) => <span key={c.key} className="cell">{c.render ? c.render(it) : (it[c.key] || "—")}</span>)}
             <span className="admin-act">
               {onReorder && (
@@ -2528,9 +2531,11 @@ function StyleTag() {
     .dash-main{flex:1;padding:30px 34px;max-width:920px}
     .dash-role{font-size:12px;color:var(--mut2);letter-spacing:.06em;margin-bottom:22px;text-transform:uppercase}
 
-    .admin-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
-    .sync-block{display:flex;align-items:center;gap:12px}
+    .admin-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:10px 16px}
+    .sync-block{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}
+    .sync-block .btn{flex-shrink:0}
     .sync-block .hint{margin-top:0}
+    .sync-block .err-text{flex-basis:100%}
     .err-text{color:#e59a9a}
     .modal-save-warn{margin:0 20px 14px;padding:10px 12px;border-radius:8px;background:#3a1f1f;border:1px solid #5a2c2c;font-size:13px}
     .admin-head h2{font-size:22px;margin:0}
@@ -2569,8 +2574,9 @@ function StyleTag() {
     .crop-zoom input[type=range]{flex:1;accent-color:#fff}
     .crop-hint{font-size:12px;color:var(--mut2);margin:0;text-align:center}
     .modal-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:100%;max-width:460px;animation:popIn .28s cubic-bezier(.22,.61,.36,1) both}
-    .modal-head{display:flex;align-items:center;justify-content:space-between;padding:20px 22px;border-bottom:1px solid var(--line)}
-    .modal-head h3{margin:0;font-size:17px}
+    .modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px 22px;border-bottom:1px solid var(--line)}
+    .modal-head h3{margin:0;font-size:17px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .modal-head button{flex-shrink:0}
     .modal-head button{background:none;border:none;color:var(--mut)}
     .modal-body{padding:22px;display:flex;flex-direction:column;gap:14px}
     .modal-foot{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid var(--line)}
@@ -2594,7 +2600,8 @@ function StyleTag() {
     .portal-block{margin-bottom:38px}
     .portal-block h2{font-size:19px;margin:0 0 4px}
     .portal-block .muted{margin:0 0 16px;font-size:13.5px}
-    .portal-block-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
+    .portal-block-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px 16px;margin-bottom:16px}
+    .portal-block-head .btn{flex-shrink:0}
     .portal-block-head h2{margin:0 0 4px}
     .portal-block-head .muted{margin:0}
     .cat-summary{margin-bottom:22px}
@@ -2613,7 +2620,7 @@ function StyleTag() {
     .song-cover img{width:100%;height:100%;object-fit:cover;display:block}
     .song-cover-empty{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#3a3a3a}
     .song-info{display:flex;flex-direction:column;gap:2px}
-    .song-info strong{font-size:14.5px}
+    .song-info strong{font-size:14.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     .song-info span{color:var(--mut);font-size:12.5px}
     .song-info em{color:var(--mut2);font-size:11.5px;font-style:normal;margin-top:2px}
 
@@ -2727,9 +2734,14 @@ function StyleTag() {
       .dash-side nav button span{display:none}
       .dash-side nav button{padding:11px 13px}
       .dash-main{padding:24px 20px}
-      .admin-row{grid-template-columns:1.4fr 1fr 60px !important}
+      .admin-row{grid-template-columns:1.4fr 1fr 60px !important;gap:8px}
       .admin-row .cell:nth-child(n+3){display:none}
       .admin-hd span:nth-child(n+3):not(.admin-act){display:none}
+      /* reorder rows carry 4 action buttons (up/down/edit/delete), not 2 —
+         the flat 60px above is too narrow and crams them into an overlapping mess */
+      .admin-row-reorder{grid-template-columns:1.3fr 1fr 112px !important}
+      .admin-row-reorder .admin-act{gap:4px}
+      .admin-row-reorder .admin-act button{padding:5px}
       .splits-ed-row{grid-template-columns:1fr 74px 30px}
       .splits-ed-row input:nth-child(2){grid-column:1 / -1}
       .song-grid{grid-template-columns:repeat(2,1fr);gap:16px}
