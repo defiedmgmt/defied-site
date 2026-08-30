@@ -2130,13 +2130,16 @@ function CatalogOverview({ db, onSelectClient }) {
     return () => { alive = false; };
   }, []);
 
-  // MASTER's "Writer" column holds the sheet TAB name, which doesn't always
-  // match a client's on-site display name (e.g. tab "Yellow" vs client
-  // "prodyel1ow") — same punctuation-tolerant comparison as findTab server-
-  // side, so a row here can still link back to a real client to click into.
-  const findClient = (writer) => {
+  // MASTER's "Writer" column is just hand-typed display text — it can go
+  // stale (a client renamed their tab but not this cell) or even be
+  // outright wrong (a row labeled "WRITER 13" was found to actually pull
+  // from the "prodgavin" tab via its formulas). readMasterRollup already
+  // extracts the real tab each row's formulas reference as row.sheetTab —
+  // match against THAT, not the label, with the same punctuation-tolerant
+  // comparison as findTab server-side.
+  const findClient = (row) => {
     const norm = (s) => (s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-    const target = norm(writer);
+    const target = norm(row.sheetTab || row.writer);
     if (!target) return null;
     return db.clients.find((c) => norm(c.sheetTabName || c.name) === target) || null;
   };
@@ -2175,7 +2178,7 @@ function CatalogOverview({ db, onSelectClient }) {
               </thead>
               <tbody>
                 {state.data.rows.map((r) => {
-                  const client = findClient(r.writer);
+                  const client = findClient(r);
                   return (
                     <tr
                       key={r.writer}
