@@ -4,15 +4,10 @@
 // email-only lockout allows guessing across many accounts from one IP.
 import bcrypt from "bcryptjs";
 import { sql } from "../../../lib/db";
-import { getSession, requireSameOrigin } from "../../../lib/session";
+import { getSession, requireSameOrigin, clientIp } from "../../../lib/session";
 
 const MAX_ATTEMPTS = 5;
 const WINDOW_MINUTES = 15;
-
-function clientIp(req) {
-  const fwd = req.headers["x-forwarded-for"];
-  return (Array.isArray(fwd) ? fwd[0] : fwd || "").split(",")[0].trim() || req.socket?.remoteAddress || "unknown";
-}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });

@@ -101,3 +101,13 @@ CREATE TABLE IF NOT EXISTS login_attempts (
 );
 CREATE INDEX IF NOT EXISTS login_attempts_email_time_idx ON login_attempts(email, attempted_at);
 CREATE INDEX IF NOT EXISTS login_attempts_ip_time_idx ON login_attempts(ip, attempted_at);
+
+-- backs contact-form rate limiting — see /api/submit-contact. Logs every
+-- POST (including honeypot-tripped ones), not just accepted submissions,
+-- so a scripted bot that fills the form out "correctly" still gets capped.
+CREATE TABLE IF NOT EXISTS contact_attempts (
+  id bigserial PRIMARY KEY,
+  ip text NOT NULL DEFAULT '',
+  attempted_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS contact_attempts_ip_time_idx ON contact_attempts(ip, attempted_at);
