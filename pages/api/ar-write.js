@@ -7,6 +7,7 @@ import { requireStaff, requireSameOrigin } from "../../lib/session";
 import {
   getSheetsClient, getSheetId, firstEmptyOutreachRow,
   writeOutreachProspect, clearOutreachProspect, writeOutreachSong, clearOutreachSong,
+  writeOutreachProspectFull,
 } from "../../lib/sheets";
 
 export default async function handler(req, res) {
@@ -20,6 +21,13 @@ export default async function handler(req, res) {
   const spreadsheetId = getSheetId();
 
   try {
+    if (action === "saveProspectFull") {
+      const { row, name, contact, songs } = req.body;
+      if (!name || !String(name).trim()) return res.status(400).json({ error: "Name is required." });
+      const targetRow = row || (await firstEmptyOutreachRow(sheets, spreadsheetId));
+      await writeOutreachProspectFull(sheets, spreadsheetId, targetRow, { name: String(name).trim(), contact: contact || "", songs: songs || [] });
+      return res.status(200).json({ ok: true, row: targetRow });
+    }
     if (action === "saveProspect") {
       const { row, name, contact } = req.body;
       if (!name || !String(name).trim()) return res.status(400).json({ error: "Name is required." });

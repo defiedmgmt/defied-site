@@ -1335,24 +1335,10 @@ function ARAdmin() {
 function OutreachPanel({ data, reload }) {
   const cols = "1.2fr 1fr 1fr 1fr 1fr 0.6fr 1fr";
   const [adding, setAdding] = useState(false);
-  const [newProspect, setNewProspect] = useState({ name: "", contact: "" });
-  const [activeRow, setActiveRow] = useState(null); // the prospect row currently open in the detail modal
-  const [err, setErr] = useState(null);
+  const [activeRow, setActiveRow] = useState(null); // the prospect row currently open for editing
   // look up fresh each render (not a stale snapshot) so the modal reflects
-  // updated sums immediately after a song save, without having to reopen it
+  // updated sums immediately if reload() ever fires while it's open
   const active = data.prospects.find((p) => p.row === activeRow) || null;
-
-  const addProspect = async () => {
-    if (!newProspect.name.trim()) return;
-    try {
-      await arWrite({ action: "saveProspect", name: newProspect.name.trim(), contact: newProspect.contact.trim() });
-      setAdding(false);
-      setNewProspect({ name: "", contact: "" });
-      await reload();
-    } catch (e) {
-      setErr(e.message);
-    }
-  };
 
   return (
     <div>
@@ -1366,11 +1352,11 @@ function OutreachPanel({ data, reload }) {
         </div>
       </div>
       <p className="muted mb">
-        Up to 5 songs per prospect — add each song's Gross Streams and Writer % below and Gross Streams, Net
-        Streams, and Est. Revenue all sum/compute automatically, exactly like the sheet. Click a prospect to edit
-        their songs. Never touches MASTER or roster totals.
+        Up to 5 songs per prospect — fill out their name, contact, and each song's Gross Streams and Writer %,
+        then hit Save once. Gross Streams, Net Streams, and Est. Revenue all sum/compute automatically — Net
+        Streams is the sum of each song's own streams × its own split, never an average. Never touches MASTER or
+        roster totals.
       </p>
-      {err && <p className="hint err-text mb">{err}</p>}
       {data.prospects.length === 0 ? (
         <div className="admin-empty">No prospects logged yet — click "Add prospect".</div>
       ) : (
@@ -1393,101 +1379,84 @@ function OutreachPanel({ data, reload }) {
       )}
 
       {adding && (
-        <div className="modal" onClick={(e) => e.target === e.currentTarget && setAdding(false)}>
-          <div className="modal-card">
-            <div className="modal-head"><h3>New prospect</h3><button onClick={() => setAdding(false)}><X size={18} /></button></div>
-            <div className="modal-body">
-              <Field label="Prospect / Producer" value={newProspect.name} onChange={(e) => setNewProspect({ ...newProspect, name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && addProspect()} />
-              <Field label="Contact or Handle" value={newProspect.contact} onChange={(e) => setNewProspect({ ...newProspect, contact: e.target.value })} />
-            </div>
-            <div className="modal-foot">
-              <button className="btn ghost sm" onClick={() => setAdding(false)}>Cancel</button>
-              <button className="btn sm" onClick={addProspect} disabled={!newProspect.name.trim()}>Add</button>
-            </div>
-          </div>
-        </div>
+        <ProspectForm
+          blendedRate={data.assumptions.blendedRate}
+          onClose={() => setAdding(false)}
+          onChanged={async () => { await reload(); setAdding(false); }}
+        />
       )}
-
       {active && (
-        <ProspectDetail
+        <ProspectForm
           prospect={active}
+          blendedRate={data.assumptions.blendedRate}
           onClose={() => setActiveRow(null)}
-          onChanged={reload}
+          onChanged={async () => { await reload(); setActiveRow(null); }}
         />
       )}
     </div>
   );
 }
 
-function ProspectDetail({ prospect, onClose, onChanged }) {
-  const [name, setName] = useState(prospect.name);
-  const [contact, setContact] = useState(prospect.contact);
-  const [songs, setSongs] = useState(prospect.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })));
+const BLANK_SONGS = [1, 2, 3, 4, 5].map((slot) => ({ slot, streams: "", writerShare: "" }));
+
+// One form for both adding and editing a prospect — name, contact, and all
+// 5 song slots are filled out together and saved in a single click via
+// saveProspectFull, instead of a separate save per field/song. The preview
+// totals are computed the same way the sheet computes them: Gross Streams
+// is a straight sum of the streams typed in each slot, and Net Streams is
+// the sum of each individual slot's own streams × its own writer % — never
+// a single blended percentage applied to the summed total, which is what
+// made the old one-pair-per-prospect design inaccurate for anyone with
+// more than one song at a different split.
+function ProspectForm({ prospect, blendedRate, onClose, onChanged }) {
+  const isNew = !prospect;
+  const [name, setName] = useState(prospect?.name || "");
+  const [contact, setContact] = useState(prospect?.contact || "");
+  const [songs, setSongs] = useState(
+    prospect ? prospect.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })) : BLANK_SONGS
+  );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const setSong = (slot, patch) => setSongs(songs.map((s) => (s.slot === slot ? { ...s, ...patch } : s)));
 
-  // re-sync local draft state whenever the prospect prop refreshes (after
-  // reload() following a save) — keeps the modal open showing live totals
-  // instead of forcing staff to close and reopen it to see what changed.
-  useEffect(() => {
-    setName(prospect.name);
-    setContact(prospect.contact);
-    setSongs(prospect.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })));
-  }, [prospect]);
+  const grossStreams = songs.reduce((sum, s) => sum + (Number(s.streams) || 0), 0);
+  const netStreams = songs.reduce((sum, s) => sum + (Number(s.streams) || 0) * ((Number(s.writerShare) || 0) / 100), 0);
+  const estRevenue = netStreams * blendedRate;
 
-  const saveMeta = async () => {
+  const save = async () => {
     if (!name.trim()) return;
     setBusy(true); setErr(null);
     try {
-      await arWrite({ action: "saveProspect", row: prospect.row, name: name.trim(), contact: contact.trim() });
+      await arWrite({ action: "saveProspectFull", row: prospect?.row, name: name.trim(), contact: contact.trim(), songs });
       await onChanged();
-    } catch (e) { setErr(e.message); } finally { setBusy(false); }
-  };
-  const saveSong = async (slot) => {
-    const s = songs.find((x) => x.slot === slot);
-    setBusy(true); setErr(null);
-    try {
-      await arWrite({ action: "saveSong", row: prospect.row, slot, streams: Number(s.streams) || 0, writerShare: Number(s.writerShare) || 0 });
-      await onChanged();
-    } catch (e) { setErr(e.message); } finally { setBusy(false); }
-  };
-  const clearSong = async (slot) => {
-    setBusy(true); setErr(null);
-    try {
-      await arWrite({ action: "deleteSong", row: prospect.row, slot });
-      await onChanged();
-    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+    } catch (e) { setErr(e.message); setBusy(false); }
   };
   const deleteProspect = async () => {
     if (!window.confirm(`Remove ${prospect.name} from the outreach pipeline? This can't be undone.`)) return;
     setBusy(true); setErr(null);
     try {
       await arWrite({ action: "deleteProspect", row: prospect.row });
-      onClose();
       await onChanged();
     } catch (e) { setErr(e.message); setBusy(false); }
   };
-  const setSong = (slot, patch) => setSongs(songs.map((s) => (s.slot === slot ? { ...s, ...patch } : s)));
 
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-card">
-        <div className="modal-head"><h3>{prospect.name}</h3><button onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-head"><h3>{isNew ? "New prospect" : prospect.name}</h3><button onClick={onClose}><X size={18} /></button></div>
         <div className="modal-body">
           {err && <p className="hint err-text">{err}</p>}
 
           <div className="cat-summary" style={{ marginBottom: 18 }}>
             <div className="cat-summary-grid">
-              <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(prospect.grossStreams)}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(prospect.netStreams)}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Blended Writer %</span><span className="cat-stat-val">{prospect.writerShare ? `${prospect.writerShare}%` : "—"}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Est. Revenue</span><span className="cat-stat-val">{money(prospect.grossRevenue)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(grossStreams)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(Math.round(netStreams))}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Est. Revenue</span><span className="cat-stat-val">{money(estRevenue)}</span></div>
             </div>
           </div>
 
           <Field label="Prospect / Producer" value={name} onChange={(e) => setName(e.target.value)} />
           <Field label="Contact or Handle" value={contact} onChange={(e) => setContact(e.target.value)} />
-          <button className="btn ghost sm" onClick={saveMeta} disabled={busy || !name.trim()}>Save name / contact</button>
 
           <p className="fld-label mb" style={{ marginTop: 18 }}>Songs (up to 5) — Gross Streams and Writer %</p>
           {songs.map((s) => (
@@ -1495,14 +1464,13 @@ function ProspectDetail({ prospect, onClose, onChanged }) {
               <span className="ar-song-num">{s.slot}</span>
               <input type="number" placeholder="Gross streams" value={s.streams} onChange={(e) => setSong(s.slot, { streams: e.target.value })} />
               <input type="number" placeholder="Writer %" value={s.writerShare} onChange={(e) => setSong(s.slot, { writerShare: e.target.value })} />
-              <button className="btn ghost sm" onClick={() => saveSong(s.slot)} disabled={busy}>Save</button>
-              <button className="btn ghost sm" onClick={() => clearSong(s.slot)} disabled={busy || (!s.streams && !s.writerShare)}><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
         <div className="modal-foot">
-          <button className="btn ghost sm err-text" onClick={deleteProspect} disabled={busy}>Delete prospect</button>
-          <button className="btn sm" onClick={onClose}>Done</button>
+          {!isNew && <button className="btn ghost sm err-text" onClick={deleteProspect} disabled={busy}>Delete prospect</button>}
+          <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn sm" onClick={save} disabled={busy || !name.trim()}>{busy ? "Saving…" : "Save"}</button>
         </div>
       </div>
     </div>
@@ -2726,7 +2694,7 @@ function StyleTag() {
     .admin-row-link{width:100%;background:none;border:none;border-bottom:1px solid var(--line);cursor:pointer;text-align:left;font-family:inherit}
     .admin-row-link:last-child{border-bottom:none}
     .admin-row-link:hover{background:var(--panel2)}
-    .ar-song-row{display:grid;grid-template-columns:20px 1fr 1fr 64px 36px;gap:8px;align-items:center;margin-bottom:8px}
+    .ar-song-row{display:grid;grid-template-columns:20px 1fr 1fr;gap:8px;align-items:center;margin-bottom:8px}
     .ar-song-row input{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:9px 11px;font-size:13.5px;font-family:inherit;width:100%}
     .ar-song-num{color:var(--mut);font-size:12.5px;text-align:center}
 
