@@ -35,7 +35,7 @@ function toUser(row) {
   return { id: row.id, email: row.email, role: row.role, name: row.name, clientId: row.client_id };
 }
 function toSubmission(row) {
-  return { id: row.id, name: row.name, email: row.email, subject: row.subject, message: row.message, at: row.created_at, read: row.read };
+  return { id: row.id, name: row.name, email: row.email, instagram: row.instagram, subject: row.subject, message: row.message, at: row.created_at, read: row.read };
 }
 function toNotable(row) {
   return { id: row.id, song: row.song, artist: row.artist, client: row.client, cover: row.cover, releaseDate: row.release_date, link: row.link };
@@ -194,8 +194,8 @@ async function handlePost(req, res, session) {
     await sql`DELETE FROM submissions`;
     for (const s of body.submissions) {
       await sql`
-        INSERT INTO submissions (id, name, email, subject, message, created_at, read)
-        VALUES (${s.id}, ${s.name || ""}, ${s.email || ""}, ${s.subject || ""}, ${s.message || ""}, ${s.at || new Date().toISOString()}, ${!!s.read})
+        INSERT INTO submissions (id, name, email, instagram, subject, message, created_at, read)
+        VALUES (${s.id}, ${s.name || ""}, ${s.email || ""}, ${s.instagram || ""}, ${s.subject || ""}, ${s.message || ""}, ${s.at || new Date().toISOString()}, ${!!s.read})
       `;
     }
   }

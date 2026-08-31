@@ -777,7 +777,7 @@ function Roster({ publicData }) {
 }
 
 function Contact() {
-  const [f, setF] = useState({ name: "", email: "", subject: "General Inquiry", message: "" });
+  const [f, setF] = useState({ name: "", email: "", instagram: "", subject: "General Inquiry", message: "" });
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -785,7 +785,7 @@ function Contact() {
   const loadedAt = useRef(Date.now());
   const subjects = ["General Inquiry", "Artist Management", "Booking", "Publishing / Admin", "Sync Licensing", "Press / Media", "Other"];
   const submit = async () => {
-    if (!f.name || !f.email || !f.message) return;
+    if (!f.name || !f.email || !f.instagram || !f.message) return;
     setBusy(true); setErr(null);
     try {
       const res = await fetch("/api/submit-contact", {
@@ -796,7 +796,7 @@ function Contact() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't send that — try again.");
       setSent(true);
-      setF({ name: "", email: "", subject: "General Inquiry", message: "" });
+      setF({ name: "", email: "", instagram: "", subject: "General Inquiry", message: "" });
     } catch (e) {
       setErr(e.message || "Couldn't send that — try again.");
     } finally {
@@ -805,10 +805,14 @@ function Contact() {
   };
   return (
     <main className="page">
-      <h1 className="page-head">GET IN TOUCH</h1>
-      <p className="lead">Have a question or want to work with us? Fill out the form below and we'll get back to you as soon as possible.</p>
+      <h1 className="page-head">CONTACT</h1>
+      <p className="lead">Interested in working with us or have a question regarding our services? Fill out this form and we'll get back to you within 2-3 business days.</p>
       {sent ? (
-        <div className="sent"><Check size={18} /> Message sent. We'll be in touch.</div>
+        <div className="sent">
+          <Check size={28} />
+          <h3>Message sent</h3>
+          <p>We'll get back to you within 2-3 business days.</p>
+        </div>
       ) : (
         <div className="form-card">
           {/* honeypot — hidden from real visitors via CSS, not type="hidden"
@@ -820,6 +824,7 @@ function Contact() {
           />
           <Field label="Name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
           <Field label="Email" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+          <Field label="Instagram" value={f.instagram} placeholder="@yourhandle" onChange={(e) => setF({ ...f, instagram: e.target.value })} />
           <label className="fld"><span>Subject</span>
             <select value={f.subject} onChange={(e) => setF({ ...f, subject: e.target.value })}>
               {subjects.map((s) => <option key={s}>{s}</option>)}
@@ -1269,7 +1274,10 @@ function SubsAdmin({ db, commit }) {
                   {s.read ? "Mark unread" : <><Check size={13} /> Mark read</>}
                 </button>
               </div>
-              <EmailButton email={s.email} inline />
+              <div className="sub-contact-row">
+                <EmailButton email={s.email} inline />
+                {s.instagram && <span className="tag">@{s.instagram.replace(/^@/, "")}</span>}
+              </div>
               <p>{s.message}</p>
               <span className="sub-date">{new Date(s.at).toLocaleString()}</span>
             </div>
@@ -2279,7 +2287,14 @@ function StyleTag() {
     .fld span{font-size:12.5px;color:var(--mut);letter-spacing:.02em}
     .fld input,.fld select,.fld textarea{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:11px 13px;font-size:14px;font-family:inherit}
     .fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:#4a4a4a}
-    .sent{background:var(--panel);border:1px solid #2a4a2a;color:#9ad39a;border-radius:12px;padding:18px;display:flex;gap:10px;align-items:center;justify-content:center;max-width:520px;margin:0 auto 16px}
+    /* min-height roughly matches .form-card's own natural height so
+       swapping the form for this confirmation doesn't collapse the page's
+       content height and yank the footer up right after sending */
+    .sent{background:var(--panel);border:1px solid #2a4a2a;color:#9ad39a;border-radius:14px;padding:26px;
+      display:flex;flex-direction:column;gap:10px;align-items:center;justify-content:center;text-align:center;
+      min-height:544px;max-width:520px;margin:0 auto 20px}
+    .sent h3{color:var(--ink);font-size:19px;margin:2px 0 0}
+    .sent p{color:var(--mut);font-size:14px;margin:0;max-width:360px}
 
     /* footer */
     .footer{border-top:1px solid var(--line);margin-top:60px;padding:30px clamp(24px,5vw,56px);display:flex;align-items:center;justify-content:space-between;gap:16px}
@@ -2336,6 +2351,7 @@ function StyleTag() {
     .sub-card.unread{border-left:3px solid #e5484d}
     .sub-top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 10px;margin-bottom:4px}
     .sub-top-info{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+    .sub-contact-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px}
     .sub-dot{width:8px;height:8px;border-radius:50%;background:#e5484d;flex-shrink:0}
     .tag{font-size:11px;background:var(--panel2);border:1px solid var(--line);color:var(--mut);padding:3px 9px;border-radius:100px}
     .sub-email{color:var(--mut);font-size:13px;text-decoration:none}

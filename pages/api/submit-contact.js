@@ -16,7 +16,7 @@ const WINDOW_MINUTES = 30;
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const { name, email, subject, message, website, loadedAt } = req.body || {};
+  const { name, email, instagram, subject, message, website, loadedAt } = req.body || {};
   const ip = clientIp(req);
 
   try {
@@ -38,13 +38,15 @@ export default async function handler(req, res) {
   if (!loadedAt || Date.now() - Number(loadedAt) < 2500) {
     return res.status(400).json({ error: "Please try again." }); // submitted too fast to be a human
   }
-  if (!name || !email || !message) return res.status(400).json({ error: "Name, email, and message are required." });
+  if (!name || !email || !instagram || !message) {
+    return res.status(400).json({ error: "Name, email, Instagram, and message are required." });
+  }
 
   try {
     const id = uid();
     await sql`
-      INSERT INTO submissions (id, name, email, subject, message)
-      VALUES (${id}, ${String(name).slice(0, 200)}, ${String(email).slice(0, 200)}, ${String(subject || "General Inquiry").slice(0, 200)}, ${String(message).slice(0, 5000)})
+      INSERT INTO submissions (id, name, email, instagram, subject, message)
+      VALUES (${id}, ${String(name).slice(0, 200)}, ${String(email).slice(0, 200)}, ${String(instagram).slice(0, 200)}, ${String(subject || "General Inquiry").slice(0, 200)}, ${String(message).slice(0, 5000)})
     `;
     return res.status(200).json({ ok: true });
   } catch (err) {

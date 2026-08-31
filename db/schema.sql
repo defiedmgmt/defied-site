@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   id text PRIMARY KEY,
   name text NOT NULL DEFAULT '',
   email text NOT NULL DEFAULT '',
+  instagram text NOT NULL DEFAULT '',
   subject text NOT NULL DEFAULT '',
   message text NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),
