@@ -9,7 +9,7 @@ import {
 import {
   Instagram, Mail, Menu, X, LogOut, Plus, Trash2, Pencil, Users, Disc3,
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
-  Folder, ExternalLink, RefreshCw,
+  Folder, ExternalLink, RefreshCw, Download,
 } from "lucide-react";
 
 /* ---- embedded brand assets (base64, no external requests) ---- */
@@ -1349,6 +1349,29 @@ function StaffDashboard({ db, commit, logout }) {
             </button>
           ))}
         </nav>
+        <button
+          className="dash-out"
+          onClick={() => {
+            // one-time migration tool: every staff member's browser holds its
+            // own separate localStorage copy, and there's no mechanism today
+            // for one person's edits to reach anyone else's — exporting each
+            // browser's data lets it all be reconciled into a real shared
+            // backend instead of silently dropping whichever device isn't
+            // exported. Safe to remove once that migration lands.
+            const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `defied-export-${new Date().toISOString().slice(0, 10)}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+          }}
+          title="Download this browser's full data as JSON — used for the one-time backend migration"
+        >
+          <Download size={16} /> Export data
+        </button>
         <button className="dash-out" onClick={logout}><LogOut size={16} /> Sign out</button>
       </aside>
       <main className="dash-main">
