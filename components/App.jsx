@@ -1291,26 +1291,32 @@ function SubsAdmin({ db, commit }) {
 }
 
 /* staff: A&R — outreach pipeline + advance calculator, both backed by the
-   CALC & OUTREACH / ADVANCE CALCULATOR sheet tabs. Deliberately isolated
-   from MASTER/roster totals and from db/commit() — read-only from the
-   site's side; the outreach pipeline itself is still edited in the sheet. */
+   OUTREACH / ADVANCE CALCULATOR sheet tabs. Deliberately isolated from
+   MASTER/roster totals and from db/commit() — prospects have no Postgres
+   row at all (they aren't signed clients yet), so this reads and writes
+   straight to the sheet via /api/ar-data and /api/ar-write. */
+async function arWrite(body) {
+  const res = await fetch("/api/ar-write", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Save failed.");
+  return data;
+}
+
 function ARAdmin() {
   const [sec, setSec] = useState("outreach");
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
 
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/ar-data")
-      .then((r) => r.json())
-      .then((d) => {
-        if (!alive) return;
-        if (d.error) throw new Error(d.error);
-        setData(d);
-      })
-      .catch((e) => { if (alive) setErr(e.message || "Couldn't load A&R data."); });
-    return () => { alive = false; };
-  }, []);
+  const load = () => fetch("/api/ar-data")
+    .then((r) => r.json())
+    .then((d) => { if (d.error) throw new Error(d.error); setData(d); setErr(null); })
+    .catch((e) => setErr(e.message || "Couldn't load A&R data."));
+
+  useEffect(() => { load(); }, []);
 
   return (
     <div>
@@ -1320,46 +1326,160 @@ function ARAdmin() {
       </div>
       {err && <p className="hint err-text mb">{err}</p>}
       {!data && !err && <p className="muted">Loading…</p>}
-      {data && sec === "outreach" && <OutreachPanel data={data} />}
+      {data && sec === "outreach" && <OutreachPanel data={data} reload={load} />}
       {data && sec === "advance" && <AdvanceCalcPanel data={data} />}
     </div>
   );
 }
 
-function OutreachPanel({ data }) {
+function OutreachPanel({ data, reload }) {
   const cols = "1.3fr 1fr 1fr 1fr 0.7fr 1fr";
+  const [adding, setAdding] = useState(false);
+  const [newProspect, setNewProspect] = useState({ name: "", contact: "" });
+  const [active, setActive] = useState(null); // the prospect currently open in the detail modal
+  const [err, setErr] = useState(null);
+
+  const addProspect = async () => {
+    if (!newProspect.name.trim()) return;
+    try {
+      await arWrite({ action: "saveProspect", name: newProspect.name.trim(), contact: newProspect.contact.trim() });
+      setAdding(false);
+      setNewProspect({ name: "", contact: "" });
+      await reload();
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
   return (
     <div>
       <div className="admin-head">
         <h2>Outreach pipeline</h2>
-        {data.links.outreach && (
-          <ExtLink href={data.links.outreach} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
-        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          {data.links.outreach && (
+            <ExtLink href={data.links.outreach} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
+          )}
+          <button className="btn sm" onClick={() => setAdding(true)}><Plus size={15} /> Add prospect</button>
+        </div>
       </div>
       <p className="muted mb">
-        Up to 5 songs per prospect — enter each song's Gross Streams and Writer % in the sheet (Song 1-5 columns,
-        far right) and Gross/Net Streams sum automatically. Editing happens in the sheet; this is a live read-only view.
-        Never touches MASTER or roster totals.
+        Up to 5 songs per prospect — add each song's Gross Streams and Writer % below and Gross/Net Streams sum
+        automatically. Click a prospect to edit their songs. Never touches MASTER or roster totals.
       </p>
+      {err && <p className="hint err-text mb">{err}</p>}
       {data.prospects.length === 0 ? (
-        <div className="admin-empty">No prospects logged yet — add one in the sheet.</div>
+        <div className="admin-empty">No prospects logged yet — click "Add prospect".</div>
       ) : (
         <div className="admin-table">
           <div className="admin-row admin-hd" style={{ "--cols": cols }}>
             <span>Prospect</span><span>Contact</span><span>Gross Streams</span><span>Net Streams</span><span>Songs</span><span>Status</span>
           </div>
           {data.prospects.map((p) => (
-            <div className="admin-row" key={p.row} style={{ "--cols": cols }}>
+            <button key={p.row} className="admin-row admin-row-link" style={{ "--cols": cols }} onClick={() => setActive(p)}>
               <span className="cell">{p.name}</span>
               <span className="cell">{p.contact || "—"}</span>
               <span className="cell">{fmt(p.grossStreams)}</span>
               <span className="cell">{fmt(p.netStreams)}</span>
-              <span className="cell">{p.songs.length || "—"}</span>
+              <span className="cell">{p.songs.filter((s) => s.streams > 0).length || "—"}</span>
               <span className="cell">{p.status || "—"}</span>
-            </div>
+            </button>
           ))}
         </div>
       )}
+
+      {adding && (
+        <div className="modal" onClick={(e) => e.target === e.currentTarget && setAdding(false)}>
+          <div className="modal-card">
+            <div className="modal-head"><h3>New prospect</h3><button onClick={() => setAdding(false)}><X size={18} /></button></div>
+            <div className="modal-body">
+              <Field label="Prospect / Producer" value={newProspect.name} onChange={(e) => setNewProspect({ ...newProspect, name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && addProspect()} />
+              <Field label="Contact or Handle" value={newProspect.contact} onChange={(e) => setNewProspect({ ...newProspect, contact: e.target.value })} />
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost sm" onClick={() => setAdding(false)}>Cancel</button>
+              <button className="btn sm" onClick={addProspect} disabled={!newProspect.name.trim()}>Add</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {active && (
+        <ProspectDetail
+          prospect={active}
+          onClose={() => setActive(null)}
+          onChanged={async () => { await reload(); setActive(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProspectDetail({ prospect, onClose, onChanged }) {
+  const [name, setName] = useState(prospect.name);
+  const [contact, setContact] = useState(prospect.contact);
+  const [songs, setSongs] = useState(prospect.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const saveMeta = async () => {
+    if (!name.trim()) return;
+    setBusy(true); setErr(null);
+    try {
+      await arWrite({ action: "saveProspect", row: prospect.row, name: name.trim(), contact: contact.trim() });
+      await onChanged();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const saveSong = async (slot) => {
+    const s = songs.find((x) => x.slot === slot);
+    setBusy(true); setErr(null);
+    try {
+      await arWrite({ action: "saveSong", row: prospect.row, slot, streams: Number(s.streams) || 0, writerShare: Number(s.writerShare) || 0 });
+      await onChanged();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const clearSong = async (slot) => {
+    setBusy(true); setErr(null);
+    try {
+      await arWrite({ action: "deleteSong", row: prospect.row, slot });
+      await onChanged();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const deleteProspect = async () => {
+    if (!window.confirm(`Remove ${prospect.name} from the outreach pipeline? This can't be undone.`)) return;
+    setBusy(true); setErr(null);
+    try {
+      await arWrite({ action: "deleteProspect", row: prospect.row });
+      await onChanged();
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const setSong = (slot, patch) => setSongs(songs.map((s) => (s.slot === slot ? { ...s, ...patch } : s)));
+
+  return (
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-card">
+        <div className="modal-head"><h3>{prospect.name}</h3><button onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-body">
+          {err && <p className="hint err-text">{err}</p>}
+          <Field label="Prospect / Producer" value={name} onChange={(e) => setName(e.target.value)} />
+          <Field label="Contact or Handle" value={contact} onChange={(e) => setContact(e.target.value)} />
+          <button className="btn ghost sm" onClick={saveMeta} disabled={busy || !name.trim()}>Save name / contact</button>
+
+          <p className="fld-label mb" style={{ marginTop: 18 }}>Songs (up to 5) — Gross Streams and Writer %</p>
+          {songs.map((s) => (
+            <div key={s.slot} className="ar-song-row">
+              <span className="ar-song-num">{s.slot}</span>
+              <input type="number" placeholder="Gross streams" value={s.streams} onChange={(e) => setSong(s.slot, { streams: e.target.value })} />
+              <input type="number" placeholder="Writer %" value={s.writerShare} onChange={(e) => setSong(s.slot, { writerShare: e.target.value })} />
+              <button className="btn ghost sm" onClick={() => saveSong(s.slot)} disabled={busy}>Save</button>
+              <button className="btn ghost sm" onClick={() => clearSong(s.slot)} disabled={busy || (!s.streams && !s.writerShare)}><Trash2 size={13} /></button>
+            </div>
+          ))}
+        </div>
+        <div className="modal-foot">
+          <button className="btn ghost sm err-text" onClick={deleteProspect} disabled={busy}>Delete prospect</button>
+          <button className="btn sm" onClick={onClose}>Done</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1399,7 +1519,7 @@ function calcAdvance({ netStreams, blendedRate, runRate, decay, adminFeeRate, re
 function AdvanceCalcPanel({ data }) {
   const { assumptions, recoupTargetMonths, prospects, links } = data;
   const [prospectRow, setProspectRow] = useState("");
-  const [netStreams, setNetStreams] = useState(prospects[0]?.netStreams || 0);
+  const [netStreams, setNetStreams] = useState(0);
   const [recoupMonths, setRecoupMonths] = useState(recoupTargetMonths);
 
   const selectProspect = (row) => {
@@ -2524,6 +2644,12 @@ function StyleTag() {
     .admin-act button:disabled{opacity:.35;cursor:not-allowed}
     .admin-act button:hover{color:var(--ink);border-color:#3a3a3a}
     .admin-empty{padding:26px 16px;color:var(--mut2);font-size:13.5px;text-align:center}
+    .admin-row-link{width:100%;background:none;border:none;border-bottom:1px solid var(--line);cursor:pointer;text-align:left;font-family:inherit}
+    .admin-row-link:last-child{border-bottom:none}
+    .admin-row-link:hover{background:var(--panel2)}
+    .ar-song-row{display:grid;grid-template-columns:20px 1fr 1fr 64px 36px;gap:8px;align-items:center;margin-bottom:8px}
+    .ar-song-row input{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:9px 11px;font-size:13.5px;font-family:inherit;width:100%}
+    .ar-song-num{color:var(--mut);font-size:12.5px;text-align:center}
 
     .subs{display:flex;flex-direction:column;gap:12px}
     .sub-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}

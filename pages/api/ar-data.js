@@ -1,4 +1,4 @@
-// Staff-only, read-only A&R data: links to the CALC & OUTREACH and ADVANCE
+// Staff-only, read-only A&R data: links to the OUTREACH and ADVANCE
 // CALCULATOR sheet tabs, the ASSUMPTIONS levers and recoup-target setting
 // their formulas depend on, and the current outreach pipeline itself — so
 // the site's Advance Calculator can run the exact same math without staff
