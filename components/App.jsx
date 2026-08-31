@@ -9,7 +9,7 @@ import {
 import {
   Instagram, Mail, Menu, X, LogOut, Plus, Trash2, Pencil, Users, Disc3,
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
-  Folder, ExternalLink, RefreshCw, Download,
+  Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator,
 } from "lucide-react";
 
 /* ---- embedded brand assets (base64, no external requests) ---- */
@@ -883,6 +883,7 @@ function StaffDashboard({ db, commit, logout }) {
   const unreadCount = db.submissions.filter((s) => !s.read).length;
   const tabs = [
     ["website", "Website", Pencil], ["catalog", "Clients", Users],
+    ["ar", "A&R", Handshake],
     ["users", "Users", UserCog], ["subs", "Messages", Inbox, unreadCount],
   ];
   return (
@@ -903,6 +904,7 @@ function StaffDashboard({ db, commit, logout }) {
         <div className="dash-role">Staff — full edit access</div>
         {tab === "website" && <WebsiteAdmin db={db} commit={commit} />}
         {tab === "catalog" && <CatalogAdmin db={db} commit={commit} />}
+        {tab === "ar" && <ARAdmin />}
         {tab === "users" && <UsersAdmin db={db} commit={commit} />}
         {tab === "subs" && <SubsAdmin db={db} commit={commit} />}
       </main>
@@ -1284,6 +1286,183 @@ function SubsAdmin({ db, commit }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* staff: A&R — outreach pipeline + advance calculator, both backed by the
+   CALC & OUTREACH / ADVANCE CALCULATOR sheet tabs. Deliberately isolated
+   from MASTER/roster totals and from db/commit() — read-only from the
+   site's side; the outreach pipeline itself is still edited in the sheet. */
+function ARAdmin() {
+  const [sec, setSec] = useState("outreach");
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/ar-data")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!alive) return;
+        if (d.error) throw new Error(d.error);
+        setData(d);
+      })
+      .catch((e) => { if (alive) setErr(e.message || "Couldn't load A&R data."); });
+    return () => { alive = false; };
+  }, []);
+
+  return (
+    <div>
+      <div className="subnav">
+        <button className={sec === "outreach" ? "subpill active" : "subpill"} onClick={() => setSec("outreach")}>Outreach</button>
+        <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={() => setSec("advance")}>Advance Calculator</button>
+      </div>
+      {err && <p className="hint err-text mb">{err}</p>}
+      {!data && !err && <p className="muted">Loading…</p>}
+      {data && sec === "outreach" && <OutreachPanel data={data} />}
+      {data && sec === "advance" && <AdvanceCalcPanel data={data} />}
+    </div>
+  );
+}
+
+function OutreachPanel({ data }) {
+  const cols = "1.3fr 1fr 1fr 1fr 0.7fr 1fr";
+  return (
+    <div>
+      <div className="admin-head">
+        <h2>Outreach pipeline</h2>
+        {data.links.outreach && (
+          <ExtLink href={data.links.outreach} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
+        )}
+      </div>
+      <p className="muted mb">
+        Up to 5 songs per prospect — enter each song's Gross Streams and Writer % in the sheet (Song 1-5 columns,
+        far right) and Gross/Net Streams sum automatically. Editing happens in the sheet; this is a live read-only view.
+        Never touches MASTER or roster totals.
+      </p>
+      {data.prospects.length === 0 ? (
+        <div className="admin-empty">No prospects logged yet — add one in the sheet.</div>
+      ) : (
+        <div className="admin-table">
+          <div className="admin-row admin-hd" style={{ "--cols": cols }}>
+            <span>Prospect</span><span>Contact</span><span>Gross Streams</span><span>Net Streams</span><span>Songs</span><span>Status</span>
+          </div>
+          {data.prospects.map((p) => (
+            <div className="admin-row" key={p.row} style={{ "--cols": cols }}>
+              <span className="cell">{p.name}</span>
+              <span className="cell">{p.contact || "—"}</span>
+              <span className="cell">{fmt(p.grossStreams)}</span>
+              <span className="cell">{fmt(p.netStreams)}</span>
+              <span className="cell">{p.songs.length || "—"}</span>
+              <span className="cell">{p.status || "—"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Mirrors the ADVANCE CALCULATOR tab's own row formulas exactly (verified
+// cell-by-cell against a real prospect's computed values before shipping).
+// netStreams is the only real input; everything else is an assumption
+// pulled live from the sheet, or a target staff can tune per-run.
+function calcAdvance({ netStreams, blendedRate, runRate, decay, adminFeeRate, recoupMonths }) {
+  const royYr1 = netStreams * blendedRate * runRate * (1 - decay);
+  const royYr2 = royYr1 * (1 - decay);
+  const royYr3 = royYr2 * (1 - decay);
+  const roy3yr = royYr1 + royYr2 + royYr3;
+  const adminYr1 = royYr1 * adminFeeRate;
+  const adminYr2 = royYr2 * adminFeeRate;
+  const adminYr3 = royYr3 * adminFeeRate;
+  const admin3yr = roy3yr * adminFeeRate;
+  const advance = adminYr1 * (recoupMonths / 12);
+
+  let monthsToRecoup = null;
+  if (adminYr1 > 0) {
+    if (advance <= adminYr1) monthsToRecoup = (advance / adminYr1) * 12;
+    else if (advance <= adminYr1 + adminYr2) monthsToRecoup = (1 + (advance - adminYr1) / adminYr2) * 12;
+    else if (advance <= adminYr1 + adminYr2 + adminYr3) monthsToRecoup = (2 + (advance - adminYr1 - adminYr2) / adminYr3) * 12;
+    else monthsToRecoup = (3 + (advance - adminYr1 - adminYr2 - adminYr3) / adminYr3) * 12;
+  }
+  const coverage = advance > 0 ? admin3yr / advance : null;
+  const verdict = monthsToRecoup == null ? null
+    : monthsToRecoup <= 18 ? "Safe"
+    : monthsToRecoup <= 30 ? "Workable"
+    : monthsToRecoup <= 36 ? "Tight"
+    : "Too high — lower target";
+
+  return { royYr1, royYr2, royYr3, roy3yr, adminYr1, adminYr2, adminYr3, admin3yr, advance, monthsToRecoup, coverage, verdict };
+}
+
+function AdvanceCalcPanel({ data }) {
+  const { assumptions, recoupTargetMonths, prospects, links } = data;
+  const [prospectRow, setProspectRow] = useState("");
+  const [netStreams, setNetStreams] = useState(prospects[0]?.netStreams || 0);
+  const [recoupMonths, setRecoupMonths] = useState(recoupTargetMonths);
+
+  const selectProspect = (row) => {
+    setProspectRow(row);
+    const p = prospects.find((x) => String(x.row) === String(row));
+    if (p) setNetStreams(p.netStreams);
+  };
+
+  const result = useMemo(() => calcAdvance({
+    netStreams: Number(netStreams) || 0,
+    blendedRate: assumptions.blendedRate,
+    runRate: assumptions.runRate,
+    decay: assumptions.decayRate,
+    adminFeeRate: assumptions.adminFeeRate,
+    recoupMonths: Number(recoupMonths) || 12,
+  }), [netStreams, recoupMonths, assumptions]);
+
+  return (
+    <div>
+      <div className="admin-head">
+        <h2>Advance calculator</h2>
+        {links.advanceCalculator && (
+          <ExtLink href={links.advanceCalculator} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
+        )}
+      </div>
+      <p className="muted mb">Mirrors the sheet's own math exactly — pick a prospect from Outreach or type Net Streams by hand.</p>
+
+      <div className="form-card" style={{ maxWidth: 560 }}>
+        <label className="fld"><span>Prospect (from Outreach)</span>
+          <select value={prospectRow} onChange={(e) => selectProspect(e.target.value)}>
+            <option value="">— manual entry —</option>
+            {prospects.map((p) => <option key={p.row} value={p.row}>{p.name} ({fmt(p.netStreams)} net streams)</option>)}
+          </select>
+        </label>
+        <Field label="Net Streams (After Splits)" type="number" value={netStreams} onChange={(e) => setNetStreams(e.target.value)} />
+        <Field
+          label="Recoup target (months)" type="number" value={recoupMonths}
+          onChange={(e) => setRecoupMonths(e.target.value)}
+          hint="Advance = this many months of Year 1 admin cut · recouped from your 20% admin, not the writer's share · 12-18 mo traditional, 24-36 aggressive"
+        />
+      </div>
+
+      <div className="cat-summary" style={{ marginTop: 20 }}>
+        <div className="cat-summary-grid">
+          <div className="cat-stat"><span className="cat-stat-label">Recommended Advance</span><span className="cat-stat-val">{money(result.advance)}</span></div>
+          <div className="cat-stat"><span className="cat-stat-label">Months to Recoup</span><span className="cat-stat-val">{result.monthsToRecoup != null ? `${result.monthsToRecoup.toFixed(1)} mo` : "—"}</span></div>
+          <div className="cat-stat"><span className="cat-stat-label">Coverage</span><span className="cat-stat-val">{result.coverage != null ? `${result.coverage.toFixed(1)}x` : "—"}</span></div>
+          <div className="cat-stat"><span className="cat-stat-label">Verdict</span><span className="cat-stat-val">{result.verdict || "—"}</span></div>
+        </div>
+      </div>
+
+      <div className="split-list" style={{ marginTop: 16 }}>
+        <div className="split-list-row"><span className="split-name">Proj. Royalties Yr 1</span><span className="split-pct">{money(result.royYr1)}</span></div>
+        <div className="split-list-row"><span className="split-name">Proj. Royalties Yr 2</span><span className="split-pct">{money(result.royYr2)}</span></div>
+        <div className="split-list-row"><span className="split-name">Proj. Royalties Yr 3</span><span className="split-pct">{money(result.royYr3)}</span></div>
+        <div className="split-list-row split-list-total"><span>Proj. Royalties 3-Yr</span><span>{money(result.roy3yr)}</span></div>
+      </div>
+      <div className="split-list" style={{ marginTop: 12 }}>
+        <div className="split-list-row"><span className="split-name">Admin Yr 1</span><span className="split-pct">{money(result.adminYr1)}</span></div>
+        <div className="split-list-row"><span className="split-name">Admin Yr 2</span><span className="split-pct">{money(result.adminYr2)}</span></div>
+        <div className="split-list-row"><span className="split-name">Admin Yr 3</span><span className="split-pct">{money(result.adminYr3)}</span></div>
+        <div className="split-list-row split-list-total"><span>Your Admin 3-Yr</span><span>{money(result.admin3yr)}</span></div>
+      </div>
     </div>
   );
 }
