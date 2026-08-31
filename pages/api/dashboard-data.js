@@ -118,15 +118,16 @@ async function handlePost(req, res, session) {
     return res.status(200).json({ ok: true });
   }
 
-  if ("placements" in body) {
-    await sql`DELETE FROM placements`;
-    for (const p of body.placements) {
-      await sql`
-        INSERT INTO placements (id, client_id, song, artist, release_date, link, cover, notable, luminate_id, streams, revenue, admin_fee, splits)
-        VALUES (${p.id}, ${p.clientId}, ${p.song || ""}, ${p.artist || ""}, ${p.releaseDate || ""}, ${p.link || ""}, ${p.cover || ""}, ${!!p.notable}, ${p.luminateId || ""}, ${p.streams || 0}, ${p.revenue || 0}, ${p.adminFee || 0}, ${JSON.stringify(p.splits || [])})
-      `;
-    }
-  }
+  // "clients" MUST be handled before "placements": placements.client_id is
+  // a FK to clients(id) ON DELETE CASCADE, so a DELETE FROM clients wipes
+  // every placement referencing them. commit() always spreads the full db,
+  // so both keys are present on essentially every staff save — reordering
+  // this way is what makes a client-table refresh (edit/reorder/add/delete
+  // a client, or the background sheet sync) not silently erase the entire
+  // catalog: clients land first, then placements land fresh on top of them.
+  // (Previously placements ran first here and were being destroyed by the
+  // very next block on every single staff save — found and fixed after it
+  // wiped all 140 real placements in production; restored from migrate.mjs.)
   if ("clients" in body) {
     await sql`DELETE FROM clients`;
     for (let i = 0; i < body.clients.length; i++) {
@@ -134,6 +135,15 @@ async function handlePost(req, res, session) {
       await sql`
         INSERT INTO clients (id, name, role, credit, bio, photo, spotify, apple, instagram, tiktok, youtube, soundcloud, sheet_tab_name, total_streams, on_roster, roster_order)
         VALUES (${c.id}, ${c.name}, ${c.role || ""}, ${c.credit || ""}, ${c.bio || ""}, ${c.photo || ""}, ${c.spotify || ""}, ${c.apple || ""}, ${c.instagram || ""}, ${c.tiktok || ""}, ${c.youtube || ""}, ${c.soundcloud || ""}, ${c.sheetTabName || ""}, ${c.totalStreams || 0}, ${!!c.onRoster}, ${i})
+      `;
+    }
+  }
+  if ("placements" in body) {
+    await sql`DELETE FROM placements`;
+    for (const p of body.placements) {
+      await sql`
+        INSERT INTO placements (id, client_id, song, artist, release_date, link, cover, notable, luminate_id, streams, revenue, admin_fee, splits)
+        VALUES (${p.id}, ${p.clientId}, ${p.song || ""}, ${p.artist || ""}, ${p.releaseDate || ""}, ${p.link || ""}, ${p.cover || ""}, ${!!p.notable}, ${p.luminateId || ""}, ${p.streams || 0}, ${p.revenue || 0}, ${p.adminFee || 0}, ${JSON.stringify(p.splits || [])})
       `;
     }
   }
