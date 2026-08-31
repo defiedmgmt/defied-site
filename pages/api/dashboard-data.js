@@ -118,23 +118,37 @@ async function handlePost(req, res, session) {
     return res.status(200).json({ ok: true });
   }
 
-  // "clients" MUST be handled before "placements": placements.client_id is
-  // a FK to clients(id) ON DELETE CASCADE, so a DELETE FROM clients wipes
-  // every placement referencing them. commit() always spreads the full db,
-  // so both keys are present on essentially every staff save — reordering
-  // this way is what makes a client-table refresh (edit/reorder/add/delete
-  // a client, or the background sheet sync) not silently erase the entire
-  // catalog: clients land first, then placements land fresh on top of them.
-  // (Previously placements ran first here and were being destroyed by the
-  // very next block on every single staff save — found and fixed after it
-  // wiped all 140 real placements in production; restored from migrate.mjs.)
+  // "clients" MUST be handled before "placements" (a placement's client_id
+  // FK needs the client row to exist first for a same-request new client +
+  // new song). It's also an UPSERT, not delete-all-then-reinsert: clients
+  // is the one table other tables have real FKs into (placements CASCADE,
+  // users SET NULL) — commit() always spreads the full db, so this key is
+  // present on essentially every staff save, and a blind DELETE FROM
+  // clients was cascading through those FKs on every single one of them.
+  // That wiped all 140 real placements in production, restored from
+  // migrate.mjs, then — before the fix could even deploy — a second stray
+  // request hit the same still-live buggy code and SET NULL'd a client
+  // user's client_id via the same cascade; repaired by hand. An upsert
+  // only ever deletes a client that's genuinely gone from the new list
+  // (an intentional delete, whose own placements/tab-release cleanup
+  // already ran client-side in deleteClientCascade before this request),
+  // so a client that's simply being edited/reordered is never deleted at
+  // all and nothing referencing it ever cascades.
   if ("clients" in body) {
-    await sql`DELETE FROM clients`;
+    const ids = body.clients.map((c) => c.id);
+    if (ids.length) await sql`DELETE FROM clients WHERE id != ALL(${ids})`;
+    else await sql`DELETE FROM clients`;
     for (let i = 0; i < body.clients.length; i++) {
       const c = body.clients[i];
       await sql`
         INSERT INTO clients (id, name, role, credit, bio, photo, spotify, apple, instagram, tiktok, youtube, soundcloud, sheet_tab_name, total_streams, on_roster, roster_order)
         VALUES (${c.id}, ${c.name}, ${c.role || ""}, ${c.credit || ""}, ${c.bio || ""}, ${c.photo || ""}, ${c.spotify || ""}, ${c.apple || ""}, ${c.instagram || ""}, ${c.tiktok || ""}, ${c.youtube || ""}, ${c.soundcloud || ""}, ${c.sheetTabName || ""}, ${c.totalStreams || 0}, ${!!c.onRoster}, ${i})
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name, role = EXCLUDED.role, credit = EXCLUDED.credit, bio = EXCLUDED.bio,
+          photo = EXCLUDED.photo, spotify = EXCLUDED.spotify, apple = EXCLUDED.apple, instagram = EXCLUDED.instagram,
+          tiktok = EXCLUDED.tiktok, youtube = EXCLUDED.youtube, soundcloud = EXCLUDED.soundcloud,
+          sheet_tab_name = EXCLUDED.sheet_tab_name, total_streams = EXCLUDED.total_streams,
+          on_roster = EXCLUDED.on_roster, roster_order = EXCLUDED.roster_order
       `;
     }
   }
