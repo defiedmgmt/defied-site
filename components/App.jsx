@@ -1327,17 +1327,20 @@ function ARAdmin() {
       {err && <p className="hint err-text mb">{err}</p>}
       {!data && !err && <p className="muted">Loading…</p>}
       {data && sec === "outreach" && <OutreachPanel data={data} reload={load} />}
-      {data && sec === "advance" && <AdvanceCalcPanel data={data} />}
+      {data && sec === "advance" && <AdvanceCalcPanel data={data} reload={load} />}
     </div>
   );
 }
 
 function OutreachPanel({ data, reload }) {
-  const cols = "1.3fr 1fr 1fr 1fr 0.7fr 1fr";
+  const cols = "1.2fr 1fr 1fr 1fr 1fr 0.6fr 1fr";
   const [adding, setAdding] = useState(false);
   const [newProspect, setNewProspect] = useState({ name: "", contact: "" });
-  const [active, setActive] = useState(null); // the prospect currently open in the detail modal
+  const [activeRow, setActiveRow] = useState(null); // the prospect row currently open in the detail modal
   const [err, setErr] = useState(null);
+  // look up fresh each render (not a stale snapshot) so the modal reflects
+  // updated sums immediately after a song save, without having to reopen it
+  const active = data.prospects.find((p) => p.row === activeRow) || null;
 
   const addProspect = async () => {
     if (!newProspect.name.trim()) return;
@@ -1363,8 +1366,9 @@ function OutreachPanel({ data, reload }) {
         </div>
       </div>
       <p className="muted mb">
-        Up to 5 songs per prospect — add each song's Gross Streams and Writer % below and Gross/Net Streams sum
-        automatically. Click a prospect to edit their songs. Never touches MASTER or roster totals.
+        Up to 5 songs per prospect — add each song's Gross Streams and Writer % below and Gross Streams, Net
+        Streams, and Est. Revenue all sum/compute automatically, exactly like the sheet. Click a prospect to edit
+        their songs. Never touches MASTER or roster totals.
       </p>
       {err && <p className="hint err-text mb">{err}</p>}
       {data.prospects.length === 0 ? (
@@ -1372,14 +1376,15 @@ function OutreachPanel({ data, reload }) {
       ) : (
         <div className="admin-table">
           <div className="admin-row admin-hd" style={{ "--cols": cols }}>
-            <span>Prospect</span><span>Contact</span><span>Gross Streams</span><span>Net Streams</span><span>Songs</span><span>Status</span>
+            <span>Prospect</span><span>Contact</span><span>Gross Streams</span><span>Net Streams</span><span>Est. Revenue</span><span>Songs</span><span>Status</span>
           </div>
           {data.prospects.map((p) => (
-            <button key={p.row} className="admin-row admin-row-link" style={{ "--cols": cols }} onClick={() => setActive(p)}>
+            <button key={p.row} className="admin-row admin-row-link" style={{ "--cols": cols }} onClick={() => setActiveRow(p.row)}>
               <span className="cell">{p.name}</span>
               <span className="cell">{p.contact || "—"}</span>
               <span className="cell">{fmt(p.grossStreams)}</span>
               <span className="cell">{fmt(p.netStreams)}</span>
+              <span className="cell">{money(p.grossRevenue)}</span>
               <span className="cell">{p.songs.filter((s) => s.streams > 0).length || "—"}</span>
               <span className="cell">{p.status || "—"}</span>
             </button>
@@ -1406,8 +1411,8 @@ function OutreachPanel({ data, reload }) {
       {active && (
         <ProspectDetail
           prospect={active}
-          onClose={() => setActive(null)}
-          onChanged={async () => { await reload(); setActive(null); }}
+          onClose={() => setActiveRow(null)}
+          onChanged={reload}
         />
       )}
     </div>
@@ -1420,6 +1425,15 @@ function ProspectDetail({ prospect, onClose, onChanged }) {
   const [songs, setSongs] = useState(prospect.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+
+  // re-sync local draft state whenever the prospect prop refreshes (after
+  // reload() following a save) — keeps the modal open showing live totals
+  // instead of forcing staff to close and reopen it to see what changed.
+  useEffect(() => {
+    setName(prospect.name);
+    setContact(prospect.contact);
+    setSongs(prospect.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })));
+  }, [prospect]);
 
   const saveMeta = async () => {
     if (!name.trim()) return;
@@ -1449,8 +1463,9 @@ function ProspectDetail({ prospect, onClose, onChanged }) {
     setBusy(true); setErr(null);
     try {
       await arWrite({ action: "deleteProspect", row: prospect.row });
+      onClose();
       await onChanged();
-    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+    } catch (e) { setErr(e.message); setBusy(false); }
   };
   const setSong = (slot, patch) => setSongs(songs.map((s) => (s.slot === slot ? { ...s, ...patch } : s)));
 
@@ -1460,6 +1475,16 @@ function ProspectDetail({ prospect, onClose, onChanged }) {
         <div className="modal-head"><h3>{prospect.name}</h3><button onClick={onClose}><X size={18} /></button></div>
         <div className="modal-body">
           {err && <p className="hint err-text">{err}</p>}
+
+          <div className="cat-summary" style={{ marginBottom: 18 }}>
+            <div className="cat-summary-grid">
+              <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(prospect.grossStreams)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(prospect.netStreams)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Blended Writer %</span><span className="cat-stat-val">{prospect.writerShare ? `${prospect.writerShare}%` : "—"}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Est. Revenue</span><span className="cat-stat-val">{money(prospect.grossRevenue)}</span></div>
+            </div>
+          </div>
+
           <Field label="Prospect / Producer" value={name} onChange={(e) => setName(e.target.value)} />
           <Field label="Contact or Handle" value={contact} onChange={(e) => setContact(e.target.value)} />
           <button className="btn ghost sm" onClick={saveMeta} disabled={busy || !name.trim()}>Save name / contact</button>
@@ -1516,26 +1541,60 @@ function calcAdvance({ netStreams, blendedRate, runRate, decay, adminFeeRate, re
   return { royYr1, royYr2, royYr3, roy3yr, adminYr1, adminYr2, adminYr3, admin3yr, advance, monthsToRecoup, coverage, verdict };
 }
 
-function AdvanceCalcPanel({ data }) {
+// A blank scenario to start from — no prospect picked, no streams typed.
+// Matches the same field shape Outreach's own single-song entry uses
+// (Gross Streams + Writer %), not a raw Net Streams number, specifically
+// so a from-scratch scenario can be saved as a real prospect later:
+// Net Streams alone can't be decomposed back into streams+split, but
+// Gross Streams + Writer % round-trips into Outreach's Song 1 slot exactly.
+const BLANK_SCENARIO = { row: "", name: "", contact: "", grossStreams: "", writerShare: "" };
+
+function AdvanceCalcPanel({ data, reload }) {
   const { assumptions, recoupTargetMonths, prospects, links } = data;
-  const [prospectRow, setProspectRow] = useState("");
-  const [netStreams, setNetStreams] = useState(0);
+  const [scenario, setScenario] = useState(BLANK_SCENARIO);
   const [recoupMonths, setRecoupMonths] = useState(recoupTargetMonths);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  const isExisting = !!scenario.row;
+  // an existing prospect's Net Streams comes straight from the sheet's own
+  // sum across all their songs (could be more than one) — a from-scratch
+  // scenario only ever has the one Gross Streams/Writer % pair being typed,
+  // computed the same way the sheet computes each song slot.
+  const netStreams = isExisting
+    ? prospects.find((p) => String(p.row) === String(scenario.row))?.netStreams || 0
+    : (Number(scenario.grossStreams) || 0) * ((Number(scenario.writerShare) || 0) / 100);
 
   const selectProspect = (row) => {
-    setProspectRow(row);
+    setSaved(false);
+    if (!row) { setScenario(BLANK_SCENARIO); return; }
     const p = prospects.find((x) => String(x.row) === String(row));
-    if (p) setNetStreams(p.netStreams);
+    setScenario({ row, name: p?.name || "", contact: p?.contact || "", grossStreams: "", writerShare: "" });
   };
+  const setField = (patch) => { setSaved(false); setScenario({ ...scenario, ...patch }); };
 
   const result = useMemo(() => calcAdvance({
-    netStreams: Number(netStreams) || 0,
+    netStreams,
     blendedRate: assumptions.blendedRate,
     runRate: assumptions.runRate,
     decay: assumptions.decayRate,
     adminFeeRate: assumptions.adminFeeRate,
     recoupMonths: Number(recoupMonths) || 12,
   }), [netStreams, recoupMonths, assumptions]);
+  const estRevenue = netStreams * assumptions.blendedRate;
+
+  const saveToOutreach = async () => {
+    if (!scenario.name.trim() || !netStreams) return;
+    setBusy(true); setErr(null);
+    try {
+      const { row } = await arWrite({ action: "saveProspect", name: scenario.name.trim(), contact: scenario.contact.trim() });
+      await arWrite({ action: "saveSong", row, slot: 1, streams: Number(scenario.grossStreams) || 0, writerShare: Number(scenario.writerShare) || 0 });
+      await reload();
+      setScenario({ ...scenario, row });
+      setSaved(true);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
 
   return (
     <div>
@@ -1545,21 +1604,41 @@ function AdvanceCalcPanel({ data }) {
           <ExtLink href={links.advanceCalculator} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
         )}
       </div>
-      <p className="muted mb">Mirrors the sheet's own math exactly — pick a prospect from Outreach or type Net Streams by hand.</p>
+      <p className="muted mb">Mirrors the sheet's own math exactly — pick an existing prospect from Outreach, or fill out a brand-new scenario and save it there once you're happy with it.</p>
 
       <div className="form-card" style={{ maxWidth: 560 }}>
-        <label className="fld"><span>Prospect (from Outreach)</span>
-          <select value={prospectRow} onChange={(e) => selectProspect(e.target.value)}>
-            <option value="">— manual entry —</option>
+        <label className="fld"><span>Prospect</span>
+          <select value={scenario.row} onChange={(e) => selectProspect(e.target.value)}>
+            <option value="">— new prospect —</option>
             {prospects.map((p) => <option key={p.row} value={p.row}>{p.name} ({fmt(p.netStreams)} net streams)</option>)}
           </select>
         </label>
-        <Field label="Net Streams (After Splits)" type="number" value={netStreams} onChange={(e) => setNetStreams(e.target.value)} />
+        {isExisting ? (
+          <p className="hint">Net Streams ({fmt(netStreams)}) comes from {scenario.name}'s songs in Outreach — edit those there to change this.</p>
+        ) : (
+          <>
+            <Field label="Prospect / Producer" value={scenario.name} onChange={(e) => setField({ name: e.target.value })} placeholder="Who are you evaluating?" />
+            <Field label="Contact or Handle" value={scenario.contact} onChange={(e) => setField({ contact: e.target.value })} />
+            <Field label="Gross Streams" type="number" value={scenario.grossStreams} onChange={(e) => setField({ grossStreams: e.target.value })} />
+            <Field label="Writer %" type="number" value={scenario.writerShare} onChange={(e) => setField({ writerShare: e.target.value })} />
+            <p className="hint">Net Streams: {fmt(netStreams)} · Est. Revenue: {money(estRevenue)}</p>
+          </>
+        )}
         <Field
           label="Recoup target (months)" type="number" value={recoupMonths}
           onChange={(e) => setRecoupMonths(e.target.value)}
           hint="Advance = this many months of Year 1 admin cut · recouped from your 20% admin, not the writer's share · 12-18 mo traditional, 24-36 aggressive"
         />
+        {err && <p className="hint err-text">{err}</p>}
+        {/* saving flips scenario.row, which switches isExisting to true and
+            hides the button below on the very next render — the confirmation
+            has to live outside that block or it vanishes before anyone sees it */}
+        {saved && <p className="hint" style={{ color: "#9ad39a" }}>Saved to Outreach ✓ — {scenario.name} now appears in the pipeline, shown below with its real numbers.</p>}
+        {!isExisting && (
+          <button className="btn sm" onClick={saveToOutreach} disabled={busy || !scenario.name.trim() || !netStreams}>
+            {busy ? "Saving…" : "Save to Outreach"}
+          </button>
+        )}
       </div>
 
       <div className="cat-summary" style={{ marginTop: 20 }}>
