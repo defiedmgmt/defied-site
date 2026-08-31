@@ -805,13 +805,13 @@ function Contact() {
   };
   return (
     <main className="page">
-      <h1 className="page-head">CONTACT</h1>
-      <p className="lead">Interested in working with us or have a question regarding our services? Fill out this form and we'll get back to you within 2-3 business days.</p>
+      <h1 className="page-head">Let's Work.</h1>
+      <p className="lead">Interested in working with us or have any questions? Please fill out this form and we'll get back to you as soon as possible.</p>
       {sent ? (
         <div className="sent">
           <Check size={28} />
           <h3>Message sent</h3>
-          <p>We'll get back to you within 2-3 business days.</p>
+          <p>We'll get back to you as soon as possible.</p>
         </div>
       ) : (
         <div className="form-card">
