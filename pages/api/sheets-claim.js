@@ -4,9 +4,12 @@
 // instead of appending a duplicate, and the next pull matches it by
 // syncId instead of re-detecting it as "new" every time.
 import { getSheetsClient, getSheetId, writeSyncId } from "../../lib/sheets";
+import { requireStaff, requireSameOrigin } from "../../lib/session";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+  if (!(await requireStaff(req, res))) return;
+  if (!requireSameOrigin(req, res)) return;
   const { claims } = req.body || {};
   if (!Array.isArray(claims) || claims.length === 0) {
     return res.status(400).json({ error: "claims[] is required." });

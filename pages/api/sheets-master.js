@@ -3,9 +3,11 @@
 // Clients-tab overview always matches the sheet exactly. Nothing here ever
 // writes back to the sheet.
 import { getSheetsClient, getSheetId, readMasterRollup, readMasterLinks } from "../../lib/sheets";
+import { requireStaff } from "../../lib/session";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
+  if (!(await requireStaff(req, res))) return;
   try {
     const sheets = getSheetsClient();
     const spreadsheetId = getSheetId();

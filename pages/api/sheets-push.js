@@ -8,12 +8,27 @@ import {
   getSheetsClient, getSheetId, listTabs, findTab,
   claimTabForNewCollaborator, findRowBySyncId, findRowByLuminateId, findUnclaimedRowByTitle, writeSongRow, appendSongRow,
 } from "../../lib/sheets";
+import { requireUser, requireSameOrigin } from "../../lib/session";
+import { sql } from "../../lib/db";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+  const session = await requireUser(req, res);
+  if (!session) return;
+  if (!requireSameOrigin(req, res)) return;
   const { placementId, song, artist, luminateId, splits, liveIds } = req.body || {};
   if (!placementId || !song || !Array.isArray(splits) || splits.length === 0) {
     return res.status(400).json({ error: "placementId, song, and splits are required." });
+  }
+
+  // a client session may only ever write their own split (the site's own
+  // caller already sends exactly one entry: their own name/percent) — never
+  // let a client-controlled request smuggle a write into someone else's tab.
+  if (session.user.role !== "staff") {
+    const [client] = await sql`SELECT name, sheet_tab_name FROM clients WHERE id = ${session.user.clientId}`;
+    const mine = new Set([client?.name, client?.sheet_tab_name].filter(Boolean));
+    const allowed = splits.every((s) => mine.has((s.name || "").trim()));
+    if (!client || !allowed) return res.status(403).json({ error: "Not authorized for that split." });
   }
 
   try {

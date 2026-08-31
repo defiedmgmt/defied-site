@@ -16,7 +16,13 @@ function metaContent(html, property) {
   return m ? decodeEntities(m[1]) : "";
 }
 
+import { requireUser } from "../../lib/session";
+
 export default async function handler(req, res) {
+  // not sensitive data (public Spotify metadata), but gated anyway so this
+  // doesn't sit open as a free-to-use proxy for anyone on the internet —
+  // only used within the (staff or client) song-editing flow.
+  if (!(await requireUser(req, res))) return;
   const raw = req.query.url;
   if (!raw || typeof raw !== "string") {
     return res.status(400).json({ error: "Missing Spotify link." });

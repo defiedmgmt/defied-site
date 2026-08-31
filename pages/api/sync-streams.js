@@ -3,8 +3,12 @@
 // its Drive folder and refreshes the STREAM DATA tab. Routed server-side (not
 // a plain link) so the deployment URL never reaches the client bundle, and so
 // a CORS-blocked client fetch to script.google.com isn't a concern.
+import { requireStaff, requireSameOrigin } from "../../lib/session";
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+  if (!(await requireStaff(req, res))) return;
+  if (!requireSameOrigin(req, res)) return;
   const url = process.env.STREAM_SYNC_URL;
   if (!url) return res.status(500).json({ error: "STREAM_SYNC_URL is not configured." });
 

@@ -5,12 +5,22 @@
 // merges the returned rows onto its own placements — this route has no
 // access to localStorage, it just reads the sheet.
 import { getSheetsClient, getSheetId, listTabs, findTab, readTabRows } from "../../lib/sheets";
+import { requireUser, requireSameOrigin } from "../../lib/session";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const { clients } = req.body || {};
+  const session = await requireUser(req, res);
+  if (!session) return;
+  if (!requireSameOrigin(req, res)) return;
+  let { clients } = req.body || {};
   if (!Array.isArray(clients) || clients.length === 0) {
     return res.status(400).json({ error: "clients[] is required." });
+  }
+  // a client session may only ever pull their own tab, regardless of what
+  // the request body claims — staff can pull any/all clients.
+  if (session.user.role !== "staff") {
+    clients = clients.filter((c) => c.id === session.user.clientId);
+    if (clients.length === 0) return res.status(403).json({ error: "Not authorized for that client." });
   }
 
   try {
