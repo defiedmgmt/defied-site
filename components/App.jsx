@@ -1372,7 +1372,7 @@ function OutreachPanel({ data, reload }) {
               <span className="cell">{fmt(p.netStreams)}</span>
               <span className="cell">{money(p.grossRevenue)}</span>
               <span className="cell">{p.songs.filter((s) => s.streams > 0).length || "—"}</span>
-              <span className="cell">{p.status || "—"}</span>
+              <span className="cell">{p.status ? <span className="tag">{p.status}</span> : "—"}</span>
             </button>
           ))}
         </div>
@@ -1381,6 +1381,7 @@ function OutreachPanel({ data, reload }) {
       {adding && (
         <ProspectForm
           blendedRate={data.assumptions.blendedRate}
+          statuses={data.statuses}
           onClose={() => setAdding(false)}
           onChanged={async () => { await reload(); setAdding(false); }}
         />
@@ -1389,6 +1390,7 @@ function OutreachPanel({ data, reload }) {
         <ProspectForm
           prospect={active}
           blendedRate={data.assumptions.blendedRate}
+          statuses={data.statuses}
           onClose={() => setActiveRow(null)}
           onChanged={async () => { await reload(); setActiveRow(null); }}
         />
@@ -1408,10 +1410,11 @@ const BLANK_SONGS = [1, 2, 3, 4, 5].map((slot) => ({ slot, streams: "", writerSh
 // a single blended percentage applied to the summed total, which is what
 // made the old one-pair-per-prospect design inaccurate for anyone with
 // more than one song at a different split.
-function ProspectForm({ prospect, blendedRate, onClose, onChanged }) {
+function ProspectForm({ prospect, blendedRate, statuses, onClose, onChanged }) {
   const isNew = !prospect;
   const [name, setName] = useState(prospect?.name || "");
   const [contact, setContact] = useState(prospect?.contact || "");
+  const [status, setStatus] = useState(prospect?.status || "");
   const [songs, setSongs] = useState(
     prospect ? prospect.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })) : BLANK_SONGS
   );
@@ -1427,7 +1430,7 @@ function ProspectForm({ prospect, blendedRate, onClose, onChanged }) {
     if (!name.trim()) return;
     setBusy(true); setErr(null);
     try {
-      await arWrite({ action: "saveProspectFull", row: prospect?.row, name: name.trim(), contact: contact.trim(), songs });
+      await arWrite({ action: "saveProspectFull", row: prospect?.row, name: name.trim(), contact: contact.trim(), status, songs });
       await onChanged();
     } catch (e) { setErr(e.message); setBusy(false); }
   };
@@ -1457,6 +1460,12 @@ function ProspectForm({ prospect, blendedRate, onClose, onChanged }) {
 
           <Field label="Prospect / Producer" value={name} onChange={(e) => setName(e.target.value)} />
           <Field label="Contact or Handle" value={contact} onChange={(e) => setContact(e.target.value)} />
+          <label className="fld"><span>Outreach Status</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">— not set —</option>
+              {(statuses || []).map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
 
           <p className="fld-label mb" style={{ marginTop: 18 }}>Songs (up to 5) — Gross Streams and Writer %</p>
           {songs.map((s) => (
@@ -1509,36 +1518,45 @@ function calcAdvance({ netStreams, blendedRate, runRate, decay, adminFeeRate, re
   return { royYr1, royYr2, royYr3, roy3yr, adminYr1, adminYr2, adminYr3, admin3yr, advance, monthsToRecoup, coverage, verdict };
 }
 
-// A blank scenario to start from — no prospect picked, no streams typed.
-// Matches the same field shape Outreach's own single-song entry uses
-// (Gross Streams + Writer %), not a raw Net Streams number, specifically
-// so a from-scratch scenario can be saved as a real prospect later:
-// Net Streams alone can't be decomposed back into streams+split, but
-// Gross Streams + Writer % round-trips into Outreach's Song 1 slot exactly.
-const BLANK_SCENARIO = { row: "", name: "", contact: "", grossStreams: "", writerShare: "" };
+// A blank scenario to start from — no prospect/client picked, no streams
+// typed. Matches the same field shape Outreach's own single-song entry
+// uses (Gross Streams + Writer %), not a raw Net Streams number,
+// specifically so a from-scratch scenario can be saved as a real prospect
+// later: Net Streams alone can't be decomposed back into streams+split,
+// but Gross Streams + Writer % round-trips into Outreach's Song 1 slot
+// exactly.
+const BLANK_SCENARIO = { kind: "new", key: "", name: "", contact: "", grossStreams: "", writerShare: "" };
 
 function AdvanceCalcPanel({ data, reload }) {
-  const { assumptions, recoupTargetMonths, prospects, links } = data;
+  const { assumptions, recoupTargetMonths, budget, prospects, signedClients, links } = data;
   const [scenario, setScenario] = useState(BLANK_SCENARIO);
   const [recoupMonths, setRecoupMonths] = useState(recoupTargetMonths);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [saved, setSaved] = useState(false);
 
-  const isExisting = !!scenario.row;
-  // an existing prospect's Net Streams comes straight from the sheet's own
-  // sum across all their songs (could be more than one) — a from-scratch
-  // scenario only ever has the one Gross Streams/Writer % pair being typed,
-  // computed the same way the sheet computes each song slot.
-  const netStreams = isExisting
-    ? prospects.find((p) => String(p.row) === String(scenario.row))?.netStreams || 0
+  const selectedProspect = scenario.kind === "outreach" ? prospects.find((p) => String(p.row) === String(scenario.key)) : null;
+  const selectedClient = scenario.kind === "client" ? signedClients.find((c) => c.id === scenario.key) : null;
+  // an existing prospect/client's Net Streams comes straight from the sheet
+  // or catalog's own sum across everything they have (could be more than
+  // one song) — a from-scratch scenario only ever has the one Gross
+  // Streams/Writer % pair being typed, computed the same way the sheet
+  // computes each song slot.
+  const netStreams = selectedProspect ? selectedProspect.netStreams
+    : selectedClient ? selectedClient.netStreams
     : (Number(scenario.grossStreams) || 0) * ((Number(scenario.writerShare) || 0) / 100);
 
-  const selectProspect = (row) => {
+  const selectScenario = (value) => {
     setSaved(false);
-    if (!row) { setScenario(BLANK_SCENARIO); return; }
-    const p = prospects.find((x) => String(x.row) === String(row));
-    setScenario({ row, name: p?.name || "", contact: p?.contact || "", grossStreams: "", writerShare: "" });
+    if (!value) { setScenario(BLANK_SCENARIO); return; }
+    const [kind, key] = value.split(":");
+    if (kind === "outreach") {
+      const p = prospects.find((x) => String(x.row) === key);
+      setScenario({ kind, key, name: p?.name || "", contact: p?.contact || "", grossStreams: "", writerShare: "" });
+    } else if (kind === "client") {
+      const c = signedClients.find((x) => x.id === key);
+      setScenario({ kind, key, name: c?.name || "", contact: "", grossStreams: "", writerShare: "" });
+    }
   };
   const setField = (patch) => { setSaved(false); setScenario({ ...scenario, ...patch }); };
 
@@ -1556,11 +1574,22 @@ function AdvanceCalcPanel({ data, reload }) {
     if (!scenario.name.trim() || !netStreams) return;
     setBusy(true); setErr(null);
     try {
-      const { row } = await arWrite({ action: "saveProspect", name: scenario.name.trim(), contact: scenario.contact.trim() });
-      await arWrite({ action: "saveSong", row, slot: 1, streams: Number(scenario.grossStreams) || 0, writerShare: Number(scenario.writerShare) || 0 });
+      const { row } = await arWrite({
+        action: "saveProspectFull", name: scenario.name.trim(), contact: scenario.contact.trim(),
+        songs: [{ slot: 1, streams: Number(scenario.grossStreams) || 0, writerShare: Number(scenario.writerShare) || 0 }],
+      });
       await reload();
-      setScenario({ ...scenario, row });
+      setScenario({ kind: "outreach", key: String(row), name: scenario.name, contact: scenario.contact, grossStreams: "", writerShare: "" });
       setSaved(true);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+
+  const setGiven = async (given) => {
+    if (!selectedProspect) return;
+    setBusy(true); setErr(null);
+    try {
+      await arWrite({ action: "setAdvanceGiven", row: selectedProspect.row, given });
+      await reload();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
 
@@ -1572,17 +1601,37 @@ function AdvanceCalcPanel({ data, reload }) {
           <ExtLink href={links.advanceCalculator} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
         )}
       </div>
-      <p className="muted mb">Mirrors the sheet's own math exactly — pick an existing prospect from Outreach, or fill out a brand-new scenario and save it there once you're happy with it.</p>
+      <p className="muted mb">Mirrors the sheet's own math exactly — pick an Outreach prospect or a signed client, or fill out a brand-new scenario and save it to Outreach once you're happy with it.</p>
+
+      <div className="cat-summary" style={{ marginBottom: 20, maxWidth: 560 }}>
+        <div className="cat-summary-grid">
+          <div className="cat-stat"><span className="cat-stat-label">Starting Budget</span><span className="cat-stat-val">{money(budget.starting)}</span></div>
+          <div className="cat-stat"><span className="cat-stat-label">Committed (Given)</span><span className="cat-stat-val">{money(budget.committed)}</span></div>
+          <div className="cat-stat"><span className="cat-stat-label">Remaining</span><span className="cat-stat-val">{money(budget.remaining)}</span></div>
+        </div>
+      </div>
 
       <div className="form-card" style={{ maxWidth: 560 }}>
-        <label className="fld"><span>Prospect</span>
-          <select value={scenario.row} onChange={(e) => selectProspect(e.target.value)}>
+        <label className="fld"><span>Prospect or signed client</span>
+          <select value={scenario.kind === "new" ? "" : `${scenario.kind}:${scenario.key}`} onChange={(e) => selectScenario(e.target.value)}>
             <option value="">— new prospect —</option>
-            {prospects.map((p) => <option key={p.row} value={p.row}>{p.name} ({fmt(p.netStreams)} net streams)</option>)}
+            {prospects.length > 0 && (
+              <optgroup label="Outreach prospects">
+                {prospects.map((p) => <option key={p.row} value={`outreach:${p.row}`}>{p.name} ({fmt(p.netStreams)} net streams)</option>)}
+              </optgroup>
+            )}
+            {signedClients.length > 0 && (
+              <optgroup label="Signed clients">
+                {signedClients.map((c) => <option key={c.id} value={`client:${c.id}`}>{c.name} ({fmt(c.netStreams)} net streams)</option>)}
+              </optgroup>
+            )}
           </select>
         </label>
-        {isExisting ? (
-          <p className="hint">Net Streams ({fmt(netStreams)}) comes from {scenario.name}'s songs in Outreach — edit those there to change this.</p>
+        {selectedProspect || selectedClient ? (
+          <p className="hint">
+            Net Streams ({fmt(netStreams)}) comes from {scenario.name}'s {selectedClient ? "catalog" : "songs in Outreach"} —
+            edit {selectedClient ? "their songs on the Clients tab" : "those there"} to change this.
+          </p>
         ) : (
           <>
             <Field label="Prospect / Producer" value={scenario.name} onChange={(e) => setField({ name: e.target.value })} placeholder="Who are you evaluating?" />
@@ -1598,14 +1647,25 @@ function AdvanceCalcPanel({ data, reload }) {
           hint="Advance = this many months of Year 1 admin cut · recouped from your 20% admin, not the writer's share · 12-18 mo traditional, 24-36 aggressive"
         />
         {err && <p className="hint err-text">{err}</p>}
-        {/* saving flips scenario.row, which switches isExisting to true and
-            hides the button below on the very next render — the confirmation
-            has to live outside that block or it vanishes before anyone sees it */}
+        {/* saving flips scenario.kind to "outreach", which swaps in the
+            read-only reference block above on the very next render — the
+            confirmation has to live outside that block or it vanishes
+            before anyone sees it */}
         {saved && <p className="hint" style={{ color: "#9ad39a" }}>Saved to Outreach ✓ — {scenario.name} now appears in the pipeline, shown below with its real numbers.</p>}
-        {!isExisting && (
+        {scenario.kind === "new" && (
           <button className="btn sm" onClick={saveToOutreach} disabled={busy || !scenario.name.trim() || !netStreams}>
             {busy ? "Saving…" : "Save to Outreach"}
           </button>
+        )}
+        {selectedProspect && (
+          <div className="ar-given-row">
+            <span className="fld-label">Advance given?</span>
+            <button className={selectedProspect.advanceGiven === "Yes" ? "btn sm" : "btn ghost sm"} onClick={() => setGiven(true)} disabled={busy}>Yes</button>
+            <button className={selectedProspect.advanceGiven === "No" || !selectedProspect.advanceGiven ? "btn sm" : "btn ghost sm"} onClick={() => setGiven(false)} disabled={busy}>No</button>
+          </div>
+        )}
+        {selectedClient && (
+          <p className="hint">Signed clients aren't tracked in the Given/budget total above — this is for planning an additional advance only.</p>
         )}
       </div>
 
@@ -2697,6 +2757,7 @@ function StyleTag() {
     .ar-song-row{display:grid;grid-template-columns:20px 1fr 1fr;gap:8px;align-items:center;margin-bottom:8px}
     .ar-song-row input{background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:9px 11px;font-size:13.5px;font-family:inherit;width:100%}
     .ar-song-num{color:var(--mut);font-size:12.5px;text-align:center}
+    .ar-given-row{display:flex;align-items:center;gap:10px;margin-top:14px}
 
     .subs{display:flex;flex-direction:column;gap:12px}
     .sub-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}

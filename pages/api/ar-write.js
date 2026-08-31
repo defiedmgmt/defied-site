@@ -7,7 +7,7 @@ import { requireStaff, requireSameOrigin } from "../../lib/session";
 import {
   getSheetsClient, getSheetId, firstEmptyOutreachRow,
   writeOutreachProspect, clearOutreachProspect, writeOutreachSong, clearOutreachSong,
-  writeOutreachProspectFull,
+  writeOutreachProspectFull, writeAdvanceGiven,
 } from "../../lib/sheets";
 
 export default async function handler(req, res) {
@@ -22,11 +22,17 @@ export default async function handler(req, res) {
 
   try {
     if (action === "saveProspectFull") {
-      const { row, name, contact, songs } = req.body;
+      const { row, name, contact, status, songs } = req.body;
       if (!name || !String(name).trim()) return res.status(400).json({ error: "Name is required." });
       const targetRow = row || (await firstEmptyOutreachRow(sheets, spreadsheetId));
-      await writeOutreachProspectFull(sheets, spreadsheetId, targetRow, { name: String(name).trim(), contact: contact || "", songs: songs || [] });
+      await writeOutreachProspectFull(sheets, spreadsheetId, targetRow, { name: String(name).trim(), contact: contact || "", status: status || "", songs: songs || [] });
       return res.status(200).json({ ok: true, row: targetRow });
+    }
+    if (action === "setAdvanceGiven") {
+      const { row, given } = req.body;
+      if (!row) return res.status(400).json({ error: "row is required." });
+      await writeAdvanceGiven(sheets, spreadsheetId, row, !!given);
+      return res.status(200).json({ ok: true });
     }
     if (action === "saveProspect") {
       const { row, name, contact } = req.body;
