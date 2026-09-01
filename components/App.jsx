@@ -1975,6 +1975,68 @@ function SongManager({ db, commit, clientId, isStaff }) {
   );
 }
 
+// Self-service password change — staff can already reset anyone's password
+// blind (UsersAdmin's password field), but that means typing a brand-new
+// one; this lets a client change theirs without going through staff at all.
+function ChangePassword() {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [done, setDone] = useState(false);
+
+  const reset = () => { setCurrent(""); setNext(""); setConfirm(""); setErr(null); };
+
+  const submit = async () => {
+    setErr(null);
+    if (next.trim().length < 8) return setErr("New password must be at least 8 characters.");
+    if (next !== confirm) return setErr("New passwords don't match.");
+    setBusy(true);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Couldn't change your password.");
+      reset();
+      setDone(true);
+      setOpen(false);
+    } catch (e) {
+      setErr(e.message || "Couldn't change your password.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="portal-block">
+      <div className="portal-block-head">
+        <div>
+          <h2>Password</h2>
+          {done && !open && <p className="hint" style={{ color: "#8fce8f" }}>Password changed.</p>}
+        </div>
+        {!open && <button className="btn ghost sm" onClick={() => { setOpen(true); setDone(false); }}>Change password</button>}
+      </div>
+      {open && (
+        <div className="form-card">
+          <Field label="Current password" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+          <Field label="New password" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} hint="At least 8 characters." />
+          <Field label="Confirm new password" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          {err && <p className="hint err-text">{err}</p>}
+          <div className="portal-block-head">
+            <button className="btn ghost sm" onClick={() => { setOpen(false); reset(); }} disabled={busy}>Cancel</button>
+            <button className="btn sm" onClick={submit} disabled={busy}>{busy ? "Saving…" : "Save password"}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ClientPortal({ db, commit, session, logout }) {
   // db here is already scoped to just this client by /api/dashboard-data —
   // db.client is their own record, db.placements is only their own songs.
@@ -1995,7 +2057,10 @@ function ClientPortal({ db, commit, session, logout }) {
       </header>
       <main className="portal-main">
         <div className="portal-role">Your catalog — only you and Defied staff can see this</div>
-        <SongManager db={db} commit={commit} clientId={session.clientId} />
+        <div className="portal-block">
+          <SongManager db={db} commit={commit} clientId={session.clientId} />
+        </div>
+        <ChangePassword />
       </main>
     </div>
   );
