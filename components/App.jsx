@@ -416,7 +416,7 @@ function SplitsEditor({ splits, onChange }) {
 // own page file (pages/about.jsx etc.) that just renders <App/>; the route
 // itself is derived from the current URL, not kept as separate React state.
 const ROUTE_TO_PATH = {
-  home: "/", about: "/about", staffpage: "/staff", roster: "/roster",
+  home: "/", about: "/about", team: "/team", roster: "/roster",
   contact: "/contact", login: "/login", staff: "/dashboard", client: "/portal",
 };
 const PATH_TO_ROUTE = Object.fromEntries(Object.entries(ROUTE_TO_PATH).map(([k, v]) => [v, k]));
@@ -557,7 +557,7 @@ export default function App() {
       <div className={route === "home" || route === "login" ? "view view-home" : "view"} key={route}>
         {route === "home" && <Home />}
         {route === "about" && <About publicData={publicData} />}
-        {route === "staffpage" && <StaffPage publicData={publicData} />}
+        {route === "team" && <TeamPage publicData={publicData} />}
         {route === "roster" && <Roster publicData={publicData} />}
         {route === "contact" && <Contact />}
         {route === "login" && <Login login={login} />}
@@ -580,7 +580,7 @@ export default function App() {
 /* ------------------------------------------------------------------ */
 function PublicNav({ route, go, menuOpen, setMenuOpen, session }) {
   const links = [
-    ["about", "ABOUT"], ["staffpage", "STAFF"], ["roster", "ROSTER"], ["contact", "CONTACT"],
+    ["about", "ABOUT"], ["team", "TEAM"], ["roster", "ROSTER"], ["contact", "CONTACT"],
   ];
   const authRoute = session ? (session.role === "staff" ? "staff" : "client") : "login";
   const closeMenu = () => setMenuOpen(false);
@@ -656,7 +656,7 @@ function NotableReleases({ publicData }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  ABOUT / SERVICES / STAFF / ROSTER / CONTACT                         */
+/*  ABOUT / SERVICES / TEAM / ROSTER / CONTACT                          */
 /* ------------------------------------------------------------------ */
 function About({ publicData }) {
   if (!publicData) return <main className="page about"><p className="muted">Loading…</p></main>;
@@ -672,11 +672,11 @@ function About({ publicData }) {
   );
 }
 
-function StaffPage({ publicData }) {
+function TeamPage({ publicData }) {
   if (!publicData) return <main className="page page-wide"><p className="muted">Loading…</p></main>;
   return (
     <main className="page page-wide">
-      <h1 className="page-head">Staff</h1>
+      <h1 className="page-head">Team</h1>
       <div className="team-grid">
         {publicData.staff.map((s) => (
           <div key={s.id} className="team-card">
@@ -1207,7 +1207,7 @@ function TeamAdmin({ db, commit }) {
   };
   const del = async (id) => commit({ ...db, staff: db.staff.filter((s) => s.id !== id) });
   return (
-    <Editor title="Staff" items={db.staff} columns={cols}
+    <Editor title="Team" items={db.staff} columns={cols}
       blank={{ name: "", role: "", email: "", instagram: "", bio: "", photo: "" }}
       onSave={save} onDelete={del}
       extra={(e, set) => (
@@ -2427,7 +2427,7 @@ function CatalogAdmin({ db, commit }) {
 /* staff: website content (about, roster, staff, notable) -------------- */
 function WebsiteAdmin({ db, commit }) {
   const [sec, setSec] = useState("about");
-  const secs = [["about", "About page"], ["roster", "Roster"], ["staff", "Staff"], ["notable", "Notable releases"]];
+  const secs = [["about", "About page"], ["roster", "Roster"], ["staff", "Team"], ["notable", "Notable releases"]];
   return (
     <div>
       <div className="subnav">

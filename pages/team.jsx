@@ -1,9 +1,9 @@
 import PageShell from "../components/PageShell";
 
-export default function StaffPage() {
+export default function TeamPage() {
   return (
     <PageShell
-      title="Staff — Defied MGMT"
+      title="Team — Defied MGMT"
       description="Meet the Defied Management team."
     />
   );

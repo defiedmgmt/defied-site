@@ -32,6 +32,11 @@ const nextConfig = {
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
+  // the public "meet the team" page moved from /staff to /team — keep old
+  // bookmarks/search results/backlinks working instead of 404ing.
+  async redirects() {
+    return [{ source: "/staff", destination: "/team", permanent: true }];
+  },
   // next/image only allows hosts listed here — otherwise it silently 404s on
   // any remote src instead of falling back to the (more permissive) default
   // it uses when no next.config.js exists at all. Every remote host actually
