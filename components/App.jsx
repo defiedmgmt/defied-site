@@ -663,7 +663,7 @@ function About({ publicData }) {
   const about = publicData.about || "";
   return (
     <main className="page about">
-      <h1 className="about-head">DEFYING THE NORMS OF TALENT MANAGEMENT.</h1>
+      <h1 className="about-head">DEFYING THE NORMS OF<br />TALENT MANAGEMENT.</h1>
       {about.split(/\n{2,}/).map((para, i) => (
         <p key={i} className="about-body">{para}</p>
       ))}
@@ -806,7 +806,7 @@ function Contact() {
   return (
     <main className="page">
       <h1 className="page-head">Let's Work.</h1>
-      <p className="lead">Interested in working with us or have any questions? Please fill out this form and we'll get back to you as soon as possible.</p>
+      <p className="lead">Interested in working with us or have any questions?<br />Please fill out this form and we'll get back to you as soon as possible.</p>
       {sent ? (
         <div className="sent">
           <Check size={28} />
@@ -3084,10 +3084,12 @@ function StyleTag() {
       .ros-grid{grid-template-columns:repeat(2,1fr);gap:20px}
       .team-grid{grid-template-columns:repeat(2,1fr);gap:24px}
       .about-body{font-size:16px}
-      /* bleed to the screen edge and drop the size so both wrap to 2 lines
-         instead of 3-4 on phone-width screens */
-      .about-head{font-size:24px;margin:0 -20px 24px;max-width:none;width:calc(100% + 40px)}
-      .lead{font-size:13px;margin:0 -20px 28px;max-width:none;width:calc(100% + 40px)}
+      /* both headers now carry an explicit <br/> at the word break we want
+         (see About/ContactPage) — just size each half to actually fit one
+         line at phone widths, same padding as everything else on the page
+         so nothing looks mis-aligned against the text below it */
+      .about-head{font-size:20px}
+      .lead{font-size:11.5px;letter-spacing:-.6px}
       .form-card{padding:20px}
       /* footer keeps the same logo / copyright / socials row as desktop,
          just tighter — the text wraps in its own column if it needs to */
@@ -3110,6 +3112,13 @@ function StyleTag() {
       .subpill{padding:7px 13px;font-size:12.5px}
       .splits-ed{padding:11px}
       .split-list-row{font-size:13px}
+    }
+    /* a handful of very old/small phones (iPhone SE 1st-gen and similar,
+       320px wide) are narrow enough that "DEFYING THE NORMS OF" no longer
+       fits on one line at the 520px breakpoint's size — drop it further so
+       "OF" doesn't end up orphaned alone on its own line */
+    @media(max-width:340px){
+      .about-head{font-size:18px}
     }
     `}</style>
   );
