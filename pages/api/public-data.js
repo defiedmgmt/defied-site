@@ -33,6 +33,10 @@ export default async function handler(req, res) {
       about: settings.about_text,
     });
   } catch (err) {
-    return res.status(502).json({ error: err.message || "Failed to load public data." });
+    // this route is unauthenticated — never echo the real error (could be a
+    // raw Postgres error revealing schema/connection details) to an anonymous
+    // caller; log it server-side for debugging instead.
+    console.error("public-data failed:", err);
+    return res.status(502).json({ error: "Failed to load public data." });
   }
 }

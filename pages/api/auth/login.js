@@ -45,6 +45,8 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ ok: true, user: session.user });
   } catch (err) {
-    return res.status(502).json({ error: err.message || "Login failed." });
+    // unauthenticated route — never echo the raw error to an anonymous caller
+    console.error("login failed:", err);
+    return res.status(502).json({ error: "Login failed." });
   }
 }

@@ -16,9 +16,10 @@ export default async function handler(req, res) {
   if (!Array.isArray(clients) || clients.length === 0) {
     return res.status(400).json({ error: "clients[] is required." });
   }
+  const isStaff = session.user.role === "staff";
   // a client session may only ever pull their own tab, regardless of what
   // the request body claims — staff can pull any/all clients.
-  if (session.user.role !== "staff") {
+  if (!isStaff) {
     clients = clients.filter((c) => c.id === session.user.clientId);
     if (clients.length === 0) return res.status(403).json({ error: "Not authorized for that client." });
   }
@@ -33,8 +34,12 @@ export default async function handler(req, res) {
       const tabName = (c.sheetTabName || c.name || "").trim();
       const tab = findTab(tabs, tabName);
       if (!tab) { out.push({ clientId: c.id, tabFound: false, totalStreams: 0, rows: [] }); continue; }
-      const rows = await readTabRows(sheets, spreadsheetId, tab.title);
-      const totalStreams = rows.reduce((sum, r) => sum + r.grossStreams, 0);
+      const rawRows = await readTabRows(sheets, spreadsheetId, tab.title);
+      const totalStreams = rawRows.reduce((sum, r) => sum + r.grossStreams, 0);
+      // matches dashboard-data.js's redaction policy: a client sees their own
+      // streams, never revenue/admin fee — the UI never calls this route as
+      // a client anymore, but the API shouldn't rely on that to stay true.
+      const rows = isStaff ? rawRows : rawRows.map(({ grossRevenue, adminFee, ...r }) => r);
       out.push({ clientId: c.id, tabFound: true, totalStreams, rows });
     }
 

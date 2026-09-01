@@ -31,7 +31,9 @@ export default async function handler(req, res) {
     // them (or one that doesn't) still counts against the limit either way.
     await sql`INSERT INTO contact_attempts (ip) VALUES (${ip})`;
   } catch (err) {
-    return res.status(502).json({ error: err.message || "Failed to send message." });
+    // unauthenticated route — never echo the raw error to an anonymous caller
+    console.error("submit-contact rate-limit check failed:", err);
+    return res.status(502).json({ error: "Failed to send message." });
   }
 
   if (website) return res.status(200).json({ ok: true }); // honeypot tripped — pretend success, don't tip off the bot
@@ -50,6 +52,7 @@ export default async function handler(req, res) {
     `;
     return res.status(200).json({ ok: true });
   } catch (err) {
-    return res.status(502).json({ error: err.message || "Failed to send message." });
+    console.error("submit-contact insert failed:", err);
+    return res.status(502).json({ error: "Failed to send message." });
   }
 }
