@@ -990,7 +990,16 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
 async function deleteClientCascade(db, commit, id) {
   const client = db.clients.find((c) => c.id === id);
   const clientPlacements = db.placements.filter((p) => p.clientId === id);
-  await commit({ ...db, clients: db.clients.filter((c) => c.id !== id), placements: db.placements.filter((p) => p.clientId !== id) });
+  // a login account left pointing at a deleted client is a real login that
+  // just 404s on their own data forever instead of being cleaned up — same
+  // class of gap as data the UI hides but the API still allows; remove it
+  // here instead of leaving stale valid credentials with nothing behind them.
+  await commit({
+    ...db,
+    clients: db.clients.filter((c) => c.id !== id),
+    placements: db.placements.filter((p) => p.clientId !== id),
+    users: db.users.filter((u) => u.clientId !== id),
+  });
 
   const results = await Promise.allSettled(
     clientPlacements
@@ -1059,7 +1068,8 @@ function ClientsAdmin({ db, commit }) {
       onSave={save} onDelete={del} onReorder={reorder}
       confirmDelete={(c) => {
         const n = db.placements.filter((p) => p.clientId === c.id).length;
-        return `Delete ${c.name}? This also permanently deletes their ${n} song${n === 1 ? "" : "s"} and clears them from the pub sheet. This can't be undone.`;
+        const hasLogin = db.users.some((u) => u.clientId === c.id);
+        return `Delete ${c.name}? This also permanently deletes their ${n} song${n === 1 ? "" : "s"}, clears them from the pub sheet${hasLogin ? ", and removes their login" : ""}. This can't be undone.`;
       }}
       extra={(e, set) => (
         <>
@@ -1221,9 +1231,20 @@ function UsersAdmin({ db, commit }) {
   ];
   const save = async (o) => {
     const users = o.id ? db.users.map((u) => u.id === o.id ? o : u) : [...db.users, { ...o, id: uid() }];
+    if (!users.some((u) => u.role === "staff")) {
+      window.alert("At least one staff account must exist — can't demote the last one.");
+      return;
+    }
     await commit({ ...db, users });
   };
-  const del = async (id) => commit({ ...db, users: db.users.filter((u) => u.id !== id) });
+  const del = async (id) => {
+    const users = db.users.filter((u) => u.id !== id);
+    if (!users.some((u) => u.role === "staff")) {
+      window.alert("At least one staff account must exist — can't delete the last one.");
+      return;
+    }
+    await commit({ ...db, users });
+  };
   return (
     <Editor title="Users" items={db.users} columns={cols}
       blank={{ email: "", password: "", role: "client", name: "", clientId: null }}
@@ -1231,7 +1252,10 @@ function UsersAdmin({ db, commit }) {
       extra={(e, set) => (
         <>
           <Field label="Email" value={e.email} onChange={(ev) => set({ ...e, email: ev.target.value })} />
-          <Field label="Password" value={e.password} onChange={(ev) => set({ ...e, password: ev.target.value })} />
+          <Field
+            label="Password" value={e.password} onChange={(ev) => set({ ...e, password: ev.target.value })}
+            hint={e.id ? "Leave blank to keep their current password. At least 8 characters if you're setting a new one." : "At least 8 characters — required to create the account."}
+          />
           <label className="fld"><span>Role</span>
             <select value={e.role} onChange={(ev) => set({ ...e, role: ev.target.value })}>
               <option value="client">Client</option><option value="staff">Staff</option>
@@ -2323,7 +2347,8 @@ function CatalogAdmin({ db, commit }) {
 
   const removeClient = async (c) => {
     const n = db.placements.filter((p) => p.clientId === c.id).length;
-    const ok = window.confirm(`Delete ${c.name}? This also permanently deletes their ${n} song${n === 1 ? "" : "s"}, clears them from the pub sheet, and removes them from the public roster if they're on it. This can't be undone.`);
+    const hasLogin = db.users.some((u) => u.clientId === c.id);
+    const ok = window.confirm(`Delete ${c.name}? This also permanently deletes their ${n} song${n === 1 ? "" : "s"}, clears them from the pub sheet, removes them from the public roster if they're on it${hasLogin ? ", and removes their login" : ""}. This can't be undone.`);
     if (!ok) return;
     setDeleteWarn(null);
     if (clientId === c.id) setClientId(db.clients.find((x) => x.id !== c.id)?.id || null);

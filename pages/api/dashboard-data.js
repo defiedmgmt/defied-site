@@ -177,6 +177,18 @@ async function handlePost(req, res, session) {
     // brand-new user (no existing hash) requires a password to be created at
     // all; one submitted with no password is silently skipped rather than
     // created with no way to log in.
+    const MIN_PASSWORD_LENGTH = 8;
+    const weakPassword = body.users.find((u) => u.password && u.password.trim() && u.password.trim().length < MIN_PASSWORD_LENGTH);
+    if (weakPassword) {
+      return res.status(400).json({ error: `Password for ${weakPassword.email || "that user"} must be at least ${MIN_PASSWORD_LENGTH} characters.` });
+    }
+    // this write always replaces the whole users table (see below) — if the
+    // incoming list has nobody left with role "staff", nobody could ever
+    // sign in to fix that again short of a direct database edit. Covers
+    // both deleting the last staff account and demoting it to client.
+    if (!body.users.some((u) => u.role === "staff")) {
+      return res.status(400).json({ error: "At least one staff account must exist — can't delete or demote the last one." });
+    }
     const existing = await sql`SELECT id, password_hash FROM users`;
     const hashById = Object.fromEntries(existing.map((u) => [u.id, u.password_hash]));
     await sql`DELETE FROM users`;
