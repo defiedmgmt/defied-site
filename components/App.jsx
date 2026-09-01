@@ -3019,6 +3019,10 @@ function StyleTag() {
       .ros-grid{grid-template-columns:repeat(2,1fr);gap:20px}
       .team-grid{grid-template-columns:repeat(2,1fr);gap:24px}
       .about-body{font-size:16px}
+      /* bleed to the screen edge and drop the size so both wrap to 2 lines
+         instead of 3-4 on phone-width screens */
+      .about-head{font-size:24px;margin:0 -20px 24px;max-width:none;width:calc(100% + 40px)}
+      .lead{font-size:13px;margin:0 -20px 28px;max-width:none;width:calc(100% + 40px)}
       .form-card{padding:20px}
       /* footer keeps the same logo / copyright / socials row as desktop,
          just tighter — the text wraps in its own column if it needs to */
