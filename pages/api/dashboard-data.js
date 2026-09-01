@@ -88,6 +88,15 @@ async function handleGet(req, res, session) {
 // volume, small dataset, single-writer-at-a-time in practice — full-table
 // replace per key is simpler and safer here than diffing/patching, and is
 // still strictly more consistent than the old one-copy-per-browser model.
+//
+// Every DELETE+reinsert sequence below is built as an array of query
+// objects and executed via sql.transaction(), not individually-awaited
+// calls — a mid-loop failure (a bad value, a constraint violation) used to
+// leave that table (and, since commit() always spreads the *entire* db,
+// every table processed before the one that failed) truncated with only a
+// partial reinsert and no rollback. Verified against a real UNIQUE
+// violation: the old pattern loses data, sql.transaction() leaves the
+// table completely unchanged.
 async function handlePost(req, res, session) {
   if (!requireSameOrigin(req, res)) return;
   const { role, clientId } = session.user;
@@ -107,16 +116,57 @@ async function handlePost(req, res, session) {
     if (body.placements.some((p) => p.clientId !== clientId)) {
       return res.status(403).json({ error: "Placement clientId mismatch." });
     }
-    const mine = body.placements;
-    await sql`DELETE FROM placements WHERE client_id = ${clientId}`;
-    for (const p of mine) {
-      await sql`
+    const queries = [sql`DELETE FROM placements WHERE client_id = ${clientId}`];
+    for (const p of body.placements) {
+      queries.push(sql`
         INSERT INTO placements (id, client_id, song, artist, release_date, link, cover, notable, luminate_id, streams, revenue, admin_fee, splits)
         VALUES (${p.id}, ${clientId}, ${p.song || ""}, ${p.artist || ""}, ${p.releaseDate || ""}, ${p.link || ""}, ${p.cover || ""}, ${!!p.notable}, ${p.luminateId || ""}, ${p.streams || 0}, ${p.revenue || 0}, ${p.adminFee || 0}, ${JSON.stringify(p.splits || [])})
-      `;
+      `);
+    }
+    try {
+      await sql.transaction(queries);
+    } catch (err) {
+      console.error("client placements save failed:", err);
+      return res.status(502).json({ error: "Save failed — your existing songs were not changed." });
     }
     return res.status(200).json({ ok: true });
   }
+
+  // password hashing (bcrypt) is CPU-bound JS work, not a DB call, so it has
+  // to happen before the query array is built below — sql.transaction()
+  // takes only query objects, nothing that awaits in between.
+  let userQueryData = null;
+  if ("users" in body) {
+    const MIN_PASSWORD_LENGTH = 8;
+    const weakPassword = body.users.find((u) => u.password && u.password.trim() && u.password.trim().length < MIN_PASSWORD_LENGTH);
+    if (weakPassword) {
+      return res.status(400).json({ error: `Password for ${weakPassword.email || "that user"} must be at least ${MIN_PASSWORD_LENGTH} characters.` });
+    }
+    // this write always replaces the whole users table (see below) — if the
+    // incoming list has nobody left with role "staff", nobody could ever
+    // sign in to fix that again short of a direct database edit. Covers
+    // both deleting the last staff account and demoting it to client.
+    if (!body.users.some((u) => u.role === "staff")) {
+      return res.status(400).json({ error: "At least one staff account must exist — can't delete or demote the last one." });
+    }
+    // password_hash is never sent to the client (see toUser), so UsersAdmin's
+    // edit form only ever carries a plaintext `password` field when someone
+    // actually typed a new one — blank means "keep the existing hash". A
+    // brand-new user (no existing hash) requires a password to be created at
+    // all; one submitted with no password is silently skipped rather than
+    // created with no way to log in.
+    const existing = await sql`SELECT id, password_hash FROM users`;
+    const hashById = Object.fromEntries(existing.map((u) => [u.id, u.password_hash]));
+    userQueryData = [];
+    for (const u of body.users) {
+      let hash = hashById[u.id];
+      if (u.password && u.password.trim()) hash = await bcrypt.hash(u.password.trim(), 12);
+      if (!hash) continue;
+      userQueryData.push({ ...u, hash });
+    }
+  }
+
+  const queries = [];
 
   // "clients" MUST be handled before "placements" (a placement's client_id
   // FK needs the client row to exist first for a same-request new client +
@@ -136,11 +186,10 @@ async function handlePost(req, res, session) {
   // all and nothing referencing it ever cascades.
   if ("clients" in body) {
     const ids = body.clients.map((c) => c.id);
-    if (ids.length) await sql`DELETE FROM clients WHERE id != ALL(${ids})`;
-    else await sql`DELETE FROM clients`;
+    queries.push(ids.length ? sql`DELETE FROM clients WHERE id != ALL(${ids})` : sql`DELETE FROM clients`);
     for (let i = 0; i < body.clients.length; i++) {
       const c = body.clients[i];
-      await sql`
+      queries.push(sql`
         INSERT INTO clients (id, name, role, credit, bio, photo, spotify, apple, instagram, tiktok, youtube, soundcloud, sheet_tab_name, total_streams, on_roster, roster_order)
         VALUES (${c.id}, ${c.name}, ${c.role || ""}, ${c.credit || ""}, ${c.bio || ""}, ${c.photo || ""}, ${c.spotify || ""}, ${c.apple || ""}, ${c.instagram || ""}, ${c.tiktok || ""}, ${c.youtube || ""}, ${c.soundcloud || ""}, ${c.sheetTabName || ""}, ${c.totalStreams || 0}, ${!!c.onRoster}, ${i})
         ON CONFLICT (id) DO UPDATE SET
@@ -149,82 +198,68 @@ async function handlePost(req, res, session) {
           tiktok = EXCLUDED.tiktok, youtube = EXCLUDED.youtube, soundcloud = EXCLUDED.soundcloud,
           sheet_tab_name = EXCLUDED.sheet_tab_name, total_streams = EXCLUDED.total_streams,
           on_roster = EXCLUDED.on_roster, roster_order = EXCLUDED.roster_order
-      `;
+      `);
     }
   }
   if ("placements" in body) {
-    await sql`DELETE FROM placements`;
+    queries.push(sql`DELETE FROM placements`);
     for (const p of body.placements) {
-      await sql`
+      queries.push(sql`
         INSERT INTO placements (id, client_id, song, artist, release_date, link, cover, notable, luminate_id, streams, revenue, admin_fee, splits)
         VALUES (${p.id}, ${p.clientId}, ${p.song || ""}, ${p.artist || ""}, ${p.releaseDate || ""}, ${p.link || ""}, ${p.cover || ""}, ${!!p.notable}, ${p.luminateId || ""}, ${p.streams || 0}, ${p.revenue || 0}, ${p.adminFee || 0}, ${JSON.stringify(p.splits || [])})
-      `;
+      `);
     }
   }
   if ("staff" in body) {
-    await sql`DELETE FROM staff_bios`;
+    queries.push(sql`DELETE FROM staff_bios`);
     for (const s of body.staff) {
-      await sql`
+      queries.push(sql`
         INSERT INTO staff_bios (id, name, role, credit, bio, photo, email, instagram)
         VALUES (${s.id}, ${s.name || ""}, ${s.role || ""}, ${s.credit || ""}, ${s.bio || ""}, ${s.photo || ""}, ${s.email || ""}, ${s.instagram || ""})
-      `;
+      `);
     }
   }
-  if ("users" in body) {
-    // password_hash is never sent to the client (see toUser), so UsersAdmin's
-    // edit form only ever carries a plaintext `password` field when someone
-    // actually typed a new one — blank means "keep the existing hash". A
-    // brand-new user (no existing hash) requires a password to be created at
-    // all; one submitted with no password is silently skipped rather than
-    // created with no way to log in.
-    const MIN_PASSWORD_LENGTH = 8;
-    const weakPassword = body.users.find((u) => u.password && u.password.trim() && u.password.trim().length < MIN_PASSWORD_LENGTH);
-    if (weakPassword) {
-      return res.status(400).json({ error: `Password for ${weakPassword.email || "that user"} must be at least ${MIN_PASSWORD_LENGTH} characters.` });
-    }
-    // this write always replaces the whole users table (see below) — if the
-    // incoming list has nobody left with role "staff", nobody could ever
-    // sign in to fix that again short of a direct database edit. Covers
-    // both deleting the last staff account and demoting it to client.
-    if (!body.users.some((u) => u.role === "staff")) {
-      return res.status(400).json({ error: "At least one staff account must exist — can't delete or demote the last one." });
-    }
-    const existing = await sql`SELECT id, password_hash FROM users`;
-    const hashById = Object.fromEntries(existing.map((u) => [u.id, u.password_hash]));
-    await sql`DELETE FROM users`;
-    for (const u of body.users) {
-      let hash = hashById[u.id];
-      if (u.password && u.password.trim()) hash = await bcrypt.hash(u.password.trim(), 12);
-      if (!hash) continue;
-      await sql`
+  if (userQueryData) {
+    queries.push(sql`DELETE FROM users`);
+    for (const u of userQueryData) {
+      queries.push(sql`
         INSERT INTO users (id, email, password_hash, role, name, client_id)
-        VALUES (${u.id}, ${u.email.toLowerCase()}, ${hash}, ${u.role}, ${u.name || ""}, ${u.clientId || null})
-      `;
+        VALUES (${u.id}, ${u.email.toLowerCase()}, ${u.hash}, ${u.role}, ${u.name || ""}, ${u.clientId || null})
+      `);
     }
   }
   if ("submissions" in body) {
-    await sql`DELETE FROM submissions`;
+    queries.push(sql`DELETE FROM submissions`);
     for (const s of body.submissions) {
-      await sql`
+      queries.push(sql`
         INSERT INTO submissions (id, name, email, instagram, subject, message, created_at, read)
         VALUES (${s.id}, ${s.name || ""}, ${s.email || ""}, ${s.instagram || ""}, ${s.subject || ""}, ${s.message || ""}, ${s.at || new Date().toISOString()}, ${!!s.read})
-      `;
+      `);
     }
   }
   if ("notableReleases" in body) {
-    await sql`DELETE FROM notable_releases`;
+    queries.push(sql`DELETE FROM notable_releases`);
     for (const n of body.notableReleases) {
-      await sql`
+      queries.push(sql`
         INSERT INTO notable_releases (id, song, artist, client, cover, release_date, link)
         VALUES (${n.id}, ${n.song || ""}, ${n.artist || ""}, ${n.client || ""}, ${n.cover || ""}, ${n.releaseDate || ""}, ${n.link || ""})
-      `;
+      `);
     }
   }
   if (body.site) {
-    await sql`UPDATE site_settings SET about_text = ${body.site.about || ""} WHERE id = 1`;
+    queries.push(sql`UPDATE site_settings SET about_text = ${body.site.about || ""} WHERE id = 1`);
   }
   if (body.sheetSync) {
-    await sql`UPDATE site_settings SET last_synced_at = ${body.sheetSync.lastSyncedAt || null} WHERE id = 1`;
+    queries.push(sql`UPDATE site_settings SET last_synced_at = ${body.sheetSync.lastSyncedAt || null} WHERE id = 1`);
+  }
+
+  if (queries.length) {
+    try {
+      await sql.transaction(queries);
+    } catch (err) {
+      console.error("dashboard-data save failed:", err);
+      return res.status(502).json({ error: "Save failed — nothing was changed." });
+    }
   }
 
   return res.status(200).json({ ok: true });
