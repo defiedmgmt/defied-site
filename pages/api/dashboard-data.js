@@ -116,11 +116,21 @@ async function handlePost(req, res, session) {
     if (body.placements.some((p) => p.clientId !== clientId)) {
       return res.status(403).json({ error: "Placement clientId mismatch." });
     }
+    // luminate_id / revenue / admin_fee are staff-only fields a client
+    // session never receives (see toPlacement's redact) — every placement
+    // object the client's browser holds is missing them, always. Trusting
+    // the client's copy for those columns here silently zeroed them out on
+    // *any* client save (editing one song rewrote every one of that
+    // client's placements). Look up what's actually in the database right
+    // now and keep it, regardless of what the client's payload carries.
+    const existing = await sql`SELECT id, luminate_id, revenue, admin_fee FROM placements WHERE client_id = ${clientId}`;
+    const existingById = Object.fromEntries(existing.map((r) => [r.id, r]));
     const queries = [sql`DELETE FROM placements WHERE client_id = ${clientId}`];
     for (const p of body.placements) {
+      const prior = existingById[p.id];
       queries.push(sql`
         INSERT INTO placements (id, client_id, song, artist, release_date, link, cover, notable, luminate_id, streams, revenue, admin_fee, splits)
-        VALUES (${p.id}, ${clientId}, ${p.song || ""}, ${p.artist || ""}, ${p.releaseDate || ""}, ${p.link || ""}, ${p.cover || ""}, ${!!p.notable}, ${p.luminateId || ""}, ${p.streams || 0}, ${p.revenue || 0}, ${p.adminFee || 0}, ${JSON.stringify(p.splits || [])})
+        VALUES (${p.id}, ${clientId}, ${p.song || ""}, ${p.artist || ""}, ${p.releaseDate || ""}, ${p.link || ""}, ${p.cover || ""}, ${!!p.notable}, ${prior ? prior.luminate_id : ""}, ${p.streams || 0}, ${prior ? Number(prior.revenue) : 0}, ${prior ? Number(prior.admin_fee) : 0}, ${JSON.stringify(p.splits || [])})
       `);
     }
     try {

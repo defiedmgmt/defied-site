@@ -6,7 +6,7 @@
 // duplicating it.
 import {
   getSheetsClient, getSheetId, listTabs, findTab,
-  claimTabForNewCollaborator, findRowBySyncId, findRowByLuminateId, findUnclaimedRowByTitle, writeSongRow, appendSongRow,
+  claimTabForNewCollaborator, findRowBySyncId, findRowByLuminateId, findUnclaimedRowByTitle, readLuminateIdAt, writeSongRow, appendSongRow,
 } from "../../lib/sheets";
 import { requireUser, requireSameOrigin } from "../../lib/session";
 import { sql } from "../../lib/db";
@@ -67,7 +67,16 @@ export default async function handler(req, res) {
       const existingRow = await findRowBySyncId(sheets, spreadsheetId, tab.title, syncId)
         ?? (luminateId ? await findRowByLuminateId(sheets, spreadsheetId, tab.title, luminateId) : null)
         ?? await findUnclaimedRowByTitle(sheets, spreadsheetId, tab.title, song, liveIds);
-      const payload = { song, artist: artist || "", percent, luminateId, syncId };
+      // a client session's placement never carries a real Luminate ID (see
+      // toPlacement's redact in dashboard-data.js) — its `luminateId` here
+      // is always blank. Writing that straight onto an existing row would
+      // clobber the real one staff already looked up. Only ever write a
+      // client-supplied luminateId onto a brand-new row, where blank is
+      // correct because the song has no Luminate ID yet.
+      const rowLuminateId = existingRow && session.user.role !== "staff"
+        ? await readLuminateIdAt(sheets, spreadsheetId, tab.title, existingRow)
+        : luminateId;
+      const payload = { song, artist: artist || "", percent, luminateId: rowLuminateId, syncId };
       if (existingRow) {
         await writeSongRow(sheets, spreadsheetId, tab.title, existingRow, payload);
       } else {
