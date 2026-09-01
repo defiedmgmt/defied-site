@@ -3083,15 +3083,21 @@ function StyleTag() {
       .rel-meta strong{font-size:14px}
       .ros-grid{grid-template-columns:repeat(2,1fr);gap:20px}
       .team-grid{grid-template-columns:repeat(2,1fr);gap:24px}
-      .about-body{font-size:16px}
+      .about-body{font-size:15px}
+      /* short page headers ("Team", "Roster", "Let's Work.") sat at the
+         clamp()'s 30px floor on phones — bump them up, plenty of room since
+         none of these wrap */
+      .page-head{font-size:38px}
       /* both headers now carry an explicit <br/> at the word break we want
          (see About/ContactPage) — sized to fit each half on its own line.
          The side margin is tightened specifically on these two pages (not
          site-wide) so the font can be bigger than the default 20px padding
          would allow — applied to the WHOLE page, not just the heading, so
-         the heading/lead stay aligned with the body text under them. */
+         the heading/lead stay aligned with the body text under them. A
+         touch of negative letter-spacing buys a bit more size before the
+         line wraps again. */
       .about{padding-left:10px;padding-right:10px}
-      .about-head{font-size:23px}
+      .about-head{font-size:25px;letter-spacing:-1.2px}
       .contact{padding-left:4px;padding-right:4px}
       .lead{font-size:12.5px;letter-spacing:-.6px}
       .form-card{padding:20px}
