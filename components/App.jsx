@@ -804,7 +804,7 @@ function Contact() {
     }
   };
   return (
-    <main className="page">
+    <main className="page contact">
       <h1 className="page-head">Let's Work.</h1>
       <p className="lead">Interested in working with us or have any questions?<br />Please fill out this form and we'll get back to you as soon as possible.</p>
       {sent ? (
@@ -3085,11 +3085,15 @@ function StyleTag() {
       .team-grid{grid-template-columns:repeat(2,1fr);gap:24px}
       .about-body{font-size:16px}
       /* both headers now carry an explicit <br/> at the word break we want
-         (see About/ContactPage) — just size each half to actually fit one
-         line at phone widths, same padding as everything else on the page
-         so nothing looks mis-aligned against the text below it */
-      .about-head{font-size:20px}
-      .lead{font-size:11.5px;letter-spacing:-.6px}
+         (see About/ContactPage) — sized to fit each half on its own line.
+         The side margin is tightened specifically on these two pages (not
+         site-wide) so the font can be bigger than the default 20px padding
+         would allow — applied to the WHOLE page, not just the heading, so
+         the heading/lead stay aligned with the body text under them. */
+      .about{padding-left:10px;padding-right:10px}
+      .about-head{font-size:23px}
+      .contact{padding-left:4px;padding-right:4px}
+      .lead{font-size:12.5px;letter-spacing:-.6px}
       .form-card{padding:20px}
       /* footer keeps the same logo / copyright / socials row as desktop,
          just tighter — the text wraps in its own column if it needs to */
