@@ -663,7 +663,7 @@ function About({ publicData }) {
   const about = publicData.about || "";
   return (
     <main className="page about">
-      <h1 className="about-head">DEFYING THE NORMS OF<br />TALENT MANAGEMENT.</h1>
+      <h1 className="about-head">DEFYING THE NORMS OF TALENT MANAGEMENT.</h1>
       {about.split(/\n{2,}/).map((para, i) => (
         <p key={i} className="about-body">{para}</p>
       ))}
@@ -806,7 +806,7 @@ function Contact() {
   return (
     <main className="page contact">
       <h1 className="page-head">Let's Work.</h1>
-      <p className="lead">Interested in working with us or have any questions?<br />Please fill out this form and we'll get back to you as soon as possible.</p>
+      <p className="lead">Interested in working with us or have any questions? Please fill out this form and we'll get back to you as soon as possible.</p>
       {sent ? (
         <div className="sent">
           <Check size={28} />
@@ -3088,19 +3088,12 @@ function StyleTag() {
          clamp()'s 30px floor on phones — bump them up, plenty of room since
          none of these wrap */
       .page-head{font-size:38px}
-      /* both headers now carry an explicit <br/> at the word break we want
-         (see About/ContactPage) — sized to fit each half on its own line.
-         The side margin is tightened specifically on these two pages (not
-         site-wide) so the font can be bigger than the default 20px padding
-         would allow — applied to the WHOLE page, not just the heading, so
-         the heading/lead stay aligned with the body text under them.
-         about-head stays at normal (0) letter-spacing — no squeezed-together
-         look; the lead paragraph is long enough that it still needs a small
-         negative tracking to fit at a readable size. */
-      .about{padding-left:4px;padding-right:4px}
-      .about-head{font-size:24px;letter-spacing:0}
-      .contact{padding-left:6px;padding-right:6px}
-      .lead{font-size:13px;letter-spacing:-.8px}
+      /* prioritize a genuinely readable size over forcing an exact line
+         count — normal padding, normal letter-spacing, natural word wrap
+         (no manual <br/>). Both land as 3 balanced lines on phones instead
+         of 2 cramped/tiny ones. */
+      .about-head{font-size:28px}
+      .lead{font-size:16px}
       .form-card{padding:20px}
       /* footer keeps the same logo / copyright / socials row as desktop,
          just tighter — the text wraps in its own column if it needs to */
