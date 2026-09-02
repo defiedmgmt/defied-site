@@ -3093,13 +3093,14 @@ function StyleTag() {
          The side margin is tightened specifically on these two pages (not
          site-wide) so the font can be bigger than the default 20px padding
          would allow — applied to the WHOLE page, not just the heading, so
-         the heading/lead stay aligned with the body text under them. A
-         touch of negative letter-spacing buys a bit more size before the
-         line wraps again. */
-      .about{padding-left:10px;padding-right:10px}
-      .about-head{font-size:25px;letter-spacing:-1.2px}
-      .contact{padding-left:4px;padding-right:4px}
-      .lead{font-size:12.5px;letter-spacing:-.6px}
+         the heading/lead stay aligned with the body text under them.
+         about-head stays at normal (0) letter-spacing — no squeezed-together
+         look; the lead paragraph is long enough that it still needs a small
+         negative tracking to fit at a readable size. */
+      .about{padding-left:4px;padding-right:4px}
+      .about-head{font-size:24px;letter-spacing:0}
+      .contact{padding-left:6px;padding-right:6px}
+      .lead{font-size:13px;letter-spacing:-.8px}
       .form-card{padding:20px}
       /* footer keeps the same logo / copyright / socials row as desktop,
          just tighter — the text wraps in its own column if it needs to */
