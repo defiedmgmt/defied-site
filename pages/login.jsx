@@ -5,6 +5,7 @@ export default function LoginPage() {
     <PageShell
       title="Sign in — Defied MGMT"
       description="Staff and client sign in."
+      path="/login"
     />
   );
 }

@@ -5,6 +5,7 @@ export default function ContactPage() {
     <PageShell
       title="Contact — Defied MGMT"
       description="Get in touch with Defied Management."
+      path="/contact"
     />
   );
 }

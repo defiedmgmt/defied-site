@@ -5,6 +5,7 @@ export default function TeamPage() {
     <PageShell
       title="Team — Defied MGMT"
       description="Meet the Defied Management team."
+      path="/team"
     />
   );
 }

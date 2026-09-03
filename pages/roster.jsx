@@ -5,6 +5,7 @@ export default function RosterPage() {
     <PageShell
       title="Roster — Defied MGMT"
       description="The Defied Management roster of producers and artists."
+      path="/roster"
     />
   );
 }

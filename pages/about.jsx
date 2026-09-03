@@ -5,6 +5,7 @@ export default function AboutPage() {
     <PageShell
       title="About — Defied MGMT"
       description="Defied Management is an independent music management and publishing administration company."
+      path="/about"
     />
   );
 }

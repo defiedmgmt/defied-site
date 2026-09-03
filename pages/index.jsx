@@ -5,6 +5,7 @@ export default function HomePage() {
     <PageShell
       title="Defied MGMT"
       description="Defied Management — independent music management and publishing administration."
+      path="/"
     />
   );
 }

@@ -2,3 +2,5 @@ User-agent: *
 Disallow: /dashboard
 Disallow: /portal
 Allow: /
+
+Sitemap: https://www.defiedmgmt.com/sitemap.xml
