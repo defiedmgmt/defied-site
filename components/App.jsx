@@ -735,7 +735,12 @@ function Roster({ publicData }) {
             <div className="artist-top">
               <div className="artist-photo">
                 {active.photo
-                  ? <Photo src={active.photo} alt={active.name} fill sizes="(max-width: 820px) 90vw, 480px" />
+                  // priority: this image is fully visible the instant the modal
+                  // opens, so lazy-loading it (the default) fights the fade-in —
+                  // on a slow connection the IntersectionObserver-driven fetch
+                  // hasn't finished by the time someone looks, leaving it stuck
+                  // on the gray placeholder background.
+                  ? <Photo src={active.photo} alt={active.name} fill sizes="(max-width: 820px) 90vw, 480px" priority />
                   : <div className="artist-photo-empty">{active.name[0].toUpperCase()}</div>}
               </div>
               <div className="artist-info">
