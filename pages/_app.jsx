@@ -1,4 +1,5 @@
 import dynamic from "next/dynamic";
+import { Analytics } from "@vercel/analytics/next";
 
 // Mounted once here, not per-page — App holds session/db state in memory
 // with no persistence of its own, so it must survive client-side route
@@ -12,6 +13,7 @@ export default function MyApp({ Component, pageProps }) {
     <>
       <Component {...pageProps} />
       <App />
+      <Analytics />
     </>
   );
 }

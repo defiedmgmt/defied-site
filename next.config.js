@@ -12,15 +12,19 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      // Next.js needs inline/eval for its own runtime in dev and hydration in prod
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      // Next.js needs inline/eval for its own runtime in dev and hydration in prod.
+      // va.vercel-scripts.com is Vercel Web Analytics' script host — it only
+      // loads from there in local dev (the debug build); in production the
+      // script itself is served same-origin, but the CSP has to allow both.
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com",
       "style-src 'self' 'unsafe-inline'",
       // Spotify/Sheets cover art and profile photos are fetched from arbitrary https hosts
       "img-src 'self' data: https:",
       "font-src 'self' data:",
       // the API layer only ever talks to the browser same-origin; outbound calls to
-      // Google/Spotify/Luminate happen server-side in API routes, never from client JS
-      "connect-src 'self'",
+      // Google/Spotify/Luminate happen server-side in API routes, never from client JS.
+      // vitals.vercel-insights.com is where Vercel Web Analytics beacons page views.
+      "connect-src 'self' https://vitals.vercel-insights.com",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
