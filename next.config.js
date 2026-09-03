@@ -38,8 +38,28 @@ const nextConfig = {
   },
   // the public "meet the team" page moved from /staff to /team — keep old
   // bookmarks/search results/backlinks working instead of 404ing.
+  //
+  // pay.defiedmgmt.com/<name> -> that person's Stripe payment link, so
+  // links shared out loud/in a DM stay short and on-brand instead of a raw
+  // buy.stripe.com URL. `has: host` scopes each rule to the pay subdomain
+  // only — the main domain's own routes are untouched. Not permanent: a
+  // Stripe Payment Link can be deactivated and regenerated with a new URL,
+  // and a 308 would get cached by browsers/crawlers past that point.
   async redirects() {
-    return [{ source: "/staff", destination: "/team", permanent: true }];
+    const payLinks = {
+      mag: "https://buy.stripe.com/eVq4greNXaRp9NF7QQ9sk00",
+      ella: "https://buy.stripe.com/7sYfZ9fSG9Pocol1Kf33W00",
+      devin: "https://buy.stripe.com/aFa4gr7eyaLEdrdeJfcV200",
+      hank: "https://buy.stripe.com/3cIeV5ct53z2bHb0zXenS00",
+      jordan: "https://buy.stripe.com/00w5kv8nS5bg7rO5pNcZa00",
+    };
+    const payRedirects = Object.entries(payLinks).map(([name, destination]) => ({
+      source: `/${name}`,
+      has: [{ type: "host", value: "pay.defiedmgmt.com" }],
+      destination,
+      permanent: false,
+    }));
+    return [{ source: "/staff", destination: "/team", permanent: true }, ...payRedirects];
   },
   // next/image only allows hosts listed here — otherwise it silently 404s on
   // any remote src instead of falling back to the (more permissive) default
