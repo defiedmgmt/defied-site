@@ -62,7 +62,16 @@ const Avatar = ({ src, name, size = 56 }) =>
 function Photo({ src, alt, className = "", fill, sizes, ...rest }) {
   const [loaded, setLoaded] = useState(false);
   const cls = `ph-fade${loaded ? " ph-in" : ""}${className ? " " + className : ""}`;
-  if (fill && /^https?:\/\//i.test(src || "")) {
+  // route through next/image for genuinely-remote (http/https) sources AND
+  // this deployment's own local /public files — both get real optimization.
+  // A bare "/..." path that turns out to actually be this exact same site's
+  // own domain written out as a full URL (https://www.defiedmgmt.com/...,
+  // how every roster/team photo is stored) was silently capping at a fixed
+  // 300x300 output no matter what width was requested — next/image's
+  // remote-fetch path behaves differently from its local-file path here.
+  // Only real data: URIs (PhotoUpload's base64 output) skip this entirely.
+  const isLocalOrRemote = /^https?:\/\//i.test(src || "") || (src || "").startsWith("/");
+  if (fill && isLocalOrRemote) {
     return (
       <NextImage
         src={src}
