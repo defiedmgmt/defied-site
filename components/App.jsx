@@ -2824,7 +2824,7 @@ function StyleTag() {
 
     /* ============ DASHBOARD ============ */
     .dash{display:flex;min-height:100vh}
-    .dash-side{width:220px;background:var(--panel);border-right:1px solid var(--line);padding:22px 14px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh}
+    .dash-side{width:220px;background:var(--bg);border-right:1px solid var(--line);padding:22px 14px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh}
     .dash-brand{padding:6px 10px 18px}
     .dash-side nav{display:flex;flex-direction:column;gap:2px;flex:1}
     .dash-side nav button{display:flex;align-items:center;gap:11px;background:none;border:none;color:var(--mut);padding:11px 12px;border-radius:9px;font-size:14px;text-align:left;transition:color .15s ease,background-color .15s ease}
