@@ -10,6 +10,7 @@
 import { sql } from "../../lib/db";
 import { uid } from "../../lib/id";
 import { clientIp } from "../../lib/session";
+import { notifyClickUpNewMessage } from "../../lib/clickup";
 
 const MAX_ATTEMPTS = 4;
 const WINDOW_MINUTES = 30;
@@ -50,6 +51,7 @@ export default async function handler(req, res) {
       INSERT INTO submissions (id, name, email, instagram, subject, message)
       VALUES (${id}, ${String(name).slice(0, 200)}, ${String(email).slice(0, 200)}, ${String(instagram).slice(0, 200)}, ${String(subject || "General Inquiry").slice(0, 200)}, ${String(message).slice(0, 5000)})
     `;
+    await notifyClickUpNewMessage({ name, email, instagram, subject, message });
     return res.status(200).json({ ok: true });
   } catch (err) {
     console.error("submit-contact insert failed:", err);
