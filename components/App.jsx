@@ -871,7 +871,7 @@ function Login({ login }) {
   };
   return (
     <main className="login">
-      <Link href={ROUTE_TO_PATH.home} className="login-mark"><Wordmark height={40} /></Link>
+      <Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={40} /></Link>
       <div className="login-card">
         <h2>Sign in</h2>
         <p className="muted">Staff and client access.</p>
@@ -903,7 +903,7 @@ function StaffDashboard({ db, commit, logout }) {
   return (
     <div className="dash">
       <aside className="dash-side">
-        <div className="dash-brand"><Wordmark height={26} /></div>
+        <div className="dash-brand"><Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link></div>
         <nav>
           {tabs.map(([id, label, Icon, badge]) => (
             <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
@@ -2063,7 +2063,7 @@ function ClientPortal({ db, commit, session, logout }) {
   return (
     <div className="portal">
       <header className="portal-nav">
-        <Wordmark height={26} />
+        <Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link>
         <div className="portal-who">
           <span>{client?.name || session.name}</span>
           <button onClick={logout}><LogOut size={16} /> Sign out</button>
@@ -2308,7 +2308,7 @@ function CatalogOverview({ db, commit, onSelectClient }) {
   return (
     <div>
       <div className="admin-head">
-        <h2>Overview</h2>
+        <h2>Publishing Overview</h2>
         <div className="overview-links">
           <button className="btn ghost sm" onClick={runStreamSync} disabled={streamSync.syncing} title="Run the Luminate portfolio sync script">
             <RefreshCw size={14} className={streamSync.syncing ? "spin" : ""} /> {streamSync.syncing ? "Syncing streams…" : "Sync Streams"}
@@ -2451,7 +2451,7 @@ function CatalogAdmin({ db, commit }) {
   return (
     <div>
       <div className="admin-head">
-        <h2>Clients &amp; catalog</h2>
+        <h2>Clients &amp; Catalog</h2>
       </div>
       <div className="catalog-wrap">
         <div className="catalog-clients">
@@ -2816,7 +2816,7 @@ function StyleTag() {
 
     /* login */
     .login{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;gap:26px}
-    .login-mark{background:none;border:none;display:inline-flex;text-decoration:none}
+    .logo-link{background:none;border:none;display:inline-flex;text-decoration:none}
     .login-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:32px;width:100%;max-width:400px;display:flex;flex-direction:column;gap:14px}
     .login-card h2{margin:0;font-size:22px}
     .login-card .muted{margin:-8px 0 6px}
