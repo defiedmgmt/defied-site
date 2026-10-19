@@ -21,7 +21,7 @@ const ORG_JSON_LD = {
   sameAs: ["https://instagram.com/defiedmgmt", "https://x.com/defiedmgmt"],
 };
 
-export default function PageShell({ title, description, path = "/", image = DEFAULT_IMAGE, noindex = false }) {
+export default function PageShell({ title, description, path = "/", image = DEFAULT_IMAGE, noindex = false, preloadHero = false }) {
   const url = `${SITE_URL}${path === "/" ? "" : path}`;
   return (
     <Head>
@@ -36,6 +36,9 @@ export default function PageShell({ title, description, path = "/", image = DEFA
       {/* the app's real stylesheet only arrives with its JS bundle — paint the
           first frame black too, instead of flashing white while that loads */}
       <style dangerouslySetInnerHTML={{ __html: "html,body{background:#000;margin:0}" }} />
+      {/* the home wordmark is the first thing painted, but its <img> only exists once the
+          client-only App has run — start downloading it alongside the JS instead of after */}
+      {preloadHero && <link rel="preload" as="image" href="/brand/wordmark.webp" fetchpriority="high" />}
       <link rel="canonical" href={url} />
       {noindex && <meta name="robots" content="noindex, nofollow" />}
       <link rel="icon" href="/favicon.ico" sizes="any" />
