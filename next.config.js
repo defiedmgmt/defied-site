@@ -33,6 +33,9 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // Back/Forward land where the visitor left each page (Next keeps the offset per history
+  // entry and restores it after rendering) instead of at the top of it
+  experimental: { scrollRestoration: true },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

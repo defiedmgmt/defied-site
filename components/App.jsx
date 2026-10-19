@@ -430,8 +430,9 @@ const prefersReducedMotion = () =>
 // ::view-transition CSS keys off (page change vs. roster panel open/close).
 // Unsupported browsers and reduced-motion visitors just get the update.
 let vtSeq = 0;
+const vtWillRun = () => typeof document !== "undefined" && !!document.startViewTransition && !prefersReducedMotion();
 function withViewTransition(kind, update) {
-  if (typeof document === "undefined" || !document.startViewTransition || prefersReducedMotion()) {
+  if (!vtWillRun()) {
     update();
     return null;
   }
@@ -469,6 +470,8 @@ const TLink = React.forwardRef(function TLink({ href, onClick, vt = "page", chil
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     if (router.asPath === href) { window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" }); return; }
+    // the D growing into Home's wordmark hands over faster than the reverse, so the logo slot is never empty
+    if (vt === "page-brand") document.documentElement.dataset.dir = href === ROUTE_TO_PATH.home ? "home" : "out";
     withViewTransition(vt, () => router.push(href));
   };
   return <Link href={href} onClick={handle} ref={ref} {...rest}>{children}</Link>;
@@ -652,11 +655,18 @@ export default function App() {
   const navCounts = { team: publicData?.staff?.length || 0, roster: publicData?.clients?.length || 0 };
 
   // the App persists across routes, so the mobile menu has to be told to
-  // close on any navigation — including back/forward, not just link taps
+  // close on any navigation — including back/forward, not just link taps.
+  // Without a view transition to capture it, it waits for the new page, so
+  // the page being left never shows through the fading menu.
   useEffect(() => {
+    const ev = vtWillRun() ? "routeChangeStart" : "routeChangeComplete";
     const close = () => setMenuOpen(false);
-    router.events.on("routeChangeStart", close);
-    return () => router.events.off("routeChangeStart", close);
+    router.events.on(ev, close);
+    // /about#x → /about is hash-only: Next fires hashChange*, never routeChange* (and Back between
+    // two fragments of the first page fires no router event at all)
+    router.events.on("hashChangeComplete", close);
+    window.addEventListener("hashchange", close);
+    return () => { router.events.off(ev, close); router.events.off("hashChangeComplete", close); window.removeEventListener("hashchange", close); };
   }, [router.events]);
 
   return (
@@ -687,7 +697,7 @@ export default function App() {
         )}
       </div>
 
-      {!inPortal && <Footer route={route} inert={menuOpen} />}
+      {!inPortal && <Footer route={route} ready={!!publicData || !!loadErr} inert={menuOpen} />}
       {!inPortal && <Toast />}
     </div>
   );
@@ -724,30 +734,37 @@ const coverThumb = (url) => /^https:\/\/i\.scdn\.co\/image\/ab67616d0000b273/.te
 // Suntage draws 0 and O as the same oval, so a handle like "Reallyindig0"
 // would print as REALLYINDIGO. A zero used as a letter (no digit beside it)
 // gets a slash; zeros inside real numbers ("1900", "10 Outta 10") don't need one.
+// A keycap 0️⃣ (0 + FE0F + 20E3) counts as a digit too, so the emoji stays whole.
+const DIGIT_NEXT = /[\d️⃣]/;
+// Emoji (keycaps, flags, pictographs, skin-tone and ZWJ sequences) get a span of their own: inside
+// chrome text (a gradient clipped to transparent glyphs) a colour emoji would paint as a blank silver tile
+const EMOJI_SEQ = /([#*\d]️?⃣|\p{Regional_Indicator}{2}|(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}️)\p{Emoji_Modifier}?(?:‍(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}️?)\p{Emoji_Modifier}?)*)/u;
+const letterZero = (ch, i, a) => ch === "0" && !/\d/.test(a[i - 1] || "") && !DIGIT_NEXT.test(a[i + 1] || "");
 function Zeros({ text }) {
   const s = String(text ?? "");
-  if (!s.includes("0")) return s;
+  const parts = s.split(EMOJI_SEQ);
+  if (parts.length === 1 && !s.includes("0")) return s;
   const out = [];
-  let run = "";
-  [...s].forEach((ch, i, a) => {
-    if (ch === "0" && !/\d/.test(a[i - 1] || "") && !/\d/.test(a[i + 1] || "")) {
-      if (run) out.push(run);
-      run = "";
-      out.push(<span className="zero" key={i}>0</span>);
-    } else run += ch;
+  parts.forEach((part, k) => {
+    if (k % 2) { out.push(<span className="emo" key={`e${k}`}>{part}</span>); return; }
+    let run = "";
+    [...part].forEach((ch, i, a) => {
+      if (letterZero(ch, i, a)) {
+        if (run) out.push(run);
+        run = "";
+        out.push(<span className="zero" key={`${k}-${i}`}>0</span>);
+      } else run += ch;
+    });
+    if (run) out.push(run);
   });
-  if (run) out.push(run);
   return out;
 }
 // the same, for text written straight into the DOM (the decoded panel name)
 function zeroNodes(text) {
-  return [...String(text)].map((ch, i, a) => {
-    if (ch !== "0" || /\d/.test(a[i - 1] || "") || /\d/.test(a[i + 1] || "")) return ch;
-    const z = document.createElement("span");
-    z.className = "zero";
-    z.textContent = "0";
-    return z;
-  });
+  const span = (cls, t) => { const s = document.createElement("span"); s.className = cls; s.textContent = t; return s; };
+  return String(text).split(EMOJI_SEQ).flatMap((part, k) =>
+    k % 2 ? [span("emo", part)] : [...part].map((ch, i, a) => (letterZero(ch, i, a) ? span("zero", "0") : ch))
+  );
 }
 
 // one line of proof under each roster card: their curated notable release if
@@ -861,7 +878,8 @@ function Marquee({ items, label, className = "", seconds = 48, render }) {
   return (
     <div className={`mq ${className}`} style={{ "--mq-dur": `${seconds * reps}s` }}>
       <ul className="sr-only" aria-label={label}>{items.map((it, i) => <li key={i}>{it.text}</li>)}</ul>
-      <div className="mq-rail" aria-hidden="true">{track("a")}{track("b")}</div>
+      {/* three copies: the home ribbon starts a third of the way in, so a copy is always behind the parked lead credit */}
+      <div className="mq-rail" aria-hidden="true">{track("a")}{track("b")}{track("c")}</div>
     </div>
   );
 }
@@ -920,7 +938,12 @@ function PublicNav({ route, menuOpen, setMenuOpen, session, counts }) {
   const authRoute = session ? (session.role === "staff" ? "staff" : "client") : "login";
   const [scrolled, setScrolled] = useState(false);
   const burgerRef = useRef(null);
-  const closeMenu = () => setMenuOpen(false);
+  const router = useRouter();
+  // with a view transition the menu leaves inside it; otherwise App closes it once the new
+  // page is in. A tap on the page you're already on doesn't navigate, so that closes at once.
+  const closeMenu = (e) => {
+    if (vtWillRun() || e?.currentTarget?.getAttribute("href") === router.asPath) setMenuOpen(false);
+  };
 
   useEffect(() => {
     const on = () => setScrolled(window.scrollY > 24);
@@ -1023,23 +1046,26 @@ function PublicNav({ route, menuOpen, setMenuOpen, session, counts }) {
   );
 }
 
-function Footer({ route, inert }) {
+function Footer({ route, ready, inert }) {
   const wordRef = useRef(null);
   useFitLine(wordRef, "DEFIED", { grow: true, min: 56, max: 460 });
   // .in once the giant word is mostly on screen. On phones (and browsers
   // without scroll-driven animations) that plays the chrome fill; everywhere
-  // it cues the one light pass across the letters after the fill.
+  // it cues the one light pass across the letters after the fill. The footer
+  // outlives route changes, so it re-arms per page — and only once the page
+  // has content, never while a short loading state has pulled it on screen.
   const footRef = useRef(null);
+  const [litOn, setLitOn] = useState(null); // the route whose footer has lit (so the next page never starts lit)
   useEffect(() => {
-    const el = footRef.current;
-    const word = el?.querySelector(".foot2-word-wrap");
-    if (!word) return;
-    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { el.classList.add("in"); io.disconnect(); } }, { threshold: 0.6 });
+    setLitOn(null);
+    const word = footRef.current?.querySelector(".foot2-word-wrap");
+    if (!word || !ready) return;
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setLitOn(route); io.disconnect(); } }, { threshold: 0.6 });
     io.observe(word);
     return () => io.disconnect();
-  }, []);
+  }, [route, ready]);
   return (
-    <footer className={`foot2${route === "home" ? " foot2-home" : ""}`} ref={footRef} {...(inert ? { inert: "" } : {})}>
+    <footer className={`foot2${route === "home" ? " foot2-home" : ""}${litOn === route ? " in" : ""}`} ref={footRef} {...(inert ? { inert: "" } : {})}>
       <div className="foot2-row">
         {route !== "contact" ? (
           <TLink href={ROUTE_TO_PATH.contact} className="foot2-cta">Work with us <span aria-hidden="true">→</span></TLink>
@@ -1121,7 +1147,9 @@ function Home({ publicData }) {
   const credits = creditsOf(publicData);
   return (
     <main className="home2">
-      <section className={`ign${seen ? " ign-seen" : ""}${viaVT ? " ign-vt" : ""}`} ref={heroRef}>
+      {/* arriving through the logo morph, the morph is the entrance: no light-scan wipe to hide
+          the wordmark it lands on, and the rest of the hero follows on the short timings */}
+      <section className={`ign${seen || viaVT ? " ign-seen" : ""}${viaVT ? " ign-vt" : ""}`} ref={heroRef}>
         <TLink
           href={ROUTE_TO_PATH.about}
           vt="page-brand"
@@ -1187,10 +1215,10 @@ function ReleaseCard({ r, clients, compact = false, featured = false }) {
   );
 }
 
-// The first releases in the dashboard's own order get double-size tiles —
-// but only as many as keep the 4-column grid (2 on phones) free of holes:
-// each big tile fills 4 cells, so 10 releases → 2 big, 9 → 1, 8 → none.
-const featuredCount = (n) => [2, 1].find((k) => n > k && (n + 3 * k) % 4 === 0) || 0;
+// Four or more releases use the 4-column grid (2 on phones), and the first in
+// the dashboard's own order get double-size tiles — as many as keep every row
+// full: each big tile fills 4 cells, so 10 → 2 big, 9 → 1, 11 → 3, 8 → none.
+const featuredCount = (n) => (n < 5 ? 0 : [2, 1, 3, 0].find((k) => n > k && (n + 3 * k) % 4 === 0) || 0);
 
 function About({ publicData }) {
   if (!publicData) return <main className="pg"><PageLoading /></main>;
@@ -1220,7 +1248,7 @@ function About({ publicData }) {
         {notable.length === 0 ? (
           <p className="muted releases-empty-note">Add notable releases in the dashboard to feature them here.</p>
         ) : (
-          <div className={`rel2-grid${nFeat ? " rel2-feat" : ""}`}>
+          <div className={`rel2-grid${notable.length >= 4 ? " rel2-feat" : ""}`}>
             {notable.map((r, i) => <ReleaseCard key={r.id} r={r} featured={i < nFeat} clients={publicData.clients || []} />)}
           </div>
         )}
@@ -1366,6 +1394,12 @@ function backAndWait(router) {
   });
 }
 
+// Next's per-entry history key of every ?artist= entry this tab pushed — it survives prev/next
+// (router.replace) and Forward, so a panel reopened with Forward still closes by going back.
+// (Scroll on Back is Next's experimental.scrollRestoration — the browser never restores it, so
+// nothing drags the grid off the card close() parks it on.)
+const panelEntries = new Set();
+
 function Roster({ publicData }) {
   const router = useRouter();
   const gridRef = useRef(null);
@@ -1413,13 +1447,14 @@ function Roster({ publicData }) {
     const t = withViewTransition("artist", async () => {
       if (frame) frame.style.viewTransitionName = "";
       await router.push({ pathname: "/roster", query: queryWith({ artist: slugOf(c.name) }) }, undefined, { shallow: true, scroll: false });
+      if (history.state?.key) panelEntries.add(history.state.key);
     });
     t?.finished.finally(() => { if (frame) frame.style.viewTransitionName = ""; });
   };
 
   const close = () => {
     // read now: the transition's update callback runs a frame later
-    const viaBack = pushedRef.current;
+    const viaBack = pushedRef.current || (!!history.state?.key && panelEntries.has(history.state.key));
     pushedRef.current = false;
     stepFocus.current = null;
     const park = () => {
@@ -1463,10 +1498,11 @@ function Roster({ publicData }) {
       // cards that come back are new nodes — reveal the on-screen ones now so they're in the morph, not after it
       cards().forEach((el) => { if (el.getBoundingClientRect().top < window.innerHeight) el.classList.add("is-in"); });
       name();
+      // only now, after the old snapshot: the URL → filter effect would otherwise re-render the grid before it's taken
+      router.replace({ pathname: "/roster", query: queryWith({ type: v === "all" ? null : v }) }, undefined, { shallow: true, scroll: false });
     });
     const clear = () => cards().forEach((el) => { el.style.viewTransitionName = ""; });
     if (t) t.finished.finally(clear); else clear();
-    router.replace({ pathname: "/roster", query: queryWith({ type: v === "all" ? null : v }) }, undefined, { shallow: true, scroll: false });
   };
 
   if (!publicData) return <main className="pg"><PageLoading /></main>;
@@ -1489,7 +1525,8 @@ function Roster({ publicData }) {
         )}
       </div>
       <div className="pgrid pgrid-roster" ref={gridRef} {...(active ? { inert: "" } : {})}>
-        {visible.map((c, i) => <PersonCard key={c.id} person={c} sub={topCreditFor(c, publicData)} onOpen={open} eager={i < 4} />)}
+        {/* under a deep-linked panel the grid's photos mustn't compete with the panel's own */}
+        {visible.map((c, i) => <PersonCard key={c.id} person={c} sub={topCreditFor(c, publicData)} onOpen={open} eager={!active && i < 4} />)}
       </div>
       {active && (
         <ArtistPanel
@@ -1561,8 +1598,13 @@ function ArtistPanel({ artist, publicData, list, onClose, onStep, focusOn, onFoc
   const hasLinks = artist.spotify || artist.apple || artist.youtube || artist.instagram || artist.tiktok || artist.soundcloud;
   const [railAt, setRailAt] = useState(1);
   const railRef = useRef(null);
-  // the grid-sized copy only helps the card→panel morph; a deep link or a step doesn't need it
-  const [lo] = useState(!!morph);
+  // the grid-sized copy is free once the card has loaded it: it fills the frame for the card→panel
+  // morph and for prev/next slides. A deep link skips it rather than download the photo twice.
+  const [lo] = useState(() => {
+    if (morph) return true;
+    const im = document.querySelector(`.pc[data-slug="${slug}"] .pc-frame img`);
+    return !!(im && im.complete && im.naturalWidth > 0);
+  });
 
   useEffect(() => {
     const html = document.documentElement;
@@ -1606,15 +1648,27 @@ function ArtistPanel({ artist, publicData, list, onClose, onStep, focusOn, onFoc
     if (Math.abs(dx) > 60 && Math.abs(dx) > 2 * Math.abs(dy)) onStep(dx < 0 ? 1 : -1);
   };
 
-  // "2 / 3" counter for the phone credits rail
+  // "2 / 3" counter for the phone credits rail: the card nearest the rail's centre (snap points
+  // aren't evenly spaced when two cards fit), the first/last at the ends, and no counter at all
+  // when every card is already in view (0 = hidden)
   useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) if (e.isIntersecting) setRailAt(Number(e.target.dataset.n));
-    }, { root: rail, threshold: 0.6 });
-    rail.querySelectorAll("[data-n]").forEach((el) => io.observe(el));
-    return () => io.disconnect();
+    const n = releases.length;
+    const on = () => {
+      const max = rail.scrollWidth - rail.clientWidth;
+      if (max <= 1) return setRailAt(0);
+      if (rail.scrollLeft <= 1) return setRailAt(1);
+      if (rail.scrollLeft >= max - 1) return setRailAt(n);
+      const rr = rail.getBoundingClientRect(), cx = rr.left + rr.width / 2;
+      let best = 0, bd = Infinity;
+      [...rail.children].forEach((it, k) => { const b = it.getBoundingClientRect(); const d = Math.abs(b.left + b.width / 2 - cx); if (d < bd) { bd = d; best = k; } });
+      setRailAt(best + 1);
+    };
+    on();
+    rail.addEventListener("scroll", on, { passive: true });
+    window.addEventListener("resize", on);
+    return () => { rail.removeEventListener("scroll", on); window.removeEventListener("resize", on); };
   }, [releases.length]);
 
   return (
@@ -1641,11 +1695,11 @@ function ArtistPanel({ artist, publicData, list, onClose, onStep, focusOn, onFoc
             <section className="ap-stag ap-rel" style={{ "--i": 1 }}>
               <div className="ap-rel-head">
                 <h3 className="micro-label">Notable releases</h3>
-                {releases.length > 1 && <span className="ap-count" aria-hidden="true">{railAt} / {releases.length}</span>}
+                {releases.length > 1 && railAt > 0 && <span className="ap-count" aria-hidden="true">{railAt} / {releases.length}</span>}
               </div>
               <div className="ap-rail" ref={railRef}>
-                {releases.map((r, n) => (
-                  <div className="ap-rail-item" key={r.id} data-n={n + 1}>
+                {releases.map((r) => (
+                  <div className="ap-rail-item" key={r.id}>
                     <ReleaseCard r={r} clients={[]} compact />
                   </div>
                 ))}
@@ -1774,7 +1828,7 @@ function Contact({ publicData }) {
         )}
       </div>
       <p className="ct-direct">
-        <span>Or reach out directly —</span>
+        <span className="ct-direct-label">Or reach out directly</span>
         {/* the address and its copy button never wrap apart */}
         <span className="ct-mail">
           <a className="inline-link" href="mailto:submissions@defiedmgmt.com">submissions@defiedmgmt.com</a>
@@ -4025,7 +4079,7 @@ function StyleTag() {
     .mq-track{display:flex;flex-shrink:0}
     .mq-item{display:inline-flex;align-items:center;white-space:nowrap}
     .mq-sep{margin:0 .9em;color:#4a4a4c;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:.7em}
-    @keyframes mq{to{transform:translateX(-50%)}}
+    @keyframes mq{to{transform:translateX(calc(-100% / 3))}}
 
     /* image placeholders shimmer until the photo has decoded */
     .rc-cover,.pc-frame,.ap-photo{background:linear-gradient(100deg,#0c0c0d 40%,#18181a 50%,#0c0c0d 60%) 0 0/200% 100%;animation:shimmer 1.4s linear infinite}
@@ -4085,7 +4139,7 @@ function StyleTag() {
     /* ---------- footer ---------- */
     .foot2{position:relative;margin-top:clamp(80px,10vw,128px);padding:44px var(--gutter) 0;border-top:1px solid var(--hair);overflow:hidden;overflow:clip;view-timeline:--foot block}
     .foot2-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px}
-    .foot2-cta{justify-self:start;display:inline-flex;align-items:center;gap:10px;font-family:'Suntage','Inter',sans-serif;font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);text-decoration:none;padding:12px 0}
+    .foot2-cta{justify-self:start;display:inline-flex;align-items:center;gap:10px;font-family:'Suntage','Inter',sans-serif;font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);text-decoration:none;padding:13px 0}
     .foot2-cta span{display:inline-block;transition:transform .4s var(--ease-out)}
     .foot2-cta:hover span{transform:translateX(6px)}
     .foot2-links{display:flex;gap:26px}
@@ -4094,8 +4148,10 @@ function StyleTag() {
     .foot2-social{justify-self:end;display:flex;gap:2px;margin-right:-10px}
     .foot2-copy{margin-top:18px;font-size:12px;color:var(--mut);text-align:center}
     .foot2-row,.foot2-copy{max-width:1248px;margin-left:auto;margin-right:auto}
-    /* home's credits ribbon already draws the dividing hairline */
-    .foot2-home{margin-top:0;border-top:0;padding-top:24px}
+    /* home's credits ribbon already draws the dividing hairline, and its hero wordmark is the
+       sign-off — a second, differently lettered DEFIED on the same screen would just repeat it */
+    .foot2-home{margin-top:0;border-top:0;padding:24px var(--gutter) 28px}
+    .foot2-home .foot2-word-wrap{display:none}
     .foot2-word-wrap{margin-top:clamp(18px,3vw,36px);text-align:center;line-height:0}
     /* chrome fill = a black cover layer with a soft leading edge sliding off the chrome, so it
        reads as light spreading across the metal rather than a hard progress-bar edge */
@@ -4108,7 +4164,8 @@ function StyleTag() {
     @supports (animation-timeline:view()){ @media (prefers-reduced-motion:no-preference) and (min-width:900px){
       .foot2-word{animation:foot-fill linear both;animation-timeline:--foot;animation-range:entry 45% entry 100%}
     } }
-    @keyframes foot-fill{to{background-position:0 0,0 0}}
+    /* its own start, so .in (the phone fill's end state) landing mid-scrub can't snap it to full */
+    @keyframes foot-fill{from{background-position:100% 0,0 0}to{background-position:0 0,0 0}}
     /* then one specular pass across the letters */
     .foot2-word::after{content:"DEFIED";position:absolute;inset:0;-webkit-text-stroke:0;color:transparent;pointer-events:none;
       background:linear-gradient(100deg,transparent 42%,rgba(255,255,255,.9) 50%,transparent 58%) no-repeat -60% 0/45% 100%;-webkit-background-clip:text;background-clip:text}
@@ -4175,8 +4232,11 @@ function StyleTag() {
     .ign-ribbon:has(.mq-cov){padding:9px 0}
     /* the rail holds still (lead credit parked in view) until the ribbon has faded in */
     @media (prefers-reduced-motion:no-preference){
-      .ign-ribbon .mq-rail{margin-left:9%;animation-delay:3s}
+      .ign-ribbon .mq-rail{animation-delay:3s}
       .ign-seen .ign-ribbon .mq-rail{animation-delay:1.2s}
+      /* the lead credit parks in from the edge, with the copy before it already behind it, so no gap ever passes */
+      .ign-ribbon .mq-rail{animation-name:mq-park;animation-fill-mode:backwards}
+      @keyframes mq-park{from{transform:translateX(calc(min(9vw,130px) - 100% / 3))}to{transform:translateX(calc(min(9vw,130px) - 200% / 3))}}
     }
 
     /* ---------- generic public page ---------- */
@@ -4184,7 +4244,7 @@ function StyleTag() {
     .pg-wide{max-width:1360px}
     .pg-head{font-size:clamp(42px,8.4vw,112px);line-height:.95;margin:0 0 26px}
     .pg-count{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;font-size:clamp(12px,1.15vw,16px);letter-spacing:.04em;color:var(--mut);vertical-align:top;margin-left:.35em;position:relative;top:.55em;animation:vt-fade-in .6s ease .5s both}
-    .pg-loading{display:flex;justify-content:center;gap:8px;padding:120px 0}
+    .pg-loading{display:flex;justify-content:center;gap:8px;padding:120px 0;box-sizing:border-box;min-height:calc(100vh - var(--nav-h));min-height:calc(100svh - var(--nav-h))}
     .pg-loading span{width:6px;height:6px;border-radius:50%;background:#3a3a3c;animation:dot 1s ease-in-out infinite}
     .pg-loading span:nth-child(2){animation-delay:.15s}.pg-loading span:nth-child(3){animation-delay:.3s}
     @keyframes dot{50%{background:#f5f5f5;transform:translateY(-4px)}}
@@ -4215,7 +4275,8 @@ function StyleTag() {
     /* release card */
     .rc{display:flex;flex-direction:column;gap:13px;color:var(--ink);text-decoration:none;text-align:left;-webkit-tap-highlight-color:transparent}
     .rc-cover{position:relative;aspect-ratio:1;border-radius:12px;overflow:hidden;isolation:isolate;outline:1px solid #2a2a2c;outline-offset:-1px}
-    .rc-cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;transition:opacity .4s ease,scale .7s var(--ease-out)}
+    .rc-cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;transition:opacity .4s ease,scale .7s var(--ease-out);
+      outline:1px solid rgba(255,255,255,.14);outline-offset:-1px;border-radius:inherit}
     .rc-cover::before{content:"";position:absolute;inset:0;z-index:3;border-radius:inherit;padding:1px;background:var(--chrome-border);pointer-events:none;
       -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:0;transition:opacity .3s ease}
     .rc-cover::after{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;background:linear-gradient(115deg,transparent 35%,rgba(255,255,255,.2) 48%,transparent 62%);translate:-120% 0}
@@ -4302,19 +4363,24 @@ function StyleTag() {
     .ap-name-lock{display:inline-grid}
     .ap-name-lock>*{grid-area:1/1}
     .ap-name-ghost{visibility:hidden}
+    .ap-name-live{contain:inline-size;overflow-x:clip}
+    .ap-name .emo,.about2-band b .emo{-webkit-text-fill-color:#fff}
     .ap-stag{animation:rv .55s var(--ease-out) both;animation-delay:calc(240ms + var(--i) * 55ms)}
     .ap-rel{align-self:stretch}
     .ap-rel-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}
     .ap-count{display:none;font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums;letter-spacing:.06em}
     .ap-rail{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:16px}
     .rc-compact .rc-meta strong{font-size:13.5px;min-height:0}
+    .rc-compact .rc-artist{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;text-overflow:clip}
+    /* the 97px tiles at laptop widths need a third line for long titles and features */
+    .rc-compact .rc-artist,.rc-compact .rc-meta strong{-webkit-line-clamp:3}
     .ap .socials{gap:4px;margin-left:-10px}
     .ap .social-ic{width:44px;height:44px;align-items:center;justify-content:center;border-radius:50%}
     .ap .social-ic:hover{background:#121214;transform:none}
     .ap-bio{margin:0;color:#b8b8b8;font-size:15.5px;line-height:1.7;max-width:560px}
     /* 1fr auto 1fr keeps the "3 / 15" counter dead centre whatever the two names' widths */
     .ap-bar{position:sticky;bottom:0;z-index:4;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin-top:-72px;
-      padding:24px var(--gutter) calc(14px + env(safe-area-inset-bottom));background:linear-gradient(to top,#000 52%,rgba(0,0,0,0))}
+      padding:24px max(var(--gutter),calc(50% - 720px + var(--gutter))) calc(14px + env(safe-area-inset-bottom));background:linear-gradient(to top,#000 52%,rgba(0,0,0,0))}
     .ap-bar>button:first-child{justify-self:start}
     .ap-bar>button:last-child{justify-self:end}
     .ap-bar button{display:inline-flex;align-items:center;gap:10px;min-width:0;height:44px;padding:0 2px;background:none;border:0;color:var(--mut);
@@ -4343,7 +4409,8 @@ function StyleTag() {
     .ct-chips .chip.on>span{border-color:transparent}
     .ct-err{margin:0;color:#e59a9a;font-size:13.5px;line-height:1.5}
     .ct-direct{margin:30px 0 0;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:4px 8px;color:var(--mut);font-size:14px}
-    .ct-direct .inline-link{display:inline-block;padding:11px 0}
+    .ct-direct .inline-link{display:inline-block;padding:12px 0}
+    .ct-direct-label::after{content:" —"}
     .ct-mail{display:inline-flex;align-items:center;white-space:nowrap}
     .ct-copy{display:inline-grid;place-items:center;width:44px;height:44px;margin:0 -10px 0 -6px;border-radius:50%;background:none;border:0;color:var(--mut);cursor:pointer;transition:color .2s ease,background-color .2s ease}
     .ct-copy:hover{color:var(--ink);background:#121214}
@@ -4357,12 +4424,18 @@ function StyleTag() {
     .ct-sent p{margin:0 0 16px;color:var(--mut);font-size:14.5px}
     /* desktop: poster headline left, form right, so SEND sits above the fold (must come after the .ct rules above) */
     @media (min-width:1024px){
-      .ct{max-width:1240px;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);grid-template-rows:auto auto 1fr;column-gap:clamp(40px,5vw,80px);align-items:start;text-align:left}
+      .ct{max-width:1360px;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);grid-template-rows:auto auto 1fr;column-gap:clamp(40px,5vw,80px);align-items:start;text-align:left}
       .ct .pg-head{grid-column:1;grid-row:1;font-size:clamp(56px,6.4vw,96px)}
       .ct-lead{grid-column:1;grid-row:2;margin:0}
       .ct-direct{grid-column:1;grid-row:3;flex-direction:column;align-items:flex-start;gap:0;margin-top:28px}
+      @media (pointer:fine){ .ct-direct .inline-link{padding:8px 0} } /* touch screens this wide (iPad landscape) keep 44px targets */
       .ct-dot{display:none}
       .ct-card{grid-column:2;grid-row:1 / 4;max-width:none;margin:0}
+    }
+    /* stacked (desktop column, phones): the lead-in is a small label over the two links */
+    @media (min-width:1024px),(max-width:599px){
+      .ct-direct-label{margin-bottom:6px;font-family:'Suntage','Inter',sans-serif;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase}
+      .ct-direct-label::after{content:none}
     }
     @media (min-width:1024px) and (max-height:899px){
       .ct{padding-top:clamp(32px,5vh,56px)}
@@ -4392,11 +4465,14 @@ function StyleTag() {
     ::view-transition-group(brand){animation-duration:.5s;animation-timing-function:var(--ease-out)}
     /* both images pinned to the group's left edge at full height, so the D sits on the wordmark's own D */
     ::view-transition-old(brand),::view-transition-new(brand){height:100%;width:auto;left:0;translate:none}
-    ::view-transition-old(brand){animation:vt-fade-out .2s var(--ease-exit) both}
-    ::view-transition-new(brand){animation:vt-fade-in .26s ease .2s both}
+    /* the two overlap, so the logo slot is never empty mid-flight */
+    ::view-transition-old(brand){animation:vt-fade-out .2s ease-in both}
+    ::view-transition-new(brand){animation:vt-fade-in .22s ease-out .12s both}
     /* Home's own small nav D: gone at once when leaving Home, fades in after the morph when arriving */
     ::view-transition-old(nav-d){display:none}
-    ::view-transition-new(nav-d){animation:vt-fade-in .2s ease .4s both}
+    ::view-transition-new(nav-d){animation:vt-fade-in .18s ease .3s both}
+    html[data-vt=page-brand][data-dir=home]::view-transition-old(brand){animation:vt-fade-out .12s ease-in both}
+    html[data-vt=page-brand][data-dir=home]::view-transition-new(brand){animation:vt-fade-in .22s ease-out .06s both}
     html[data-vt^=artist]::view-transition-old(root){animation:.16s linear both vt-fade-out}
     html[data-vt^=artist]::view-transition-new(root){animation:.3s ease .12s both vt-fade-in}
     ::view-transition-group(artist-photo){z-index:10;animation-duration:.55s;animation-timing-function:var(--ease-out)}
@@ -4435,6 +4511,14 @@ function StyleTag() {
 
     /* ---------- public responsive ---------- */
     @media(max-width:1199px){ .pgrid-roster{--cols:4;--g:24px} }
+    /* 15 cards: 5-up keeps the last row on the grid at laptop widths (4-up leaves 3 floating) */
+    @media(min-width:1000px) and (max-width:1199px){ .pgrid-roster{--cols:5;--g:20px} }
+    /* 900-999: five full rows of 3 (4-up leaves 3 floating between the columns) */
+    @media(min-width:900px) and (max-width:999px){ .pgrid-roster{--cols:3} }
+    /* a centred short last row only lines up with the columns when (columns - cards in it) is even —
+       otherwise it starts on column 1 (the roster size is set in the dashboard, so this can't be tuned to 15) */
+    @media(min-width:1000px){ .pgrid-roster:has(> .pc:last-child:is(:nth-child(5n+7),:nth-child(5n+9))){justify-content:flex-start} }
+    @media(min-width:600px) and (max-width:999px){ .pgrid-roster:has(> .pc:last-child:nth-child(3n+5)){justify-content:flex-start} }
     @media(max-width:1099px){ .rel2-grid{--cols:4} }
     @media(max-width:899px){
       :root{--nav-h:60px}
@@ -4457,7 +4541,25 @@ function StyleTag() {
     @media(min-width:900px){ .pm{display:none} }
     /* iPad portrait: a full-width square photo would push the name, credits and CTA off the first screen */
     @media(min-width:600px) and (max-width:899px){ .ap-inner{max-width:560px} }
-    @media(min-width:900px) and (max-width:1199px){ .ap-rail{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))} }
+    /* …and the credits rail still bleeds to the screen edges like on phones (234px = half the 500px column minus its padding) */
+    @media(min-width:600px) and (max-width:899px) and (orientation:portrait){
+      .ap{overflow-x:hidden}
+      .ap-inner{max-width:500px}
+      .ap-rail{margin:0 calc(234px - 50vw);padding:0 calc(50vw - 234px) 4px;scroll-padding:0 calc(50vw - 234px)}
+      .ap-rail-item{flex-basis:180px}
+    }
+    /* phone landscape: photo left, name and credits right, so the first screen isn't just a cropped photo */
+    @media(max-width:899px) and (orientation:landscape) and (max-height:500px){
+      .ap-inner{max-width:none;grid-template-columns:minmax(0,40%) minmax(0,1fr);gap:28px;padding:20px 24px 100px}
+      .ap-photo{position:sticky;top:20px}
+      .ap-info{padding-top:44px}
+      .ap-name{margin-top:0;font-size:clamp(30px,6vw,56px)}
+      .ap-rail{margin:0;padding:0 0 4px}
+      .ap-rail-item{flex-basis:168px}
+    }
+    /* phone landscape Home: size the wordmark by height too, so both CTAs sit inside the first screen */
+    @media(orientation:landscape) and (max-height:500px){ .wm{width:min(82vw,800px,120svh)} }
+    @media(min-width:900px) and (max-width:1199px){ .ap-rail{grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:12px} }
     @media(max-width:819px){ .rel2-grid{--cols:3} }
     @media (pointer:coarse){ .chip>span,.ct-chips .chip>span{height:44px} }
     @media(max-width:599px){
@@ -4468,7 +4570,7 @@ function StyleTag() {
       .about2-body p{margin-left:0;font-size:16px;line-height:1.65}
       .sec-head{text-align:left}
       .rel2-grid,.pgrid{--cols:2;--g:12px;row-gap:28px}
-      .rel2-grid{justify-content:flex-start}
+      .rel2-grid,.pgrid-roster{justify-content:flex-start} /* phones are left-aligned: a short last row starts on column 1 */
       .rel2-grid.rel2-feat{grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 12px}
       .rc-feat .rc-meta strong{font-size:17px}
       .chip-tag{font-size:9.5px;letter-spacing:.06em;padding:4px 7px}
@@ -4480,6 +4582,7 @@ function StyleTag() {
       .ct-lead{margin-left:0}
       .ct-direct{flex-direction:column;align-items:flex-start;gap:0}
       .ct-dot{display:none}
+      .ct-direct-label{margin-bottom:4px}
       /* subject chips as a tidy two-column grid ("Other" spans the last row) instead of six ragged rows */
       .ct-chips{display:grid;grid-template-columns:1fr 1fr;gap:8px}
       .ct-chips .chip{display:flex}
@@ -4496,15 +4599,20 @@ function StyleTag() {
     /* ---------- reduced motion (public pages only; the dashboard keeps its own) ---------- */
     @media (prefers-reduced-motion:reduce){
       .pub *,.pub *::before,.pub *::after{animation-duration:.01ms!important;animation-delay:0s!important;animation-iteration-count:1!important;transition-duration:.01ms!important;transition-delay:0s!important}
+      /* fitted lines measure right after resetting their font-size — even a .01ms font-size transition hands them the stale size */
+      .pub .ap-name,.pub .ap-name *,.pub .pc-name,.pub .pc-name *,.pub .foot2-word{transition:none!important}
       ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}
       .wm-img{-webkit-mask:none!important;mask:none!important}
       .wm-shine,.wm-spot{display:none}
       .wm-spark{opacity:.85!important;scale:1!important}
       /* marquees become a still, wrapped block that starts at the first credit */
       .mq{-webkit-mask:none!important;mask:none!important}
-      .mq-rail{animation:none!important;width:100%;transform:none!important;margin-left:0}
+      .mq-rail{animation:none!important;width:100%;transform:none!important}
       .mq-track{flex-shrink:1;width:100%;flex-wrap:wrap;justify-content:center;gap:6px 1.8em;padding:0 var(--gutter)}
       .mq-track+.mq-track,.mq-rep,.mq-sep{display:none}
+      .mq-item:not(.mq-rep){display:block;max-width:100%;white-space:normal;text-align:center;text-wrap:balance}
+      .mq-cov{display:inline-block;vertical-align:middle}
+      .mq-dash::before{content:"\\2060"} /* word joiner: a wrap never starts a line with the dash */
       /* in the flow under the CTAs, so the taller wrapped ribbon can never cover them */
       .ign{padding-bottom:28px}
       .ign-ribbon{position:relative;left:auto;right:auto;bottom:auto;align-self:stretch;margin:44px calc(-1 * var(--gutter)) 0}
