@@ -20,7 +20,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       // Spotify/Sheets cover art and profile photos are fetched from arbitrary https hosts
       "img-src 'self' data: https:",
-      "font-src 'self' data:",
+      "font-src 'self'",
       // the API layer only ever talks to the browser same-origin; outbound calls to
       // Google/Spotify/Luminate happen server-side in API routes, never from client JS.
       // vitals.vercel-insights.com is where Vercel Web Analytics beacons page views.
@@ -32,12 +32,24 @@ const securityHeaders = [
   },
 ];
 
+// public/ files aren't content-hashed, so by default every visit re-checks each one before using it
+// (a round trip per file, and a flash of the fallback font). These never change in place: give a
+// replaced file a new name instead.
+const fontCache = [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }];
+const assetCache = [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=2592000" }];
+
 const nextConfig = {
   // Back/Forward land where the visitor left each page (Next keeps the offset per history
   // entry and restores it after rendering) instead of at the top of it
   experimental: { scrollRestoration: true },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      { source: "/fonts/:path*", headers: fontCache },
+      { source: "/brand/:path*", headers: assetCache },
+      // roster/team photo originals — also what /_next/image optimizes from
+      { source: "/assets/:path*", headers: assetCache },
+    ];
   },
   // the public "meet the team" page moved from /staff to /team — keep old
   // bookmarks/search results/backlinks working instead of 404ing.
@@ -72,6 +84,8 @@ const nextConfig = {
   // photos become data: URIs (PhotoUpload -> fileToDataURL), not remote
   // hosts, so they're unaffected by this list.
   images: {
+    // optimized photos are kept a week too (same rule: a replaced photo gets a new file name)
+    minimumCacheTTL: 604800,
     remotePatterns: [
       { protocol: "https", hostname: "i.scdn.co" },
       { protocol: "https", hostname: "www.defiedmgmt.com" },

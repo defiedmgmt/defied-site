@@ -39,6 +39,10 @@ export default function PageShell({ title, description, path = "/", image = DEFA
       {/* the home wordmark is the first thing painted, but its <img> only exists once the
           client-only App has run — start downloading it alongside the JS instead of after */}
       {preloadHero && <link rel="preload" as="image" href="/brand/wordmark.webp" fetchpriority="high" />}
+      {/* the same goes for the brand font and the site data: both start with the HTML, so they've
+          landed by the time the App bundle runs instead of being fetched one after another after it */}
+      <link rel="preload" as="font" type="font/otf" href="/fonts/suntage.otf" crossOrigin="anonymous" />
+      <link rel="preload" as="fetch" href="/api/public-data" crossOrigin="anonymous" />
       <link rel="canonical" href={url} />
       {noindex && <meta name="robots" content="noindex, nofollow" />}
       <link rel="icon" href="/favicon.ico" sizes="any" />
