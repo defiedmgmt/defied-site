@@ -32,6 +32,10 @@ export default function PageShell({ title, description, path = "/", image = DEFA
       <meta name="description" content={description} />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <meta name="theme-color" content="#000000" />
+      <meta name="color-scheme" content="dark" />
+      {/* the app's real stylesheet only arrives with its JS bundle — paint the
+          first frame black too, instead of flashing white while that loads */}
+      <style dangerouslySetInnerHTML={{ __html: "html,body{background:#000;margin:0}" }} />
       <link rel="canonical" href={url} />
       {noindex && <meta name="robots" content="noindex, nofollow" />}
       <link rel="icon" href="/favicon.ico" sizes="any" />
