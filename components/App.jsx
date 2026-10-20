@@ -790,23 +790,55 @@ function Credit({ c, sizes, lift }) {
         </span>
       )}
       <span className="cr-txt">
-        <b className="cr-artist"><Glyphs text={c.artist} /></b>
+        <b className="cr-artist"><Glyphs text={c.artist} amp /></b>
         <span className="cr-sub">
-          <span className="cr-song">“<Glyphs text={c.title} />”</span>
-          {c.prod.length > 0 && <span className="cr-prod">{prodWord}<Glyphs text={c.prod.join(" & ")} /></span>}
+          <span className="cr-song">“<Glyphs text={c.title} amp />”</span>
+          {c.prod.length > 0 && <span className="cr-prod">{prodWord}<Glyphs text={c.prod.join(" & ")} amp /></span>}
         </span>
       </span>
     </>
   );
 }
 
+// The About band's headline numbers. Written here rather than on the dashboard, so they only change with
+// a deploy: every one is checked against its source (in the comment beside it) before it goes in.
+const STATS = [
+  // Billboard 200 dated May 30, 2026: MAID OF HONOUR debuted at No. 3 (ICEMAN 1, HABIBTI 2); Stack!e is one of
+  // the credited producers on "Q&A" (ca.billboard.com chart-beat; Wikipedia, Maid of Honour track listing)
+  { num: "#3", label: "Billboard 200", ctx: "Drake “Q&A” · Prod. Stack!e", text: "Number 3 on the Billboard 200: Drake's Maid of Honour, with Q&A produced by Stack!e" },
+  // the roster PDF (2026): the producers' stream totals added up
+  { num: "150M+", label: "Streams", ctx: "Across the roster", text: "Over 150 million streams across the roster" },
+  // Billboard, chart dated June 28, 2025: No. 1 Top Rap Albums and Top R&B/Hip-Hop Albums (No. 3 on the Billboard 200)
+  { num: "#1", label: "Top Rap Albums", ctx: "Lil Tecca “Dopamine”", text: "Number 1 on Billboard's Top Rap Albums: Dopamine by Lil Tecca" },
+  // Billboard Hot 100 dated May 30, 2026: "Q&A" at No. 85 (ca.billboard.com, Drake's 42 entries that week)
+  { num: "Hot 100", label: "Charted", ctx: "Drake “Q&A”", text: "Charted on the Billboard Hot 100: Q&A by Drake" },
+  // the roster PDF (2026): 122 placements across the ten producers listed, before songs two of them share
+  { num: "100+", label: "Placements", ctx: "And counting", text: "Over 100 placements and counting" },
+];
+// One headline number, set like a credit: the figure in chrome, then what it is and where it's from as a two-line caption
+function Stat({ s }) {
+  return (
+    <span className="st">
+      <b className="st-num">{s.num}</b>
+      <span className="st-cap">
+        <span className="st-label"><Glyphs text={s.label} amp /></span>
+        <span className="st-ctx"><Glyphs text={s.ctx} amp /></span>
+      </span>
+    </span>
+  );
+}
+
 // Emoji (keycaps, flags, pictographs, skin-tone and ZWJ sequences) get a span of their own: inside
 // chrome text (a gradient clipped to transparent glyphs) a colour emoji would paint as a blank silver tile
 const EMOJI_SEQ = /([#*\d]️?⃣|\p{Regional_Indicator}{2}|(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}️)\p{Emoji_Modifier}?(?:‍(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}️?)\p{Emoji_Modifier}?)*)/u;
-function Glyphs({ text }) {
+// `amp`: Suntage's "&" reads as an 8 ("Q8A"), so in the credit strips it's set in the body face instead
+function Glyphs({ text, amp = false }) {
   const parts = String(text ?? "").split(EMOJI_SEQ);
-  if (parts.length === 1) return parts[0];
-  return parts.map((part, k) => (k % 2 ? <span className="emo" key={k}>{part}</span> : part));
+  const plain = (part, k) => (amp && part.includes("&")
+    ? part.split("&").flatMap((bit, j) => (j ? [<span className="amp" key={`${k}-${j}`}>&</span>, bit] : [bit]))
+    : part);
+  if (parts.length === 1) return plain(parts[0], 0);
+  return parts.map((part, k) => (k % 2 ? <span className="emo" key={k}>{part}</span> : plain(part, k)));
 }
 // the same, for text written straight into the DOM (the decoded panel name)
 function glyphNodes(text) {
@@ -1153,33 +1185,38 @@ function Home({ publicData }) {
   const [viaVT] = useState(() => !!document.documentElement.dataset.vt);
   useEffect(() => { try { sessionStorage.setItem("dm-ignited", "1"); } catch { /* private mode */ } }, []);
 
-  // desktop only: a soft spotlight follows the cursor inside the letterforms
-  // and the mark leans toward it (±4°). Lerped in rAF, sleeps when settled.
+  // desktop only: a soft spotlight follows the cursor inside the letterforms and the mark leans toward
+  // it, just barely: at most 1.5° across and 1° up and down, reached only at the edges of the hero, so
+  // it reads as the light catching it rather than the logo moving. Lerped in rAF, sleeps when settled.
   useEffect(() => {
     const hero = heroRef.current, wm = wmRef.current;
     if (!hero || !wm || prefersReducedMotion() || !window.matchMedia("(hover: hover) and (pointer: fine)").matches) return;
-    const cur = { x: 0.5, y: 0.5, on: 0 }, tgt = { x: 0.5, y: 0.5, on: 0 };
+    const cur = { x: 0.5, y: 0.5, lx: 0, ly: 0, on: 0 }, tgt = { x: 0.5, y: 0.5, lx: 0, ly: 0, on: 0 };
     let raf = 0;
     const tick = () => {
-      cur.x += (tgt.x - cur.x) * 0.12; cur.y += (tgt.y - cur.y) * 0.12; cur.on += (tgt.on - cur.on) * 0.12;
+      for (const k of ["x", "y", "on"]) cur[k] += (tgt[k] - cur[k]) * 0.12;
+      for (const k of ["lx", "ly"]) cur[k] += (tgt[k] - cur[k]) * 0.06;
       const r = wm.getBoundingClientRect();
       wm.style.setProperty("--mx", `${(cur.x * r.width).toFixed(1)}px`);
       wm.style.setProperty("--my", `${(cur.y * r.height).toFixed(1)}px`);
       wm.style.setProperty("--spot", cur.on.toFixed(3));
-      wm.style.setProperty("--ry", `${((cur.x - 0.5) * 8 * cur.on).toFixed(2)}deg`);
-      wm.style.setProperty("--rx", `${((0.5 - cur.y) * 8 * cur.on).toFixed(2)}deg`);
-      const settled = Math.abs(tgt.x - cur.x) < 0.001 && Math.abs(tgt.y - cur.y) < 0.001 && Math.abs(tgt.on - cur.on) < 0.002;
+      wm.style.setProperty("--ry", `${(cur.lx * 1.5).toFixed(3)}deg`);
+      wm.style.setProperty("--rx", `${(-cur.ly * 1).toFixed(3)}deg`);
+      const settled = ["x", "y", "lx", "ly", "on"].every((k) => Math.abs(tgt[k] - cur[k]) < 0.001);
       raf = settled ? 0 : requestAnimationFrame(tick);
     };
     const wake = () => { if (!raf) raf = requestAnimationFrame(tick); };
     const move = (e) => {
-      const r = wm.getBoundingClientRect();
+      const r = wm.getBoundingClientRect(), h = hero.getBoundingClientRect();
       tgt.x = Math.min(1.15, Math.max(-0.15, (e.clientX - r.left) / r.width));
       tgt.y = Math.min(1.4, Math.max(-0.4, (e.clientY - r.top) / r.height));
+      // the lean: where the cursor is in the whole hero, -1 to 1 from its centre
+      tgt.lx = Math.min(1, Math.max(-1, (e.clientX - (r.left + r.width / 2)) / (h.width / 2)));
+      tgt.ly = Math.min(1, Math.max(-1, (e.clientY - (r.top + r.height / 2)) / (h.height / 2)));
       tgt.on = 1;
       wake();
     };
-    const leave = () => { tgt.x = 0.5; tgt.y = 0.5; tgt.on = 0; wake(); };
+    const leave = () => { Object.assign(tgt, { x: 0.5, y: 0.5, lx: 0, ly: 0, on: 0 }); wake(); };
     hero.addEventListener("pointermove", move);
     hero.addEventListener("pointerleave", leave);
     return () => { hero.removeEventListener("pointermove", move); hero.removeEventListener("pointerleave", leave); cancelAnimationFrame(raf); };
@@ -1240,9 +1277,9 @@ function Home({ publicData }) {
             label="Notable placements"
             seconds={Math.max(40, credits.length * 5)}
             items={credits.map((c) => ({ ...c, text: creditText(c) }))}
-            // 21px, not its real 36px: that keeps it on the 64px file even on 3x phones, where it looks the
-            // same at this size for a tenth of the bytes (the 300px one only comes in for a lifted cover)
-            render={(c) => <Credit c={c} sizes="21px" lift="92px" />}
+            // 21px, a touch under its real 19–24px: that keeps it on the 64px file even on 3x screens, where it
+            // looks the same at this size for a tenth of the bytes (the 300px one only comes in for a lifted cover)
+            render={(c) => <Credit c={c} sizes="21px" lift="77px" />}
           />
         )}
       </section>
@@ -1292,7 +1329,6 @@ function About({ publicData }) {
   if (!publicData) return <main className="pg"><PageLoading /></main>;
   const about = publicData.about || "";
   const notable = (publicData.notableReleases || []).filter((r) => r.song);
-  const credits = creditsOf(publicData);
   const nFeat = featuredCount(notable.length);
   return (
     <main className="pg about2">
@@ -1301,15 +1337,8 @@ function About({ publicData }) {
         {about.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}
       </div>
 
-      {credits.length > 0 && (
-        <Marquee
-          className="about2-band"
-          label="Notable placements"
-          seconds={Math.max(45, credits.length * 7)}
-          items={credits.map((c) => ({ ...c, text: creditText(c) }))}
-          render={(c) => <Credit c={c} sizes="(max-width: 666px) 21px, 42px" lift="105px" />}
-        />
-      )}
+      <Marquee className="about2-band" label="Defied in numbers" seconds={Math.max(36, STATS.length * 9)} items={STATS} render={(s) => <Stat s={s} />} />
+
 
       <section className="rel2">
         <SplitHead text="NOTABLE RELEASES" tag="h2" onView className="sec-head" />
@@ -4187,6 +4216,7 @@ function StyleTag() {
     .cr-txt{display:inline-flex;min-width:0}
     .cr-artist{font-weight:400}
     .cr-sub{display:flex;transition:color .35s ease}
+    .amp{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-weight:800}
     /* hover: the rail eases to a stop, the other credits step back, and this one's cover lifts up and away
        from its name (it grows from its bottom-right corner) while a light runs across it once */
     @media (hover:hover){
@@ -4397,21 +4427,23 @@ function StyleTag() {
     .ign-cta>:nth-child(2){animation-delay:.47s}
     .ign-seen .ign-cta>*{animation-delay:.12s}
     .ign-seen .ign-cta>:nth-child(2){animation-delay:.2s}
-    /* the Home ribbon reads like a play queue: cover, ARTIST, then "song" · producer under it */
-    .ign-ribbon{position:absolute;left:0;right:0;bottom:calc(20px + env(safe-area-inset-bottom));padding:11px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
+    /* the Home credits band: the cover, the artist in chrome, and the song and producer as a two-line
+       caption beside it. Sized off its font-size, so the phone and landscape rules only change that */
+    .ign-ribbon{position:absolute;left:0;right:0;bottom:calc(20px + env(safe-area-inset-bottom));padding:15px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
+      font-family:'Suntage','Inter',sans-serif;font-size:clamp(18px,1.6vw,23px);line-height:1;letter-spacing:.03em;text-transform:uppercase;text-align:left;
       animation:vt-fade-in .7s ease .6s both}
     .ign-seen .ign-ribbon{animation-delay:.2s}
     /* the ends fade into the black: an overlay, as a mask would also cut off a lifted cover */
     .ign-ribbon::before,.ign-ribbon::after{content:"";position:absolute;top:0;bottom:0;z-index:3;width:7%;pointer-events:none}
     .ign-ribbon::before{left:0;background:linear-gradient(90deg,#000,transparent)}
     .ign-ribbon::after{right:0;background:linear-gradient(270deg,#000,transparent)}
-    .ign-ribbon .cr-cov{width:36px;height:36px;margin-right:13px;--lift:translateY(-6px) scale(2.55) rotate(-4deg)}
-    .ign-ribbon .cr-txt{flex-direction:column;gap:6px}
-    .ign-ribbon .cr-artist{font-family:'Suntage','Inter',sans-serif;font-size:11px;letter-spacing:.16em;line-height:1;text-transform:uppercase;color:var(--ink)}
-    .ign-ribbon .cr-sub{gap:.5em;font-size:12.5px;line-height:1.1;color:var(--mut)}
-    .ign-ribbon .cr-prod::before{content:"·";margin-right:.5em;color:#4a4a4c}
-    .ign-ribbon .mq-sep{height:12px;margin:0 34px;opacity:.32}
-    @media (hover:hover){ .ign-ribbon .mq-link:hover .cr-sub{color:#b8b8b8} }
+    .ign-ribbon .cr-cov{width:1.05em;height:1.05em;margin-right:.4em;border-radius:4px;--lift:translateY(-.1em) scale(3.2) rotate(-4deg)}
+    .ign-ribbon .cr-txt{align-items:center}
+    .ign-ribbon .cr-artist{padding:.05em 0;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
+    .ign-ribbon .cr-sub{flex-direction:column;gap:5px;margin-left:.6em;font-size:9px;letter-spacing:.16em;line-height:1;color:var(--mut3)}
+    .ign-ribbon .cr-prod{color:#68686a}
+    .ign-ribbon .mq-sep{height:.5em;margin:0 1.15em;opacity:.55}
+    @media (hover:hover){ .ign-ribbon .mq-link:hover .cr-song{color:var(--ink)} }
     /* the rail holds still (lead credit parked in view) until the ribbon has faded in */
     @media (prefers-reduced-motion:no-preference){
       .ign-ribbon .mq-rail{animation-delay:1.8s}
@@ -4436,16 +4468,15 @@ function StyleTag() {
     /* ---------- about ---------- */
     .about2-head{font-size:clamp(30px,5.3vw,76px);line-height:1.02;margin:0 auto 34px;max-width:1160px}
     .about2-body p{color:#b8b8b8;font-size:clamp(16px,1.3vw,18.5px);line-height:1.7;max-width:660px;margin:0 auto 18px;text-wrap:pretty;animation:rv .75s var(--ease-out) .4s both}
-    /* the big credits band: cover, the artist in chrome, and the song and producer as a caption beside it */
+    /* the big numbers band: each figure in chrome, with what it is and where it's from as a caption beside it */
     .about2-band{margin:clamp(56px,7vw,88px) calc(50% - 50vw) 0;padding:clamp(18px,2vw,26px) 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
-      font-family:'Suntage','Inter',sans-serif;font-size:clamp(22px,3.3vw,44px);line-height:1;letter-spacing:.03em;text-transform:uppercase;text-align:left;animation:vt-fade-in .8s ease .6s both}
-    .about2-band .cr-cov{width:.95em;height:.95em;margin-right:.34em;border-radius:6px;--lift:scale(2.5) rotate(-4deg)}
-    .about2-band .cr-txt{align-items:center}
-    .about2-band .cr-artist{padding:.05em 0;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
-    .about2-band .cr-sub{flex-direction:column;gap:.6em;margin-left:.5em;font-size:max(9px,.25em);letter-spacing:.16em;line-height:1;color:var(--mut3)}
-    .about2-band .cr-prod{color:#68686a}
-    .about2-band .mq-sep{height:.46em;margin:0 .9em}
-    @media (hover:hover){ .about2-band .mq-link:hover .cr-song{color:var(--ink)} }
+      font-family:'Suntage','Inter',sans-serif;font-size:clamp(26px,3.8vw,52px);line-height:1;letter-spacing:.03em;text-transform:uppercase;text-align:left;animation:vt-fade-in .8s ease .6s both}
+    .st{display:inline-flex;align-items:center}
+    .st-num{font-weight:400;padding:.05em 0;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
+    .st-cap{display:flex;flex-direction:column;gap:.55em;margin-left:.5em;font-size:max(9px,.22em);letter-spacing:.16em;line-height:1}
+    .st-label{color:var(--ink)}
+    .st-ctx{color:#68686a}
+    .about2-band .mq-sep{height:.4em;margin:0 1em}
     .rel2{margin-top:clamp(64px,8vw,108px)}
     .sec-head{font-size:clamp(24px,3.4vw,42px);line-height:1.05;margin:0 0 38px}
     .rel2-grid{--cols:5;--g:20px;display:flex;flex-wrap:wrap;justify-content:center;gap:30px var(--g)}
@@ -4551,7 +4582,7 @@ function StyleTag() {
     .ap-name-lock>*{grid-area:1/1}
     .ap-name-ghost{visibility:hidden}
     .ap-name-live{contain:inline-size;overflow-x:clip}
-    .ap-name .emo,.about2-band b .emo{-webkit-text-fill-color:#fff}
+    .ap-name .emo,.ign-ribbon b .emo{-webkit-text-fill-color:#fff}
     .ap-stag{animation:rv .55s var(--ease-out) both;animation-delay:calc(240ms + var(--i) * 55ms)}
     .ap-rel{align-self:stretch}
     .ap-rel-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}
@@ -4749,9 +4780,7 @@ function StyleTag() {
       .wm{width:min(82vw,800px,96svh)} .ign{padding-top:8px;padding-bottom:72px} .ign-cta{margin-top:28px}
       .ign .ign-cta{flex-direction:row;align-items:center;width:auto} /* beats the later phone stacking */
       /* a slimmer ribbon, set lower, so it keeps clear of the CTAs on the shortest phones */
-      .ign-ribbon{bottom:calc(12px + env(safe-area-inset-bottom));padding:8px 0}
-      .ign-ribbon .cr-cov{width:30px;height:30px;margin-right:11px}
-      .ign-ribbon .cr-txt{gap:5px}
+      .ign-ribbon{bottom:calc(12px + env(safe-area-inset-bottom));padding:11px 0;font-size:16px}
     }
     @media(min-width:900px) and (max-width:1199px){ .ap-rail{grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:12px} }
     @media(max-width:819px){ .rel2-grid{--cols:3} }
@@ -4768,7 +4797,6 @@ function StyleTag() {
       .rel2-grid.rel2-feat{grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 12px}
       .rc-feat .rc-meta strong{font-size:17px}
       .chip-tag{font-size:9.5px;letter-spacing:.06em;padding:4px 7px}
-      .about2-band .cr-artist{background:none;color:var(--ink);-webkit-text-fill-color:currentColor}
       .ros2-filter{align-self:stretch;margin-bottom:36px}
       .ros2-filter .chip{flex:1}
       .ros2-filter .chip>span{display:flex;justify-content:center;padding:0 8px;font-size:9.5px;letter-spacing:.1em;gap:6px}
@@ -4808,7 +4836,8 @@ function StyleTag() {
       /* in the flow under the CTAs, so the taller wrapped ribbon can never cover them */
       .ign{padding-bottom:28px}
       .ign-ribbon{position:relative;left:auto;right:auto;bottom:auto;align-self:stretch;margin:44px calc(-1 * var(--gutter)) 0}
-      .about2-band{font-size:clamp(18px,2.2vw,28px)}
+      /* the numbers stay big when still: only a handful, so they wrap into a row or two, not a wall */
+      .about2-band{font-size:clamp(24px,3vw,40px)} .about2-band .mq-track{gap:22px 1.3em}
       .grain{display:none}
       [data-reveal]:not([data-reveal=split]){opacity:1!important;translate:none!important}
       .split[data-reveal] .w>span{animation-play-state:running!important}
