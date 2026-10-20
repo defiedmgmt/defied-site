@@ -810,8 +810,8 @@ const STATS = [
   { num: "150M+", label: "Streams", ctx: "Across the roster", text: "Over 150 million streams across the roster" },
   // Billboard, chart dated June 28, 2025: No. 1 Top Rap Albums and Top R&B/Hip-Hop Albums (No. 3 on the Billboard 200)
   { num: "#1", label: "Top Rap Albums", ctx: "Lil Tecca “Dopamine”", text: "Number 1 on Billboard's Top Rap Albums: Dopamine by Lil Tecca" },
-  // Billboard Hot 100 dated May 30, 2026: "Q&A" at No. 85 (ca.billboard.com, Drake's 42 entries that week)
-  { num: "Hot 100", label: "Charted", ctx: "Drake “Q&A”", text: "Charted on the Billboard Hot 100: Q&A by Drake" },
+  // the roster PDF (2026): 31,867,993 streams (Reallyindig0 and prodbylandn)
+  { num: "31M+", label: "Streams", ctx: "1900Rugrat “Auntie Ain't Playin”", text: "Over 31 million streams: Auntie Ain't Playin by 1900Rugrat" },
   // the roster PDF (2026): 122 placements across the ten producers listed, before songs two of them share
   { num: "100+", label: "Placements", ctx: "And counting", text: "Over 100 placements and counting" },
 ];
