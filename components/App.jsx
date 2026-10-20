@@ -759,15 +759,46 @@ const sameName = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 const webLink = (url) => (/^https?:\/\//i.test(String(url || "").trim()) ? String(url).trim() : null);
 
 function creditsOf(publicData) {
+  const clients = publicData?.clients || [];
   return (publicData?.notableReleases || [])
     .filter((r) => r.song && r.artist)
-    .map((r) => ({ id: r.id, artist: primaryArtist(r.artist), title: cleanTitle(r.song), cover: r.cover, href: webLink(r.link) }));
+    .map((r) => ({
+      id: r.id, artist: primaryArtist(r.artist), title: cleanTitle(r.song), cover: r.cover, href: webLink(r.link),
+      // the roster producers on it, on the same rule as the release cards' "Prod." chips
+      prod: rosterCreditsOn(r, clients).filter((c) => c.prod).map((c) => c.name),
+    }));
 }
+// what a screen reader hears for one credit: "Q&A by Drake, produced by Stack!e"
+const creditText = (c) => `${c.title} by ${c.artist}${c.prod.length ? `, produced by ${c.prod.join(" and ")}` : ""}`;
 
-// Spotify serves every cover at 640/300/64px under the same id — the ribbon
-// only needs the 64px one. Other hosts get no thumbnail rather than a full-size download.
-const coverThumb = (url) => /^https:\/\/i\.scdn\.co\/image\/ab67616d0000b273/.test(url || "")
-  ? url.replace("ab67616d0000b273", "ab67616d00004851") : null;
+// Spotify serves every cover at 640/300/64px under the same id. The credit strips show it small and
+// lift it on hover, so they get the 64px and 300px files. Other hosts get no cover rather than a full-size download.
+const coverSet = (url) => /^https:\/\/i\.scdn\.co\/image\/ab67616d0000b273/.test(url || "")
+  ? `${url.replace("ab67616d0000b273", "ab67616d00004851")} 64w, ${url.replace("ab67616d0000b273", "ab67616d00001e02")} 300w` : null;
+
+// One placement, credited the way a tracklist would: the cover, the artist, then the song in quotes
+// and the roster producer. `sizes` is the cover's size at rest, `lift` its size once it lifts on hover.
+function Credit({ c, sizes, lift }) {
+  const set = coverSet(c.cover);
+  // "Prod. prodbylandn" says prod twice: names that already start with it stand alone
+  const prodWord = c.prod.every((n) => /^prod/i.test(n)) ? "" : "Prod. ";
+  return (
+    <>
+      {set && (
+        <span className="cr-cov">
+          <img srcSet={set} sizes={sizes} data-lift={lift} alt="" width="64" height="64" decoding="async" draggable={false} />
+        </span>
+      )}
+      <span className="cr-txt">
+        <b className="cr-artist"><Glyphs text={c.artist} /></b>
+        <span className="cr-sub">
+          <span className="cr-song">“<Glyphs text={c.title} />”</span>
+          {c.prod.length > 0 && <span className="cr-prod">{prodWord}<Glyphs text={c.prod.join(" & ")} /></span>}
+        </span>
+      </span>
+    </>
+  );
+}
 
 // Emoji (keycaps, flags, pictographs, skin-tone and ZWJ sequences) get a span of their own: inside
 // chrome text (a gradient clipped to transparent glyphs) a colour emoji would paint as a blank silver tile
@@ -871,9 +902,12 @@ function SplitHead({ text, tag: Tag = "h1", className = "", chrome = false, onVi
 
 // Seamless horizontal loop: the visible rail is aria-hidden — its linked credits are mouse/touch
 // only (tabIndex -1) — and a visually-hidden list carries the same items for screen readers.
-// Pauses on hover/press; static wrapped block on reduced motion.
-// `seconds` is the time one pass of `items` takes, however many repeats get added.
+// Glides to a stop under a mouse, pauses on press; static wrapped block on reduced motion.
+// Credits are spaced by the D. `seconds` is the time one pass of `items` takes, however many repeats get added.
 function Marquee({ items, label, className = "", seconds = 48, render }) {
+  const railRef = useRef(null);
+  const glideRaf = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(glideRaf.current), []);
   if (!items.length) return null;
   // short lists get repeated so one copy is always wider than the screen
   const reps = Math.max(1, Math.ceil(12 / items.length));
@@ -887,16 +921,37 @@ function Marquee({ items, label, className = "", seconds = 48, render }) {
           {it.href
             ? <a className="mq-link" href={it.href} target="_blank" rel="noreferrer" tabIndex={-1} draggable={false}>{render(it)}</a>
             : render(it)}
-          <span className="mq-sep">✦</span>
+          <span className="mq-sep"><img src="/brand/d.png" alt="" width="45" height="36" decoding="async" draggable={false} /></span>
         </span>
       ))}
     </div>
   );
+  // a cover rests small and lifts on hover. The first hover asks for its lifted size (data-lift), so the
+  // browser fetches the bigger file and swaps it in once it has loaded, keeping the small one up until then
+  const liftCover = (e) => {
+    const img = e.target.closest?.(".mq-link")?.querySelector("img[data-lift]");
+    if (img && img.sizes !== img.dataset.lift) img.sizes = img.dataset.lift;
+  };
+  // under a mouse the rail eases down to a stop, and back up to speed when the mouse leaves, instead of
+  // freezing mid-move (a press still stops it at once, in CSS, for touch screens)
+  const glide = (e, to) => {
+    if (e.pointerType === "touch") return;
+    const anim = railRef.current?.getAnimations?.()[0];
+    if (!anim) return;
+    cancelAnimationFrame(glideRaf.current);
+    const from = anim.playbackRate, t0 = performance.now(), ms = to ? 650 : 420;
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / ms);
+      anim.playbackRate = from + (to - from) * (1 - (1 - k) ** 3);
+      if (k < 1) glideRaf.current = requestAnimationFrame(step);
+    };
+    glideRaf.current = requestAnimationFrame(step);
+  };
   return (
-    <div className={`mq ${className}`} style={{ "--mq-dur": `${seconds * reps}s` }}>
+    <div className={`mq ${className}`} style={{ "--mq-dur": `${seconds * reps}s` }} onPointerOver={liftCover} onPointerEnter={(e) => glide(e, 0)} onPointerLeave={(e) => glide(e, 1)}>
       <ul className="sr-only" aria-label={label}>{items.map((it, i) => <li key={i}>{it.text}</li>)}</ul>
       {/* three copies: the home ribbon starts a third of the way in, so a copy is always behind the parked lead credit */}
-      <div className="mq-rail" aria-hidden="true">{track("a")}{track("b")}{track("c")}</div>
+      <div className="mq-rail" ref={railRef} aria-hidden="true">{track("a")}{track("b")}{track("c")}</div>
     </div>
   );
 }
@@ -1015,7 +1070,7 @@ function PublicNav({ route, menuOpen, setMenuOpen, session }) {
               {route === r && <i className="nav2-ind" style={{ viewTransitionName: "nav-ind" }} aria-hidden="true" />}
             </TLink>
           ))}
-          <TLink href={ROUTE_TO_PATH[authRoute]} className="nav2-auth">{session ? "Dashboard" : "Sign in"}</TLink>
+          <TLink href={ROUTE_TO_PATH[authRoute]} className="nav2-auth" {...(route === authRoute ? { "aria-current": "page" } : {})}>{session ? "Dashboard" : "Sign in"}</TLink>
         </nav>
         <button
           ref={burgerRef}
@@ -1050,7 +1105,7 @@ function PublicNav({ route, menuOpen, setMenuOpen, session }) {
           ))}
         </ol>
         <div className="pm-foot">
-          <TLink href={ROUTE_TO_PATH[authRoute]} onClick={closeMenu} className="pill pill-ghost">{session ? "Dashboard" : "Sign in"}</TLink>
+          <TLink href={ROUTE_TO_PATH[authRoute]} onClick={closeMenu} className="pill pill-ghost" {...(route === authRoute ? { "aria-current": "page" } : {})}>{session ? "Dashboard" : "Sign in"}</TLink>
           <div className="pm-social">
             <ExtLink href="https://instagram.com/defiedmgmt" label="Instagram" className="hit"><Instagram size={20} /></ExtLink>
             <ExtLink href="https://x.com/defiedmgmt" label="X" className="hit"><XIcon size={18} /></ExtLink>
@@ -1184,13 +1239,10 @@ function Home({ publicData }) {
             className="ign-ribbon"
             label="Notable placements"
             seconds={Math.max(40, credits.length * 5)}
-            items={credits.map((c) => ({ ...c, text: `${c.artist} — ${c.title}`, thumb: coverThumb(c.cover) }))}
-            render={(c) => (
-              <>
-                {c.thumb && <img className="mq-cov" src={c.thumb} alt="" width="24" height="24" decoding="async" draggable={false} />}
-                <b><Glyphs text={c.artist} /></b><span className="mq-dash">—</span><span>{c.title}</span>
-              </>
-            )}
+            items={credits.map((c) => ({ ...c, text: creditText(c) }))}
+            // 21px, not its real 36px: that keeps it on the 64px file even on 3x phones, where it looks the
+            // same at this size for a tenth of the bytes (the 300px one only comes in for a lifted cover)
+            render={(c) => <Credit c={c} sizes="21px" lift="92px" />}
           />
         )}
       </section>
@@ -1254,8 +1306,8 @@ function About({ publicData }) {
           className="about2-band"
           label="Notable placements"
           seconds={Math.max(45, credits.length * 7)}
-          items={credits.map((c) => ({ ...c, text: `${c.artist} — ${c.title}` }))}
-          render={(c) => <><b><Glyphs text={c.artist} /></b><span className="mq-dash">—</span><span className="mq-title">{c.title}</span></>}
+          items={credits.map((c) => ({ ...c, text: creditText(c) }))}
+          render={(c) => <Credit c={c} sizes="(max-width: 666px) 21px, 42px" lift="105px" />}
         />
       )}
 
@@ -1872,34 +1924,57 @@ function Contact({ publicData }) {
 /* ------------------------------------------------------------------ */
 /*  LOGIN                                                               */
 /* ------------------------------------------------------------------ */
+// The way into the dashboard and the client portal, built from the public pages' own parts: the chrome
+// heading, the contact form's fields and pill, and the D standing large and faint behind them.
 function Login({ login }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
+  const [showPw, setShowPw] = useState(false);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
-  const submit = async () => {
-    setBusy(true);
-    const e = await login(email, password, remember);
-    setBusy(false);
-    setErr(e);
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    let msg;
+    try { msg = await login(email, password, remember); }
+    catch { msg = "Couldn't reach the server. Check your connection and try again."; }
+    // signed in: it stays on "Signing in…" until the dashboard takes over
+    if (msg) { setBusy(false); setErr(msg); }
   };
   return (
-    <main className="login">
-      <Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={40} /></Link>
-      <div className="login-card">
-        <h2>Sign in</h2>
-        <p className="muted">Staff and client access.</p>
-        <Field label="Email" value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
-        <Field label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
-        <label className="check-row">
-          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-          <span>Remember me on this device</span>
+    <main className="pg lg">
+      {/* the D catches the light once as the page opens, like the wordmark on Home */}
+      <span className="lg-d" aria-hidden="true">
+        <img src="/brand/d.png" alt="" width="180" height="144" draggable={false} />
+        <span className="lg-d-shine" />
+      </span>
+      <p className="micro-label lg-label">Staff and client portal</p>
+      <SplitHead text="SIGN IN." chrome className="pg-head lg-head" />
+      <form className="lg-form" onSubmit={submit} aria-busy={busy}>
+        <label className="ct-fld">
+          <span>Email</span>
+          <input name="email" type="email" autoComplete="username" autoCapitalize="off" spellCheck={false} required value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
-        {err && <div className="err">{err}</div>}
-        <button className="btn full" onClick={submit} disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
-        <Link href={ROUTE_TO_PATH.home} className="link-btn center">← Back to site</Link>
-      </div>
+        {/* a div, not a wrapping label: the label's text would otherwise take in "Show" as part of the field's name */}
+        <div className="ct-fld">
+          <label htmlFor="lg-password">Password</label>
+          <div className="lg-pw">
+            <input id="lg-password" name="password" type={showPw ? "text" : "password"} autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            <button type="button" className="lg-show" onClick={() => setShowPw((v) => !v)} aria-controls="lg-password" aria-label={showPw ? "Hide password" : "Show password"}>{showPw ? "Hide" : "Show"}</button>
+          </div>
+        </div>
+        <label className="lg-check">
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+          <i aria-hidden="true" />
+          <span>Remember me</span>
+        </label>
+        {err && <p className="ct-err" role="alert">{err}</p>}
+        <button className="pill pill-solid pill-full" type="submit" disabled={busy}>
+          {busy ? <><RefreshCw size={15} className="spin" /> Signing in…</> : "Sign in"}
+        </button>
+      </form>
+      <p className="lg-help">Trouble signing in? <TLink href={ROUTE_TO_PATH.contact} className="inline-link">Contact us</TLink></p>
     </main>
   );
 }
@@ -3738,12 +3813,7 @@ function StyleTag() {
     .fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:#4a4a4a}
 
 
-    /* login */
-    .login{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px;gap:26px}
     .logo-link{background:none;border:none;display:inline-flex;text-decoration:none}
-    .login-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:32px;width:100%;max-width:400px;display:flex;flex-direction:column;gap:14px}
-    .login-card h2{margin:0;font-size:22px}
-    .login-card .muted{margin:-8px 0 6px}
     .err{background:#2a1414;border:1px solid #5a2a2a;color:#e59a9a;border-radius:8px;padding:10px 12px;font-size:13px}
 
     /* ============ DASHBOARD ============ */
@@ -4097,16 +4167,34 @@ function StyleTag() {
     .micro-label{margin:0;font-family:'Suntage','Inter',sans-serif;font-weight:400;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
 
     /* marquee */
-    .mq{position:relative;overflow:hidden;-webkit-mask:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent);mask:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
+    /* clipped across but open above and below, so a cover lifting on hover isn't cut off by the rail */
+    .mq{position:relative;overflow:hidden;overflow:clip visible}
     .mq-rail{display:flex;width:max-content;animation:mq var(--mq-dur,48s) linear infinite}
-    /* paused under a pointer, or while pressed: touch screens keep :hover on the last thing tapped,
-       so a tapped credit would otherwise leave the rail frozen when the visitor comes back */
+    /* paused while pressed (a mouse eases it to a stop in JS instead): touch screens keep :hover on the
+       last thing tapped, so a hover pause would leave the rail frozen when the visitor comes back */
     .mq:active .mq-rail{animation-play-state:paused}
-    @media (hover:hover){ .mq:hover .mq-rail{animation-play-state:paused} }
     .mq-track{display:flex;flex-shrink:0}
-    .mq-item{display:inline-flex;align-items:center;white-space:nowrap}
-    .mq-link{display:inline-flex;align-items:center;color:inherit;text-decoration:none;-webkit-tap-highlight-color:transparent}
-    .mq-sep{margin:0 .9em;color:#4a4a4c;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:.7em}
+    .mq-item{position:relative;display:inline-flex;align-items:center;white-space:nowrap}
+    .mq-link{display:inline-flex;align-items:center;color:inherit;text-decoration:none;-webkit-tap-highlight-color:transparent;transition:opacity .35s ease}
+    .mq-sep{display:inline-flex;flex-shrink:0}
+    .mq-sep img{display:block;width:auto;height:100%;transition:opacity .35s ease}
+    /* one credit: the cover, the artist, then the song and the producer beside it */
+    .cr-cov{position:relative;flex-shrink:0;display:block;overflow:hidden;border-radius:5px;background:#0c0c0d;transform-origin:100% 100%;
+      transition:transform .55s var(--ease-out),box-shadow .55s var(--ease-out)}
+    .cr-cov::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgba(255,255,255,.09)}
+    .cr-cov::before{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.34) 50%,transparent 70%);translate:-120% 0;pointer-events:none}
+    .cr-cov img{display:block;width:100%;height:100%;object-fit:cover}
+    .cr-txt{display:inline-flex;min-width:0}
+    .cr-artist{font-weight:400}
+    .cr-sub{display:flex;transition:color .35s ease}
+    /* hover: the rail eases to a stop, the other credits step back, and this one's cover lifts up and away
+       from its name (it grows from its bottom-right corner) while a light runs across it once */
+    @media (hover:hover){
+      .mq-rail:has(.mq-link:hover) .mq-link:not(:hover),.mq-rail:has(.mq-link:hover) .mq-sep img{opacity:.3}
+      .mq-item:has(.mq-link:hover){z-index:2}
+      .mq-link:hover .cr-cov{transform:var(--lift);box-shadow:0 24px 48px rgba(0,0,0,.8)}
+      .mq-link:hover .cr-cov::before{translate:120% 0;transition:translate .9s var(--ease-light) .15s}
+    }
     @keyframes mq{to{transform:translateX(calc(-100% / 3))}}
 
     /* image placeholders shimmer until the photo has decoded */
@@ -4148,6 +4236,7 @@ function StyleTag() {
     .nav2-links a:not(.nav2-auth):focus-visible{outline-offset:12px;border-radius:100px}
     .nav2-links .nav2-auth{margin-left:2px;height:36px;display:inline-flex;align-items:center;padding:0 16px;border:1px solid var(--line-2);border-radius:100px;font-size:11px;color:#b5b5b5;transition:border-color .35s ease,color .35s ease,background-color .35s ease}
     .nav2-links .nav2-auth:hover,.nav2-links .nav2-auth:focus-visible{border-color:#f5f5f5;color:#fff;background:rgba(255,255,255,.06)}
+    .nav2-links .nav2-auth[aria-current],.pm-foot .pill-ghost[aria-current]{border-color:#f5f5f5;color:#fff} /* on the sign-in page itself */
     .burger{display:none;position:relative;width:44px;height:44px;margin-right:-11px;background:none;border:0;color:var(--ink);-webkit-tap-highlight-color:transparent}
     .burger i{position:absolute;left:12px;right:12px;height:2px;border-radius:2px;background:currentColor;transition:transform .4s var(--ease-out)}
     .burger i:first-child{top:17px}
@@ -4232,6 +4321,42 @@ function StyleTag() {
     .nf-cta>:nth-child(2){animation-delay:.42s}
     @media(max-width:599px){ .nf-lead{margin-left:0} .nf-cta{flex-direction:column;align-items:stretch;width:min(100%,280px)} }
 
+    /* ---------- sign in ---------- */
+    /* one narrow column, centred like the 404, with the D standing large and faint behind it */
+    .lg{position:relative;isolation:isolate;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:clamp(56px,8vw,100px)}
+    .lg-d{position:absolute;z-index:-1;top:50%;right:max(-10vw,-150px);height:min(80vh,760px);aspect-ratio:180/144;translate:0 -50%;pointer-events:none;user-select:none}
+    .lg-d img{display:block;width:100%;height:100%;opacity:.05;-webkit-user-drag:none;animation:vt-fade-in 1.2s ease .2s both}
+    .lg-d-shine{position:absolute;inset:0;overflow:hidden;-webkit-mask:url(/brand/d-mask.png) center/100% 100% no-repeat;mask:url(/brand/d-mask.png) center/100% 100% no-repeat}
+    .lg-d-shine::before{content:"";position:absolute;top:-20%;bottom:-20%;left:0;width:45%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.17),transparent);transform:translateX(-150%) skewX(-14deg);animation:lg-sheen 2.6s var(--ease-light) .8s both}
+    @keyframes lg-sheen{to{transform:translateX(330%) skewX(-14deg)}}
+    .lg-label{margin:0 0 18px;animation:rv .6s var(--ease-out) both}
+    .lg-head{margin:0 0 36px}
+    .lg-form{width:100%;max-width:420px;display:flex;flex-direction:column;gap:20px;text-align:left;animation:rv .7s var(--ease-out) .3s both}
+    .lg .ct-fld>label{font-size:12.5px;letter-spacing:.04em;color:var(--mut)}
+    .lg .ct-err{margin:-4px 0 0}
+    .lg-pw{position:relative}
+    .lg-pw input{padding-right:84px}
+    .lg-show{position:absolute;top:4px;right:4px;bottom:4px;padding:0 14px;border:0;border-radius:9px;background:none;color:var(--mut3);
+      font-family:'Suntage','Inter',sans-serif;font-size:10px;letter-spacing:.16em;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:color .2s ease,background-color .2s ease}
+    .lg-show:hover{color:var(--ink);background:rgba(255,255,255,.06)}
+    .lg-show:focus-visible{outline:2px solid #f5f5f5;outline-offset:-2px}
+    /* the checkbox drawn to match the fields: a dark square that fills white with a black tick */
+    .lg-check{position:relative;align-self:flex-start;display:flex;align-items:center;gap:12px;min-height:44px;margin:-8px 0;color:#b8b8b8;font-size:14px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .lg-check input{position:absolute;width:1px;height:1px;opacity:0;font-size:16px}
+    .lg-check i{display:grid;place-items:center;flex-shrink:0;width:20px;height:20px;border:1px solid #3a3a3c;border-radius:6px;background:#0d0d0f;transition:background-color .2s ease,border-color .2s ease}
+    .lg-check i::after{content:"";width:9px;height:5px;border-left:2px solid #000;border-bottom:2px solid #000;rotate:-45deg;translate:0 -1px;scale:.4;opacity:0;transition:opacity .15s ease,scale .3s var(--ease-out)}
+    .lg-check:hover i{border-color:#6a6a6c}
+    .lg-check input:checked+i{background:#f5f5f5;border-color:#f5f5f5}
+    .lg-check input:checked+i::after{opacity:1;scale:1}
+    .lg-check input:focus-visible+i{outline:2px solid #f5f5f5;outline-offset:3px}
+    .lg-help{margin:22px 0 0;color:var(--mut);font-size:14px;animation:rv .6s var(--ease-out) .4s both}
+    .lg-help .inline-link{display:inline-block;padding:12px 0}
+    @media(max-width:599px){
+      .lg{align-items:stretch}
+      .lg-form{max-width:none}
+      .lg-d{top:auto;bottom:2vh;right:-34vw;height:62vh;translate:none}
+    }
+
     /* ---------- home: chrome ignition ---------- */
     .home2{flex:1;display:flex;flex-direction:column}
     .ign{position:relative;isolation:isolate;min-height:calc(100vh - var(--nav-h));min-height:calc(100svh - var(--nav-h));display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -4272,21 +4397,21 @@ function StyleTag() {
     .ign-cta>:nth-child(2){animation-delay:.47s}
     .ign-seen .ign-cta>*{animation-delay:.12s}
     .ign-seen .ign-cta>:nth-child(2){animation-delay:.2s}
-    .ign-ribbon{position:absolute;left:0;right:0;bottom:calc(20px + env(safe-area-inset-bottom));padding:13px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
-      font-family:'Suntage','Inter',sans-serif;font-size:11px;letter-spacing:.16em;text-transform:uppercase;animation:vt-fade-in .7s ease .6s both}
+    /* the Home ribbon reads like a play queue: cover, ARTIST, then "song" · producer under it */
+    .ign-ribbon{position:absolute;left:0;right:0;bottom:calc(20px + env(safe-area-inset-bottom));padding:11px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
+      animation:vt-fade-in .7s ease .6s both}
     .ign-seen .ign-ribbon{animation-delay:.2s}
-    .ign-ribbon b{font-weight:400;color:var(--ink)}
-    .ign-ribbon .mq-dash{margin:0 .6em;color:#555}
-    .ign-ribbon .mq-sep{margin:0 2.6em;font-size:.95em;color:#555}
-    .ign-ribbon .mq-item>span:not(.mq-sep):not(.mq-dash),.ign-ribbon .mq-link>span:not(.mq-dash){color:var(--mut);transition:color .3s ease}
-    .mq-cov{width:24px;height:24px;flex-shrink:0;border-radius:5px;object-fit:cover;margin-right:11px;outline:1px solid #222;outline-offset:-1px}
-    /* a linked credit (the rail pauses under the pointer): its title lights up and the cover lifts */
-    .ign-ribbon .mq-link .mq-cov{transition:transform .4s var(--ease-out),outline-color .3s ease}
-    @media (hover:hover){
-      .ign-ribbon .mq-link:hover>span:not(.mq-dash){color:var(--ink)}
-      .ign-ribbon .mq-link:hover .mq-cov{transform:scale(1.12);outline-color:#555}
-    }
-    .ign-ribbon:has(.mq-cov){padding:9px 0}
+    /* the ends fade into the black: an overlay, as a mask would also cut off a lifted cover */
+    .ign-ribbon::before,.ign-ribbon::after{content:"";position:absolute;top:0;bottom:0;z-index:3;width:7%;pointer-events:none}
+    .ign-ribbon::before{left:0;background:linear-gradient(90deg,#000,transparent)}
+    .ign-ribbon::after{right:0;background:linear-gradient(270deg,#000,transparent)}
+    .ign-ribbon .cr-cov{width:36px;height:36px;margin-right:13px;--lift:translateY(-6px) scale(2.55) rotate(-4deg)}
+    .ign-ribbon .cr-txt{flex-direction:column;gap:6px}
+    .ign-ribbon .cr-artist{font-family:'Suntage','Inter',sans-serif;font-size:11px;letter-spacing:.16em;line-height:1;text-transform:uppercase;color:var(--ink)}
+    .ign-ribbon .cr-sub{gap:.5em;font-size:12.5px;line-height:1.1;color:var(--mut)}
+    .ign-ribbon .cr-prod::before{content:"·";margin-right:.5em;color:#4a4a4c}
+    .ign-ribbon .mq-sep{height:12px;margin:0 34px;opacity:.32}
+    @media (hover:hover){ .ign-ribbon .mq-link:hover .cr-sub{color:#b8b8b8} }
     /* the rail holds still (lead credit parked in view) until the ribbon has faded in */
     @media (prefers-reduced-motion:no-preference){
       .ign-ribbon .mq-rail{animation-delay:1.8s}
@@ -4311,13 +4436,16 @@ function StyleTag() {
     /* ---------- about ---------- */
     .about2-head{font-size:clamp(30px,5.3vw,76px);line-height:1.02;margin:0 auto 34px;max-width:1160px}
     .about2-body p{color:#b8b8b8;font-size:clamp(16px,1.3vw,18.5px);line-height:1.7;max-width:660px;margin:0 auto 18px;text-wrap:pretty;animation:rv .75s var(--ease-out) .4s both}
-    .about2-band{margin:clamp(56px,7vw,88px) calc(50% - 50vw) 0;padding:20px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);-webkit-mask:none;mask:none;
-      font-family:'Suntage','Inter',sans-serif;font-size:clamp(22px,3.3vw,44px);line-height:1.15;letter-spacing:.03em;text-transform:uppercase;animation:vt-fade-in .8s ease .6s both}
-    /* placements: the artist in chrome, the song as an outline */
-    .about2-band b{font-weight:400;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
-    .about2-band .mq-title{color:transparent;-webkit-text-stroke:1px #8a8a8a;transition:-webkit-text-stroke-color .3s ease}
-    @media (hover:hover){ .about2-band .mq-link:hover .mq-title{-webkit-text-stroke-color:#f5f5f5} }
-    .about2-band .mq-dash{margin:0 .5em;color:#3a3a3c}
+    /* the big credits band: cover, the artist in chrome, and the song and producer as a caption beside it */
+    .about2-band{margin:clamp(56px,7vw,88px) calc(50% - 50vw) 0;padding:clamp(18px,2vw,26px) 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
+      font-family:'Suntage','Inter',sans-serif;font-size:clamp(22px,3.3vw,44px);line-height:1;letter-spacing:.03em;text-transform:uppercase;text-align:left;animation:vt-fade-in .8s ease .6s both}
+    .about2-band .cr-cov{width:.95em;height:.95em;margin-right:.34em;border-radius:6px;--lift:scale(2.5) rotate(-4deg)}
+    .about2-band .cr-txt{align-items:center}
+    .about2-band .cr-artist{padding:.05em 0;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
+    .about2-band .cr-sub{flex-direction:column;gap:.6em;margin-left:.5em;font-size:max(9px,.25em);letter-spacing:.16em;line-height:1;color:var(--mut3)}
+    .about2-band .cr-prod{color:#68686a}
+    .about2-band .mq-sep{height:.46em;margin:0 .9em}
+    @media (hover:hover){ .about2-band .mq-link:hover .cr-song{color:var(--ink)} }
     .rel2{margin-top:clamp(64px,8vw,108px)}
     .sec-head{font-size:clamp(24px,3.4vw,42px);line-height:1.05;margin:0 0 38px}
     .rel2-grid{--cols:5;--g:20px;display:flex;flex-wrap:wrap;justify-content:center;gap:30px var(--g)}
@@ -4463,6 +4591,9 @@ function StyleTag() {
     .ct-fld textarea{height:auto;min-height:140px;padding:14px 16px;line-height:1.5;resize:vertical}
     .ct-fld input::placeholder{color:#7a7a7c}
     .ct-fld input:focus,.ct-fld textarea:focus{outline:none;border-color:#f5f5f5;background:#111113;box-shadow:0 0 0 4px rgba(255,255,255,.08)}
+    /* a password manager's fill keeps the dark field (browsers otherwise paint it pale blue or yellow) */
+    .ct-fld input:-webkit-autofill{-webkit-text-fill-color:var(--ink);caret-color:var(--ink);box-shadow:0 0 0 100px #0d0d0f inset}
+    .ct-fld input:-webkit-autofill:focus{box-shadow:0 0 0 100px #111113 inset,0 0 0 4px rgba(255,255,255,.08)}
     .ct-chips{justify-content:flex-start;gap:8px;padding:0;border:0;border-radius:0}
     .ct-chips .chip>span{height:40px;padding:0 15px;border:1px solid #2a2a2c;font-size:10px}
     .ct-chips .chip.on>span{border-color:transparent}
@@ -4617,6 +4748,10 @@ function StyleTag() {
     @media(orientation:landscape) and (max-height:500px){
       .wm{width:min(82vw,800px,96svh)} .ign{padding-top:8px;padding-bottom:72px} .ign-cta{margin-top:28px}
       .ign .ign-cta{flex-direction:row;align-items:center;width:auto} /* beats the later phone stacking */
+      /* a slimmer ribbon, set lower, so it keeps clear of the CTAs on the shortest phones */
+      .ign-ribbon{bottom:calc(12px + env(safe-area-inset-bottom));padding:8px 0}
+      .ign-ribbon .cr-cov{width:30px;height:30px;margin-right:11px}
+      .ign-ribbon .cr-txt{gap:5px}
     }
     @media(min-width:900px) and (max-width:1199px){ .ap-rail{grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:12px} }
     @media(max-width:819px){ .rel2-grid{--cols:3} }
@@ -4633,7 +4768,7 @@ function StyleTag() {
       .rel2-grid.rel2-feat{grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 12px}
       .rc-feat .rc-meta strong{font-size:17px}
       .chip-tag{font-size:9.5px;letter-spacing:.06em;padding:4px 7px}
-      .about2-band b{background:none;color:var(--ink);-webkit-text-fill-color:currentColor}
+      .about2-band .cr-artist{background:none;color:var(--ink);-webkit-text-fill-color:currentColor}
       .ros2-filter{align-self:stretch;margin-bottom:36px}
       .ros2-filter .chip{flex:1}
       .ros2-filter .chip>span{display:flex;justify-content:center;padding:0 8px;font-size:9.5px;letter-spacing:.1em;gap:6px}
@@ -4662,17 +4797,14 @@ function StyleTag() {
       .pub .ap-name,.pub .ap-name *,.pub .pc-name,.pub .pc-name *{transition:none!important}
       ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}
       .wm-img{-webkit-mask:none!important;mask:none!important}
-      .wm-shine,.wm-spot{display:none}
+      .wm-shine,.wm-spot,.lg-d-shine{display:none}
       .wm-spark{opacity:.85!important;scale:1!important}
       /* marquees become a still, wrapped block that starts at the first credit */
-      .mq{-webkit-mask:none!important;mask:none!important}
+      .ign-ribbon::before,.ign-ribbon::after{display:none}
       .mq-rail{animation:none!important;width:100%;transform:none!important}
-      .mq-track{flex-shrink:1;width:100%;flex-wrap:wrap;justify-content:center;gap:6px 1.8em;padding:0 var(--gutter)}
+      .mq-track{flex-shrink:1;width:100%;flex-wrap:wrap;justify-content:center;gap:14px 34px;padding:0 var(--gutter)}
       .mq-track+.mq-track,.mq-rep,.mq-sep{display:none}
-      .mq-item:not(.mq-rep){display:block;max-width:100%;white-space:normal;text-align:center;text-wrap:balance}
-      .mq-item:not(.mq-rep)>.mq-link{display:inline}
-      .mq-cov{display:inline-block;vertical-align:middle}
-      .mq-dash::before{content:"\\2060"} /* word joiner: a wrap never starts a line with the dash */
+      .mq-item:not(.mq-rep){max-width:100%;white-space:normal}
       /* in the flow under the CTAs, so the taller wrapped ribbon can never cover them */
       .ign{padding-bottom:28px}
       .ign-ribbon{position:relative;left:auto;right:auto;bottom:auto;align-self:stretch;margin:44px calc(-1 * var(--gutter)) 0}
@@ -4683,14 +4815,20 @@ function StyleTag() {
       .strike{clip-path:none!important}
       .ct-check circle,.ct-check path{stroke-dashoffset:0!important}
     }
-    /* ...but a wrapped ribbon can't fit a landscape phone's first screen: one still row, swipe for more */
+    /* ...but on a phone a wrapped ribbon is a tall ragged stack under the hero (and can't fit a landscape
+       phone's first screen at all): one still row there, swipe for more */
+    @media (prefers-reduced-motion:reduce) and (orientation:landscape) and (max-height:500px),(prefers-reduced-motion:reduce) and (max-width:599px){
+      .mq.ign-ribbon{overflow-x:auto;scrollbar-width:none;overscroll-behavior-x:contain;-webkit-mask:linear-gradient(90deg,#000 85%,transparent);mask:linear-gradient(90deg,#000 85%,transparent)}
+      .mq.ign-ribbon .mq-rail{width:max-content}
+      .ign-ribbon .mq-track{flex-wrap:nowrap;justify-content:flex-start;width:max-content;gap:28px}
+      .ign-ribbon .mq-item:not(.mq-rep){display:inline-flex;white-space:nowrap}
+    }
     @media (prefers-reduced-motion:reduce) and (orientation:landscape) and (max-height:500px){
       .home2 .ign{padding-bottom:8px} .ign .ign-ribbon{margin-top:28px}
-      .mq.ign-ribbon{overflow-x:auto;scrollbar-width:none;overscroll-behavior-x:contain;-webkit-mask:linear-gradient(90deg,#000 85%,transparent)!important;mask:linear-gradient(90deg,#000 85%,transparent)!important}
-      .mq.ign-ribbon .mq-rail{width:max-content}
-      .ign-ribbon .mq-track{flex-wrap:nowrap;justify-content:flex-start;width:max-content}
-      .ign-ribbon .mq-item:not(.mq-rep){display:inline-flex;white-space:nowrap}
-      .ign-ribbon .mq-item:not(.mq-rep)>.mq-link{display:inline-flex}
+    }
+    /* phones read left-aligned: the still credits band too, one credit under the next like a tracklist */
+    @media (prefers-reduced-motion:reduce) and (max-width:599px){
+      .about2-band .mq-track{justify-content:flex-start;gap:16px 28px}
     }
     `}</style>
   );
