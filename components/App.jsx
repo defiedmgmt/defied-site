@@ -701,7 +701,7 @@ export default function App() {
         )}
       </div>
 
-      {!inPortal && <Footer route={route} session={session} inert={menuOpen} />}
+      {!inPortal && <Footer route={route} inert={menuOpen} />}
       {!inPortal && <Toast />}
     </div>
   );
@@ -1061,12 +1061,10 @@ function PublicNav({ route, menuOpen, setMenuOpen, session }) {
   );
 }
 
-function Footer({ route, session, inert }) {
-  // One quiet sign-off, the same on every page: the D (home), the two places people go from the
-  // bottom of a page (contact, and sign in / the dashboard), the socials, the copyright. It mirrors
-  // the nav bar — mark on the left, links on the right — so the page opens and closes on one line.
-  const authRoute = session ? (session.role === "staff" ? "staff" : "client") : "login";
-  const links = [["contact", "Contact"], [authRoute, session ? "Dashboard" : "Sign in"]];
+function Footer({ route, inert }) {
+  // One quiet sign-off, the same on every page: the D (home), the copyright, Contact and the socials.
+  // It mirrors the nav bar — mark on the left, links on the right — so the page opens and closes on
+  // one line. (Signing in stays in the nav.)
   return (
     <footer className="foot2" {...(inert ? { inert: "" } : {})}>
       <div className="ft">
@@ -1076,9 +1074,7 @@ function Footer({ route, session, inert }) {
         </TLink>
         <p className="ft-copy">© {new Date().getFullYear()} Defied Management</p>
         <nav className="ft-links" aria-label="Footer">
-          {links.map(([r, label]) => (
-            <TLink key={r} href={ROUTE_TO_PATH[r]} {...(r === route ? { "aria-current": "page" } : {})}>{label}</TLink>
-          ))}
+          <TLink href={ROUTE_TO_PATH.contact} {...(route === "contact" ? { "aria-current": "page" } : {})}>Contact</TLink>
         </nav>
         <div className="ft-social">
           <ExtLink href="https://instagram.com/defiedmgmt" className="ft-soc" label="Instagram, @defiedmgmt"><Instagram size={17} /></ExtLink>
@@ -1134,18 +1130,28 @@ function Home({ publicData }) {
     return () => { hero.removeEventListener("pointermove", move); hero.removeEventListener("pointerleave", leave); cancelAnimationFrame(raf); };
   }, []);
 
-  // hovering the mark sends one extra light sweep across it — unless the
-  // periodic sweep is crossing it right now (restarting that mid-pass jumps)
+  // hovering the mark sends one light sweep across it, and only one: the idle cycle (the sweep and the
+  // spark's twinkle, in step on the same 8s loop) jumps to a fresh pass — unless a pass hasn't reached
+  // the middle yet, which then is the one — and holds once that pass is over while the pointer stays.
+  // Leaving picks the cycle back up from there, so the next idle pass is a full cycle away.
+  const holdT = useRef(0);
+  useEffect(() => () => clearTimeout(holdT.current), []);
+  const cycle = (el) => el.getAnimations?.({ subtree: true }).filter((a) => a.animationName === "wm-sweep" || a.animationName === "spark-tw") || [];
   const resweep = (e) => {
-    const el = e.currentTarget;
-    if (el.classList.contains("wm-hit")) return;
-    const a = el.querySelector(".wm-shine")?.getAnimations?.({ subtree: true }).find((x) => x.animationName === "wm-sweep");
-    const delay = a?.effect?.getTiming?.().delay || 0;
-    const t = a && a.currentTime != null ? (a.currentTime - delay) % 8000 : -1;
-    if (t >= 0 && t < 1350) return;
-    el.classList.add("wm-hit");
-    setTimeout(() => el.classList.remove("wm-hit"), 1300);
+    const anims = cycle(e.currentTarget);
+    const sweep = anims.find((a) => a.animationName === "wm-sweep");
+    if (!sweep || sweep.currentTime == null) return;
+    const PASS = 1350, HALF = 640; // the part of each cycle where the light is moving · its centre crossing the middle
+    const t = sweep.currentTime - (sweep.effect.getTiming().delay || 0);
+    let left; // until the pass that counts as this hover's is over
+    if (t < 0) left = PASS - t; // the first pass hasn't started yet: it's the one
+    else if (t % 8000 < HALF) left = PASS - (t % 8000);
+    else { const jump = 8000 - (t % 8000); anims.forEach((a) => { a.currentTime += jump; }); left = PASS; }
+    anims.forEach((a) => a.play());
+    clearTimeout(holdT.current);
+    holdT.current = setTimeout(() => anims.forEach((a) => a.pause()), left);
   };
+  const release = (e) => { clearTimeout(holdT.current); cycle(e.currentTarget).forEach((a) => a.play()); };
 
   const credits = creditsOf(publicData);
   return (
@@ -1159,6 +1165,7 @@ function Home({ publicData }) {
           className="wm"
           ref={wmRef}
           onPointerEnter={resweep}
+          onPointerLeave={release}
           aria-label="Defied Management — about us"
           style={{ viewTransitionName: "brand" }}
         >
@@ -4169,9 +4176,9 @@ function StyleTag() {
     .pm-social{display:flex;gap:2px;margin-right:-10px}
 
     /* ---------- footer ---------- */
-    /* one quiet row, the same on every page and built from the nav's own parts (the D, the links with
-       their travelling underline, the outlined pill), so the page opens and closes on the same line.
-       Phones fold the row in two: what you can do (the links, the socials), then the D and the © */
+    /* one quiet row, the same on every page and built from the nav's own parts (the D, a nav link with
+       its travelling underline), so the page opens and closes on the same line.
+       Phones fold the row in two: Contact and the socials, then the D and the © */
     .foot2{margin-top:clamp(64px,8vw,104px);padding:0 max(var(--gutter),calc(50% - 624px))}
     .app:has(.ign) .foot2{margin-top:0} /* Home: the hero fills the first screen and ends on the credits ribbon */
     .ft{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;grid-template-areas:"mark copy links social";align-items:center;column-gap:24px;
@@ -4189,16 +4196,13 @@ function StyleTag() {
     .ft-links{grid-area:links;display:flex;align-items:center;gap:28px}
     .ft-links a{position:relative;display:inline-flex;align-items:center;height:36px;color:var(--mut3);text-decoration:none;font-family:'Suntage','Inter',sans-serif;font-size:12px;letter-spacing:.16em;text-transform:uppercase;line-height:1.2;white-space:nowrap;transition:color .35s ease,border-color .35s ease,background-color .35s ease}
     .ft-links a:hover,.ft-links a:focus-visible,.ft-links a[aria-current]{color:var(--ink)}
-    /* the first link (Contact) is a nav link, underline and all; the last (Sign in / Dashboard) is the nav's pill */
-    .ft-links a:first-child::after{content:"";position:absolute;left:0;right:.16em;bottom:4px;height:1px;background:var(--chrome-border);--ul-l:1;--ul-r:0;transform-origin:left;
+    .ft-links a::after{content:"";position:absolute;left:0;right:.16em;bottom:4px;height:1px;background:var(--chrome-border);--ul-l:1;--ul-r:0;transform-origin:left;
       transform:translateX(calc(max(0, var(--ul-l) + var(--ul-r) - 1) * 100%)) scaleX(calc(var(--ul-r) - max(0, var(--ul-l) + var(--ul-r) - 1)));
       transition:--ul-l .5s var(--ease-out),--ul-r 0s .5s}
-    .ft-links a:first-child:is(:hover,:focus-visible)::after{--ul-l:0;--ul-r:1;transition:--ul-l .3s var(--ease-out),--ul-r .5s var(--ease-out)}
-    .ft-links a:first-child[aria-current]::after{--ul-l:0;--ul-r:1;transition:none}
-    .foot2 .ft-links a:first-child:focus-visible{outline-offset:8px;border-radius:4px}
-    .ft-links a:last-child{padding:0 16px;border:1px solid var(--line-2);border-radius:100px;font-size:11px}
-    .ft-links a:last-child:is(:hover,:focus-visible),.ft-links a:last-child[aria-current]{border-color:#f5f5f5;background:rgba(255,255,255,.06)}
-    .foot2 .ft-links a:last-child:focus-visible,.foot2 .ft-soc:focus-visible{border-radius:100px}
+    .ft-links a:is(:hover,:focus-visible)::after{--ul-l:0;--ul-r:1;transition:--ul-l .3s var(--ease-out),--ul-r .5s var(--ease-out)}
+    .ft-links a[aria-current]::after{--ul-l:0;--ul-r:1;transition:none}
+    .foot2 .ft-links a:focus-visible{outline-offset:8px;border-radius:4px}
+    .foot2 .ft-soc:focus-visible{border-radius:100px}
     .ft-social{grid-area:social;display:flex;align-items:center;gap:8px}
     .ft-soc{display:inline-grid;place-items:center;width:36px;height:36px;border:1px solid var(--line-2);border-radius:50%;color:var(--mut3);transition:color .35s ease,border-color .35s ease,background-color .35s ease}
     .ft-soc:hover,.ft-soc:focus-visible{color:var(--ink);border-color:#f5f5f5;background:rgba(255,255,255,.06)}
@@ -4213,10 +4217,8 @@ function StyleTag() {
     /* phones: the same row folded in two — the links and the socials, then the D and the © */
     @media(max-width:719px){
       .ft{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"links links social" "mark copy copy";column-gap:16px;row-gap:14px;padding-top:20px}
-      .ft-links{gap:22px}
       .ft-copy{padding-left:16px;font-size:12px}
     }
-    @media(max-width:359px){ .ft-links{gap:12px} .ft-links a{letter-spacing:.1em} .ft-links a:last-child{padding:0 12px} .ft-social{gap:4px} }
     @media (prefers-reduced-motion:reduce){
       .ft-mark-shine::before{animation:none!important}
     }
@@ -4252,12 +4254,7 @@ function StyleTag() {
       background:linear-gradient(100deg,transparent 12%,rgba(255,255,255,.5) 44%,rgba(214,230,255,.42) 54%,transparent 84%);
       transform:translateX(-130%) skewX(-14deg);animation:wm-sweep 8s var(--ease-light) .8s infinite}
     .ign-seen .wm-shine::before{animation-delay:.35s}
-    .wm.wm-hit .wm-shine::before{animation:wm-sweep-once 1.25s var(--ease-light)}
-    /* the twinkle restarts with the hover sweep, so both pick the periodic cycle back up in step */
-    .wm.wm-hit .wm-spark::before{animation:spark-tw-once 1.25s var(--ease-light)}
-    @keyframes spark-tw-once{0%,40%{transform:rotate(0deg) scale(.8);opacity:.65}56%{transform:rotate(45deg) scale(1.45);opacity:1}88%,100%{transform:rotate(90deg) scale(.8);opacity:.65}}
     @keyframes wm-sweep{0%{transform:translateX(-130%) skewX(-14deg)}16%,100%{transform:translateX(330%) skewX(-14deg)}}
-    @keyframes wm-sweep-once{from{transform:translateX(-130%) skewX(-14deg)}to{transform:translateX(330%) skewX(-14deg)}}
     .wm-spot{opacity:var(--spot,0);background:radial-gradient(240px circle at var(--mx,50%) var(--my,50%),rgba(255,255,255,.34),transparent 62%)}
     .wm-spark{position:absolute;left:61.6%;top:31.6%;width:11%;aspect-ratio:1;translate:-50% -50%;pointer-events:none;mix-blend-mode:plus-lighter;
       opacity:0;scale:0;animation:spark-pop .7s var(--spring) .95s forwards}
