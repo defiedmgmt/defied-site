@@ -519,7 +519,8 @@ const PATH_TO_ROUTE = Object.fromEntries(Object.entries(ROUTE_TO_PATH).map(([k, 
 
 export default function App() {
   const router = useRouter();
-  const route = PATH_TO_ROUTE[router.pathname] || "home";
+  // pages/404 renders for any unknown URL; everything else unknown still falls back to Home
+  const route = PATH_TO_ROUTE[router.pathname] || (router.pathname === "/404" ? "notfound" : "home");
   // undefined = /api/auth/me hasn't answered yet, null = signed out,
   // {id, role, name, clientId} = signed in. Every route-protection decision
   // below waits for this to leave "undefined" so a real session's data
@@ -681,7 +682,7 @@ export default function App() {
       )}
 
       {/* the open poster menu is modal: the page under it leaves the tab order */}
-      <div className={`${route === "home" || route === "login" ? "view view-home" : "view"}${canViewTransition ? "" : " view-anim"}`} key={route} {...(menuOpen ? { inert: "" } : {})}>
+      <div className={`${route === "home" || route === "login" || route === "notfound" ? "view view-home" : "view"}${canViewTransition ? "" : " view-anim"}`} key={route} {...(menuOpen ? { inert: "" } : {})}>
         <PageGuard data={publicData} onDrop={() => publicDataRequest.then((d) => { if (!d) setLoadErr("Couldn't load site data — try refreshing."); })}>
           {route === "home" && <Home publicData={publicData} />}
           {route === "about" && <About publicData={publicData} />}
@@ -690,6 +691,7 @@ export default function App() {
           {route === "contact" && <Contact publicData={publicData} />}
         </PageGuard>
         {route === "login" && <Login login={login} />}
+        {route === "notfound" && <NotFound />}
 
         {route === "staff" && session?.role === "staff" && (
           db ? <StaffDashboard db={db} commit={commit} logout={logout} /> : <p className="muted page">Loading…</p>
@@ -699,9 +701,24 @@ export default function App() {
         )}
       </div>
 
-      {!inPortal && <Footer route={route} ready={!!publicData || !!loadErr} inert={menuOpen} />}
+      {!inPortal && <Footer route={route} session={session} inert={menuOpen} />}
       {!inPortal && <Toast />}
     </div>
+  );
+}
+
+// a mistyped or old link: say so in the site's own voice, and offer the two ways back in
+function NotFound() {
+  return (
+    <main className="pg nf">
+      <p className="micro-label nf-code">Error 404</p>
+      <SplitHead text="PAGE NOT FOUND." chrome className="pg-head" />
+      <p className="nf-lead">This page doesn't exist or has moved.</p>
+      <div className="nf-cta">
+        <TLink href={ROUTE_TO_PATH.home} className="pill pill-solid">Back home</TLink>
+        <TLink href={ROUTE_TO_PATH.roster} className="pill pill-ghost">See the roster</TLink>
+      </div>
+    </main>
   );
 }
 
@@ -1044,131 +1061,29 @@ function PublicNav({ route, menuOpen, setMenuOpen, session }) {
   );
 }
 
-function Footer({ route, ready, inert }) {
-  // The sign-off is a lit stage: the chrome wordmark stands whole on a floor line under a soft beam
-  // from a lamp in the ceiling hairline, and that floor line is the top edge of one band of three
-  // labelled cells (how to reach us, the pages, the socials), then a base row. Everything rests
-  // visible and at full brightness; .in only turns the lights on (lamp, beam, floor line, sheen, one
-  // light pass, ~1.5s, once) when the mark is half on screen, or the base row is (a jump straight to
-  // the bottom of a short landscape screen can skip past the mark). It waits for the page's content,
-  // so a short loading state never uses it up. The footer outlives route changes: a new page re-arms
-  // the lights only while the footer is off screen, so it never blinks. Home's hero already is the
-  // wordmark with both calls to action, so Home's footer is only the base row.
-  const EMAIL = "submissions@defiedmgmt.com";
-  const footRef = useRef(null);
-  const copyT = useRef(0);
-  const [lit, setLit] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const home = route === "home";
-  const contact = route === "contact";
-  useEffect(() => {
-    const r = footRef.current?.getBoundingClientRect();
-    if (r && (r.top >= window.innerHeight || r.bottom <= 0)) setLit(false);
-  }, [route]);
-  useEffect(() => {
-    const f = footRef.current;
-    if (lit || home || !ready || !f) return;
-    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { setLit(true); io.disconnect(); } }, { threshold: 0.5 });
-    f.querySelectorAll(".fs-mark, .fs-base").forEach((t) => io.observe(t));
-    return () => io.disconnect();
-  }, [lit, home, ready, route]);
-  useEffect(() => () => clearTimeout(copyT.current), []);
-  // once lit, pointing at the mark replays its light pass (the hero wordmark does the same)
-  const resweep = (e) => {
-    const a = e.currentTarget.getAnimations?.({ subtree: true }).find((x) => x.animationName === "wm-sweep-once");
-    if (a && a.playState === "finished") { a.currentTime = a.effect.getTiming().delay; a.play(); }
-  };
-  const copyMail = async () => {
-    await copyText(EMAIL);
-    setCopied(true);
-    clearTimeout(copyT.current);
-    copyT.current = setTimeout(() => setCopied(false), 1700);
-  };
-  // back to the top, and keyboard focus goes with it (to the nav's logo) instead of staying down here
-  const toTop = () => {
-    window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
-    document.querySelector(".nav2-mark")?.focus({ preventScroll: true });
-  };
-  const social = (cls, ext) => [
-    ["https://instagram.com/defiedmgmt", "Instagram", <Instagram size={18} />],
-    ["https://x.com/defiedmgmt", "X", <XIcon size={16} />],
-  ].map(([href, name, icon]) => (
-    <ExtLink key={name} href={href} className={cls} label={`${name}, @defiedmgmt`}>
-      {icon}
-      <span>{name}</span>
-      {ext && <span className="fs-soc-ext" aria-hidden="true">↗</span>}
-    </ExtLink>
-  ));
+function Footer({ route, session, inert }) {
+  // One quiet sign-off, the same on every page: the D (home), the two places people go from the
+  // bottom of a page (contact, and sign in / the dashboard), the socials, the copyright. It mirrors
+  // the nav bar — mark on the left, links on the right — so the page opens and closes on one line.
+  const authRoute = session ? (session.role === "staff" ? "staff" : "client") : "login";
+  const links = [["contact", "Contact"], [authRoute, session ? "Dashboard" : "Sign in"]];
   return (
-    <footer className={`foot2${home ? " foot2-home" : ""}${lit && !home ? " in" : ""}`} ref={footRef} {...(inert ? { inert: "" } : {})}>
-      {!home && (
-        <>
-          <div className="fs-stage">
-            <span className="fs-beam" aria-hidden="true" />
-            <div className="fs-plinth">
-              <TLink href={ROUTE_TO_PATH.home} className="fs-mark" aria-label="Defied Management — home" onPointerEnter={resweep}>
-                <img src="/brand/wordmark.webp" width="1100" height="365" alt="" loading="lazy" decoding="async" draggable={false} />
-                <span className="fs-shine" aria-hidden="true" />
-              </TLink>
-              <img className="fs-refl" src="/brand/wordmark.webp" width="1100" height="365" alt="" aria-hidden="true" loading="lazy" decoding="async" draggable={false} />
-            </div>
-            <span className="fs-floor" aria-hidden="true" />
-          </div>
-          <div className="fs-band">
-            <div className="fs-cell fs-reach">
-              {contact ? (
-                // the contact page already shows the address with its own copy button: send people on to the roster
-                <>
-                  <p className="micro-label">Who we work with</p>
-                  <p className="fs-say">The Defied Management roster of producers and artists.</p>
-                  <TLink href={ROUTE_TO_PATH.roster} className="pill pill-solid fs-cta">Meet the roster <span className="fs-arrow" aria-hidden="true">→</span></TLink>
-                </>
-              ) : (
-                <>
-                  <p className="micro-label">Get in touch</p>
-                  <div className="fs-mail">
-                    <ExtLink href={`mailto:${EMAIL}`} className="fs-mail-a"><span>{EMAIL}</span></ExtLink>
-                    <button type="button" className="hit fs-copy" onClick={copyMail} aria-label="Copy email address" title="Copy email address">
-                      {copied ? <Check size={16} /> : <Copy size={16} />}
-                      {copied && <span className="copied-pop" aria-hidden="true">Copied</span>}
-                    </button>
-                    <span className="sr-only" aria-live="polite">{copied ? "Email address copied" : ""}</span>
-                  </div>
-                  <TLink href={ROUTE_TO_PATH.contact} className="pill pill-solid fs-cta">Work with us <span className="fs-arrow" aria-hidden="true">→</span></TLink>
-                </>
-              )}
-            </div>
-            <nav className="fs-cell fs-nav" aria-label="Footer">
-              <p className="micro-label">Explore</p>
-              <ul>
-                {PUBLIC_LINKS.map(([r, label]) => (
-                  <li key={r}><TLink href={ROUTE_TO_PATH[r]} {...(r === route ? { "aria-current": "page" } : {})}>{label}</TLink></li>
-                ))}
-              </ul>
-            </nav>
-            <div className="fs-cell fs-follow">
-              <div className="fs-head">
-                <p className="micro-label">Follow</p>
-                <span className="fs-handle">@defiedmgmt</span>
-              </div>
-              <div className="fs-soc-list">{social("fs-soc", true)}</div>
-            </div>
-          </div>
-        </>
-      )}
-      <div className="fs-base">
-        <p className="fs-legal">
-          <span>© {new Date().getFullYear()} Defied Management</span>
-          {!home && <span className="fs-legal-say">Independent music management and publishing administration.</span>}
-        </p>
-        {home ? (
-          <div className="fs-base-soc">{social("fs-mini", false)}</div>
-        ) : (
-          <button type="button" className="fs-top" onClick={toTop}>
-            <span>Back to top</span>
-            <span className="fs-top-ic" aria-hidden="true"><span>↑</span></span>
-          </button>
-        )}
+    <footer className="foot2" {...(inert ? { inert: "" } : {})}>
+      <div className="ft">
+        <TLink href={ROUTE_TO_PATH.home} className="ft-mark" aria-label="Defied Management — home">
+          <img src="/brand/d.png" alt="" width="45" height="36" loading="lazy" decoding="async" draggable={false} />
+          <span className="ft-mark-shine" aria-hidden="true" />
+        </TLink>
+        <p className="ft-copy">© {new Date().getFullYear()} Defied Management</p>
+        <nav className="ft-links" aria-label="Footer">
+          {links.map(([r, label]) => (
+            <TLink key={r} href={ROUTE_TO_PATH[r]} {...(r === route ? { "aria-current": "page" } : {})}>{label}</TLink>
+          ))}
+        </nav>
+        <div className="ft-social">
+          <ExtLink href="https://instagram.com/defiedmgmt" className="ft-soc" label="Instagram, @defiedmgmt"><Instagram size={17} /></ExtLink>
+          <ExtLink href="https://x.com/defiedmgmt" className="ft-soc" label="X, @defiedmgmt"><XIcon size={15} /></ExtLink>
+        </div>
       </div>
     </footer>
   );
@@ -4254,158 +4169,66 @@ function StyleTag() {
     .pm-social{display:flex;gap:2px;margin-right:-10px}
 
     /* ---------- footer ---------- */
-    /* the sign-off is a lit stage: the chrome wordmark stands whole on a floor line under a soft beam
-       from a lamp in the ceiling hairline, with a pool of light and a faint sheen on the floor. The floor
-       line is the top edge of one band of three labelled cells (reach us / pages / socials), then a
-       hairline base row. Everything rests visible at full brightness; .in turns the lights on once, and
-       only the lighting up animates (going dark again happens off screen, instantly) */
-    .foot2{position:relative;isolation:isolate;overflow:hidden;overflow:clip;margin-top:clamp(64px,8vw,104px);padding:0 max(var(--gutter),calc(50% - 624px));border-top:0}
-    .fs-stage{--mw:min(100%,560px);position:relative;display:flex;flex-direction:column;align-items:center;padding-top:clamp(52px,5.6vw,80px)}
-    /* the ceiling: a hairline that fades out at the column edges, with the lamp in its middle */
-    .fs-stage::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,var(--line-2) 14%,var(--line-2) 86%,transparent)}
-    .fs-stage::after{content:"";position:absolute;left:50%;top:0;width:min(260px,46%);height:1px;translate:-50% 0;opacity:.3;
-      background:linear-gradient(90deg,transparent,rgba(255,255,255,.95) 50%,transparent);box-shadow:0 0 22px 3px rgba(226,234,255,.14)}
-    .foot2.in .fs-stage::after{opacity:1;transition:opacity .6s var(--ease-out)}
-    /* the beam: a soft cone hung from the lamp, widening to the floor, and a glow behind the mark —
-       gradients only (no filter blur), so it costs nothing to draw */
-    .fs-beam{position:absolute;z-index:-1;left:50%;top:0;bottom:0;width:min(1240px,100%);translate:-50% 0;pointer-events:none;opacity:.35;
-      -webkit-mask:linear-gradient(90deg,transparent,#000 20%,#000 80%,transparent);mask:linear-gradient(90deg,transparent,#000 20%,#000 80%,transparent)}
-    .fs-beam::before,.fs-beam::after{content:"";position:absolute}
-    .fs-beam::before{inset:0;
-      background:conic-gradient(from 180deg at 50% -56px,rgba(232,238,255,.12),rgba(232,238,255,.1) 22deg,rgba(232,238,255,.07) 36deg,rgba(232,238,255,.03) 46deg,rgba(232,238,255,.008) 54deg,transparent 60deg,transparent 300deg,rgba(232,238,255,.008) 306deg,rgba(232,238,255,.03) 314deg,rgba(232,238,255,.07) 324deg,rgba(232,238,255,.1) 338deg,rgba(232,238,255,.12));
-      -webkit-mask:linear-gradient(180deg,#000,rgba(0,0,0,.72) 58%,#000);mask:linear-gradient(180deg,#000,rgba(0,0,0,.72) 58%,#000)}
-    .fs-beam::after{left:50%;bottom:-40px;width:min(760px,70%);height:85%;translate:-50% 0;background:radial-gradient(closest-side,rgba(214,226,255,.13),transparent)}
-    .foot2.in .fs-beam{opacity:1;transition:opacity .9s var(--ease-light) .1s}
-    .fs-plinth{position:relative;width:var(--mw);margin-bottom:calc(var(--mw) * -.01)}
-    .fs-mark{position:relative;display:block;line-height:0;-webkit-tap-highlight-color:transparent}
-    .fs-mark img{display:block;width:100%;height:auto;user-select:none}
-    .foot2 .fs-mark:focus-visible{outline:1px solid #f5f5f5;outline-offset:12px;border-radius:8px}
-    .fs-shine{position:absolute;inset:0;pointer-events:none;overflow:hidden;mix-blend-mode:plus-lighter;
-      -webkit-mask:url(/brand/wordmark-mask.webp) center/100% 100% no-repeat;mask:url(/brand/wordmark-mask.webp) center/100% 100% no-repeat}
-    .fs-shine::before{content:"";position:absolute;top:-30%;bottom:-30%;left:0;width:34%;
-      background:linear-gradient(100deg,transparent 12%,rgba(255,255,255,.5) 44%,rgba(214,230,255,.42) 54%,transparent 84%);transform:translateX(-130%) skewX(-14deg)}
-    .foot2.in .fs-shine::before{animation:wm-sweep-once .95s var(--ease-light) .6s both}
-    /* the sheen on the floor: the mark flipped, only its first ~26px showing, faint and softened so it
-       reads as light on the floor, never as upside-down letters */
-    .fs-refl{position:absolute;left:0;top:calc(100% - var(--mw) * .018);width:100%;height:auto;pointer-events:none;user-select:none;transform:scaleY(-1);opacity:0;filter:blur(2px);
-      -webkit-mask:linear-gradient(0deg,rgba(0,0,0,.55),rgba(0,0,0,.16) 11px,transparent 26px);mask:linear-gradient(0deg,rgba(0,0,0,.55),rgba(0,0,0,.16) 11px,transparent 26px)}
-    .foot2.in .fs-refl{opacity:.2;transition:opacity .8s var(--ease-light) .5s}
-    /* the floor: a hairline whose lit middle grows out from under the mark, with a pool of light */
-    .fs-floor{position:relative;width:100%;height:1px;background:var(--line-2)}
-    .fs-floor::before,.fs-floor::after{content:"";position:absolute;pointer-events:none}
-    .fs-floor::before{inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.18) 20%,rgba(255,255,255,.66) 50%,rgba(255,255,255,.18) 80%,transparent);transform:scaleX(.3);opacity:.5}
-    .fs-floor::after{left:50%;top:0;width:min(760px,120%);height:110px;translate:-50% -50%;background:radial-gradient(closest-side,rgba(255,255,255,.09),transparent);opacity:.3}
-    .foot2.in .fs-floor::before{transform:none;opacity:1;transition:transform 1.1s var(--ease-out) .3s,opacity .8s var(--ease-light) .3s}
-    .foot2.in .fs-floor::after{opacity:1;transition:opacity .9s var(--ease-light) .35s}
-
-    /* the band: three labelled cells under the floor line, one job each */
-    .fs-band{position:relative;z-index:1;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr);padding:clamp(44px,4.6vw,60px) 0}
-    .fs-cell{display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:0 clamp(20px,3vw,48px)}
-    .fs-cell:first-child{padding-left:0}
-    .fs-cell:last-child{padding-right:0}
-    .fs-cell+.fs-cell{border-left:1px solid var(--line-2)}
-    .fs-cell .micro-label{margin-bottom:16px}
-    .fs-mail{position:relative;display:flex;align-items:center;gap:4px;max-width:100%;margin-top:-8px}
-    .fs-mail-a{display:inline-flex;align-items:center;min-height:44px;min-width:0;color:var(--ink);text-decoration:none;font-size:clamp(17px,1.62vw,22px);font-weight:500;letter-spacing:-.012em}
-    .fs-mail-a span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-bottom:3px;
-      background:linear-gradient(currentColor,currentColor) 0 100%/0 1px no-repeat;transition:background-size .5s var(--ease-out)}
-    .fs-mail-a:hover span,.fs-mail-a:focus-visible span{background-size:100% 1px}
-    .fs-copy{position:relative;flex-shrink:0}
-    .fs-copy:hover{color:var(--ink);background:rgba(255,255,255,.06)}
-    .fs-copy .copied-pop{bottom:calc(100% + 2px)}
-    .fs-say{margin:-2px 0 0;max-width:30ch;font-size:15px;line-height:1.55;color:var(--mut3);text-wrap:balance}
-    .fs-cta{margin-top:22px}
-    .fs-arrow{display:inline-block;font-family:'Inter',sans-serif;font-weight:300;font-size:1.25em;line-height:0;transition:transform .45s var(--ease-out)}
-    .fs-cta:hover .fs-arrow,.fs-cta:focus-visible .fs-arrow{transform:translateX(.25em)}
-    /* the pages, two by two (they read like the nav: About Team / Roster Contact); the current page
-       carries the nav's chrome underline, and hovering draws it in */
-    .fs-nav ul{display:grid;grid-template-columns:repeat(2,max-content);column-gap:clamp(24px,2.6vw,48px);list-style:none;margin:-6px 0 0;padding:0}
-    .fs-nav a{position:relative;display:inline-flex;align-items:center;min-height:40px;font-family:'Suntage','Inter',sans-serif;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--mut3);text-decoration:none;transition:color .2s ease}
-    .fs-nav a::after{content:"";position:absolute;left:0;right:.16em;bottom:calc(50% - 14px);height:1px;background:var(--chrome-border);transform:scaleX(0);transform-origin:0 50%;transition:transform .45s var(--ease-out)}
-    .fs-nav a:hover,.fs-nav a[aria-current]{color:var(--ink)}
-    .fs-nav a:hover::after,.fs-nav a[aria-current]::after{transform:none}
-    /* the socials: one handle in the heading, then a labelled row each */
-    .fs-head{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;margin-bottom:16px}
-    .fs-head .micro-label{margin-bottom:0}
-    .fs-handle{font-size:13px;line-height:1;color:var(--mut);white-space:nowrap}
-    .fs-soc-list{display:flex;flex-direction:column;width:100%;margin-top:-10px}
-    .fs-soc{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;color:var(--ink);text-decoration:none;font-size:15px;font-weight:500}
-    .fs-soc+.fs-soc{border-top:1px solid var(--hair)}
-    .fs-soc svg{flex-shrink:0;width:18px;color:var(--mut3);transition:color .2s ease}
-    .fs-soc-ext{margin-left:auto;font-size:14px;color:var(--mut);transition:transform .4s var(--ease-out),color .2s ease}
-    .fs-soc:hover svg,.fs-soc:hover .fs-soc-ext{color:var(--ink)}
-    .fs-soc:hover .fs-soc-ext{transform:translate(2px,-2px)}
-
-    /* the base row: the copyright (and, with room, what Defied is) and the way back up */
-    .fs-base{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:8px 20px;min-height:60px;padding:6px 0 calc(6px + env(safe-area-inset-bottom));border-top:1px solid var(--hair)}
-    .fs-legal{display:flex;align-items:center;min-width:0;margin:0;font-size:12px;color:var(--mut);white-space:nowrap}
-    .fs-legal-say{display:none}
-    .fs-top{display:inline-flex;align-items:center;gap:12px;min-height:44px;margin-right:-2px;padding:0 2px;background:none;border:0;cursor:pointer;color:var(--mut);white-space:nowrap;
-      font-family:'Suntage','Inter',sans-serif;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;transition:color .2s ease;-webkit-tap-highlight-color:transparent}
-    .fs-top-ic{display:inline-grid;place-items:center;width:30px;height:30px;border:1px solid var(--line-2);border-radius:50%;overflow:hidden;font-family:'Inter',sans-serif;font-size:13px;letter-spacing:0;color:var(--ink);transition:border-color .25s ease}
-    .fs-top-ic>span{display:block}
-    .fs-top:hover{color:var(--ink)}
-    .fs-top:hover .fs-top-ic{border-color:#5a5a5e}
-    .fs-top:hover .fs-top-ic>span{animation:fs-up .6s var(--ease-out)}
-    @keyframes fs-up{0%{translate:0 0}45%{translate:0 -170%}46%{translate:0 170%}100%{translate:0 0}}
-    .foot2 .fs-top:focus-visible{outline:1px solid #f5f5f5;outline-offset:3px;border-radius:6px}
-    /* Home: the hero already is the wordmark with both calls to action, so its footer is only the
-       base row (its own hairline on top), with the socials labelled */
-    .foot2-home{margin-top:0}
-    body:has(.ign-ribbon) .foot2-home .fs-base{border-top-color:transparent} /* the credits ribbon right above already draws that line */
-    .fs-base-soc{display:flex;align-items:center;gap:4px;margin-right:-12px}
-    .fs-mini{display:inline-flex;align-items:center;gap:9px;min-height:44px;padding:0 12px;color:var(--mut3);text-decoration:none;font-size:13px;font-weight:500;transition:color .2s ease}
-    .fs-mini:hover{color:var(--ink)}
-
-    @media (any-pointer:coarse){ .fs-nav a{min-height:44px} .fs-nav ul{margin-top:-8px} }
-    @media(min-width:900px){
-      .fs-legal-say{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;margin-left:16px;padding-left:16px;border-left:1px solid var(--line-2)}
+    /* one quiet row, the same on every page and built from the nav's own parts (the D, the links with
+       their travelling underline, the outlined pill), so the page opens and closes on the same line.
+       Phones fold the row in two: what you can do (the links, the socials), then the D and the © */
+    .foot2{margin-top:clamp(64px,8vw,104px);padding:0 max(var(--gutter),calc(50% - 624px))}
+    .app:has(.ign) .foot2{margin-top:0} /* Home: the hero fills the first screen and ends on the credits ribbon */
+    .ft{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;grid-template-areas:"mark copy links social";align-items:center;column-gap:24px;
+      padding:28px 0 calc(28px + env(safe-area-inset-bottom))}
+    .ft::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:var(--line-2)}
+    .app:has(.ign-ribbon) .ft::before{display:none} /* the ribbon right above already draws that line */
+    .ft-mark{grid-area:mark;position:relative;display:block;line-height:0;padding:7px 6px;margin-left:-6px;-webkit-tap-highlight-color:transparent}
+    .ft-mark img{display:block;height:26px;width:auto}
+    .ft-mark-shine{position:absolute;inset:7px 6px;overflow:hidden;pointer-events:none;mix-blend-mode:plus-lighter;
+      -webkit-mask:url(/brand/d-mask.png) center/100% 100% no-repeat;mask:url(/brand/d-mask.png) center/100% 100% no-repeat}
+    .ft-mark-shine::before{content:"";position:absolute;top:-30%;bottom:-30%;left:0;width:55%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.9),transparent);transform:translateX(-150%) skewX(-14deg)}
+    .ft-mark:hover .ft-mark-shine::before,.ft-mark:focus-visible .ft-mark-shine::before{animation:dsheen .85s var(--ease-light)}
+    .foot2 .ft-mark:focus-visible{outline-offset:0;border-radius:8px}
+    .ft-copy{grid-area:copy;margin:0;padding-left:24px;border-left:1px solid var(--line-2);font-size:12.5px;line-height:20px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .ft-links{grid-area:links;display:flex;align-items:center;gap:28px}
+    .ft-links a{position:relative;display:inline-flex;align-items:center;height:36px;color:var(--mut3);text-decoration:none;font-family:'Suntage','Inter',sans-serif;font-size:12px;letter-spacing:.16em;text-transform:uppercase;line-height:1.2;white-space:nowrap;transition:color .35s ease,border-color .35s ease,background-color .35s ease}
+    .ft-links a:hover,.ft-links a:focus-visible,.ft-links a[aria-current]{color:var(--ink)}
+    /* the first link (Contact) is a nav link, underline and all; the last (Sign in / Dashboard) is the nav's pill */
+    .ft-links a:first-child::after{content:"";position:absolute;left:0;right:.16em;bottom:4px;height:1px;background:var(--chrome-border);--ul-l:1;--ul-r:0;transform-origin:left;
+      transform:translateX(calc(max(0, var(--ul-l) + var(--ul-r) - 1) * 100%)) scaleX(calc(var(--ul-r) - max(0, var(--ul-l) + var(--ul-r) - 1)));
+      transition:--ul-l .5s var(--ease-out),--ul-r 0s .5s}
+    .ft-links a:first-child:is(:hover,:focus-visible)::after{--ul-l:0;--ul-r:1;transition:--ul-l .3s var(--ease-out),--ul-r .5s var(--ease-out)}
+    .ft-links a:first-child[aria-current]::after{--ul-l:0;--ul-r:1;transition:none}
+    .foot2 .ft-links a:first-child:focus-visible{outline-offset:8px;border-radius:4px}
+    .ft-links a:last-child{padding:0 16px;border:1px solid var(--line-2);border-radius:100px;font-size:11px}
+    .ft-links a:last-child:is(:hover,:focus-visible),.ft-links a:last-child[aria-current]{border-color:#f5f5f5;background:rgba(255,255,255,.06)}
+    .foot2 .ft-links a:last-child:focus-visible,.foot2 .ft-soc:focus-visible{border-radius:100px}
+    .ft-social{grid-area:social;display:flex;align-items:center;gap:8px}
+    .ft-soc{display:inline-grid;place-items:center;width:36px;height:36px;border:1px solid var(--line-2);border-radius:50%;color:var(--mut3);transition:color .35s ease,border-color .35s ease,background-color .35s ease}
+    .ft-soc:hover,.ft-soc:focus-visible{color:var(--ink);border-color:#f5f5f5;background:rgba(255,255,255,.06)}
+    .ft-soc svg{display:block}
+    /* touch screens: every target at least 44px */
+    @media (any-pointer:coarse){
+      .ft-links a{height:44px}
+      .ft-soc{width:44px;height:44px}
+      .ft-mark{padding:9px 6px}
+      .ft-mark-shine{inset:9px 6px}
     }
-    /* tablets and phones: how to reach us across the full width, then the pages beside the socials */
-    @media(max-width:899px){
-      .fs-band{grid-template-columns:minmax(0,1fr) minmax(0,1fr);padding:40px 0 36px}
-      .fs-reach{grid-column:1/-1;padding:0 0 32px;margin-bottom:30px;border-bottom:1px solid var(--line-2)}
-      .fs-cell+.fs-cell{border-left:0}
-      .fs-nav{padding-left:0}
-      .fs-follow.fs-cell{padding-left:clamp(20px,4vw,32px);border-left:1px solid var(--line-2)}
+    /* phones: the same row folded in two — the links and the socials, then the D and the © */
+    @media(max-width:719px){
+      .ft{grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"links links social" "mark copy copy";column-gap:16px;row-gap:14px;padding-top:20px}
+      .ft-links{gap:22px}
+      .ft-copy{padding-left:16px;font-size:12px}
     }
-    /* phones: the pages and the socials each take the full width, on the same two columns */
-    @media(max-width:599px){
-      .fs-stage{--mw:min(80%,340px);padding-top:56px}
-      .fs-band{column-gap:16px;padding-top:36px}
-      .fs-reach{padding-bottom:28px;margin-bottom:26px}
-      .fs-mail-a{font-size:clamp(15px,4.6vw,18px)}
-      .fs-nav,.fs-follow{grid-column:1/-1}
-      .fs-nav.fs-cell{padding:0 0 20px;margin-bottom:24px;border-bottom:1px solid var(--line-2)}
-      .fs-follow.fs-cell{padding-left:0;border-left:0}
-      .fs-nav ul,.fs-soc-list{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:16px;width:100%}
-      .fs-soc+.fs-soc{border-top:0}
-      .fs-soc-ext{margin-left:-4px}
-      .fs-legal{font-size:11.5px}
-      .foot2-home .fs-base{flex-direction:column-reverse;justify-content:center;gap:0;padding-top:8px}
-      .fs-base-soc{margin-right:0}
-    }
-    @media(max-width:359px){ .fs-top{gap:8px;letter-spacing:.1em} .fs-top-ic{width:26px;height:26px} }
-    /* short landscape phones: a smaller mark, and (with the width) the band back on one row, so the
-       footer stays about a screen and a half */
-    @media (orientation:landscape) and (max-height:500px){
-      .fs-stage{--mw:min(100%,360px);padding-top:44px}
-      .fs-band{padding:36px 0 28px}
-    }
-    @media (orientation:landscape) and (max-height:500px) and (min-width:800px){
-      .fs-band{grid-template-columns:minmax(0,1.5fr) minmax(0,1.05fr) minmax(0,.9fr)}
-      .fs-reach{grid-column:auto;padding:0 20px 0 0;margin:0;border-bottom:0}
-      .fs-nav.fs-cell{padding:0 20px;border-left:1px solid var(--line-2)}
-      .fs-follow.fs-cell{padding-left:20px}
-      .fs-nav ul{column-gap:24px}
-      .fs-mail-a{font-size:16px}
-    }
+    @media(max-width:359px){ .ft-links{gap:12px} .ft-links a{letter-spacing:.1em} .ft-links a:last-child{padding:0 12px} .ft-social{gap:4px} }
     @media (prefers-reduced-motion:reduce){
-      .fs-beam,.fs-stage::after,.fs-floor::before,.fs-floor::after{opacity:1;transition:none}
-      .fs-floor::before{transform:none}
-      .fs-refl{opacity:.2;transition:none}
-      .fs-shine::before,.fs-top-ic>span{animation:none!important}
+      .ft-mark-shine::before{animation:none!important}
     }
+
+    /* ---------- 404 ---------- */
+    .nf{flex:1;display:flex;flex-direction:column;justify-content:center;padding-bottom:clamp(56px,8vw,100px)}
+    .nf-code{margin:0 0 18px;animation:rv .6s var(--ease-out) both}
+    .nf-lead{max-width:520px;margin:0 auto 40px;color:#b8b8b8;font-size:clamp(16px,1.3vw,17.5px);line-height:1.65;animation:rv .6s var(--ease-out) .25s both}
+    .nf-cta{display:flex;flex-wrap:wrap;justify-content:center;gap:12px}
+    .nf-cta>*{animation:rv .6s var(--ease-out) .35s both}
+    .nf-cta>:nth-child(2){animation-delay:.42s}
+    @media(max-width:599px){ .nf-lead{margin-left:0} .nf-cta{flex-direction:column;align-items:stretch;width:min(100%,280px)} }
 
     /* ---------- home: chrome ignition ---------- */
     .home2{flex:1;display:flex;flex-direction:column}
@@ -4531,7 +4354,7 @@ function StyleTag() {
     .rc:focus-visible{outline:none}
     .rc:focus-visible .rc-cover{outline:1px solid #f5f5f5;outline-offset:3px}
     .rc-meta{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
-    .rc-meta strong{font-size:14px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .rc-meta strong{font-size:14px;font-weight:600;line-height:1.3;text-wrap:pretty;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     .rc-artist{font-size:13px;color:var(--mut3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .rc-chips{display:flex;flex-wrap:wrap;gap:5px;padding-top:8px;min-width:0}
 
@@ -4830,7 +4653,10 @@ function StyleTag() {
       .ign-cta{flex-direction:column;align-items:stretch;width:min(100%,280px)}
       .pill{height:46px;padding:0 22px;font-size:10.5px}
     }
-    @media(max-width:359px){ .rc-chips .chip-tag{letter-spacing:0} }
+    @media(max-width:359px){ .rc-chips .chip-tag{letter-spacing:0} .ap .pill-solid{max-width:100%;padding:0 16px;letter-spacing:.1em} }
+    /* the release grid's narrow cards (2 across on phones, 4 on tablets): the credit chips set tighter so
+       "Prod. Sauceproducedit" stays one pill instead of folding into a two-line box */
+    @media(max-width:899px){ .rc:not(.rc-feat) .rc-chips .chip-tag{font-size:8.5px;letter-spacing:0;padding:4px 6px} }
 
     /* ---------- reduced motion (public pages only; the dashboard keeps its own) ---------- */
     @media (prefers-reduced-motion:reduce){
