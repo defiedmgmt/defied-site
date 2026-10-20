@@ -351,12 +351,12 @@ function Socials({ c, size = 26 }) {
   const ig = (v) => !v ? "" : (/^https?:\/\//i.test(v) ? v : `https://instagram.com/${v.replace(/^@/, "")}`);
   const tk = (v) => !v ? "" : (/^https?:\/\//i.test(v) ? v : `https://tiktok.com/@${v.replace(/^@/, "")}`);
   const items = [
-    ["spotify", c.spotify],
-    ["apple", c.apple],
+    ["spotify", webLink(c.spotify)],
+    ["apple", webLink(c.apple)],
     ["instagram", ig(c.instagram)],
     ["tiktok", tk(c.tiktok)],
-    ["youtube", c.youtube],
-    ["soundcloud", c.soundcloud],
+    ["youtube", webLink(c.youtube)],
+    ["soundcloud", webLink(c.soundcloud)],
   ].filter(([, url]) => url);
   if (items.length === 0) return null;
   return (
@@ -545,19 +545,15 @@ export default function App() {
   const [loadErr, setLoadErr] = useState(null);
   useRevealOnScroll(route !== "staff" && route !== "client");
 
-  // PageShell preloads this request from the HTML, so it's in flight while the JS still downloads.
-  // An error answer (the API sends 502 JSON when the database fails) never replaces good data.
+  // the fresh copy (see publicDataRequest) swaps in when it lands; a failed request only shows
+  // the banner when there was nothing cached to show instead
   useEffect(() => {
     let alive = true;
-    fetch("/api/public-data")
-      .then((r) => { if (!r.ok) throw new Error(`public-data ${r.status}`); return r.json(); })
-      .then((d) => {
-        if (!Array.isArray(d?.clients)) throw new Error("public-data: unexpected shape");
-        // saved first: if this data makes a render throw, the next visit still starts from the fresh copy
-        try { localStorage.setItem(PUBLIC_CACHE_KEY, JSON.stringify(d)); } catch { /* storage full or blocked */ }
-        if (alive) setPublicData(d);
-      })
-      .catch(() => { if (alive && !hadCachedData.current) setLoadErr("Couldn't load site data — try refreshing."); });
+    publicDataRequest.then((d) => {
+      if (!alive) return;
+      if (d) setPublicData(d);
+      else if (!hadCachedData.current) setLoadErr("Couldn't load site data — try refreshing.");
+    });
     return () => { alive = false; };
   }, []);
 
@@ -657,7 +653,6 @@ export default function App() {
   const inPortal = route === "staff" || route === "client";
   // browsers with View Transitions animate route changes there; the rest get a CSS entrance
   const canViewTransition = typeof document !== "undefined" && !!document.startViewTransition;
-  const navCounts = { team: publicData?.staff?.length || 0, roster: publicData?.clients?.length || 0 };
 
   // the App persists across routes, so the mobile menu has to be told to
   // close on any navigation — including back/forward, not just link taps.
@@ -682,16 +677,18 @@ export default function App() {
         <div className="storage-warn">{loadErr}</div>
       )}
       {!inPortal && (
-        <PublicNav route={route} menuOpen={menuOpen} setMenuOpen={setMenuOpen} session={session} counts={navCounts} />
+        <PublicNav route={route} menuOpen={menuOpen} setMenuOpen={setMenuOpen} session={session} />
       )}
 
       {/* the open poster menu is modal: the page under it leaves the tab order */}
       <div className={`${route === "home" || route === "login" ? "view view-home" : "view"}${canViewTransition ? "" : " view-anim"}`} key={route} {...(menuOpen ? { inert: "" } : {})}>
-        {route === "home" && <Home publicData={publicData} />}
-        {route === "about" && <About publicData={publicData} />}
-        {route === "team" && <TeamPage publicData={publicData} />}
-        {route === "roster" && <Roster publicData={publicData} />}
-        {route === "contact" && <Contact publicData={publicData} />}
+        <PageGuard data={publicData} onDrop={() => publicDataRequest.then((d) => { if (!d) setLoadErr("Couldn't load site data — try refreshing."); })}>
+          {route === "home" && <Home publicData={publicData} />}
+          {route === "about" && <About publicData={publicData} />}
+          {route === "team" && <TeamPage publicData={publicData} />}
+          {route === "roster" && <Roster publicData={publicData} />}
+          {route === "contact" && <Contact publicData={publicData} />}
+        </PageGuard>
         {route === "login" && <Login login={login} />}
 
         {route === "staff" && session?.role === "staff" && (
@@ -721,6 +718,18 @@ const PUBLIC_LINKS = [["about", "About"], ["team", "Team"], ["roster", "Roster"]
 const CARD_SIZES = "(max-width: 599px) and (min-resolution: 2.5dppx) 29vw, (max-width: 599px) 46vw, (max-width: 899px) 31vw, (max-width: 1199px) 23vw, 260px";
 // localStorage copy of /api/public-data — bump the version whenever that payload's shape changes
 const PUBLIC_CACHE_KEY = "dm-public-data-v1";
+// Requested as soon as this module runs (PageShell's preload has it in flight already), so it lands
+// sooner and overwrites the saved copy even if this visit never manages to draw it (PageGuard drops a
+// copy a page can't draw). An error answer (the API sends 502 JSON when the database fails) or an odd
+// one never replaces good data.
+const publicDataRequest = typeof window === "undefined" ? null : fetch("/api/public-data")
+  .then((r) => { if (!r.ok) throw new Error(`public-data ${r.status}`); return r.json(); })
+  .then((d) => {
+    if (!Array.isArray(d?.clients)) throw new Error("public-data: unexpected shape");
+    try { localStorage.setItem(PUBLIC_CACHE_KEY, JSON.stringify(d)); } catch { /* storage full or blocked */ }
+    return d;
+  })
+  .catch(() => null);
 
 const slugOf = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 const splitNames = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
@@ -729,10 +738,13 @@ const cleanTitle = (song) => String(song || "").replace(/\s*[([](?:with|feat\.?|
 const primaryArtist = (artist) => splitNames(artist)[0] || "";
 const sameName = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 
+// streaming links are typed in on the dashboard: only ever hand a real web address to an href
+const webLink = (url) => (/^https?:\/\//i.test(String(url || "").trim()) ? String(url).trim() : null);
+
 function creditsOf(publicData) {
   return (publicData?.notableReleases || [])
     .filter((r) => r.song && r.artist)
-    .map((r) => ({ id: r.id, artist: primaryArtist(r.artist), title: cleanTitle(r.song), cover: r.cover }));
+    .map((r) => ({ id: r.id, artist: primaryArtist(r.artist), title: cleanTitle(r.song), cover: r.cover, href: webLink(r.link) }));
 }
 
 // Spotify serves every cover at 640/300/64px under the same id — the ribbon
@@ -740,51 +752,23 @@ function creditsOf(publicData) {
 const coverThumb = (url) => /^https:\/\/i\.scdn\.co\/image\/ab67616d0000b273/.test(url || "")
   ? url.replace("ab67616d0000b273", "ab67616d00004851") : null;
 
-// Suntage draws 0 and O as the same oval, so a handle like "Reallyindig0"
-// would print as REALLYINDIGO. A zero used as a letter (no digit beside it)
-// gets a slash; zeros inside real numbers ("1900", "10 Outta 10") don't need one.
-// A keycap 0️⃣ (0 + FE0F + 20E3) counts as a digit too, so the emoji stays whole.
-const DIGIT_NEXT = /[\d️⃣]/;
 // Emoji (keycaps, flags, pictographs, skin-tone and ZWJ sequences) get a span of their own: inside
 // chrome text (a gradient clipped to transparent glyphs) a colour emoji would paint as a blank silver tile
 const EMOJI_SEQ = /([#*\d]️?⃣|\p{Regional_Indicator}{2}|(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}️)\p{Emoji_Modifier}?(?:‍(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}️?)\p{Emoji_Modifier}?)*)/u;
-const letterZero = (ch, i, a) => ch === "0" && !/\d/.test(a[i - 1] || "") && !DIGIT_NEXT.test(a[i + 1] || "");
-function Zeros({ text }) {
-  const s = String(text ?? "");
-  const parts = s.split(EMOJI_SEQ);
-  if (parts.length === 1 && !s.includes("0")) return s;
-  const out = [];
-  parts.forEach((part, k) => {
-    if (k % 2) { out.push(<span className="emo" key={`e${k}`}>{part}</span>); return; }
-    let run = "";
-    [...part].forEach((ch, i, a) => {
-      if (letterZero(ch, i, a)) {
-        if (run) out.push(run);
-        run = "";
-        out.push(<span className="zero" key={`${k}-${i}`}>0</span>);
-      } else run += ch;
-    });
-    if (run) out.push(run);
-  });
-  return out;
+function Glyphs({ text }) {
+  const parts = String(text ?? "").split(EMOJI_SEQ);
+  if (parts.length === 1) return parts[0];
+  return parts.map((part, k) => (k % 2 ? <span className="emo" key={k}>{part}</span> : part));
 }
 // the same, for text written straight into the DOM (the decoded panel name)
-function zeroNodes(text) {
-  const span = (cls, t) => { const s = document.createElement("span"); s.className = cls; s.textContent = t; return s; };
-  return String(text).split(EMOJI_SEQ).flatMap((part, k) =>
-    k % 2 ? [span("emo", part)] : [...part].map((ch, i, a) => (letterZero(ch, i, a) ? span("zero", "0") : ch))
-  );
-}
-
-// one line of proof under each roster card: their curated notable release if
-// they're credited on one, else their first notable placement. An artist's
-// own song reads as just the title (no "LIYAKK! — " in front of Liyakk!).
-function topCreditFor(client, publicData) {
-  const rel = (publicData?.notableReleases || []).find((r) => splitNames(r.client).some((n) => sameName(n, client.name)));
-  const p = rel || (publicData?.notablePlacements || []).find((x) => x.clientId === client.id && x.song);
-  if (!p) return "";
-  const artist = primaryArtist(p.artist);
-  return sameName(artist, client.name) ? cleanTitle(p.song) : `${artist} — ${cleanTitle(p.song)}`;
+function glyphNodes(text) {
+  return String(text).split(EMOJI_SEQ).map((part, k) => {
+    if (!(k % 2)) return part;
+    const s = document.createElement("span");
+    s.className = "emo";
+    s.textContent = part;
+    return s;
+  });
 }
 
 // roster members credited on a release. "Prod." only when the data actually
@@ -868,9 +852,9 @@ function SplitHead({ text, tag: Tag = "h1", className = "", chrome = false, onVi
   );
 }
 
-// Seamless horizontal loop: the visible rail is decorative (aria-hidden, no
-// links inside a moving track), a visually-hidden list carries the same items
-// for screen readers. Pauses on hover/press; static wrapped block on reduced motion.
+// Seamless horizontal loop: the visible rail is aria-hidden — its linked credits are mouse/touch
+// only (tabIndex -1) — and a visually-hidden list carries the same items for screen readers.
+// Pauses on hover/press; static wrapped block on reduced motion.
 // `seconds` is the time one pass of `items` takes, however many repeats get added.
 function Marquee({ items, label, className = "", seconds = 48, render }) {
   if (!items.length) return null;
@@ -880,7 +864,14 @@ function Marquee({ items, label, className = "", seconds = 48, render }) {
   const track = (copy) => (
     <div className="mq-track" key={copy}>
       {row.map((it, i) => (
-        <span className={`mq-item${i >= items.length ? " mq-rep" : ""}`} key={`${copy}-${i}`}>{render(it)}<span className="mq-sep">✦</span></span>
+        <span className={`mq-item${i >= items.length ? " mq-rep" : ""}`} key={`${copy}-${i}`}>
+          {/* the moving copies are mouse/touch only (the rail is aria-hidden): never in the tab order.
+              The link is the credit alone, so the gap before the next cover never opens this song */}
+          {it.href
+            ? <a className="mq-link" href={it.href} target="_blank" rel="noreferrer" tabIndex={-1} draggable={false}>{render(it)}</a>
+            : render(it)}
+          <span className="mq-sep">✦</span>
+        </span>
       ))}
     </div>
   );
@@ -936,13 +927,13 @@ function useFitLine(ref, text, { min = 10, max = 400 } = {}) {
 function FitLine({ text, tag: Tag = "span", className, ...opts }) {
   const ref = useRef(null);
   useFitLine(ref, text, opts);
-  return <Tag ref={ref} className={className}><Zeros text={text} /></Tag>;
+  return <Tag ref={ref} className={className}><Glyphs text={text} /></Tag>;
 }
 
 /* ------------------------------------------------------------------ */
 /*  PUBLIC NAV + POSTER MENU + FOOTER                                   */
 /* ------------------------------------------------------------------ */
-function PublicNav({ route, menuOpen, setMenuOpen, session, counts }) {
+function PublicNav({ route, menuOpen, setMenuOpen, session }) {
   const authRoute = session ? (session.role === "staff" ? "staff" : "client") : "login";
   const [scrolled, setScrolled] = useState(false);
   const burgerRef = useRef(null);
@@ -1003,7 +994,7 @@ function PublicNav({ route, menuOpen, setMenuOpen, session, counts }) {
         <nav className="nav2-links" aria-label="Main">
           {PUBLIC_LINKS.map(([r, label]) => (
             <TLink key={r} href={ROUTE_TO_PATH[r]} className={route === r ? "active" : ""} aria-current={route === r ? "page" : undefined}>
-              <span className="roll"><span data-t={label}>{label}</span></span>
+              {label}
               {route === r && <i className="nav2-ind" style={{ viewTransitionName: "nav-ind" }} aria-hidden="true" />}
             </TLink>
           ))}
@@ -1037,7 +1028,6 @@ function PublicNav({ route, menuOpen, setMenuOpen, session, counts }) {
               <TLink href={ROUTE_TO_PATH[r]} onClick={closeMenu} aria-current={route === r ? "page" : undefined} className={route === r ? "on" : ""}>
                 <span className="pm-idx" aria-hidden="true">0{i + 1}</span>
                 <span className="pm-word">{label}</span>
-                {counts[r] > 0 && <sup aria-hidden="true">({counts[r]})</sup>}
               </TLink>
             </li>
           ))}
@@ -1055,57 +1045,130 @@ function PublicNav({ route, menuOpen, setMenuOpen, session, counts }) {
 }
 
 function Footer({ route, ready, inert }) {
-  // .in once the logo sign-off is mostly on screen: the chrome "catches the light" (brightens, one
-  // light pass). The footer outlives route changes, so it re-arms per page — and only once the page
-  // has content, never while a short loading state has pulled it on screen.
+  // The sign-off is a lit stage: the chrome wordmark stands whole on a floor line under a soft beam
+  // from a lamp in the ceiling hairline, and that floor line is the top edge of one band of three
+  // labelled cells (how to reach us, the pages, the socials), then a base row. Everything rests
+  // visible and at full brightness; .in only turns the lights on (lamp, beam, floor line, sheen, one
+  // light pass, ~1.5s, once) when the mark is half on screen, or the base row is (a jump straight to
+  // the bottom of a short landscape screen can skip past the mark). It waits for the page's content,
+  // so a short loading state never uses it up. The footer outlives route changes: a new page re-arms
+  // the lights only while the footer is off screen, so it never blinks. Home's hero already is the
+  // wordmark with both calls to action, so Home's footer is only the base row.
+  const EMAIL = "submissions@defiedmgmt.com";
   const footRef = useRef(null);
-  const [litOn, setLitOn] = useState(null); // the route whose footer has lit (so the next page never starts lit)
+  const copyT = useRef(0);
+  const [lit, setLit] = useState(false);
+  const [copied, setCopied] = useState(false);
   const home = route === "home";
+  const contact = route === "contact";
   useEffect(() => {
-    setLitOn(null);
-    const mark = footRef.current?.querySelector(".foot3-mark");
-    if (!mark || !ready) return;
-    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) { setLitOn(route); io.disconnect(); } }, { threshold: 0.5 });
-    io.observe(mark);
+    const r = footRef.current?.getBoundingClientRect();
+    if (r && (r.top >= window.innerHeight || r.bottom <= 0)) setLit(false);
+  }, [route]);
+  useEffect(() => {
+    const f = footRef.current;
+    if (lit || home || !ready || !f) return;
+    const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { setLit(true); io.disconnect(); } }, { threshold: 0.5 });
+    f.querySelectorAll(".fs-mark, .fs-base").forEach((t) => io.observe(t));
     return () => io.disconnect();
-  }, [route, ready]);
+  }, [lit, home, ready, route]);
+  useEffect(() => () => clearTimeout(copyT.current), []);
+  // once lit, pointing at the mark replays its light pass (the hero wordmark does the same)
   const resweep = (e) => {
     const a = e.currentTarget.getAnimations?.({ subtree: true }).find((x) => x.animationName === "wm-sweep-once");
     if (a && a.playState === "finished") { a.currentTime = a.effect.getTiming().delay; a.play(); }
   };
-  const links = (
-    <nav className="foot3-links" aria-label="Footer">
-      {PUBLIC_LINKS.map(([r, label]) => <TLink key={r} href={ROUTE_TO_PATH[r]} {...(r === route ? { "aria-current": "page" } : {})}>{label}</TLink>)}
-    </nav>
-  );
+  const copyMail = async () => {
+    await copyText(EMAIL);
+    setCopied(true);
+    clearTimeout(copyT.current);
+    copyT.current = setTimeout(() => setCopied(false), 1700);
+  };
+  // back to the top, and keyboard focus goes with it (to the nav's logo) instead of staying down here
+  const toTop = () => {
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    document.querySelector(".nav2-mark")?.focus({ preventScroll: true });
+  };
+  const social = (cls, ext) => [
+    ["https://instagram.com/defiedmgmt", "Instagram", <Instagram size={18} />],
+    ["https://x.com/defiedmgmt", "X", <XIcon size={16} />],
+  ].map(([href, name, icon]) => (
+    <ExtLink key={name} href={href} className={cls} label={`${name}, @defiedmgmt`}>
+      {icon}
+      <span>{name}</span>
+      {ext && <span className="fs-soc-ext" aria-hidden="true">↗</span>}
+    </ExtLink>
+  ));
   return (
-    <footer className={`foot2${home ? " foot2-home" : ""}${litOn === route ? " in" : ""}`} ref={footRef} {...(inert ? { inert: "" } : {})}>
-      {/* Home's hero is already the wordmark and both calls to action — its footer is just the base row */}
+    <footer className={`foot2${home ? " foot2-home" : ""}${lit && !home ? " in" : ""}`} ref={footRef} {...(inert ? { inert: "" } : {})}>
       {!home && (
         <>
-          <div className="foot3-top">
-            {route !== "contact" ? (
-              <TLink href={ROUTE_TO_PATH.contact} className="foot3-cta">
-                <span className="foot3-kick">Get in touch</span>
-                <span className="foot3-big">Work with us <span className="foot3-arrow" aria-hidden="true">→</span></span>
+          <div className="fs-stage">
+            <span className="fs-beam" aria-hidden="true" />
+            <div className="fs-plinth">
+              <TLink href={ROUTE_TO_PATH.home} className="fs-mark" aria-label="Defied Management — home" onPointerEnter={resweep}>
+                <img src="/brand/wordmark.webp" width="1100" height="365" alt="" loading="lazy" decoding="async" draggable={false} />
+                <span className="fs-shine" aria-hidden="true" />
               </TLink>
-            ) : null}
-            {links}
+              <img className="fs-refl" src="/brand/wordmark.webp" width="1100" height="365" alt="" aria-hidden="true" loading="lazy" decoding="async" draggable={false} />
+            </div>
+            <span className="fs-floor" aria-hidden="true" />
           </div>
-          {/* once lit, hovering replays the light pass (the hero wordmark does the same) */}
-          <TLink href={ROUTE_TO_PATH.home} className="foot3-mark" aria-label="Defied Management — home" onPointerEnter={resweep}>
-            <img src="/brand/wordmark.webp" width="1100" height="365" alt="" loading="lazy" decoding="async" draggable={false} />
-            <span className="foot3-shine" aria-hidden="true" />
-          </TLink>
+          <div className="fs-band">
+            <div className="fs-cell fs-reach">
+              {contact ? (
+                // the contact page already shows the address with its own copy button: send people on to the roster
+                <>
+                  <p className="micro-label">Who we work with</p>
+                  <p className="fs-say">The Defied Management roster of producers and artists.</p>
+                  <TLink href={ROUTE_TO_PATH.roster} className="pill pill-solid fs-cta">Meet the roster <span className="fs-arrow" aria-hidden="true">→</span></TLink>
+                </>
+              ) : (
+                <>
+                  <p className="micro-label">Get in touch</p>
+                  <div className="fs-mail">
+                    <ExtLink href={`mailto:${EMAIL}`} className="fs-mail-a"><span>{EMAIL}</span></ExtLink>
+                    <button type="button" className="hit fs-copy" onClick={copyMail} aria-label="Copy email address" title="Copy email address">
+                      {copied ? <Check size={16} /> : <Copy size={16} />}
+                      {copied && <span className="copied-pop" aria-hidden="true">Copied</span>}
+                    </button>
+                    <span className="sr-only" aria-live="polite">{copied ? "Email address copied" : ""}</span>
+                  </div>
+                  <TLink href={ROUTE_TO_PATH.contact} className="pill pill-solid fs-cta">Work with us <span className="fs-arrow" aria-hidden="true">→</span></TLink>
+                </>
+              )}
+            </div>
+            <nav className="fs-cell fs-nav" aria-label="Footer">
+              <p className="micro-label">Explore</p>
+              <ul>
+                {PUBLIC_LINKS.map(([r, label]) => (
+                  <li key={r}><TLink href={ROUTE_TO_PATH[r]} {...(r === route ? { "aria-current": "page" } : {})}>{label}</TLink></li>
+                ))}
+              </ul>
+            </nav>
+            <div className="fs-cell fs-follow">
+              <div className="fs-head">
+                <p className="micro-label">Follow</p>
+                <span className="fs-handle">@defiedmgmt</span>
+              </div>
+              <div className="fs-soc-list">{social("fs-soc", true)}</div>
+            </div>
+          </div>
         </>
       )}
-      <div className="foot3-base">
-        <span className="foot3-copy">© {new Date().getFullYear()} Defied Management</span>
-        {home && links}
-        <div className="foot3-social">
-          <ExtLink href="https://instagram.com/defiedmgmt" label="Instagram" className="hit"><Instagram size={19} /></ExtLink>
-          <ExtLink href="https://x.com/defiedmgmt" label="X" className="hit"><XIcon size={17} /></ExtLink>
-        </div>
+      <div className="fs-base">
+        <p className="fs-legal">
+          <span>© {new Date().getFullYear()} Defied Management</span>
+          {!home && <span className="fs-legal-say">Independent music management and publishing administration.</span>}
+        </p>
+        {home ? (
+          <div className="fs-base-soc">{social("fs-mini", false)}</div>
+        ) : (
+          <button type="button" className="fs-top" onClick={toTop}>
+            <span>Back to top</span>
+            <span className="fs-top-ic" aria-hidden="true"><span>↑</span></span>
+          </button>
+        )}
       </div>
     </footer>
   );
@@ -1203,7 +1266,7 @@ function Home({ publicData }) {
             render={(c) => (
               <>
                 {c.thumb && <img className="mq-cov" src={c.thumb} alt="" width="24" height="24" decoding="async" draggable={false} />}
-                <b><Zeros text={c.artist} /></b><span className="mq-dash">—</span><span>{c.title}</span>
+                <b><Glyphs text={c.artist} /></b><span className="mq-dash">—</span><span>{c.title}</span>
               </>
             )}
           />
@@ -1216,14 +1279,20 @@ function Home({ publicData }) {
 /* ------------------------------------------------------------------ */
 /*  ABOUT + NOTABLE RELEASES                                            */
 /* ------------------------------------------------------------------ */
+// release covers arrive as 640px Spotify JPEGs — through the optimizer at the size each layout shows
+// (3x phones get ~2x, as for the roster cards): About's grid, its featured pair, the artist panel's rail
+const COVER_SIZES = "(max-width: 599px) and (min-resolution: 2.5dppx) 29vw, (max-width: 599px) 46vw, (max-width: 1199px) 22vw, 280px";
+const FEAT_COVER_SIZES = "(max-width: 599px) and (min-resolution: 2.5dppx) 62vw, (max-width: 599px) 92vw, 560px";
+const RAIL_COVER_SIZES = "(max-width: 599px) and (min-resolution: 2.5dppx) 45vw, (max-width: 599px) 68vw, (max-width: 899px) 180px, 150px";
 function ReleaseCard({ r, clients, compact = false, featured = false }) {
-  const Tag = r.link ? "a" : "div";
+  const href = webLink(r.link);
+  const Tag = href ? "a" : "div";
   const credits = compact ? [] : rosterCreditsOn(r, clients);
   return (
-    <Tag className={`rc${featured ? " rc-feat" : ""}${compact ? " rc-compact" : ""}`} {...(compact ? {} : { "data-reveal": "" })} {...(r.link ? { href: r.link, target: "_blank", rel: "noreferrer" } : {})}>
+    <Tag className={`rc${featured ? " rc-feat" : ""}${compact ? " rc-compact" : ""}`} {...(compact ? {} : { "data-reveal": "" })} {...(href ? { href, target: "_blank", rel: "noreferrer" } : {})}>
       <div className="rc-cover">
-        {r.cover ? <Photo src={r.cover} alt="" /> : <div className="rc-empty"><Disc3 size={30} /></div>}
-        {r.link && <span className="rc-play" aria-hidden="true">{ICONS.spotify(18)}</span>}
+        {r.cover ? <Photo src={r.cover} alt="" fill sizes={featured ? FEAT_COVER_SIZES : compact ? RAIL_COVER_SIZES : COVER_SIZES} /> : <div className="rc-empty"><Disc3 size={30} /></div>}
+        {href && <span className="rc-play" aria-hidden="true">{ICONS.spotify(18)}</span>}
       </div>
       <div className="rc-meta">
         <strong>{r.song}</strong>
@@ -1231,10 +1300,10 @@ function ReleaseCard({ r, clients, compact = false, featured = false }) {
         {credits.length > 0 && (
           <span className="rc-chips">
             {/* "Prod. prodbylandn" says prod twice — a name that already starts with it stands alone */}
-            {credits.map((c) => <em key={c.name} className="chip-tag">{c.prod && !/^prod/i.test(c.name) && "Prod. "}<Zeros text={c.name} /></em>)}
+            {credits.map((c) => <em key={c.name} className="chip-tag">{c.prod && !/^prod/i.test(c.name) && "Prod. "}<Glyphs text={c.name} /></em>)}
           </span>
         )}
-        {featured && r.link && <span className="rc-cta">Play on Spotify <span aria-hidden="true">↗</span></span>}
+        {featured && href && <span className="rc-cta">Play on Spotify <span aria-hidden="true">↗</span></span>}
       </div>
     </Tag>
   );
@@ -1264,7 +1333,7 @@ function About({ publicData }) {
           label="Notable placements"
           seconds={Math.max(45, credits.length * 7)}
           items={credits.map((c) => ({ ...c, text: `${c.artist} — ${c.title}` }))}
-          render={(c) => <><b><Zeros text={c.artist} /></b><span className="mq-dash">—</span><span className="mq-title">{c.title}</span></>}
+          render={(c) => <><b><Glyphs text={c.artist} /></b><span className="mq-dash">—</span><span className="mq-title">{c.title}</span></>}
         />
       )}
 
@@ -1282,6 +1351,20 @@ function About({ publicData }) {
   );
 }
 
+// A public page that throws while drawing the saved copy (e.g. an older payload shape after a deploy
+// that didn't bump PUBLIC_CACHE_KEY) must not take the whole app down: drop that copy and show the
+// loading state until the fresh one lands, then draw again (or show the banner if it can't load).
+class PageGuard extends React.Component {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch() {
+    try { localStorage.removeItem(PUBLIC_CACHE_KEY); } catch { /* storage blocked */ }
+    this.props.onDrop?.();
+  }
+  componentDidUpdate(prev) { if (this.state.failed && prev.data !== this.props.data) this.setState({ failed: false }); }
+  render() { return this.state.failed ? <main className="pg"><PageLoading /></main> : this.props.children; }
+}
+
 function PageLoading() {
   return <div className="pg-loading" role="status" aria-label="Loading"><span /><span /><span /></div>;
 }
@@ -1292,7 +1375,7 @@ function PageLoading() {
 // One card for roster and team alike: a full-colour photo that zooms with a chrome edge + light
 // sweep on hover/focus (or as it crosses the middle of a phone screen), with the name + role always
 // visible underneath.
-function PersonCard({ person, sub, onOpen, sizes = CARD_SIZES, eager = false, children }) {
+function PersonCard({ person, onOpen, sizes = CARD_SIZES, eager = false, children }) {
   const slug = slugOf(person.name);
   const Tag = onOpen ? "button" : "div";
   return (
@@ -1311,7 +1394,6 @@ function PersonCard({ person, sub, onOpen, sizes = CARD_SIZES, eager = false, ch
         <FitLine tag="strong" text={person.name} className="pc-name" />
         <span className="pc-role">{person.role}</span>
         {/* the credit is the proof — it wraps rather than ever being cut off */}
-        {sub && <span className="pc-sub"><Zeros text={sub} /></span>}
       </div>
       {children}
     </Tag>
@@ -1543,7 +1625,6 @@ function Roster({ publicData }) {
       <div className="ros2-head" {...(active ? { inert: "" } : {})}>
         <h1 className="pg-head split split-chrome" aria-label={`Roster, ${clients.length} people`}>
           <span className="w" aria-hidden="true"><span style={{ "--i": 0 }}>ROSTER</span></span>
-          <sup className="pg-count" aria-hidden="true">({clients.length})</sup>
         </h1>
         {filterOptions.length > 2 && (
           <ChipGroup name="roster-type" label="Filter roster" options={filterOptions} value={filter} onChange={changeFilter} className="ros2-filter" />
@@ -1551,7 +1632,7 @@ function Roster({ publicData }) {
       </div>
       <div className="pgrid pgrid-roster" ref={gridRef} {...(active ? { inert: "" } : {})}>
         {/* under a deep-linked panel the grid's photos mustn't compete with the panel's own */}
-        {visible.map((c, i) => <PersonCard key={c.id} person={c} sub={topCreditFor(c, publicData)} onOpen={open} eager={!active && i < 4} />)}
+        {visible.map((c, i) => <PersonCard key={c.id} person={c} onOpen={open} eager={!active && i < 4} />)}
       </div>
       {active && (
         <ArtistPanel
@@ -1582,7 +1663,7 @@ function DecodeName({ name, id }) {
   useEffect(() => {
     const el = liveRef.current;
     if (!el) return;
-    if (prefersReducedMotion()) { el.replaceChildren(...zeroNodes(name)); return; }
+    if (prefersReducedMotion()) { el.replaceChildren(...glyphNodes(name)); return; }
     const A = "ABCDEFGHJKMNPRSTUVWXYZ0123456789";
     const chars = [...name];
     const start = performance.now() + 260, dur = 620;
@@ -1592,7 +1673,7 @@ function DecodeName({ name, id }) {
       const settled = Math.floor(p * chars.length);
       el.textContent = chars.map((c, i) => (i < settled || !/[a-z0-9]/i.test(c) ? c : A[(Math.random() * A.length) | 0])).join("");
       if (p < 1) raf = requestAnimationFrame(tick);
-      else el.replaceChildren(...zeroNodes(name));
+      else el.replaceChildren(...glyphNodes(name));
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
@@ -1736,16 +1817,16 @@ function ArtistPanel({ artist, publicData, list, onClose, onStep, focusOn, onFoc
           {artist.bio && <p className="ap-stag ap-bio" style={{ "--i": 3 }}>{artist.bio}</p>}
 
           <div className="ap-stag" style={{ "--i": 4 }}>
-            <TLink href={`/contact?artist=${slug}`} className="pill pill-solid" aria-label={`Work with ${artist.name}`}><span>Work with <Zeros text={artist.name} /></span></TLink>
+            <TLink href={`/contact?artist=${slug}`} className="pill pill-solid" aria-label={`Work with ${artist.name}`}><span>Work with <Glyphs text={artist.name} /></span></TLink>
           </div>
         </div>
       </div>
 
       {(prev || next) && (
         <div className="ap-bar">
-          <button ref={prevRef} onClick={() => onStep(-1)} aria-label={`Previous: ${prev?.name}`}><span aria-hidden="true">←</span> <span className="ap-bar-name"><Zeros text={prev?.name} /></span></button>
+          <button ref={prevRef} onClick={() => onStep(-1)} aria-label={`Previous: ${prev?.name}`}><span aria-hidden="true">←</span> <span className="ap-bar-name"><Glyphs text={prev?.name} /></span></button>
           <span className="ap-bar-pos" aria-hidden="true">{i + 1} / {list.length}</span>
-          <button ref={nextRef} onClick={() => onStep(1)} aria-label={`Next: ${next?.name}`}><span className="ap-bar-name"><Zeros text={next?.name} /></span> <span aria-hidden="true">→</span></button>
+          <button ref={nextRef} onClick={() => onStep(1)} aria-label={`Next: ${next?.name}`}><span className="ap-bar-name"><Glyphs text={next?.name} /></span> <span aria-hidden="true">→</span></button>
         </div>
       )}
     </div>
@@ -4071,10 +4152,6 @@ function StyleTag() {
     .strike path{fill:none;stroke:#fff;stroke-width:max(3px,.07em);stroke-linecap:round;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 6px rgba(0,0,0,.6))}
     @keyframes strike-in{to{clip-path:inset(-60% -6% -60% -6%)}}
 
-    /* slashed zero (see Zeros) — drawn in the text colour, or a light chrome tone where the text itself is a clipped gradient */
-    .zero{position:relative;display:inline-block}
-    .zero::after{content:"";position:absolute;left:50%;top:16%;bottom:16%;width:max(1.5px,.085em);border-radius:1px;background:currentColor;transform:translateX(-50%) rotate(32deg)}
-    .ap-name .zero::after,.split-chrome .zero::after,.about2-band b .zero::after{background:#d6d6d6}
 
     /* pills (CTAs) — white pill gets one dark sheen pass on hover */
     .pill{position:relative;overflow:hidden;isolation:isolate;display:inline-flex;align-items:center;justify-content:center;gap:9px;height:48px;padding:0 26px;border-radius:100px;
@@ -4100,9 +4177,13 @@ function StyleTag() {
     /* marquee */
     .mq{position:relative;overflow:hidden;-webkit-mask:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent);mask:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
     .mq-rail{display:flex;width:max-content;animation:mq var(--mq-dur,48s) linear infinite}
-    .mq:hover .mq-rail,.mq:active .mq-rail{animation-play-state:paused}
+    /* paused under a pointer, or while pressed: touch screens keep :hover on the last thing tapped,
+       so a tapped credit would otherwise leave the rail frozen when the visitor comes back */
+    .mq:active .mq-rail{animation-play-state:paused}
+    @media (hover:hover){ .mq:hover .mq-rail{animation-play-state:paused} }
     .mq-track{display:flex;flex-shrink:0}
     .mq-item{display:inline-flex;align-items:center;white-space:nowrap}
+    .mq-link{display:inline-flex;align-items:center;color:inherit;text-decoration:none;-webkit-tap-highlight-color:transparent}
     .mq-sep{margin:0 .9em;color:#4a4a4c;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:.7em}
     @keyframes mq{to{transform:translateX(calc(-100% / 3))}}
 
@@ -4112,8 +4193,11 @@ function StyleTag() {
 
     /* ---------- nav ---------- */
     /* on wide screens the nav lines up with the 1248px content column instead of the screen edges */
-    .nav2{position:sticky;top:0;z-index:50;height:var(--nav-h);display:flex;align-items:center;justify-content:space-between;padding:0 max(var(--gutter),calc(50% - 624px));view-transition-name:nav;transition:opacity .2s ease}
-    .nav2::before{content:"";position:absolute;inset:0;z-index:-1;background:rgba(0,0,0,.74);-webkit-backdrop-filter:blur(14px) saturate(1.2);backdrop-filter:blur(14px) saturate(1.2);border-bottom:1px solid rgba(255,255,255,.07);opacity:0;transition:opacity .25s ease}
+    .nav2{position:sticky;top:0;z-index:50;height:var(--nav-h);display:flex;align-items:center;justify-content:space-between;padding:0 max(var(--gutter),calc(50% - 624px));view-transition-name:nav;transition:opacity .2s ease,background-color .3s ease,-webkit-backdrop-filter .3s ease,backdrop-filter .3s ease}
+    /* frosted once scrolled, on the bar itself: in Chrome a backdrop-filter on anything inside the bar
+       (its ::before included) never sees the page under it — it only darkened, so photos showed through sharp */
+    .nav2.scrolled:not(.menu-open){background-color:rgba(0,0,0,.88);-webkit-backdrop-filter:blur(20px) saturate(1.3);backdrop-filter:blur(20px) saturate(1.3)}
+    .nav2::before{content:"";position:absolute;inset:0;z-index:-1;border-bottom:1px solid rgba(255,255,255,.07);opacity:0;transition:opacity .25s ease}
     .nav2.scrolled::before{opacity:1}
     .nav2.menu-open::before{opacity:0}
     .app:has(.ap) .nav2{opacity:0;pointer-events:none}
@@ -4125,15 +4209,23 @@ function StyleTag() {
     .nav2-mark:hover .nav2-mark-shine::before,.nav2-mark:focus-visible .nav2-mark-shine::before{animation:dsheen .85s var(--ease-light)}
     @keyframes dsheen{to{transform:translateX(280%) skewX(-14deg)}}
     .nav2-links{display:flex;align-items:center;gap:30px}
-    .nav2-links a{position:relative;color:var(--mut);text-decoration:none;font-family:'Suntage','Inter',sans-serif;font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;line-height:1.2;transition:color .2s ease}
-    .nav2-links a:hover,.nav2-links a.active{color:var(--ink)}
-    .roll{display:inline-block;overflow:hidden;height:1.2em;vertical-align:top}
-    .roll>span{display:block;transition:transform .5s var(--ease-out)}
-    .roll>span::after{content:attr(data-t);content:attr(data-t) / "";display:block}
-    .nav2-links a:hover .roll>span,.nav2-links a:focus-visible .roll>span{transform:translateY(-1.2em)}
-    .nav2-ind{position:absolute;left:0;right:.16em;bottom:-8px;height:1px;background:var(--chrome-border)}
-    .nav2-links .nav2-auth{margin-left:2px;height:36px;display:inline-flex;align-items:center;padding:0 16px;border:1px solid var(--line-2);border-radius:100px;font-size:11px;color:#b5b5b5;transition:border-color .2s ease,color .2s ease}
-    .nav2-links .nav2-auth:hover{border-color:#f5f5f5;color:#fff}
+    .nav2-links a{position:relative;color:var(--mut);text-decoration:none;font-family:'Suntage','Inter',sans-serif;font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;line-height:1.2;transition:color .35s ease}
+    .nav2-links a:hover,.nav2-links a:focus-visible,.nav2-links a.active{color:var(--ink)}
+    /* hover: a chrome underline draws in from the left and leaves to the right, so sweeping
+       across the links reads as one line travelling along them; the current page keeps its own */
+    .nav2-ind,.nav2-links a:not(.nav2-auth):not(.active)::after{position:absolute;left:0;right:.16em;bottom:-8px;height:1px;background:var(--chrome-border)}
+    /* the line's two ends are animated separately (--ul-r draws the right end in, --ul-l carries the
+       left end off to the right): the visible span is [max(0, l + r - 1), r] of the link's width */
+    @property --ul-l{syntax:'<number>';inherits:false;initial-value:1}
+    @property --ul-r{syntax:'<number>';inherits:false;initial-value:0}
+    .nav2-links a:not(.nav2-auth):not(.active)::after{content:"";--ul-l:1;--ul-r:0;transform-origin:left;
+      transform:translateX(calc(max(0, var(--ul-l) + var(--ul-r) - 1) * 100%)) scaleX(calc(var(--ul-r) - max(0, var(--ul-l) + var(--ul-r) - 1)));
+      transition:--ul-l .5s var(--ease-out),--ul-r 0s .5s}
+    .nav2-links a:not(.nav2-auth):not(.active):is(:hover,:focus-visible)::after{--ul-l:0;--ul-r:1;transition:--ul-l .3s var(--ease-out),--ul-r .5s var(--ease-out)}
+    /* keyboard focus: a pill around the link and its line, like Sign in's, not a box with a stray line under it */
+    .nav2-links a:not(.nav2-auth):focus-visible{outline-offset:12px;border-radius:100px}
+    .nav2-links .nav2-auth{margin-left:2px;height:36px;display:inline-flex;align-items:center;padding:0 16px;border:1px solid var(--line-2);border-radius:100px;font-size:11px;color:#b5b5b5;transition:border-color .35s ease,color .35s ease,background-color .35s ease}
+    .nav2-links .nav2-auth:hover,.nav2-links .nav2-auth:focus-visible{border-color:#f5f5f5;color:#fff;background:rgba(255,255,255,.06)}
     .burger{display:none;position:relative;width:44px;height:44px;margin-right:-11px;background:none;border:0;color:var(--ink);-webkit-tap-highlight-color:transparent}
     .burger i{position:absolute;left:12px;right:12px;height:2px;border-radius:2px;background:currentColor;transition:transform .4s var(--ease-out)}
     .burger i:first-child{top:17px}
@@ -4154,46 +4246,166 @@ function StyleTag() {
       transform:translateY(105%);transition:transform .2s ease}
     .pm.open .pm-line a{transform:none;transition:transform .65s var(--ease-out) calc(var(--i) * 55ms + 120ms)}
     .pm-word{font-family:'Suntage','Inter',sans-serif;font-size:clamp(28px,min(11.5vw,9svh),76px);line-height:1;letter-spacing:.01em;text-transform:uppercase;padding:0 .06em}
-    .pm-line a.on .pm-word{background:#f5f5f5;color:#000}
-    .pm-idx,.pm-line sup{font-size:11px;letter-spacing:.08em;color:var(--mut);font-variant-numeric:tabular-nums;line-height:1;margin-top:.5em}
+    .pm-line a.on .pm-word{background:linear-gradient(#f5f5f5,#f5f5f5) top/100% calc(100% - .07em) no-repeat;color:#000} /* caps have no descenders: trim the white under them */
+    .pm-idx{font-size:11px;letter-spacing:.08em;color:var(--mut);font-variant-numeric:tabular-nums;line-height:1;margin-top:.5em}
     .pm-idx{width:20px;flex-shrink:0}
     .pm-foot{position:relative;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:auto;padding-top:20px;opacity:0;transition:opacity .15s ease}
     .pm.open .pm-foot{opacity:1;transition:opacity .5s ease .5s}
     .pm-social{display:flex;gap:2px;margin-right:-10px}
 
     /* ---------- footer ---------- */
-    .foot2{position:relative;margin-top:clamp(80px,10vw,128px);padding:0 var(--gutter);border-top:1px solid var(--hair)}
-    .foot3-top,.foot3-base{max-width:1248px;margin-left:auto;margin-right:auto}
-    .foot3-top{display:flex;align-items:flex-end;justify-content:space-between;gap:24px 40px;padding-top:clamp(48px,6vw,76px)}
-    .foot3-cta{display:flex;flex-direction:column;align-items:flex-start;gap:14px;color:var(--ink);text-decoration:none}
-    .foot3-kick{font-size:11px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--mut)}
-    .foot3-big{display:inline-flex;align-items:center;gap:.35em;font-family:'Suntage','Inter',sans-serif;font-weight:400;font-synthesis:none;font-size:clamp(min(28px,8vw),4.4vw,60px);line-height:1;letter-spacing:.02em;text-transform:uppercase;white-space:nowrap}
-    .foot3-arrow{display:inline-block;font-family:'Inter',sans-serif;font-weight:300;transition:transform .45s var(--ease-out)}
-    .foot3-cta:hover .foot3-arrow,.foot3-cta:focus-visible .foot3-arrow{transform:translateX(.22em)}
-    .foot3-links{display:flex;flex-wrap:wrap;gap:0 28px;margin-bottom:-14px}
-    .foot3-links a{font-family:'Suntage','Inter',sans-serif;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--mut);text-decoration:none;padding:14px 0;transition:color .2s ease}
-    .foot3-links a:hover,.foot3-links a[aria-current]{color:var(--ink)}
-    /* the sign-off is the real chrome wordmark (never wider than its own pixels): dimmed until it's
-       on screen, then it catches the light — brightens, with one light pass across the letters */
-    .foot3-mark{position:relative;display:block;width:min(100%,880px);margin:clamp(56px,8vw,104px) auto 0;line-height:0;-webkit-tap-highlight-color:transparent}
-    .foot3-mark img{display:block;width:100%;height:auto;user-select:none;filter:brightness(.38);transition:filter 1.4s var(--ease-light)}
-    .foot2.in .foot3-mark img,.foot3-mark:hover img{filter:none}
-    .foot3-shine{position:absolute;inset:0;pointer-events:none;overflow:hidden;mix-blend-mode:plus-lighter;
+    /* the sign-off is a lit stage: the chrome wordmark stands whole on a floor line under a soft beam
+       from a lamp in the ceiling hairline, with a pool of light and a faint sheen on the floor. The floor
+       line is the top edge of one band of three labelled cells (reach us / pages / socials), then a
+       hairline base row. Everything rests visible at full brightness; .in turns the lights on once, and
+       only the lighting up animates (going dark again happens off screen, instantly) */
+    .foot2{position:relative;isolation:isolate;overflow:hidden;overflow:clip;margin-top:clamp(64px,8vw,104px);padding:0 max(var(--gutter),calc(50% - 624px));border-top:0}
+    .fs-stage{--mw:min(100%,560px);position:relative;display:flex;flex-direction:column;align-items:center;padding-top:clamp(52px,5.6vw,80px)}
+    /* the ceiling: a hairline that fades out at the column edges, with the lamp in its middle */
+    .fs-stage::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(90deg,transparent,var(--line-2) 14%,var(--line-2) 86%,transparent)}
+    .fs-stage::after{content:"";position:absolute;left:50%;top:0;width:min(260px,46%);height:1px;translate:-50% 0;opacity:.3;
+      background:linear-gradient(90deg,transparent,rgba(255,255,255,.95) 50%,transparent);box-shadow:0 0 22px 3px rgba(226,234,255,.14)}
+    .foot2.in .fs-stage::after{opacity:1;transition:opacity .6s var(--ease-out)}
+    /* the beam: a soft cone hung from the lamp, widening to the floor, and a glow behind the mark —
+       gradients only (no filter blur), so it costs nothing to draw */
+    .fs-beam{position:absolute;z-index:-1;left:50%;top:0;bottom:0;width:min(1240px,100%);translate:-50% 0;pointer-events:none;opacity:.35;
+      -webkit-mask:linear-gradient(90deg,transparent,#000 20%,#000 80%,transparent);mask:linear-gradient(90deg,transparent,#000 20%,#000 80%,transparent)}
+    .fs-beam::before,.fs-beam::after{content:"";position:absolute}
+    .fs-beam::before{inset:0;
+      background:conic-gradient(from 180deg at 50% -56px,rgba(232,238,255,.12),rgba(232,238,255,.1) 22deg,rgba(232,238,255,.07) 36deg,rgba(232,238,255,.03) 46deg,rgba(232,238,255,.008) 54deg,transparent 60deg,transparent 300deg,rgba(232,238,255,.008) 306deg,rgba(232,238,255,.03) 314deg,rgba(232,238,255,.07) 324deg,rgba(232,238,255,.1) 338deg,rgba(232,238,255,.12));
+      -webkit-mask:linear-gradient(180deg,#000,rgba(0,0,0,.72) 58%,#000);mask:linear-gradient(180deg,#000,rgba(0,0,0,.72) 58%,#000)}
+    .fs-beam::after{left:50%;bottom:-40px;width:min(760px,70%);height:85%;translate:-50% 0;background:radial-gradient(closest-side,rgba(214,226,255,.13),transparent)}
+    .foot2.in .fs-beam{opacity:1;transition:opacity .9s var(--ease-light) .1s}
+    .fs-plinth{position:relative;width:var(--mw);margin-bottom:calc(var(--mw) * -.01)}
+    .fs-mark{position:relative;display:block;line-height:0;-webkit-tap-highlight-color:transparent}
+    .fs-mark img{display:block;width:100%;height:auto;user-select:none}
+    .foot2 .fs-mark:focus-visible{outline:1px solid #f5f5f5;outline-offset:12px;border-radius:8px}
+    .fs-shine{position:absolute;inset:0;pointer-events:none;overflow:hidden;mix-blend-mode:plus-lighter;
       -webkit-mask:url(/brand/wordmark-mask.webp) center/100% 100% no-repeat;mask:url(/brand/wordmark-mask.webp) center/100% 100% no-repeat}
-    .foot3-shine::before{content:"";position:absolute;top:-30%;bottom:-30%;left:0;width:34%;
+    .fs-shine::before{content:"";position:absolute;top:-30%;bottom:-30%;left:0;width:34%;
       background:linear-gradient(100deg,transparent 12%,rgba(255,255,255,.5) 44%,rgba(214,230,255,.42) 54%,transparent 84%);transform:translateX(-130%) skewX(-14deg)}
-    .foot2.in .foot3-shine::before{animation:wm-sweep-once 1.3s var(--ease-light) .3s both}
-    .foot3-mark:focus-visible{outline:1px solid #f5f5f5;outline-offset:10px;border-radius:8px}
-    .foot3-base{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px 16px;margin-top:clamp(40px,5vw,64px);padding:10px 0 calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--hair)}
-    .foot3-copy{grid-column:1;justify-self:start;font-size:12px;color:var(--mut)}
-    .foot3-base .foot3-links{grid-column:2;margin-bottom:0}
-    .foot3-social{grid-column:3;justify-self:end;display:flex;gap:2px;margin-right:-10px}
-    /* /contact has no call to action above the links: centre them over the wordmark */
-    @media(min-width:900px){ .foot3-top:not(:has(.foot3-cta)){justify-content:center} }
-    /* Home: the hero is the wordmark and both calls to action, and the credits ribbon already
-       draws the dividing line — so its footer is only the base row */
-    .foot2-home{margin-top:0;border-top:0}
-    .foot2-home .foot3-base{margin-top:0;border-top:0;padding-top:16px}
+    .foot2.in .fs-shine::before{animation:wm-sweep-once .95s var(--ease-light) .6s both}
+    /* the sheen on the floor: the mark flipped, only its first ~26px showing, faint and softened so it
+       reads as light on the floor, never as upside-down letters */
+    .fs-refl{position:absolute;left:0;top:calc(100% - var(--mw) * .018);width:100%;height:auto;pointer-events:none;user-select:none;transform:scaleY(-1);opacity:0;filter:blur(2px);
+      -webkit-mask:linear-gradient(0deg,rgba(0,0,0,.55),rgba(0,0,0,.16) 11px,transparent 26px);mask:linear-gradient(0deg,rgba(0,0,0,.55),rgba(0,0,0,.16) 11px,transparent 26px)}
+    .foot2.in .fs-refl{opacity:.2;transition:opacity .8s var(--ease-light) .5s}
+    /* the floor: a hairline whose lit middle grows out from under the mark, with a pool of light */
+    .fs-floor{position:relative;width:100%;height:1px;background:var(--line-2)}
+    .fs-floor::before,.fs-floor::after{content:"";position:absolute;pointer-events:none}
+    .fs-floor::before{inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.18) 20%,rgba(255,255,255,.66) 50%,rgba(255,255,255,.18) 80%,transparent);transform:scaleX(.3);opacity:.5}
+    .fs-floor::after{left:50%;top:0;width:min(760px,120%);height:110px;translate:-50% -50%;background:radial-gradient(closest-side,rgba(255,255,255,.09),transparent);opacity:.3}
+    .foot2.in .fs-floor::before{transform:none;opacity:1;transition:transform 1.1s var(--ease-out) .3s,opacity .8s var(--ease-light) .3s}
+    .foot2.in .fs-floor::after{opacity:1;transition:opacity .9s var(--ease-light) .35s}
+
+    /* the band: three labelled cells under the floor line, one job each */
+    .fs-band{position:relative;z-index:1;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr);padding:clamp(44px,4.6vw,60px) 0}
+    .fs-cell{display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:0 clamp(20px,3vw,48px)}
+    .fs-cell:first-child{padding-left:0}
+    .fs-cell:last-child{padding-right:0}
+    .fs-cell+.fs-cell{border-left:1px solid var(--line-2)}
+    .fs-cell .micro-label{margin-bottom:16px}
+    .fs-mail{position:relative;display:flex;align-items:center;gap:4px;max-width:100%;margin-top:-8px}
+    .fs-mail-a{display:inline-flex;align-items:center;min-height:44px;min-width:0;color:var(--ink);text-decoration:none;font-size:clamp(17px,1.62vw,22px);font-weight:500;letter-spacing:-.012em}
+    .fs-mail-a span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-bottom:3px;
+      background:linear-gradient(currentColor,currentColor) 0 100%/0 1px no-repeat;transition:background-size .5s var(--ease-out)}
+    .fs-mail-a:hover span,.fs-mail-a:focus-visible span{background-size:100% 1px}
+    .fs-copy{position:relative;flex-shrink:0}
+    .fs-copy:hover{color:var(--ink);background:rgba(255,255,255,.06)}
+    .fs-copy .copied-pop{bottom:calc(100% + 2px)}
+    .fs-say{margin:-2px 0 0;max-width:30ch;font-size:15px;line-height:1.55;color:var(--mut3);text-wrap:balance}
+    .fs-cta{margin-top:22px}
+    .fs-arrow{display:inline-block;font-family:'Inter',sans-serif;font-weight:300;font-size:1.25em;line-height:0;transition:transform .45s var(--ease-out)}
+    .fs-cta:hover .fs-arrow,.fs-cta:focus-visible .fs-arrow{transform:translateX(.25em)}
+    /* the pages, two by two (they read like the nav: About Team / Roster Contact); the current page
+       carries the nav's chrome underline, and hovering draws it in */
+    .fs-nav ul{display:grid;grid-template-columns:repeat(2,max-content);column-gap:clamp(24px,2.6vw,48px);list-style:none;margin:-6px 0 0;padding:0}
+    .fs-nav a{position:relative;display:inline-flex;align-items:center;min-height:40px;font-family:'Suntage','Inter',sans-serif;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--mut3);text-decoration:none;transition:color .2s ease}
+    .fs-nav a::after{content:"";position:absolute;left:0;right:.16em;bottom:calc(50% - 14px);height:1px;background:var(--chrome-border);transform:scaleX(0);transform-origin:0 50%;transition:transform .45s var(--ease-out)}
+    .fs-nav a:hover,.fs-nav a[aria-current]{color:var(--ink)}
+    .fs-nav a:hover::after,.fs-nav a[aria-current]::after{transform:none}
+    /* the socials: one handle in the heading, then a labelled row each */
+    .fs-head{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;margin-bottom:16px}
+    .fs-head .micro-label{margin-bottom:0}
+    .fs-handle{font-size:13px;line-height:1;color:var(--mut);white-space:nowrap}
+    .fs-soc-list{display:flex;flex-direction:column;width:100%;margin-top:-10px}
+    .fs-soc{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;color:var(--ink);text-decoration:none;font-size:15px;font-weight:500}
+    .fs-soc+.fs-soc{border-top:1px solid var(--hair)}
+    .fs-soc svg{flex-shrink:0;width:18px;color:var(--mut3);transition:color .2s ease}
+    .fs-soc-ext{margin-left:auto;font-size:14px;color:var(--mut);transition:transform .4s var(--ease-out),color .2s ease}
+    .fs-soc:hover svg,.fs-soc:hover .fs-soc-ext{color:var(--ink)}
+    .fs-soc:hover .fs-soc-ext{transform:translate(2px,-2px)}
+
+    /* the base row: the copyright (and, with room, what Defied is) and the way back up */
+    .fs-base{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:8px 20px;min-height:60px;padding:6px 0 calc(6px + env(safe-area-inset-bottom));border-top:1px solid var(--hair)}
+    .fs-legal{display:flex;align-items:center;min-width:0;margin:0;font-size:12px;color:var(--mut);white-space:nowrap}
+    .fs-legal-say{display:none}
+    .fs-top{display:inline-flex;align-items:center;gap:12px;min-height:44px;margin-right:-2px;padding:0 2px;background:none;border:0;cursor:pointer;color:var(--mut);white-space:nowrap;
+      font-family:'Suntage','Inter',sans-serif;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;transition:color .2s ease;-webkit-tap-highlight-color:transparent}
+    .fs-top-ic{display:inline-grid;place-items:center;width:30px;height:30px;border:1px solid var(--line-2);border-radius:50%;overflow:hidden;font-family:'Inter',sans-serif;font-size:13px;letter-spacing:0;color:var(--ink);transition:border-color .25s ease}
+    .fs-top-ic>span{display:block}
+    .fs-top:hover{color:var(--ink)}
+    .fs-top:hover .fs-top-ic{border-color:#5a5a5e}
+    .fs-top:hover .fs-top-ic>span{animation:fs-up .6s var(--ease-out)}
+    @keyframes fs-up{0%{translate:0 0}45%{translate:0 -170%}46%{translate:0 170%}100%{translate:0 0}}
+    .foot2 .fs-top:focus-visible{outline:1px solid #f5f5f5;outline-offset:3px;border-radius:6px}
+    /* Home: the hero already is the wordmark with both calls to action, so its footer is only the
+       base row (its own hairline on top), with the socials labelled */
+    .foot2-home{margin-top:0}
+    body:has(.ign-ribbon) .foot2-home .fs-base{border-top-color:transparent} /* the credits ribbon right above already draws that line */
+    .fs-base-soc{display:flex;align-items:center;gap:4px;margin-right:-12px}
+    .fs-mini{display:inline-flex;align-items:center;gap:9px;min-height:44px;padding:0 12px;color:var(--mut3);text-decoration:none;font-size:13px;font-weight:500;transition:color .2s ease}
+    .fs-mini:hover{color:var(--ink)}
+
+    @media (any-pointer:coarse){ .fs-nav a{min-height:44px} .fs-nav ul{margin-top:-8px} }
+    @media(min-width:900px){
+      .fs-legal-say{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;margin-left:16px;padding-left:16px;border-left:1px solid var(--line-2)}
+    }
+    /* tablets and phones: how to reach us across the full width, then the pages beside the socials */
+    @media(max-width:899px){
+      .fs-band{grid-template-columns:minmax(0,1fr) minmax(0,1fr);padding:40px 0 36px}
+      .fs-reach{grid-column:1/-1;padding:0 0 32px;margin-bottom:30px;border-bottom:1px solid var(--line-2)}
+      .fs-cell+.fs-cell{border-left:0}
+      .fs-nav{padding-left:0}
+      .fs-follow.fs-cell{padding-left:clamp(20px,4vw,32px);border-left:1px solid var(--line-2)}
+    }
+    /* phones: the pages and the socials each take the full width, on the same two columns */
+    @media(max-width:599px){
+      .fs-stage{--mw:min(80%,340px);padding-top:56px}
+      .fs-band{column-gap:16px;padding-top:36px}
+      .fs-reach{padding-bottom:28px;margin-bottom:26px}
+      .fs-mail-a{font-size:clamp(15px,4.6vw,18px)}
+      .fs-nav,.fs-follow{grid-column:1/-1}
+      .fs-nav.fs-cell{padding:0 0 20px;margin-bottom:24px;border-bottom:1px solid var(--line-2)}
+      .fs-follow.fs-cell{padding-left:0;border-left:0}
+      .fs-nav ul,.fs-soc-list{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:16px;width:100%}
+      .fs-soc+.fs-soc{border-top:0}
+      .fs-soc-ext{margin-left:-4px}
+      .fs-legal{font-size:11.5px}
+      .foot2-home .fs-base{flex-direction:column-reverse;justify-content:center;gap:0;padding-top:8px}
+      .fs-base-soc{margin-right:0}
+    }
+    @media(max-width:359px){ .fs-top{gap:8px;letter-spacing:.1em} .fs-top-ic{width:26px;height:26px} }
+    /* short landscape phones: a smaller mark, and (with the width) the band back on one row, so the
+       footer stays about a screen and a half */
+    @media (orientation:landscape) and (max-height:500px){
+      .fs-stage{--mw:min(100%,360px);padding-top:44px}
+      .fs-band{padding:36px 0 28px}
+    }
+    @media (orientation:landscape) and (max-height:500px) and (min-width:800px){
+      .fs-band{grid-template-columns:minmax(0,1.5fr) minmax(0,1.05fr) minmax(0,.9fr)}
+      .fs-reach{grid-column:auto;padding:0 20px 0 0;margin:0;border-bottom:0}
+      .fs-nav.fs-cell{padding:0 20px;border-left:1px solid var(--line-2)}
+      .fs-follow.fs-cell{padding-left:20px}
+      .fs-nav ul{column-gap:24px}
+      .fs-mail-a{font-size:16px}
+    }
+    @media (prefers-reduced-motion:reduce){
+      .fs-beam,.fs-stage::after,.fs-floor::before,.fs-floor::after{opacity:1;transition:none}
+      .fs-floor::before{transform:none}
+      .fs-refl{opacity:.2;transition:none}
+      .fs-shine::before,.fs-top-ic>span{animation:none!important}
+    }
 
     /* ---------- home: chrome ignition ---------- */
     .home2{flex:1;display:flex;flex-direction:column}
@@ -4246,8 +4458,14 @@ function StyleTag() {
     .ign-ribbon b{font-weight:400;color:var(--ink)}
     .ign-ribbon .mq-dash{margin:0 .6em;color:#555}
     .ign-ribbon .mq-sep{margin:0 2.6em;font-size:.95em;color:#555}
-    .ign-ribbon .mq-item>span:not(.mq-sep):not(.mq-dash){color:var(--mut)}
+    .ign-ribbon .mq-item>span:not(.mq-sep):not(.mq-dash),.ign-ribbon .mq-link>span:not(.mq-dash){color:var(--mut);transition:color .3s ease}
     .mq-cov{width:24px;height:24px;flex-shrink:0;border-radius:5px;object-fit:cover;margin-right:11px;outline:1px solid #222;outline-offset:-1px}
+    /* a linked credit (the rail pauses under the pointer): its title lights up and the cover lifts */
+    .ign-ribbon .mq-link .mq-cov{transition:transform .4s var(--ease-out),outline-color .3s ease}
+    @media (hover:hover){
+      .ign-ribbon .mq-link:hover>span:not(.mq-dash){color:var(--ink)}
+      .ign-ribbon .mq-link:hover .mq-cov{transform:scale(1.12);outline-color:#555}
+    }
     .ign-ribbon:has(.mq-cov){padding:9px 0}
     /* the rail holds still (lead credit parked in view) until the ribbon has faded in */
     @media (prefers-reduced-motion:no-preference){
@@ -4262,11 +4480,12 @@ function StyleTag() {
     .pg{width:100%;max-width:1240px;margin:0 auto;padding:clamp(56px,8vw,100px) var(--gutter) 0;text-align:center}
     .pg-wide{max-width:1360px}
     .pg-head{font-size:clamp(42px,8.4vw,112px);line-height:.95;margin:0 0 26px}
-    .pg-count{font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;font-size:clamp(12px,1.15vw,16px);letter-spacing:.04em;color:var(--mut);vertical-align:top;margin-left:.35em;position:relative;top:.55em;animation:vt-fade-in .6s ease .5s both}
     .pg-loading{display:flex;justify-content:center;gap:8px;padding:120px 0;box-sizing:border-box;min-height:calc(100vh - var(--nav-h));min-height:calc(100svh - var(--nav-h))}
     .pg-loading span{width:6px;height:6px;border-radius:50%;background:#3a3a3c;animation:dot 1s ease-in-out infinite}
     .pg-loading span:nth-child(2){animation-delay:.15s}.pg-loading span:nth-child(3){animation-delay:.3s}
-    .storage-warn~.view .pg-loading{visibility:hidden} /* the load failed: no dots promising it's still coming */
+    /* the load failed: no dots promising it's still coming (kept in the flow so the footer stays put) */
+    .storage-warn~.view .pg-loading{visibility:hidden}
+    .storage-warn~.view .pg-loading span{animation:none}
     @keyframes dot{50%{background:#f5f5f5;transform:translateY(-4px)}}
 
     /* ---------- about ---------- */
@@ -4276,7 +4495,8 @@ function StyleTag() {
       font-family:'Suntage','Inter',sans-serif;font-size:clamp(22px,3.3vw,44px);line-height:1.15;letter-spacing:.03em;text-transform:uppercase;animation:vt-fade-in .8s ease .6s both}
     /* placements: the artist in chrome, the song as an outline */
     .about2-band b{font-weight:400;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
-    .about2-band .mq-title{color:transparent;-webkit-text-stroke:1px #8a8a8a}
+    .about2-band .mq-title{color:transparent;-webkit-text-stroke:1px #8a8a8a;transition:-webkit-text-stroke-color .3s ease}
+    @media (hover:hover){ .about2-band .mq-link:hover .mq-title{-webkit-text-stroke-color:#f5f5f5} }
     .about2-band .mq-dash{margin:0 .5em;color:#3a3a3c}
     .rel2{margin-top:clamp(64px,8vw,108px)}
     .sec-head{font-size:clamp(24px,3.4vw,42px);line-height:1.05;margin:0 0 38px}
@@ -4337,9 +4557,8 @@ function StyleTag() {
     .pc:focus-visible .pc-frame{outline:1px solid #f5f5f5;outline-offset:4px}
     .pc-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Suntage','Inter',sans-serif;font-size:56px;color:#2c2c2e}
     .pc-cap{display:flex;flex-direction:column;gap:6px;min-width:0}
-    .pc-name{display:block;font-family:'Suntage','Inter',sans-serif;font-weight:400;font-size:16px;line-height:1.15;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;overflow:hidden}
+    .pc-name{display:block;font-family:'Suntage','Inter',sans-serif;font-weight:400;font-size:16px;line-height:18.4px;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;overflow:hidden}
     .pc-role{font-size:11px;line-height:1.45;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .pc-sub{margin-top:-3px;font-size:11px;line-height:1.45;letter-spacing:.08em;text-transform:uppercase;color:#d4d4d4;text-wrap:pretty}
     .pc-bio{margin:0;font-size:13.5px;line-height:1.55;color:var(--mut)}
     .pc-links{display:flex;gap:2px;margin:-8px 0 0 -12px}
 
@@ -4370,6 +4589,8 @@ function StyleTag() {
     .ap-close:hover{border-color:#f5f5f5;transform:rotate(90deg)}
     .ap-close:focus-visible{outline:1px solid #f5f5f5;outline-offset:3px}
     .ap-inner{flex:1 0 auto;width:100%;max-width:1440px;margin:0 auto;padding:clamp(72px,10vh,108px) var(--gutter) 130px;display:grid;grid-template-columns:minmax(0,min(46vw,640px)) minmax(0,1fr);gap:clamp(32px,4.5vw,68px);align-items:start;text-align:left}
+    /* tall screens: centre the photo in the space above the prev/next bar (712 = the 640px photo cap + the bar's 72px overlap) */
+    @media(min-width:1392px){ .ap-inner{padding-top:max(clamp(72px,10vh,108px),calc((100vh - 712px) / 2))} }
     .ap-photo{position:relative;aspect-ratio:1;border-radius:16px;overflow:hidden;isolation:isolate}
     .ap-photo img{object-fit:cover}
     .ap-photo .ph-fade{z-index:1}
@@ -4543,14 +4764,6 @@ function StyleTag() {
       .nav2-links{display:none}
       .burger{display:block}
       .pgrid{--cols:3;--g:20px}
-      .foot3-top{flex-direction:column;align-items:flex-start}
-      .foot3-links{gap:0 24px}
-      .foot3-base{grid-template-columns:1fr auto}
-      .foot3-social{grid-column:2}
-      .foot2-home .foot3-base{grid-template-columns:1fr;justify-items:center;gap:2px}
-      .foot2-home .foot3-base>*{grid-column:1;justify-self:center}
-      .foot2-home .foot3-base .foot3-links{order:-1;justify-content:center}
-      .foot2-home .foot3-social{order:-1;margin-right:0}
       .ap-inner{grid-template-columns:1fr;gap:0;padding:68px 16px 120px}
       .ap-photo{width:100%}
       .ap-info{gap:22px}
@@ -4580,11 +4793,10 @@ function StyleTag() {
       .ap-rail{margin:0;padding:0 0 4px}
       .ap-rail-item{flex-basis:168px}
     }
-    /* phone landscape: size both wordmarks by height too, so Home's CTAs and the credits ribbon sit
-       inside the first screen and the footer sign-off never outgrows the screen (or its own pixels) */
+    /* phone landscape Home: size the wordmark by height too, so both CTAs and the credits ribbon sit inside the first screen */
     @media(orientation:landscape) and (max-height:500px){
       .wm{width:min(82vw,800px,96svh)} .ign{padding-top:8px;padding-bottom:72px} .ign-cta{margin-top:28px}
-      .foot3-mark{width:min(100%,880px,120svh)}
+      .ign .ign-cta{flex-direction:row;align-items:center;width:auto} /* beats the later phone stacking */
     }
     @media(min-width:900px) and (max-width:1199px){ .ap-rail{grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:12px} }
     @media(max-width:819px){ .rel2-grid{--cols:3} }
@@ -4604,7 +4816,7 @@ function StyleTag() {
       .about2-band b{background:none;color:var(--ink);-webkit-text-fill-color:currentColor}
       .ros2-filter{align-self:stretch;margin-bottom:36px}
       .ros2-filter .chip{flex:1}
-      .ros2-filter .chip>span{justify-content:center;padding:0 8px;font-size:9.5px;letter-spacing:.1em;gap:6px}
+      .ros2-filter .chip>span{display:flex;justify-content:center;padding:0 8px;font-size:9.5px;letter-spacing:.1em;gap:6px}
       .ct-row{grid-template-columns:1fr}
       .ct-lead{margin-left:0}
       .ct-direct{flex-direction:column;align-items:flex-start;gap:0}
@@ -4617,8 +4829,8 @@ function StyleTag() {
       .ct-chips .chip:last-child{grid-column:1/-1}
       .ign-cta{flex-direction:column;align-items:stretch;width:min(100%,280px)}
       .pill{height:46px;padding:0 22px;font-size:10.5px}
-      .foot3-links{gap:0 20px}
     }
+    @media(max-width:359px){ .rc-chips .chip-tag{letter-spacing:0} }
 
     /* ---------- reduced motion (public pages only; the dashboard keeps its own) ---------- */
     @media (prefers-reduced-motion:reduce){
@@ -4635,6 +4847,7 @@ function StyleTag() {
       .mq-track{flex-shrink:1;width:100%;flex-wrap:wrap;justify-content:center;gap:6px 1.8em;padding:0 var(--gutter)}
       .mq-track+.mq-track,.mq-rep,.mq-sep{display:none}
       .mq-item:not(.mq-rep){display:block;max-width:100%;white-space:normal;text-align:center;text-wrap:balance}
+      .mq-item:not(.mq-rep)>.mq-link{display:inline}
       .mq-cov{display:inline-block;vertical-align:middle}
       .mq-dash::before{content:"\\2060"} /* word joiner: a wrap never starts a line with the dash */
       /* in the flow under the CTAs, so the taller wrapped ribbon can never cover them */
@@ -4644,10 +4857,17 @@ function StyleTag() {
       .grain{display:none}
       [data-reveal]:not([data-reveal=split]){opacity:1!important;translate:none!important}
       .split[data-reveal] .w>span{animation-play-state:running!important}
-      .foot3-mark img{filter:none;transition:none}
-      .foot3-shine::before{animation:none!important}
       .strike{clip-path:none!important}
       .ct-check circle,.ct-check path{stroke-dashoffset:0!important}
+    }
+    /* ...but a wrapped ribbon can't fit a landscape phone's first screen: one still row, swipe for more */
+    @media (prefers-reduced-motion:reduce) and (orientation:landscape) and (max-height:500px){
+      .home2 .ign{padding-bottom:8px} .ign .ign-ribbon{margin-top:28px}
+      .mq.ign-ribbon{overflow-x:auto;scrollbar-width:none;overscroll-behavior-x:contain;-webkit-mask:linear-gradient(90deg,#000 85%,transparent)!important;mask:linear-gradient(90deg,#000 85%,transparent)!important}
+      .mq.ign-ribbon .mq-rail{width:max-content}
+      .ign-ribbon .mq-track{flex-wrap:nowrap;justify-content:flex-start;width:max-content}
+      .ign-ribbon .mq-item:not(.mq-rep){display:inline-flex;white-space:nowrap}
+      .ign-ribbon .mq-item:not(.mq-rep)>.mq-link{display:inline-flex}
     }
     `}</style>
   );
