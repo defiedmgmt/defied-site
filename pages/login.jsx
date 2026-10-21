@@ -6,6 +6,7 @@ export default function LoginPage() {
       title="Sign in — Defied MGMT"
       description="Staff and client sign in."
       path="/login"
+      noindex
     />
   );
 }

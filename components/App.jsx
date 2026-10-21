@@ -312,6 +312,7 @@ function ExtLink({ href, className, label, title, children }) {
   );
 }
 
+const SERVICE_NAMES = { spotify: "Spotify", apple: "Apple Music", instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube", soundcloud: "SoundCloud" };
 function Socials({ c, size = 26 }) {
   const ig = (v) => !v ? "" : (/^https?:\/\//i.test(v) ? v : `https://instagram.com/${v.replace(/^@/, "")}`);
   const tk = (v) => !v ? "" : (/^https?:\/\//i.test(v) ? v : `https://tiktok.com/@${v.replace(/^@/, "")}`);
@@ -327,7 +328,7 @@ function Socials({ c, size = 26 }) {
   return (
     <div className="socials">
       {items.map(([k, url]) => (
-        <ExtLink key={k} href={url} className="social-ic" label={k}>{ICONS[k](size)}</ExtLink>
+        <ExtLink key={k} href={url} className="social-ic" label={`${c.name} on ${SERVICE_NAMES[k]}`}>{ICONS[k](size)}</ExtLink>
       ))}
     </div>
   );
@@ -404,8 +405,13 @@ function withViewTransition(kind, update) {
 }
 
 // Same-document jump that ignores html{scroll-behavior:smooth} (what Next does too).
-function jumpIntoView(el) {
+// `ifNeeded`: leave the page where it is when the element is already fully on screen below the nav.
+function jumpIntoView(el, { ifNeeded = false } = {}) {
   if (!el) return;
+  if (ifNeeded) {
+    const r = el.getBoundingClientRect(), navBottom = document.querySelector(".nav2")?.getBoundingClientRect().bottom || 0;
+    if (r.top >= navBottom && r.bottom <= window.innerHeight) return;
+  }
   const html = document.documentElement, sb = html.style.scrollBehavior;
   html.style.scrollBehavior = "auto";
   el.scrollIntoView({ block: "center" });
@@ -588,8 +594,8 @@ export default function App() {
       headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
       body: JSON.stringify({ email, password, remember }),
     });
-    const data = await res.json();
-    if (!res.ok) return data.error || "Incorrect email or password.";
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data) return data?.error || (res.status >= 500 || res.ok ? "Sign-in isn't available right now — try again in a minute." : "Incorrect email or password.");
     setSession(data.user);
     go(data.user.role === "staff" ? "staff" : "client");
     return null;
@@ -640,8 +646,8 @@ export default function App() {
     <div className={inPortal ? "app" : "app pub"}>
       <StyleTag />
       {!inPortal && <div className="grain" aria-hidden="true" />}
-      {loadErr && (
-        <div className="storage-warn">{loadErr}</div>
+      {loadErr && (inPortal || DATA_ROUTES.includes(route)) && (
+        <div className="storage-warn" role="alert">{loadErr}</div>
       )}
       {!inPortal && (
         <PublicNav route={route} menuOpen={menuOpen} setMenuOpen={setMenuOpen} session={session} />
@@ -651,7 +657,7 @@ export default function App() {
       <div className={`${route === "home" || route === "login" || route === "notfound" ? "view view-home" : "view"}${canViewTransition ? "" : " view-anim"}`} key={route} {...(menuOpen ? { inert: "" } : {})}>
         {/* the banner when there's nothing better coming: the request failed, or the copy that just
             failed to draw already is the fresh one */}
-        <PageGuard data={publicData} onDrop={() => publicDataRequest.then((d) => { if (!d || d === publicData) setLoadErr("Couldn't load site data — try refreshing."); })}>
+        <PageGuard data={publicData} outage={!!loadErr && !publicData && DATA_ROUTES.includes(route)} onDrop={() => publicDataRequest.then((d) => { if (!d || d === publicData) setLoadErr("Couldn't load site data — try refreshing."); })}>
           {route === "home" && <Home />}
           {route === "about" && <About publicData={publicData} />}
           {route === "team" && <TeamPage publicData={publicData} />}
@@ -1322,7 +1328,7 @@ function About({ publicData }) {
           label="Notable placements"
           seconds={Math.max(45, credits.length * 7)}
           items={credits.map((c) => ({ ...c, text: creditText(c) }))}
-          render={(c) => <Credit c={c} sizes="(max-width: 666px) 21px, 42px" lift="105px" />}
+          render={(c) => <Credit c={c} sizes="(max-width: 666px) 21px, (max-width: 1340px) 3.2vw, 42px" lift="105px" />}
         />
       )}
 
@@ -1353,7 +1359,21 @@ class PageGuard extends React.Component {
     this.props.onDrop?.();
   }
   componentDidUpdate(prev) { if (this.state.failed && prev.data !== this.props.data) this.setState({ failed: false }); }
-  render() { return this.state.failed ? <main className="pg"><PageLoading /></main> : this.props.children; }
+  render() {
+    if (this.props.outage) return <PageOutage />;
+    return this.state.failed ? <main className="pg"><PageLoading /></main> : this.props.children;
+  }
+}
+// the public pages that can't show anything without /api/public-data
+const DATA_ROUTES = ["about", "team", "roster"];
+// first visit, and the site data couldn't load: an honest page with a way to try again, not an empty one
+function PageOutage() {
+  return (
+    <main className="pg pg-outage">
+      <p className="pg-outage-msg">This page couldn't load right now.</p>
+      <button type="button" className="pill pill-ghost" onClick={() => window.location.reload()}>Try again</button>
+    </main>
+  );
 }
 
 function PageLoading() {
@@ -1408,7 +1428,7 @@ function TeamEmail({ email }) {
 function TeamPage({ publicData }) {
   const gridRef = useRef(null);
   useLitBand(gridRef, [publicData]);
-  if (!publicData) return <main className="pg"><PageLoading /></main>;
+  if (!publicData) return <main className="pg pg-wide"><PageLoading /></main>;
   const staff = publicData.staff || [];
   const founders = staff.filter((s) => /founder/i.test(s.role || ""));
   const rest = staff.filter((s) => !/founder/i.test(s.role || ""));
@@ -1523,7 +1543,7 @@ function Roster({ publicData }) {
     if (activeSlug) { lastSlug.current = activeSlug; return; }
     pushedRef.current = false;
     // however the panel closed (X, Esc, iPhone back-swipe), leave the grid on the card that was open
-    if (lastSlug.current) jumpIntoView(document.querySelector(`.pc[data-slug="${lastSlug.current}"] .pc-frame`));
+    if (lastSlug.current) jumpIntoView(document.querySelector(`.pc[data-slug="${lastSlug.current}"] .pc-frame`), { ifNeeded: true });
     lastSlug.current = null;
   }, [activeSlug]);
 
@@ -1557,7 +1577,7 @@ function Roster({ publicData }) {
     stepFocus.current = null;
     const park = () => {
       const f = document.querySelector(`.pc[data-slug="${activeSlug}"] .pc-frame`);
-      jumpIntoView(f);
+      jumpIntoView(f, { ifNeeded: true });
       return f;
     };
     // park the card on screen under the panel so the photo has somewhere visible to fly back into
@@ -1603,7 +1623,7 @@ function Roster({ publicData }) {
     if (t) t.finished.finally(clear); else clear();
   };
 
-  if (!publicData) return <main className="pg"><PageLoading /></main>;
+  if (!publicData) return <main className="pg pg-wide"><PageLoading /></main>;
   const nProd = clients.filter(isProducer).length;
   const nArt = clients.filter(isArtist).length;
   const filterOptions = [
@@ -1651,7 +1671,7 @@ function Roster({ publicData }) {
 function DecodeName({ name, id }) {
   const boxRef = useRef(null);
   const liveRef = useRef(null);
-  useFitLine(boxRef, name, { min: 26, max: 120 });
+  useFitLine(boxRef, name, { min: 20, max: 120 });
   useEffect(() => {
     const el = liveRef.current;
     if (!el) return;
@@ -1841,7 +1861,10 @@ function Contact({ publicData }) {
   const loadedAt = useRef(Date.now());
   const cardRef = useRef(null);
   const sentHead = useRef(null);
+  const submitRef = useRef(null);
   useEffect(() => { if (sent) sentHead.current?.focus({ preventScroll: true }); }, [sent]);
+  // the submit button is disabled while sending, which drops keyboard focus to <body>: give it back
+  useEffect(() => { if (err && document.activeElement === document.body) submitRef.current?.focus(); }, [err]);
 
   // arriving from an artist's "Work with …" button: preselect Booking and
   // start the message with who it's about
@@ -1862,8 +1885,9 @@ function Contact({ publicData }) {
         headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
         body: JSON.stringify({ ...f, website, loadedAt: loadedAt.current }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't send that — try again.");
+      // an HTML error page (a gateway timeout) has no JSON to read: that's a failure, never a success
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) throw new Error(data?.error || "Couldn't send that — try again.");
       // busy stays on until the swap, so the morph starts from "Sending…", never a flash of "Send message"
       withViewTransition("sent", () => {
         flushSync(() => { setSent(true); setF(blank); setBusy(false); });
@@ -1871,7 +1895,8 @@ function Contact({ publicData }) {
         jumpIntoView(cardRef.current);
       });
     } catch (e2) {
-      setErr(e2.message || "Couldn't send that — try again.");
+      // a dropped connection rejects fetch with a TypeError ("Failed to fetch") — not a sentence for visitors
+      setErr(e2 instanceof TypeError ? "Couldn't reach the server. Check your connection and try again." : e2.message || "Couldn't send that — try again.");
       setBusy(false);
     }
   };
@@ -1895,7 +1920,7 @@ function Contact({ publicData }) {
               <circle cx="24" cy="24" r="22" pathLength="1" />
               <path d="M14.5 24.5l6.5 6.5 13-14" pathLength="1" />
             </svg>
-            <h3 ref={sentHead} tabIndex={-1}>Message sent</h3>
+            <h2 ref={sentHead} tabIndex={-1}>Message sent</h2>
             <p>We'll get back to you as soon as possible.</p>
             <button className="pill pill-ghost" onClick={another}>Send another</button>
           </div>
@@ -1919,7 +1944,7 @@ function Contact({ publicData }) {
             </div>
             <label className="ct-fld"><span>Message</span><textarea name="message" rows={5} required value={f.message} onChange={set("message")} /></label>
             {err && <p className="ct-err" role="alert">{err} You can also email submissions@defiedmgmt.com.</p>}
-            <button className="pill pill-solid pill-full" type="submit" disabled={busy}>
+            <button ref={submitRef} className="pill pill-solid pill-full" type="submit" disabled={busy}>
               {busy ? <><RefreshCw size={15} className="spin" /> Sending…</> : "Send message"}
             </button>
           </form>
@@ -1951,6 +1976,9 @@ function Login({ login }) {
   const [showPw, setShowPw] = useState(false);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const submitRef = useRef(null);
+  // the submit button is disabled while signing in, which drops keyboard focus to <body>: give it back
+  useEffect(() => { if (err && document.activeElement === document.body) submitRef.current?.focus(); }, [err]);
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true); setErr(null);
@@ -1969,13 +1997,13 @@ function Login({ login }) {
           <span>Email</span>
           {/* text, not type=email: accounts are made with a plain text field, so a stored login that
               isn't a strict address must still get through (the live form was plain text too) */}
-          <input name="email" type="text" inputMode="email" autoComplete="username" autoCapitalize="off" autoCorrect="off" spellCheck={false} required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input name="email" type="text" inputMode="email" autoComplete="username" autoCapitalize="off" autoCorrect="off" spellCheck={false} required aria-invalid={err ? true : undefined} value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
         {/* a div, not a wrapping label: the label's text would otherwise take in "Show" as part of the field's name */}
         <div className="ct-fld">
           <label htmlFor="lg-password">Password</label>
           <div className="lg-pw">
-            <input id="lg-password" name="password" type={showPw ? "text" : "password"} autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+            <input id="lg-password" name="password" type={showPw ? "text" : "password"} autoComplete="current-password" required aria-invalid={err ? true : undefined} value={password} onChange={(e) => setPassword(e.target.value)} />
             <button type="button" className="lg-show" onClick={() => setShowPw((v) => !v)} aria-controls="lg-password" aria-label={showPw ? "Hide password" : "Show password"}>{showPw ? "Hide" : "Show"}</button>
           </div>
         </div>
@@ -1985,7 +2013,7 @@ function Login({ login }) {
           <span>Remember me</span>
         </label>
         {err && <p className="ct-err" role="alert">{err}</p>}
-        <button className="pill pill-solid pill-full" type="submit" disabled={busy}>
+        <button ref={submitRef} className="pill pill-solid pill-full" type="submit" disabled={busy}>
           {busy ? <><RefreshCw size={15} className="spin" /> Signing in…</> : "Sign in"}
         </button>
       </form>
@@ -3658,7 +3686,7 @@ function NotableAdmin({ db, commit }) {
   ];
   return (
     <div>
-      <p className="muted mb">Manually curated — these are the exact songs shown in the homepage “Notable Releases” section, independent of any artist’s song list. Paste a Spotify link below to auto-fill the song details, then enter which of our clients it's for.</p>
+      <p className="muted mb">Manually curated — these are the exact songs shown on the About page (the “Notable Releases” grid and the credits band), independent of any artist’s song list. Paste a Spotify link below to auto-fill the song details, then enter which of our clients it's for.</p>
       <Editor title="Notable releases" items={list} columns={cols} maxItems={10}
         blank={{ song: "", artist: "", client: "", releaseDate: "", link: "", cover: "" }}
         onSave={save} onDelete={del}
@@ -4185,6 +4213,7 @@ function StyleTag() {
     .mq-track{display:flex;flex-shrink:0}
     .mq-item{position:relative;display:inline-flex;align-items:center;white-space:nowrap}
     .mq-link{display:inline-flex;align-items:center;color:inherit;text-decoration:none;-webkit-tap-highlight-color:transparent;transition:opacity .35s ease}
+    .about2-band .mq-link{padding:10px 0;margin:-10px 0}
     .mq-sep{display:inline-flex;flex-shrink:0}
     .mq-sep img{display:block;width:auto;height:100%;transition:opacity .35s ease}
     /* one credit: the cover, the artist, then the song and the producer beside it */
@@ -4231,6 +4260,10 @@ function StyleTag() {
     .nav2-mark:hover .nav2-mark-shine::before,.nav2-mark:focus-visible .nav2-mark-shine::before{animation:dsheen .85s var(--ease-light)}
     @keyframes dsheen{to{transform:translateX(280%) skewX(-14deg)}}
     .nav2-links{display:flex;align-items:center;gap:30px}
+    @media (pointer:coarse){
+      .nav2-links a:not(.nav2-auth)::before{content:"";position:absolute;left:-12px;right:-12px;top:50%;height:44px;transform:translateY(-50%)}
+      .nav2-links .nav2-auth::before{content:"";position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
+    }
     .nav2-links a{position:relative;color:var(--mut);text-decoration:none;font-family:'Suntage','Inter',sans-serif;font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;line-height:1.2;transition:color .35s ease}
     .nav2-links a:hover,.nav2-links a:focus-visible,.nav2-links a.active{color:var(--ink)}
     /* hover: a chrome underline draws in from the left and leaves to the right, so sweeping
@@ -4437,6 +4470,8 @@ function StyleTag() {
     .storage-warn~.view .pg-loading{visibility:hidden}
     .storage-warn~.view .pg-loading span{animation:none}
     @keyframes dot{50%{background:#f5f5f5;transform:translateY(-4px)}}
+    .pg-outage{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;box-sizing:border-box;min-height:calc(100vh - var(--nav-h));min-height:calc(100svh - var(--nav-h));padding-bottom:var(--nav-h)}
+    .pg-outage-msg{margin:0;color:var(--mut);font-size:15px}
 
     /* ---------- about ---------- */
     /* "DEFYING THE NORMS / OF TALENT MANAGEMENT." — sized so the longer second line (16.9em) always fits */
@@ -4581,6 +4616,7 @@ function StyleTag() {
       font-family:'Suntage','Inter',sans-serif;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;transition:color .2s ease}
     .ap-bar button:hover{color:var(--ink)}
     .ap-bar button:focus-visible{outline:1px solid #f5f5f5;outline-offset:2px;border-radius:6px}
+    @media (hover:none){ .ap-bar button:focus-visible{outline:none} }
     .ap-bar-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:32vw}
     .ap-bar-pos{font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums;letter-spacing:.12em}
 
@@ -4598,11 +4634,14 @@ function StyleTag() {
     .ct-fld textarea{height:auto;min-height:140px;padding:14px 16px;line-height:1.5;resize:vertical}
     .ct-fld input::placeholder{color:#7a7a7c}
     .ct-fld input:focus,.ct-fld textarea:focus{outline:none;border-color:#f5f5f5;background:#111113;box-shadow:0 0 0 4px rgba(255,255,255,.08)}
+    .ct-fld input:user-invalid,.ct-fld textarea:user-invalid{border-color:#e59a9a}
+    .ct-fld input:user-invalid:focus,.ct-fld textarea:user-invalid:focus{box-shadow:0 0 0 4px rgba(229,154,154,.14)}
     /* a password manager's fill keeps the dark field (browsers otherwise paint it pale blue or yellow) */
     .ct-fld input:-webkit-autofill{-webkit-text-fill-color:var(--ink);caret-color:var(--ink);box-shadow:0 0 0 100px #0d0d0f inset}
     .ct-fld input:-webkit-autofill:focus{box-shadow:0 0 0 100px #111113 inset,0 0 0 4px rgba(255,255,255,.08)}
     .ct-chips{justify-content:flex-start;gap:8px;padding:0;border:0;border-radius:0}
     .ct-chips .chip>span{height:40px;padding:0 15px;border:1px solid #2a2a2c;font-size:10px}
+    @media (min-width:1180px) and (max-width:1299px){ .ct-chips{gap:6px} .ct-chips .chip>span{padding:0 10px;letter-spacing:.11em} }
     .ct-chips .chip.on>span{border-color:transparent}
     .ct-err{margin:0;color:#e59a9a;font-size:13.5px;line-height:1.5}
     .ct-direct{margin:30px 0 0;display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:4px 8px;color:var(--mut);font-size:14px}
@@ -4612,13 +4651,15 @@ function StyleTag() {
     .ct-copy{display:inline-grid;place-items:center;width:44px;height:44px;margin:0 -10px 0 -6px;border-radius:50%;background:none;border:0;color:var(--mut);cursor:pointer;transition:color .2s ease,background-color .2s ease}
     .ct-copy:hover{color:var(--ink);background:#121214}
     .ct-sent{display:flex;flex-direction:column;align-items:center;gap:10px;padding:44px 8px;text-align:center}
-    .ct-sent h3:focus{outline:none}
+    .ct-sent h2:focus{outline:none}
     .ct-check{width:60px;height:60px;margin-bottom:12px}
     .ct-check circle,.ct-check path{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1}
     .ct-check circle{stroke:#3a3a3c;animation:draw .7s var(--ease-light) .15s forwards}
     .ct-check path{stroke:#f5f5f5;animation:draw .5s var(--ease-light) .55s forwards}
-    .ct-sent h3{margin:0;font-family:'Suntage','Inter',sans-serif;font-weight:400;font-size:22px;letter-spacing:.06em;text-transform:uppercase}
+    .ct-sent h2{margin:0;font-family:'Suntage','Inter',sans-serif;font-weight:400;font-size:22px;letter-spacing:.06em;text-transform:uppercase}
     .ct-sent p{margin:0 0 16px;color:var(--mut);font-size:14.5px}
+    .ct-lead,.ct-sent p{text-wrap:pretty}
+    @supports not (text-wrap:pretty){ .ct-lead,.ct-sent p{text-wrap:balance} }
     /* desktop: poster headline left, form right, so SEND sits above the fold (must come after the .ct rules above) */
     @media (min-width:1024px){
       .ct{max-width:1360px;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);grid-template-rows:auto auto 1fr;column-gap:clamp(40px,5vw,80px);align-items:start;text-align:left}
@@ -4733,6 +4774,7 @@ function StyleTag() {
       .ap-bar-name{max-width:28vw}
     }
     @media(min-width:900px){ .pm{display:none} }
+    @media (orientation:landscape) and (max-height:400px){ .pm{padding-top:calc(var(--nav-h) + 10px);padding-bottom:12px} }
     /* iPad portrait: a full-width square photo would push the name, credits and CTA off the first screen */
     @media(min-width:600px) and (max-width:899px){ .ap-inner{max-width:560px} }
     /* …and the credits rail still bleeds to the screen edges like on phones (234px = half the 500px column minus its padding) */

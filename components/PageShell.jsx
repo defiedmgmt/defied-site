@@ -44,7 +44,7 @@ export default function PageShell({ title, description, path = "/", image = DEFA
       {/* the dashboard and portal never use it: there it would only earn a "preloaded but not used" warning */}
       {preloadFont && <link rel="preload" as="font" type="font/otf" href="/fonts/suntage.otf" crossOrigin="anonymous" />}
       <link rel="preload" as="fetch" href="/api/public-data" crossOrigin="anonymous" />
-      <link rel="canonical" href={url} />
+      {!noindex && <link rel="canonical" href={url} />}
       {noindex && <meta name="robots" content="noindex, nofollow" />}
       <link rel="icon" href="/favicon.ico" sizes="any" />
       <link rel="icon" type="image/png" href="/icon-512.png" sizes="512x512" />

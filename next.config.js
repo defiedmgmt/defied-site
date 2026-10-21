@@ -16,7 +16,10 @@ const securityHeaders = [
       // va.vercel-scripts.com is Vercel Web Analytics' script host — it only
       // loads from there in local dev (the debug build); in production the
       // script itself is served same-origin, but the CSP has to allow both.
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com",
+      // cdnjs: the dashboard's photo upload loads heic2any from there to convert iPhone HEIC photos
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://va.vercel-scripts.com https://cdnjs.cloudflare.com",
+      // heic2any does its decoding in a worker it starts from a blob: URL
+      "worker-src 'self' blob:",
       "style-src 'self' 'unsafe-inline'",
       // Spotify/Sheets cover art and profile photos are fetched from arbitrary https hosts
       "img-src 'self' data: https:",
@@ -40,6 +43,8 @@ const fontCache = [{ key: "Cache-Control", value: "public, max-age=31536000, imm
 const assetCache = [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }];
 
 const nextConfig = {
+  // no "X-Powered-By: Next.js" header on every response
+  poweredByHeader: false,
   // Back/Forward land where the visitor left each page (Next keeps the offset per history
   // entry and restores it after rendering) instead of at the top of it
   experimental: { scrollRestoration: true },
