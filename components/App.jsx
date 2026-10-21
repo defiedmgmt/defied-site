@@ -597,11 +597,11 @@ export default function App() {
     return nav;
   };
 
-  const login = async (email, password, remember) => {
+  const login = async (email, password) => {
     const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-      body: JSON.stringify({ email, password, remember }),
+      body: JSON.stringify({ email, password }),
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data) return data?.error || (res.status >= 500 || res.ok ? "Sign-in isn't available right now — try again in a minute." : "Incorrect email or password.");
@@ -1694,8 +1694,8 @@ function Roster({ publicData }) {
   return (
     <main className="pg pg-wide">
       <div className="ros2-head" {...(active ? { inert: "" } : {})}>
-        <h1 className="pg-head split split-chrome" aria-label={`Our roster, ${clients.length} people`}>
-          <span className="w" aria-hidden="true"><span style={{ "--i": 0 }}>OUR</span></span>{" "}
+        <h1 className="pg-head split split-chrome" aria-label={`The roster, ${clients.length} people`}>
+          <span className="w" aria-hidden="true"><span style={{ "--i": 0 }}>THE</span></span>{" "}
           <span className="w" aria-hidden="true"><span style={{ "--i": 1 }}>ROSTER</span></span>
         </h1>
         {filterOptions.length > 2 && (
@@ -2033,7 +2033,6 @@ function Contact({ publicData }) {
 function Login({ login }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(false);
   const [showPw, setShowPw] = useState(false);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -2044,7 +2043,7 @@ function Login({ login }) {
     e.preventDefault();
     setBusy(true); setErr(null);
     let msg;
-    try { msg = await login(email, password, remember); }
+    try { msg = await login(email, password); }
     catch { msg = "Couldn't reach the server. Check your connection and try again."; }
     // signed in: it stays on "Signing in…" until the dashboard takes over
     if (msg) { setBusy(false); setErr(msg); }
@@ -2068,11 +2067,6 @@ function Login({ login }) {
             <button type="button" className="lg-show" onClick={() => setShowPw((v) => !v)} aria-controls="lg-password" aria-label={showPw ? "Hide password" : "Show password"}>{showPw ? "Hide" : "Show"}</button>
           </div>
         </div>
-        <label className="lg-check">
-          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-          <i aria-hidden="true" />
-          <span>Remember me</span>
-        </label>
         {err && <p className="ct-err" role="alert">{err}</p>}
         <button ref={submitRef} className="pill pill-solid pill-full" type="submit" disabled={busy}>
           {busy ? <><RefreshCw size={15} className="spin" /> Signing in…</> : "Sign in"}
@@ -4442,14 +4436,6 @@ function StyleTag() {
     .lg-show:hover{color:var(--ink);background:rgba(255,255,255,.06)}
     .lg-show:focus-visible{outline:2px solid #f5f5f5;outline-offset:-2px}
     /* the checkbox drawn to match the fields: a dark square that fills white with a black tick */
-    .lg-check{position:relative;align-self:flex-start;display:flex;align-items:center;gap:12px;min-height:44px;margin:-8px 0;color:#b8b8b8;font-size:14px;cursor:pointer;-webkit-tap-highlight-color:transparent}
-    .lg-check input{position:absolute;width:1px;height:1px;opacity:0;font-size:16px}
-    .lg-check i{display:grid;place-items:center;flex-shrink:0;width:20px;height:20px;border:1px solid #3a3a3c;border-radius:6px;background:#0d0d0f;transition:background-color .2s ease,border-color .2s ease}
-    .lg-check i::after{content:"";width:9px;height:5px;border-left:2px solid #000;border-bottom:2px solid #000;rotate:-45deg;translate:0 -1px;scale:.4;opacity:0;transition:opacity .15s ease,scale .3s var(--ease-out)}
-    .lg-check:hover i{border-color:#6a6a6c}
-    .lg-check input:checked+i{background:#f5f5f5;border-color:#f5f5f5}
-    .lg-check input:checked+i::after{opacity:1;scale:1}
-    .lg-check input:focus-visible+i{outline:2px solid #f5f5f5;outline-offset:3px}
     .lg-help{margin:22px 0 0;color:var(--mut);font-size:14px;animation:rv .6s var(--ease-out) .4s both}
     .lg-help .inline-link{display:inline-block;padding:12px 0}
     @media(max-width:599px){
@@ -4874,7 +4860,7 @@ function StyleTag() {
       .chips{justify-content:flex-start}
       /* sized so MANAGEMENT. (9.55em) runs the full width: the heading reads as one block, edge to edge */
       .about2-head{font-size:min(56px,calc((100vw - 2 * var(--gutter)) / 9.7));line-height:.98} .split-br{display:none}
-      /* small enough that OUR ROSTER stays on one line down to a 320px phone */
+      /* small enough that THE ROSTER stays on one line down to a 320px phone */
       .pg-head{font-size:clamp(32px,10.5vw,42px)}
       .about2-body p{margin-left:0;font-size:17px;line-height:1.6;text-wrap:pretty}
       .sec-head{text-align:left}
