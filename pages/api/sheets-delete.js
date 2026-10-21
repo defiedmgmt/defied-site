@@ -3,7 +3,7 @@
 // doesn't keep counting toward anyone's streams/revenue. Only clears the
 // site-owned columns (Song Title, Recording Artist, Writer Share %,
 // Luminate ID, Site Sync ID); formula columns are never touched.
-import { getSheetsClient, getSheetId, listTabs, findTab, findRowBySyncId, clearSongRow } from "../../lib/sheets";
+import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, otherClientTabNames, findRowBySyncId, clearSongRow } from "../../lib/sheets";
 import { requireUser, requireSameOrigin } from "../../lib/session";
 import { sql } from "../../lib/db";
 
@@ -32,12 +32,13 @@ export default async function handler(req, res) {
     const sheets = getSheetsClient();
     const spreadsheetId = getSheetId();
     const tabs = await listTabs(sheets, spreadsheetId);
+    const known = await loadClientTabNames();
 
     const results = [];
     for (const split of splits) {
       const name = (split.name || "").trim();
       if (!name) continue;
-      const tab = findTab(tabs, name);
+      const tab = findTab(tabs, name, otherClientTabNames(known, name));
       if (!tab) { results.push({ name, found: false }); continue; }
 
       const syncId = `${placementId}:${name.toLowerCase()}`;

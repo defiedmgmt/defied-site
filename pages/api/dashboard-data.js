@@ -10,6 +10,11 @@ import bcrypt from "bcryptjs";
 import { sql } from "../../lib/db";
 import { requireUser, requireSameOrigin } from "../../lib/session";
 
+// photos are data: URIs inside the rows, so Next's default 1 MB body cap
+// turned every staff save into a 413 once ~5-8 had been uploaded. Vercel's
+// own request cap is 4.5 MB.
+export const config = { api: { bodyParser: { sizeLimit: "4mb" } } };
+
 function toClient(row) {
   return {
     id: row.id, name: row.name, role: row.role, credit: row.credit, bio: row.bio, photo: row.photo,

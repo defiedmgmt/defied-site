@@ -317,14 +317,24 @@ function ExtLink({ href, className, label, title, children }) {
 }
 
 const SERVICE_NAMES = { spotify: "Spotify", apple: "Apple Music", instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube", soundcloud: "SoundCloud" };
+// The Instagram/TikTok fields take a handle ("name", "@name") or a link. A link pasted without its
+// https:// ("instagram.com/name", "www.tiktok.com/@name") is still a link, not a handle to append
+// to the profile URL (that made https://instagram.com/instagram.com/name)
+const handleLink = (v, profile) => {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+  if (/^(?:[a-z0-9-]+\.)*(?:instagram\.com|instagr\.am|tiktok\.com)(?:[/?#]|$)/i.test(s)) return `https://${s}`;
+  return profile + s.replace(/^@/, "");
+};
+const instagramLink = (v) => handleLink(v, "https://instagram.com/");
+const tiktokLink = (v) => handleLink(v, "https://tiktok.com/@");
 function Socials({ c, size = 26 }) {
-  const ig = (v) => !v ? "" : (/^https?:\/\//i.test(v) ? v : `https://instagram.com/${v.replace(/^@/, "")}`);
-  const tk = (v) => !v ? "" : (/^https?:\/\//i.test(v) ? v : `https://tiktok.com/@${v.replace(/^@/, "")}`);
   const items = [
     ["spotify", webLink(c.spotify)],
     ["apple", webLink(c.apple)],
-    ["instagram", ig(c.instagram)],
-    ["tiktok", tk(c.tiktok)],
+    ["instagram", instagramLink(c.instagram)],
+    ["tiktok", tiktokLink(c.tiktok)],
     ["youtube", webLink(c.youtube)],
     ["soundcloud", webLink(c.soundcloud)],
   ].filter(([, url]) => url);
@@ -536,11 +546,33 @@ export default function App() {
     return () => { alive = false; };
   }, []);
 
+  // a tab left open never reloads on its own: coming back to it picks up whatever the dashboard has
+  // changed since (public pages only, at most once a minute). An answer with nothing new leaves the
+  // page alone, and a failed one keeps what's on screen.
+  const pubFetchedAt = useRef(Date.now());
+  const onPublicRoute = route !== "staff" && route !== "client";
+  useEffect(() => {
+    if (!onPublicRoute) return;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || Date.now() - pubFetchedAt.current < PUBLIC_REFRESH_MS) return;
+      pubFetchedAt.current = Date.now();
+      fetchPublicData().then((d) => {
+        if (!d) return;
+        const next = withSlugs(d);
+        setPublicData((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next));
+        setPubErr(null);
+      });
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [onPublicRoute]);
+
   useEffect(() => {
     let alive = true;
     fetch("/api/auth/me")
       .then((r) => r.json())
-      .then((d) => { if (alive) setSession(d.user); })
+      // a 503 (the account couldn't be checked) has no user: signed out, not "still asking" forever
+      .then((d) => { if (alive) setSession(d.user ?? null); })
       .catch(() => { if (alive) setSession(null); });
     return () => { alive = false; };
   }, []);
@@ -733,11 +765,9 @@ const CARD_SIZES = "(max-width: 599px) and (min-resolution: 2.5dppx) 29vw, (max-
 const PUBLIC_CACHE_KEY = "dm-public-data-v2";
 // …and how long a saved copy may stand in: past a day a visit waits for the fresh one instead
 const PUBLIC_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
-// Requested as soon as this module runs (PageShell's preload has it in flight already), so it lands
-// sooner and overwrites the saved copy even if this visit never manages to draw it (PageGuard drops a
-// copy a page can't draw). An error answer (the API sends 502 JSON when the database fails) or an odd
-// one never replaces good data.
-const publicDataRequest = typeof window === "undefined" ? null : fetch("/api/public-data")
+// Saves each good answer as the copy the next visit starts from. An error answer (the API sends 502 JSON
+// when the database fails) or an odd one resolves to null and never replaces good data.
+const fetchPublicData = () => fetch("/api/public-data")
   .then((r) => { if (!r.ok) throw new Error(`public-data ${r.status}`); return r.json(); })
   .then((d) => {
     if (!Array.isArray(d?.clients)) throw new Error("public-data: unexpected shape");
@@ -745,6 +775,12 @@ const publicDataRequest = typeof window === "undefined" ? null : fetch("/api/pub
     return d;
   })
   .catch(() => null);
+// Requested as soon as this module runs (PageShell's preload has it in flight already), so it lands
+// sooner and overwrites the saved copy even if this visit never manages to draw it (PageGuard drops a
+// copy a page can't draw).
+const publicDataRequest = typeof window === "undefined" ? null : fetchPublicData();
+// how often a tab coming back into view may ask for the site data again
+const PUBLIC_REFRESH_MS = 60 * 1000;
 
 // a roster member's ?artist= key: "Stack!e" → stacke, "Beyoncé" → beyonce. Letters and digits of any
 // alphabet stay; a name with none (emoji only) falls back to the record's id, so every card opens
@@ -794,7 +830,8 @@ function creditsOf(publicData) {
 const creditText = (c) => `${c.title} by ${c.artist}${c.prod.length ? `, produced by ${c.prod.join(" and ")}` : ""}`;
 
 // Spotify serves every cover at 640/300/64px under the same id. The credit strips show it small and
-// lift it on hover, so they get the 64px and 300px files. Other hosts get no cover rather than a full-size download.
+// lift it on hover, so they get the 64px and 300px files. A dashboard upload (data:) is already in the
+// page data, so it shows as it is; other hosts get no cover rather than a full-size download.
 const coverSet = (url) => /^https:\/\/i\.scdn\.co\/image\/ab67616d0000b273/.test(url || "")
   ? `${url.replace("ab67616d0000b273", "ab67616d00004851")} 64w, ${url.replace("ab67616d0000b273", "ab67616d00001e02")} 300w` : null;
 
@@ -802,13 +839,16 @@ const coverSet = (url) => /^https:\/\/i\.scdn\.co\/image\/ab67616d0000b273/.test
 // and the roster producer. `sizes` is the cover's size at rest, `lift` its size once it lifts on hover.
 function Credit({ c, sizes, lift }) {
   const set = coverSet(c.cover);
+  const upload = !set && /^data:image\//i.test(c.cover || "");
   // "Prod. prodbylandn" says prod twice: names that already start with it stand alone
   const prodWord = c.prod.every((n) => /^prod/i.test(n)) ? "" : "Prod. ";
   return (
     <>
-      {set && (
+      {(set || upload) && (
         <span className="cr-cov">
-          <img srcSet={set} sizes={sizes} data-lift={lift} alt="" width="64" height="64" decoding="async" draggable={false} />
+          {set
+            ? <img srcSet={set} sizes={sizes} data-lift={lift} alt="" width="64" height="64" decoding="async" draggable={false} />
+            : <img src={c.cover} alt="" width="64" height="64" decoding="async" draggable={false} />}
         </span>
       )}
       <span className="cr-txt">
@@ -1503,8 +1543,8 @@ function TeamPage({ publicData }) {
       {s.bio && <p className="pc-bio">{s.bio}</p>}
       <div className="pc-links">
         {s.email && <TeamEmail email={s.email} />}
-        {s.instagram && (
-          <ExtLink className="hit" href={/^https?:\/\//i.test(s.instagram) ? s.instagram : `https://instagram.com/${s.instagram.replace(/^@/, "")}`} label={`${s.name} on Instagram`}>
+        {instagramLink(s.instagram) && (
+          <ExtLink className="hit" href={instagramLink(s.instagram)} label={`${s.name} on Instagram`}>
             <Instagram size={18} />
           </ExtLink>
         )}
@@ -1773,8 +1813,10 @@ function ArtistPanel({ artist, publicData, list, onClose, onStep, focusOn, onFoc
   const i = list.findIndex((c) => c.id === artist.id);
   const prev = list.length > 1 ? list[(i - 1 + list.length) % list.length] : null;
   const next = list.length > 1 ? list[(i + 1) % list.length] : null;
+  // a neighbour saved without a name still gets a label, not a bare "Next: "
+  const prevName = String(prev?.name ?? "").trim(), nextName = String(next?.name ?? "").trim();
   const slug = slugOf(artist);
-  const hasLinks = [artist.spotify, artist.apple, artist.youtube, artist.soundcloud].some(webLink) || artist.instagram || artist.tiktok;
+  const hasLinks = [artist.spotify, artist.apple, artist.youtube, artist.soundcloud].some(webLink) || instagramLink(artist.instagram) || tiktokLink(artist.tiktok);
   const [railAt, setRailAt] = useState(1);
   const railRef = useRef(null);
   // the grid-sized copy is free once the card has loaded it: it fills the frame for the card→panel
@@ -1897,9 +1939,9 @@ function ArtistPanel({ artist, publicData, list, onClose, onStep, focusOn, onFoc
 
       {(prev || next) && (
         <div className="ap-bar">
-          <button ref={prevRef} onClick={() => onStep(-1)} aria-label={`Previous: ${prev?.name}`}><span aria-hidden="true">←</span> <span className="ap-bar-name"><Glyphs text={prev?.name} /></span></button>
+          <button ref={prevRef} onClick={() => onStep(-1)} aria-label={prevName ? `Previous: ${prevName}` : "Previous artist"}><span aria-hidden="true">←</span> <span className="ap-bar-name"><Glyphs text={prevName || "Previous"} /></span></button>
           <span className="ap-bar-pos" aria-hidden="true">{i + 1} / {list.length}</span>
-          <button ref={nextRef} onClick={() => onStep(1)} aria-label={`Next: ${next?.name}`}><span className="ap-bar-name"><Glyphs text={next?.name} /></span> <span aria-hidden="true">→</span></button>
+          <button ref={nextRef} onClick={() => onStep(1)} aria-label={nextName ? `Next: ${nextName}` : "Next artist"}><span className="ap-bar-name"><Glyphs text={nextName || "Next"} /></span> <span aria-hidden="true">→</span></button>
         </div>
       )}
     </div>
@@ -4596,7 +4638,7 @@ function StyleTag() {
     .pc-cap{display:flex;flex-direction:column;gap:6px;min-width:0}
     .pc-name{display:block;font-family:'Suntage','Inter',sans-serif;font-weight:400;font-size:16px;line-height:18.4px;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;overflow:hidden}
     .pc-role{font-size:11px;line-height:1.45;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .pc-bio{margin:0;font-size:13.5px;line-height:1.55;color:var(--mut);overflow-wrap:break-word}
+    .pc-bio{margin:0;font-size:13.5px;line-height:1.55;color:var(--mut);overflow-wrap:break-word;white-space:pre-line}
     .pc-links{display:flex;gap:2px;margin:-8px 0 0 -12px}
 
     /* roster header + filter chips */
@@ -4657,7 +4699,7 @@ function StyleTag() {
     .ap .socials{gap:4px;margin-left:-10px}
     .ap .social-ic{width:44px;height:44px;align-items:center;justify-content:center;border-radius:50%}
     .ap .social-ic:hover{background:#121214;transform:none}
-    .ap-bio{margin:0;color:#b8b8b8;font-size:15.5px;line-height:1.7;max-width:560px;overflow-wrap:break-word}
+    .ap-bio{margin:0;color:#b8b8b8;font-size:15.5px;line-height:1.7;max-width:560px;overflow-wrap:break-word;white-space:pre-line}
     /* 1fr auto 1fr keeps the "3 / 15" counter dead centre whatever the two names' widths */
     .ap-bar{position:sticky;bottom:0;z-index:4;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin-top:-72px;
       padding:24px max(var(--gutter),calc(50% - 720px + var(--gutter))) calc(14px + env(safe-area-inset-bottom));background:linear-gradient(to top,#000 52%,rgba(0,0,0,0))}
