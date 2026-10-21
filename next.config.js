@@ -33,10 +33,11 @@ const securityHeaders = [
 ];
 
 // public/ files aren't content-hashed, so by default every visit re-checks each one before using it
-// (a round trip per file, and a flash of the fallback font). These never change in place: give a
-// replaced file a new name instead.
+// (a round trip per file, and a flash of the fallback font). The font never changes in place (a new
+// version gets a new name). Photos and brand images have been fixed in place before, so they're kept
+// a day and then refreshed in the background: a replaced photo shows within a day, a renamed one at once.
 const fontCache = [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }];
-const assetCache = [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=2592000" }];
+const assetCache = [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }];
 
 const nextConfig = {
   // Back/Forward land where the visitor left each page (Next keeps the offset per history
@@ -84,8 +85,8 @@ const nextConfig = {
   // photos become data: URIs (PhotoUpload -> fileToDataURL), not remote
   // hosts, so they're unaffected by this list.
   images: {
-    // optimized photos are kept a week too (same rule: a replaced photo gets a new file name)
-    minimumCacheTTL: 604800,
+    // optimized photos are kept a day too (same rule as the originals above)
+    minimumCacheTTL: 86400,
     remotePatterns: [
       { protocol: "https", hostname: "i.scdn.co" },
       { protocol: "https", hostname: "www.defiedmgmt.com" },

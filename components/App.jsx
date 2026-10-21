@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import dynamic from "next/dynamic";
 import {
-  Instagram, Mail, Menu, X, LogOut, Plus, Trash2, Pencil, Users, Disc3,
+  Instagram, Mail, X, LogOut, Plus, Trash2, Pencil, Users, Disc3,
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
   Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator, Copy,
 } from "lucide-react";
@@ -31,9 +31,6 @@ function Wordmark({ height = 34, hero = false }) {
       draggable={false}
     />
   );
-}
-function Mark({ size = 30 }) {
-  return <img src="/brand/d.png" alt="Defied" className="logo-d" style={{ height: size, width: "auto" }} draggable={false} />;
 }
 
 /* ------------------------------------------------------------------ */
@@ -82,52 +79,20 @@ function Photo({ src, alt, className = "", fill, sizes, ...rest }) {
       />
     );
   }
+  // a dashboard upload (data: URI): a plain <img>, sized like next/image's `fill` when asked to fill,
+  // and loaded right away when next/image would have been told it's a priority
+  const { priority, ...imgProps } = rest;
   return (
     <img
       src={src}
       alt={alt}
-      loading="lazy"
+      loading={priority ? "eager" : "lazy"}
       decoding="async"
       onLoad={() => setLoaded(true)}
-      className={cls}
-      {...rest}
+      className={`${cls}${fill ? " ph-fill" : ""}`}
+      {...imgProps}
     />
   );
-}
-
-// Shrinks an element's own font-size just enough to keep its text on one
-// line, no matter how long it is — measured against its own container each
-// time `text` changes, rather than guessing a font size that happens to
-// work for today's names.
-function FitText({ text, tag: Tag = "span", className, ...rest }) {
-  const ref = useRef(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const fit = () => {
-      el.style.fontSize = "";
-      const cs = getComputedStyle(el);
-      const baseSize = parseFloat(cs.fontSize);
-      const avail = el.clientWidth;
-      if (!avail || !baseSize) return;
-      const probe = document.createElement("span");
-      probe.style.cssText = "position:absolute;visibility:hidden;left:-9999px;top:0;white-space:nowrap;";
-      probe.style.font = cs.font;
-      probe.style.letterSpacing = cs.letterSpacing;
-      probe.style.textTransform = cs.textTransform;
-      probe.textContent = text;
-      document.body.appendChild(probe);
-      const natural = probe.getBoundingClientRect().width;
-      probe.remove();
-      if (natural > avail) {
-        el.style.fontSize = `${(baseSize * (avail / natural) * 0.98).toFixed(1)}px`;
-      }
-    };
-    fit();
-    window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
-  }, [text]);
-  return <Tag ref={ref} className={className} {...rest}>{text}</Tag>;
 }
 
 // Lazy-load the HEIC decoder (iPhone photos) from CDN, once.
@@ -468,7 +433,8 @@ const TLink = React.forwardRef(function TLink({ href, onClick, vt = "page", chil
 });
 
 // One shared IntersectionObserver for every [data-reveal] element on the
-// public pages: each gets .is-in the first time it scrolls into view, and the
+// public pages: each gets [data-in] the first time it scrolls into view (an attribute, not a class:
+// React rewrites className whenever a card's own classes change, which would hide it again), and the
 // CSS does the actual animating. Everything that arrives in the same batch is
 // staggered in reading order (row by row, left to right — whatever the
 // breakpoint), capped so a full row never takes longer than ~1/3s to land.
@@ -483,14 +449,14 @@ function useRevealOnScroll(enabled) {
         .sort((a, b) => (Math.round(a.boundingClientRect.top / 12) - Math.round(b.boundingClientRect.top / 12)) || (a.boundingClientRect.left - b.boundingClientRect.left));
       hits.forEach((e, i) => {
         e.target.style.setProperty("--rv-delay", `${Math.min(i * 60, 360)}ms`);
-        e.target.classList.add("is-in");
+        e.target.setAttribute("data-in", "");
         io.unobserve(e.target);
       });
     }, { rootMargin: "0px 0px -6% 0px", threshold: 0.01 });
     let raf = 0;
     const scan = () => {
       raf = 0;
-      document.querySelectorAll("[data-reveal]:not(.is-in):not([data-reveal-seen])").forEach((el) => {
+      document.querySelectorAll("[data-reveal]:not([data-in]):not([data-reveal-seen])").forEach((el) => {
         el.setAttribute("data-reveal-seen", "");
         io.observe(el);
       });
@@ -683,8 +649,10 @@ export default function App() {
 
       {/* the open poster menu is modal: the page under it leaves the tab order */}
       <div className={`${route === "home" || route === "login" || route === "notfound" ? "view view-home" : "view"}${canViewTransition ? "" : " view-anim"}`} key={route} {...(menuOpen ? { inert: "" } : {})}>
-        <PageGuard data={publicData} onDrop={() => publicDataRequest.then((d) => { if (!d) setLoadErr("Couldn't load site data — try refreshing."); })}>
-          {route === "home" && <Home publicData={publicData} />}
+        {/* the banner when there's nothing better coming: the request failed, or the copy that just
+            failed to draw already is the fresh one */}
+        <PageGuard data={publicData} onDrop={() => publicDataRequest.then((d) => { if (!d || d === publicData) setLoadErr("Couldn't load site data — try refreshing."); })}>
+          {route === "home" && <Home />}
           {route === "about" && <About publicData={publicData} />}
           {route === "team" && <TeamPage publicData={publicData} />}
           {route === "roster" && <Roster publicData={publicData} />}
@@ -748,7 +716,9 @@ const publicDataRequest = typeof window === "undefined" ? null : fetch("/api/pub
   })
   .catch(() => null);
 
-const slugOf = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+// a roster member's ?artist= key: "Stack!e" → stacke, "Beyoncé" → beyonce. Letters and digits of any
+// alphabet stay; a name with none (emoji only) falls back to the record's id, so every card opens
+const slugOf = (person) => String(person?.name || "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "") || String(person?.id || "");
 const splitNames = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
 // "Presidential (with Jenn Carter, Kyle Richh, TaTa)" -> "Presidential"
 const cleanTitle = (song) => String(song || "").replace(/\s*[([](?:with|feat\.?|ft\.?)\s[^)\]]*[)\]]/gi, "").trim();
@@ -1120,7 +1090,6 @@ function PublicNav({ route, menuOpen, setMenuOpen, session }) {
         id="poster-menu"
         className={`pm${menuOpen ? " open" : ""}`}
         role="dialog"
-        aria-modal={menuOpen || undefined}
         aria-label="Menu"
         aria-hidden={!menuOpen}
         {...(!menuOpen ? { inert: "" } : {})}
@@ -1175,7 +1144,7 @@ function Footer({ route, inert }) {
 /* ------------------------------------------------------------------ */
 /*  HOME — chrome ignition                                              */
 /* ------------------------------------------------------------------ */
-function Home({ publicData }) {
+function Home() {
   const heroRef = useRef(null);
   const wmRef = useRef(null);
   // the full light-scan intro plays once per visit; coming back to Home in
@@ -1284,15 +1253,31 @@ function Home({ publicData }) {
 const COVER_SIZES = "(max-width: 599px) and (min-resolution: 2.5dppx) 29vw, (max-width: 599px) 46vw, (max-width: 1199px) 22vw, 280px";
 const FEAT_COVER_SIZES = "(max-width: 599px) and (min-resolution: 2.5dppx) 62vw, (max-width: 599px) 92vw, 560px";
 const RAIL_COVER_SIZES = "(max-width: 599px) and (min-resolution: 2.5dppx) 45vw, (max-width: 599px) 68vw, (max-width: 899px) 180px, 150px";
+// the dashboard takes any streaming link ("Paste a Spotify link", but Apple/YouTube/SoundCloud work too):
+// each card names the service it opens, and an unknown one just says Listen
+const SERVICES = [
+  [/(^|\.)spotify\.com$/, "spotify", "Play on Spotify"],
+  [/(^|\.)(music|itunes)\.apple\.com$/, "apple", "Play on Apple Music"],
+  [/(^|\.)(youtube\.com|youtu\.be)$/, "youtube", "Watch on YouTube"],
+  [/(^|\.)soundcloud\.com$/, "soundcloud", "Play on SoundCloud"],
+];
+const PLAY_ICON = (s) => <svg width={s} height={s} viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z" /></svg>;
+function serviceOf(href) {
+  let host = "";
+  try { host = new URL(href).hostname.toLowerCase(); } catch { /* not a URL */ }
+  const hit = SERVICES.find(([re]) => re.test(host));
+  return hit ? { icon: ICONS[hit[1]], cta: hit[2] } : { icon: PLAY_ICON, cta: "Listen" };
+}
 function ReleaseCard({ r, clients, compact = false, featured = false }) {
   const href = webLink(r.link);
+  const svc = href ? serviceOf(href) : null;
   const Tag = href ? "a" : "div";
   const credits = compact ? [] : rosterCreditsOn(r, clients);
   return (
     <Tag className={`rc${featured ? " rc-feat" : ""}${compact ? " rc-compact" : ""}`} {...(compact ? {} : { "data-reveal": "" })} {...(href ? { href, target: "_blank", rel: "noreferrer" } : {})}>
       <div className="rc-cover">
         {r.cover ? <Photo src={r.cover} alt="" fill sizes={featured ? FEAT_COVER_SIZES : compact ? RAIL_COVER_SIZES : COVER_SIZES} /> : <div className="rc-empty"><Disc3 size={30} /></div>}
-        {href && <span className="rc-play" aria-hidden="true">{ICONS.spotify(18)}</span>}
+        {svc && <span className="rc-play" aria-hidden="true">{svc.icon(18)}</span>}
       </div>
       <div className="rc-meta">
         <strong>{r.song}</strong>
@@ -1300,10 +1285,10 @@ function ReleaseCard({ r, clients, compact = false, featured = false }) {
         {credits.length > 0 && (
           <span className="rc-chips">
             {/* "Prod. prodbylandn" says prod twice — a name that already starts with it stands alone */}
-            {credits.map((c) => <em key={c.name} className="chip-tag">{c.prod && !/^prod/i.test(c.name) && "Prod. "}<Glyphs text={c.name} /></em>)}
+            {credits.map((c, i) => <em key={`${c.name}-${i}`} className="chip-tag">{c.prod && !/^prod/i.test(c.name) && "Prod. "}<Glyphs text={c.name} /></em>)}
           </span>
         )}
-        {featured && href && <span className="rc-cta">Play on Spotify <span aria-hidden="true">↗</span></span>}
+        {featured && svc && <span className="rc-cta">{svc.cta} <span aria-hidden="true">↗</span></span>}
       </div>
     </Tag>
   );
@@ -1358,7 +1343,8 @@ function About({ publicData }) {
 
 // A public page that throws while drawing the saved copy (e.g. an older payload shape after a deploy
 // that didn't bump PUBLIC_CACHE_KEY) must not take the whole app down: drop that copy and show the
-// loading state until the fresh one lands, then draw again (or show the banner if it can't load).
+// loading state until the fresh one lands, then draw again (or show the banner if it can't load, or
+// if the fresh copy is the one that failed).
 class PageGuard extends React.Component {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
@@ -1381,7 +1367,7 @@ function PageLoading() {
 // sweep on hover/focus (or as it crosses the middle of a phone screen), with the name + role always
 // visible underneath.
 function PersonCard({ person, onOpen, sizes = CARD_SIZES, eager = false, children }) {
-  const slug = slugOf(person.name);
+  const slug = slugOf(person);
   const Tag = onOpen ? "button" : "div";
   return (
     <Tag
@@ -1532,7 +1518,7 @@ function Roster({ publicData }) {
   useLitBand(gridRef, [publicData, filter]);
 
   const activeSlug = router.isReady ? router.query.artist : undefined;
-  const active = activeSlug ? clients.find((c) => slugOf(c.name) === activeSlug) || null : null;
+  const active = activeSlug ? clients.find((c) => slugOf(c) === activeSlug) || null : null;
   useEffect(() => {
     if (activeSlug) { lastSlug.current = activeSlug; return; }
     pushedRef.current = false;
@@ -1558,7 +1544,7 @@ function Roster({ publicData }) {
     if (frame) frame.style.viewTransitionName = "artist-photo";
     const t = withViewTransition("artist", async () => {
       if (frame) frame.style.viewTransitionName = "";
-      await router.push({ pathname: "/roster", query: queryWith({ artist: slugOf(c.name) }) }, undefined, { shallow: true, scroll: false });
+      await router.push({ pathname: "/roster", query: queryWith({ artist: slugOf(c) }) }, undefined, { shallow: true, scroll: false });
       if (history.state?.key) panelEntries.add(history.state.key);
     });
     t?.finished.finally(() => { if (frame) frame.style.viewTransitionName = ""; });
@@ -1589,14 +1575,14 @@ function Roster({ publicData }) {
   };
 
   const step = (dir) => {
-    const list = visible.some((c) => slugOf(c.name) === activeSlug) ? visible : clients;
-    const i = list.findIndex((c) => slugOf(c.name) === activeSlug);
+    const list = visible.some((c) => slugOf(c) === activeSlug) ? visible : clients;
+    const i = list.findIndex((c) => slugOf(c) === activeSlug);
     const next = list[(i + dir + list.length) % list.length];
     if (!next) return;
     stepFocus.current = dir > 0 ? "next" : "prev";
     document.documentElement.dataset.dir = dir > 0 ? "next" : "prev";
     withViewTransition("artist-step", () =>
-      router.replace({ pathname: "/roster", query: queryWith({ artist: slugOf(next.name) }) }, undefined, { shallow: true, scroll: false })
+      router.replace({ pathname: "/roster", query: queryWith({ artist: slugOf(next) }) }, undefined, { shallow: true, scroll: false })
     );
   };
 
@@ -1608,7 +1594,7 @@ function Roster({ publicData }) {
     const t = withViewTransition("filter", () => {
       flushSync(() => setFilter(v));
       // cards that come back are new nodes — reveal the on-screen ones now so they're in the morph, not after it
-      cards().forEach((el) => { if (el.getBoundingClientRect().top < window.innerHeight) el.classList.add("is-in"); });
+      cards().forEach((el) => { if (el.getBoundingClientRect().top < window.innerHeight) el.setAttribute("data-in", ""); });
       name();
       // only now, after the old snapshot: the URL → filter effect would otherwise re-render the grid before it's taken
       router.replace({ pathname: "/roster", query: queryWith({ type: v === "all" ? null : v }) }, undefined, { shallow: true, scroll: false });
@@ -1642,7 +1628,7 @@ function Roster({ publicData }) {
       </div>
       {active && (
         <ArtistPanel
-          key={slugOf(active.name)}
+          key={slugOf(active)}
           artist={active}
           publicData={publicData}
           list={visible.some((c) => c.id === active.id) ? visible : clients}
@@ -1706,7 +1692,7 @@ function ArtistPanel({ artist, publicData, list, onClose, onStep, focusOn, onFoc
   const i = list.findIndex((c) => c.id === artist.id);
   const prev = list.length > 1 ? list[(i - 1 + list.length) % list.length] : null;
   const next = list.length > 1 ? list[(i + 1) % list.length] : null;
-  const slug = slugOf(artist.name);
+  const slug = slugOf(artist);
   const hasLinks = artist.spotify || artist.apple || artist.youtube || artist.instagram || artist.tiktok || artist.soundcloud;
   const [railAt, setRailAt] = useState(1);
   const railRef = useRef(null);
@@ -1862,7 +1848,7 @@ function Contact({ publicData }) {
   useEffect(() => {
     if (!router.isReady || !publicData) return;
     const slug = router.query.artist;
-    const c = slug && (publicData.clients || []).find((x) => slugOf(x.name) === slug);
+    const c = slug && (publicData.clients || []).find((x) => slugOf(x) === slug);
     if (c) setF((cur) => (cur.message ? cur : { ...cur, subject: "Booking", message: `Re: ${c.name} — ` }));
   }, [router.isReady, publicData]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1957,7 +1943,7 @@ function Contact({ publicData }) {
 /*  LOGIN                                                               */
 /* ------------------------------------------------------------------ */
 // The way into the dashboard and the client portal, built from the public pages' own parts: the chrome
-// heading, the contact form's fields and pill, and the D standing large and faint behind them.
+// heading and the contact form's fields and pill.
 function Login({ login }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1981,7 +1967,9 @@ function Login({ login }) {
       <form className="lg-form" onSubmit={submit} aria-busy={busy}>
         <label className="ct-fld">
           <span>Email</span>
-          <input name="email" type="email" autoComplete="username" autoCapitalize="off" spellCheck={false} required value={email} onChange={(e) => setEmail(e.target.value)} />
+          {/* text, not type=email: accounts are made with a plain text field, so a stored login that
+              isn't a strict address must still get through (the live form was plain text too) */}
+          <input name="email" type="text" inputMode="email" autoComplete="username" autoCapitalize="off" autoCorrect="off" spellCheck={false} required value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
         {/* a div, not a wrapping label: the label's text would otherwise take in "Show" as part of the field's name */}
         <div className="ct-fld">
@@ -3741,7 +3729,6 @@ function StyleTag() {
     .logo-wordmark{display:block;user-select:none}
     .logo-wordmark.hero{width:min(820px,90vw);height:auto}
     .logo-d{display:block;user-select:none}
-    .font-display{font-family:'Suntage','Inter',sans-serif;letter-spacing:.02em}
 
 
     /* hero */
@@ -3761,9 +3748,6 @@ function StyleTag() {
     .block{max-width:1080px;margin:0 auto;padding:44px 28px}
     .block-head{display:flex;align-items:baseline;justify-content:space-between}
     .eyebrow{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--mut);font-weight:600;margin:0 0 22px}
-    .link-btn{background:none;border:none;color:var(--ink);font-size:13px;display:inline-flex;align-items:center;gap:4px;transition:color .15s ease;text-decoration:none;cursor:pointer}
-    .link-btn:hover{color:var(--mut)}
-    .link-btn.center{display:flex;margin:14px auto 0}
 
 
     /* dashboard: photo upload */
@@ -3899,7 +3883,6 @@ function StyleTag() {
 
     /* modal */
     .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:40px 20px;z-index:60;overflow-y:auto}
-    .artist-overlay{padding:0;align-items:stretch;justify-content:stretch;overflow:hidden}
     .crop-overlay{align-items:center;z-index:80}
     .crop-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;width:100%;max-width:380px;animation:popIn .28s cubic-bezier(.22,.61,.36,1) both}
     .crop-body{padding:22px;display:flex;flex-direction:column;align-items:center;gap:16px}
@@ -4086,7 +4069,6 @@ function StyleTag() {
       .form-card{padding:20px}
       /* modals sit comfortably in view on phones */
       .modal{align-items:flex-start;padding:16px 14px 28px}
-      .artist-overlay{padding:0}
       .modal-body{padding:18px}
       .modal-head{padding:16px 18px}
       .song-detail-top{gap:12px}
@@ -4151,9 +4133,9 @@ function StyleTag() {
     ::view-transition-old(grain){display:none}
     ::view-transition-new(grain){animation:none}
 
-    /* scroll-reveal (shared IntersectionObserver adds .is-in; --rv-delay staggers a batch) */
+    /* scroll-reveal (shared IntersectionObserver sets [data-in]; --rv-delay staggers a batch) */
     [data-reveal]:not([data-reveal=split]){opacity:0;translate:0 26px}
-    [data-reveal].is-in:not([data-reveal=split]){opacity:1;translate:none;
+    [data-reveal][data-in]:not([data-reveal=split]){opacity:1;translate:none;
       transition:opacity .7s var(--ease-out) var(--rv-delay,0ms),translate .85s var(--ease-out) var(--rv-delay,0ms)}
 
     /* headline words rising out of clipped slots */
@@ -4161,7 +4143,7 @@ function StyleTag() {
     .split .w{display:inline-block;overflow:hidden;overflow:clip;vertical-align:top;padding:.1em .04em .14em;margin:-.1em -.04em -.14em}
     .split .w>span{display:inline-block;transform-origin:0 100%;animation:rise .85s var(--spring) both;animation-delay:calc(var(--d,80ms) + var(--i,0) * 45ms)}
     .split[data-reveal] .w>span{animation-play-state:paused}
-    .split[data-reveal].is-in .w>span{animation-play-state:running}
+    .split[data-reveal][data-in] .w>span{animation-play-state:running}
     .split-chrome .w>span{background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
     .w-strike{position:relative}
     /* drawn by a clip-path wipe, not dashes: with non-scaling-stroke Chrome lays a pathLength dash out in
@@ -4215,6 +4197,7 @@ function StyleTag() {
     .cr-artist{font-weight:400}
     .cr-sub{display:flex;transition:color .35s ease}
     .nobr{white-space:nowrap}
+    .ph-fill{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
     .amp{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-weight:800}
     /* hover: the rail eases to a stop, the other credits step back, and this one's cover lifts up and away
        from its name (it grows from its bottom-right corner) while a light runs across it once */
@@ -4352,7 +4335,7 @@ function StyleTag() {
 
     /* ---------- sign in ---------- */
     /* one narrow column, centred like the 404 */
-    .lg{position:relative;isolation:isolate;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:clamp(56px,8vw,100px)}
+    .lg{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:clamp(56px,8vw,100px)}
     .lg-label{margin:0 0 18px;animation:rv .6s var(--ease-out) both}
     .lg-head{margin:0 0 36px}
     .lg-form{width:100%;max-width:420px;display:flex;flex-direction:column;gap:20px;text-align:left;animation:rv .7s var(--ease-out) .3s both}
@@ -4434,7 +4417,7 @@ function StyleTag() {
     .st-num{font-weight:400;padding:.05em 0;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
     .st-cap{display:flex;flex-direction:column;gap:.55em;margin-left:.55em;font-size:max(9px,.22em);letter-spacing:.16em;line-height:1}
     .st-label{color:var(--ink)}
-    .st-ctx{color:#68686a}
+    .st-ctx{color:#7d7d7f}
     .ign-ribbon .mq-sep{height:.45em;margin:0 1.1em;opacity:.55}
     /* the rail rolls from the first frame, so the band is already moving as it fades in */
     @media (prefers-reduced-motion:no-preference){
@@ -4459,7 +4442,7 @@ function StyleTag() {
     /* "DEFYING THE NORMS / OF TALENT MANAGEMENT." — sized so the longer second line (16.9em) always fits */
     .about2-head{font-size:clamp(30px,5vw,64px);line-height:1.02;margin:0 auto 34px;max-width:1160px}
     /* the intro reads as a lead: bigger, about 70 characters a line, and the lines balanced to even lengths */
-    .about2-body p{color:#b8b8b8;font-size:clamp(17px,1.6vw,22px);line-height:1.6;max-width:34em;margin:0 auto 18px;text-wrap:balance;animation:rv .75s var(--ease-out) .4s both}
+    .about2-body p{color:#b8b8b8;font-size:clamp(17px,1.6vw,22px);line-height:1.6;max-width:34em;margin:0 auto 18px;text-wrap:balance;overflow-wrap:break-word;animation:rv .75s var(--ease-out) .4s both}
     /* the big credits band: cover, the artist in chrome, and the song and producer as a caption beside it */
     .about2-band{margin:clamp(56px,7vw,88px) calc(50% - 50vw) 0;padding:clamp(18px,2vw,26px) 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
       font-family:'Suntage','Inter',sans-serif;font-size:clamp(22px,3.3vw,44px);line-height:1;letter-spacing:.03em;text-transform:uppercase;text-align:left;animation:vt-fade-in .8s ease .6s both}
@@ -4467,7 +4450,7 @@ function StyleTag() {
     .about2-band .cr-txt{align-items:center}
     .about2-band .cr-artist{padding:.05em 0;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
     .about2-band .cr-sub{flex-direction:column;gap:.6em;margin-left:.5em;font-size:max(9px,.25em);letter-spacing:.16em;line-height:1;color:var(--mut3)}
-    .about2-band .cr-prod{color:#68686a}
+    .about2-band .cr-prod{color:#7d7d7f}
     .about2-band .mq-sep{height:.46em;margin:0 .9em}
     @media (hover:hover){ .about2-band .mq-link:hover .cr-song{color:var(--ink)} }
     .rel2{margin-top:clamp(64px,8vw,108px)}
@@ -4531,7 +4514,7 @@ function StyleTag() {
     .pc-cap{display:flex;flex-direction:column;gap:6px;min-width:0}
     .pc-name{display:block;font-family:'Suntage','Inter',sans-serif;font-weight:400;font-size:16px;line-height:18.4px;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;overflow:hidden}
     .pc-role{font-size:11px;line-height:1.45;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .pc-bio{margin:0;font-size:13.5px;line-height:1.55;color:var(--mut)}
+    .pc-bio{margin:0;font-size:13.5px;line-height:1.55;color:var(--mut);overflow-wrap:break-word}
     .pc-links{display:flex;gap:2px;margin:-8px 0 0 -12px}
 
     /* roster header + filter chips */
@@ -4588,7 +4571,7 @@ function StyleTag() {
     .ap .socials{gap:4px;margin-left:-10px}
     .ap .social-ic{width:44px;height:44px;align-items:center;justify-content:center;border-radius:50%}
     .ap .social-ic:hover{background:#121214;transform:none}
-    .ap-bio{margin:0;color:#b8b8b8;font-size:15.5px;line-height:1.7;max-width:560px}
+    .ap-bio{margin:0;color:#b8b8b8;font-size:15.5px;line-height:1.7;max-width:560px;overflow-wrap:break-word}
     /* 1fr auto 1fr keeps the "3 / 15" counter dead centre whatever the two names' widths */
     .ap-bar{position:sticky;bottom:0;z-index:4;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;margin-top:-72px;
       padding:24px max(var(--gutter),calc(50% - 720px + var(--gutter))) calc(14px + env(safe-area-inset-bottom));background:linear-gradient(to top,#000 52%,rgba(0,0,0,0))}

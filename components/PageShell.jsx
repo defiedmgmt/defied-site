@@ -21,7 +21,7 @@ const ORG_JSON_LD = {
   sameAs: ["https://instagram.com/defiedmgmt", "https://x.com/defiedmgmt"],
 };
 
-export default function PageShell({ title, description, path = "/", image = DEFAULT_IMAGE, noindex = false, preloadHero = false }) {
+export default function PageShell({ title, description, path = "/", image = DEFAULT_IMAGE, noindex = false, preloadHero = false, preloadFont = true }) {
   const url = `${SITE_URL}${path === "/" ? "" : path}`;
   return (
     <Head>
@@ -41,7 +41,8 @@ export default function PageShell({ title, description, path = "/", image = DEFA
       {preloadHero && <link rel="preload" as="image" href="/brand/wordmark.webp" fetchpriority="high" />}
       {/* the same goes for the brand font and the site data: both start with the HTML, so they've
           landed by the time the App bundle runs instead of being fetched one after another after it */}
-      <link rel="preload" as="font" type="font/otf" href="/fonts/suntage.otf" crossOrigin="anonymous" />
+      {/* the dashboard and portal never use it: there it would only earn a "preloaded but not used" warning */}
+      {preloadFont && <link rel="preload" as="font" type="font/otf" href="/fonts/suntage.otf" crossOrigin="anonymous" />}
       <link rel="preload" as="fetch" href="/api/public-data" crossOrigin="anonymous" />
       <link rel="canonical" href={url} />
       {noindex && <meta name="robots" content="noindex, nofollow" />}
