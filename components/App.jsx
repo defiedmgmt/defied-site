@@ -1314,6 +1314,10 @@ function ReleaseCard({ r, clients, compact = false, featured = false }) {
 // full: each big tile fills 4 cells, so 10 → 2 big, 9 → 1, 11 → 3, 8 → none.
 const featuredCount = (n) => (n < 5 ? 0 : [2, 1, 3, 0].find((k) => n > k && (n + 3 * k) % 4 === 0) || 0);
 
+// "long-term", "hands-on": a short hyphenated word wraps as one, never "long- / term" (a long one,
+// such as a web address typed into the dashboard, can still break, so it never pushes a phone sideways)
+const keepHyphens = (text) => String(text).split(/(\s+)/).map((part, i) => (/^[^\s-]+-\S+$/.test(part) && part.length <= 24 ? <span className="nobr" key={i}>{part}</span> : part));
+
 function About({ publicData }) {
   if (!publicData) return <main className="pg"><PageLoading /></main>;
   const about = publicData.about || "";
@@ -1324,7 +1328,7 @@ function About({ publicData }) {
     <main className="pg about2">
       <SplitHead text="DEFYING THE NORMS OF TALENT MANAGEMENT." chrome strike="NORMS" breakAfter="NORMS" className="about2-head" />
       <div className="about2-body">
-        {about.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}
+        {about.split(/\n{2,}/).map((para, i) => <p key={i}>{keepHyphens(para)}</p>)}
       </div>
 
       {credits.length > 0 && (
@@ -1443,7 +1447,7 @@ function TeamPage({ publicData }) {
   );
   return (
     <main className="pg pg-wide">
-      <SplitHead text="TEAM" chrome className="pg-head" />
+      <SplitHead text="OUR TEAM" chrome className="pg-head" />
       <div ref={gridRef} className="team2-wrap">
         {groups.map(([label, people]) => (
           <section className="team2-group" key={label || "all"}>
@@ -1624,8 +1628,9 @@ function Roster({ publicData }) {
   return (
     <main className="pg pg-wide">
       <div className="ros2-head" {...(active ? { inert: "" } : {})}>
-        <h1 className="pg-head split split-chrome" aria-label={`Roster, ${clients.length} people`}>
-          <span className="w" aria-hidden="true"><span style={{ "--i": 0 }}>ROSTER</span></span>
+        <h1 className="pg-head split split-chrome" aria-label={`Our roster, ${clients.length} people`}>
+          <span className="w" aria-hidden="true"><span style={{ "--i": 0 }}>OUR</span></span>{" "}
+          <span className="w" aria-hidden="true"><span style={{ "--i": 1 }}>ROSTER</span></span>
         </h1>
         {filterOptions.length > 2 && (
           <ChipGroup name="roster-type" label="Filter roster" options={filterOptions} value={filter} onChange={changeFilter} className="ros2-filter" />
@@ -4209,6 +4214,7 @@ function StyleTag() {
     .cr-txt{display:inline-flex;min-width:0}
     .cr-artist{font-weight:400}
     .cr-sub{display:flex;transition:color .35s ease}
+    .nobr{white-space:nowrap}
     .amp{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;font-weight:800}
     /* hover: the rail eases to a stop, the other credits step back, and this one's cover lifts up and away
        from its name (it grows from its bottom-right corner) while a light runs across it once */
@@ -4452,7 +4458,8 @@ function StyleTag() {
     /* ---------- about ---------- */
     /* "DEFYING THE NORMS / OF TALENT MANAGEMENT." — sized so the longer second line (16.9em) always fits */
     .about2-head{font-size:clamp(30px,5vw,64px);line-height:1.02;margin:0 auto 34px;max-width:1160px}
-    .about2-body p{color:#b8b8b8;font-size:clamp(16px,1.3vw,18.5px);line-height:1.7;max-width:660px;margin:0 auto 18px;text-wrap:pretty;animation:rv .75s var(--ease-out) .4s both}
+    /* the intro reads as a lead: bigger, about 70 characters a line, and the lines balanced to even lengths */
+    .about2-body p{color:#b8b8b8;font-size:clamp(17px,1.6vw,22px);line-height:1.6;max-width:34em;margin:0 auto 18px;text-wrap:balance;animation:rv .75s var(--ease-out) .4s both}
     /* the big credits band: cover, the artist in chrome, and the song and producer as a caption beside it */
     .about2-band{margin:clamp(56px,7vw,88px) calc(50% - 50vw) 0;padding:clamp(18px,2vw,26px) 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
       font-family:'Suntage','Inter',sans-serif;font-size:clamp(22px,3.3vw,44px);line-height:1;letter-spacing:.03em;text-transform:uppercase;text-align:left;animation:vt-fade-in .8s ease .6s both}
@@ -4775,8 +4782,11 @@ function StyleTag() {
       .pg{text-align:left}
       .ros2-head{align-items:flex-start}
       .chips{justify-content:flex-start}
-      .about2-head{font-size:clamp(28px,8.6vw,40px)} .split-br{display:none}
-      .about2-body p{margin-left:0;font-size:16px;line-height:1.65}
+      /* sized so MANAGEMENT. (9.55em) runs the full width: the heading reads as one block, edge to edge */
+      .about2-head{font-size:min(56px,calc((100vw - 2 * var(--gutter)) / 9.7));line-height:.98} .split-br{display:none}
+      /* small enough that OUR ROSTER stays on one line down to a 320px phone */
+      .pg-head{font-size:clamp(32px,10.5vw,42px)}
+      .about2-body p{margin-left:0;font-size:17px;line-height:1.6;text-wrap:pretty}
       .sec-head{text-align:left}
       .rel2-grid,.pgrid{--cols:2;--g:12px;row-gap:28px}
       .rel2-grid,.pgrid{justify-content:flex-start} /* phones are left-aligned: a short last row starts on column 1 */
