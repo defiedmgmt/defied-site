@@ -53,8 +53,13 @@ const Avatar = ({ src, name, size = 56 }) =>
 // Next's image optimizer — some of the roster source photos are raw
 // multi-megabyte originals; this serves a properly sized, compressed,
 // modern-format copy instead. Needs a position:relative container.
-function Photo({ src, alt, className = "", fill, sizes, ...rest }) {
+// next/image only fetches the hosts in next.config.js images.remotePatterns (and this site's own
+// files); a cover pasted from anywhere else would come back 400 from it, so it loads as-is instead
+const OPTIMIZABLE = /^(?:\/(?!\/)|https:\/\/(?:i\.scdn\.co|www\.defiedmgmt\.com)\/)/i;
+function Photo({ src: rawSrc, alt, className = "", fill, sizes, ...rest }) {
   const [loaded, setLoaded] = useState(false);
+  // the page's security policy only loads https images: an http:// one pasted in gets the secure copy
+  const src = /^http:\/\//i.test(rawSrc || "") ? `https://${rawSrc.slice(7)}` : rawSrc;
   const cls = `ph-fade${loaded ? " ph-in" : ""}${className ? " " + className : ""}`;
   // route through next/image for genuinely-remote (http/https) sources AND
   // this deployment's own local /public files — both get real optimization.
@@ -64,8 +69,7 @@ function Photo({ src, alt, className = "", fill, sizes, ...rest }) {
   // 300x300 output no matter what width was requested — next/image's
   // remote-fetch path behaves differently from its local-file path here.
   // Only real data: URIs (PhotoUpload's base64 output) skip this entirely.
-  const isLocalOrRemote = /^https?:\/\//i.test(src || "") || (src || "").startsWith("/");
-  if (fill && isLocalOrRemote) {
+  if (fill && OPTIMIZABLE.test(src || "")) {
     return (
       <NextImage
         src={src}
@@ -79,7 +83,7 @@ function Photo({ src, alt, className = "", fill, sizes, ...rest }) {
       />
     );
   }
-  // a dashboard upload (data: URI): a plain <img>, sized like next/image's `fill` when asked to fill,
+  // a dashboard upload (data: URI) or a host the optimizer won't fetch: a plain <img>, sized like next/image's `fill` when asked to fill,
   // and loaded right away when next/image would have been told it's a priority
   const { priority, ...imgProps } = rest;
   return (
@@ -510,12 +514,14 @@ export default function App() {
   const [publicData, setPublicData] = useState(() => {
     try {
       const c = JSON.parse(localStorage.getItem(PUBLIC_CACHE_KEY) || "null");
-      return c && Array.isArray(c.clients) ? c : null;
+      return c && Array.isArray(c.clients) && Date.now() - (c.savedAt || 0) < PUBLIC_CACHE_MAX_AGE ? withSlugs(c) : null;
     } catch { return null; } // storage blocked
   });
   const hadCachedData = useRef(publicData !== null);
+  const pubStale = useRef(false); // set by a dashboard save
   const [menuOpen, setMenuOpen] = useState(false);
-  const [loadErr, setLoadErr] = useState(null);
+  const [loadErr, setLoadErr] = useState(null); // the dashboard's own load / save errors
+  const [pubErr, setPubErr] = useState(null); // the public pages' data
   useRevealOnScroll(route !== "staff" && route !== "client");
 
   // the fresh copy (see publicDataRequest) swaps in when it lands; a failed request only shows
@@ -524,8 +530,8 @@ export default function App() {
     let alive = true;
     publicDataRequest.then((d) => {
       if (!alive) return;
-      if (d) setPublicData(d);
-      else if (!hadCachedData.current) setLoadErr("Couldn't load site data — try refreshing.");
+      if (d) setPublicData(withSlugs(d));
+      else if (!hadCachedData.current) setPubErr("Couldn't load site data — try refreshing.");
     });
     return () => { alive = false; };
   }, []);
@@ -575,6 +581,9 @@ export default function App() {
         throw new Error(data.error || "Save failed.");
       }
       setLoadErr(null);
+      // the public pages' copy is now out of date: refetch it when staff next open one
+      pubStale.current = true;
+      try { localStorage.removeItem(PUBLIC_CACHE_KEY); } catch { /* storage blocked */ }
     } catch (err) {
       setLoadErr(err.message || "Couldn't save that change — try again.");
     }
@@ -624,6 +633,20 @@ export default function App() {
   }, [route, session]);
 
   const inPortal = route === "staff" || route === "client";
+
+  // after a dashboard save, going back to the public site (logo, nav) shows what was just saved
+  useEffect(() => {
+    if (inPortal || !pubStale.current) return;
+    pubStale.current = false;
+    fetch("/api/public-data")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!Array.isArray(d?.clients)) return;
+        try { localStorage.setItem(PUBLIC_CACHE_KEY, JSON.stringify({ ...d, savedAt: Date.now() })); } catch { /* storage full or blocked */ }
+        setPublicData(withSlugs(d));
+      })
+      .catch(() => {});
+  }, [inPortal]);
   // browsers with View Transitions animate route changes there; the rest get a CSS entrance
   const canViewTransition = typeof document !== "undefined" && !!document.startViewTransition;
 
@@ -646,9 +669,8 @@ export default function App() {
     <div className={inPortal ? "app" : "app pub"}>
       <StyleTag />
       {!inPortal && <div className="grain" aria-hidden="true" />}
-      {loadErr && (inPortal || DATA_ROUTES.includes(route)) && (
-        <div className="storage-warn" role="alert">{loadErr}</div>
-      )}
+      {inPortal ? loadErr && <div className="storage-warn" role="alert">{loadErr}</div>
+        : pubErr && DATA_ROUTES.includes(route) && <div className="storage-warn" role="alert">{pubErr}</div>}
       {!inPortal && (
         <PublicNav route={route} menuOpen={menuOpen} setMenuOpen={setMenuOpen} session={session} />
       )}
@@ -657,7 +679,7 @@ export default function App() {
       <div className={`${route === "home" || route === "login" || route === "notfound" ? "view view-home" : "view"}${canViewTransition ? "" : " view-anim"}`} key={route} {...(menuOpen ? { inert: "" } : {})}>
         {/* the banner when there's nothing better coming: the request failed, or the copy that just
             failed to draw already is the fresh one */}
-        <PageGuard data={publicData} outage={!!loadErr && !publicData && DATA_ROUTES.includes(route)} onDrop={() => publicDataRequest.then((d) => { if (!d || d === publicData) setLoadErr("Couldn't load site data — try refreshing."); })}>
+        <PageGuard data={publicData} outage={!!pubErr && !publicData && DATA_ROUTES.includes(route)} onDrop={() => publicDataRequest.then((d) => { if (!d || d === publicData) setPubErr("Couldn't load site data — try refreshing."); })}>
           {route === "home" && <Home />}
           {route === "about" && <About publicData={publicData} />}
           {route === "team" && <TeamPage publicData={publicData} />}
@@ -708,7 +730,9 @@ const PUBLIC_LINKS = [["about", "About"], ["team", "Team"], ["roster", "Roster"]
 // without the resolution query fall through to 46vw).
 const CARD_SIZES = "(max-width: 599px) and (min-resolution: 2.5dppx) 29vw, (max-width: 599px) 46vw, (max-width: 899px) 31vw, (max-width: 1199px) 23vw, 260px";
 // localStorage copy of /api/public-data — bump the version whenever that payload's shape changes
-const PUBLIC_CACHE_KEY = "dm-public-data-v1";
+const PUBLIC_CACHE_KEY = "dm-public-data-v2";
+// …and how long a saved copy may stand in: past a day a visit waits for the fresh one instead
+const PUBLIC_CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 // Requested as soon as this module runs (PageShell's preload has it in flight already), so it lands
 // sooner and overwrites the saved copy even if this visit never manages to draw it (PageGuard drops a
 // copy a page can't draw). An error answer (the API sends 502 JSON when the database fails) or an odd
@@ -717,22 +741,44 @@ const publicDataRequest = typeof window === "undefined" ? null : fetch("/api/pub
   .then((r) => { if (!r.ok) throw new Error(`public-data ${r.status}`); return r.json(); })
   .then((d) => {
     if (!Array.isArray(d?.clients)) throw new Error("public-data: unexpected shape");
-    try { localStorage.setItem(PUBLIC_CACHE_KEY, JSON.stringify(d)); } catch { /* storage full or blocked */ }
+    try { localStorage.setItem(PUBLIC_CACHE_KEY, JSON.stringify({ ...d, savedAt: Date.now() })); } catch { /* storage full or blocked */ }
     return d;
   })
   .catch(() => null);
 
 // a roster member's ?artist= key: "Stack!e" → stacke, "Beyoncé" → beyonce. Letters and digits of any
 // alphabet stay; a name with none (emoji only) falls back to the record's id, so every card opens
-const slugOf = (person) => String(person?.name || "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "") || String(person?.id || "");
+const nameKey = (person) => String(person?.name || "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "") || String(person?.id || "");
+const slugOf = (person) => person?.slug || nameKey(person);
+// Two names can reduce to the same key ("Stack!e" and "Stacke", or one name typed twice): the first
+// on the roster keeps it and the others add their record id, so every card still opens its own panel
+function withSlugs(d) {
+  const seen = new Set();
+  return {
+    ...d,
+    clients: d.clients.map((c) => {
+      const key = nameKey(c);
+      const slug = seen.has(key) ? `${key}-${c.id}` : key;
+      seen.add(key);
+      return { ...c, slug };
+    }),
+  };
+}
+// a card's placeholder letter: the first whole character (an emoji, not half of one), or "?" for no name
+const initialOf = (name) => ([...String(name || "").trim()][0] || "?").toUpperCase();
 const splitNames = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
 // "Presidential (with Jenn Carter, Kyle Richh, TaTa)" -> "Presidential"
 const cleanTitle = (song) => String(song || "").replace(/\s*[([](?:with|feat\.?|ft\.?)\s[^)\]]*[)\]]/gi, "").trim();
 const primaryArtist = (artist) => splitNames(artist)[0] || "";
 const sameName = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 
-// streaming links are typed in on the dashboard: only ever hand a real web address to an href
-const webLink = (url) => (/^https?:\/\//i.test(String(url || "").trim()) ? String(url).trim() : null);
+// streaming links are typed in on the dashboard: only ever hand a real web address to an href.
+// One pasted without its https:// ("open.spotify.com/artist/…") gets it back; anything else is dropped.
+const webLink = (url) => {
+  const u = String(url || "").trim();
+  if (/^https?:\/\//i.test(u)) return u;
+  return /^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[/?#]\S*)?$/i.test(u) ? `https://${u}` : null;
+};
 
 function creditsOf(publicData) {
   const clients = publicData?.clients || [];
@@ -804,7 +850,12 @@ function Stat({ s }) {
 
 // Emoji (keycaps, flags, pictographs, skin-tone and ZWJ sequences) get a span of their own: inside
 // chrome text (a gradient clipped to transparent glyphs) a colour emoji would paint as a blank silver tile
-const EMOJI_SEQ = /([#*\d]️?⃣|\p{Regional_Indicator}{2}|(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}️)\p{Emoji_Modifier}?(?:‍(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}️?)\p{Emoji_Modifier}?)*)/u;
+// (built at runtime so a browser without \p{…} support gets plain text instead of a dead page)
+const EMOJI_SEQ = (() => {
+  try {
+    return new RegExp("([#*\\d]\uFE0F?\u20E3|\\p{Regional_Indicator}{2}|(?:\\p{Emoji_Presentation}|\\p{Extended_Pictographic}\uFE0F)\\p{Emoji_Modifier}?(?:\u200D(?:\\p{Emoji_Presentation}|\\p{Extended_Pictographic}\uFE0F?)\\p{Emoji_Modifier}?)*)", "u");
+  } catch { return /(?!)/; }
+})();
 // `amp`: Suntage's "&" reads as an 8 ("Q8A"), so in the credit strips it's set in the body face instead
 function Glyphs({ text, amp = false }) {
   const parts = String(text ?? "").split(EMOJI_SEQ);
@@ -988,13 +1039,20 @@ function useFitLine(ref, text, { min = 10, max = 400 } = {}) {
     if (!el) return;
     const fit = () => {
       el.style.fontSize = "";
+      delete el.dataset.wrap;
       const base = parseFloat(getComputedStyle(el).fontSize);
       const avail = el.clientWidth;
       const natural = el.scrollWidth;
       if (!avail || !natural || !base) return;
       if (natural > avail) {
-        const size = Math.max(min, Math.min(max, base * (avail / natural) * 0.985));
-        el.style.fontSize = `${size.toFixed(1)}px`;
+        const one = base * (avail / natural) * 0.985;
+        if (one >= min) {
+          el.style.fontSize = `${Math.min(max, one).toFixed(1)}px`;
+        } else {
+          // too long for one line even at the smallest size: wrap (about two lines) rather than cut it off
+          el.dataset.wrap = "";
+          el.style.fontSize = `${Math.max(min, Math.min(max, base, base * (2 * avail / natural) * 0.9)).toFixed(1)}px`;
+        }
       }
     };
     fit();
@@ -1399,7 +1457,7 @@ function PersonCard({ person, onOpen, sizes = CARD_SIZES, eager = false, childre
       <div className="pc-frame">
         {person.photo
           ? <Photo src={person.photo} alt="" fill sizes={sizes} priority={eager} />
-          : <div className="pc-empty">{(person.name || "?")[0].toUpperCase()}</div>}
+          : <div className="pc-empty">{initialOf(person.name)}</div>}
       </div>
       <div className="pc-cap">
         <FitLine tag="strong" text={person.name} className="pc-name" />
@@ -1430,11 +1488,13 @@ function TeamPage({ publicData }) {
   useLitBand(gridRef, [publicData]);
   if (!publicData) return <main className="pg pg-wide"><PageLoading /></main>;
   const staff = publicData.staff || [];
-  const founders = staff.filter((s) => /founder/i.test(s.role || ""));
-  const rest = staff.filter((s) => !/founder/i.test(s.role || ""));
+  // "Co-Founder", "CEO & Co-Founder", "Founder/CEO" — not "Assistant to the Co-Founders"
+  const isFounder = (s) => /\b(co-?)?founder\b/i.test(s.role || "");
+  const founders = staff.filter(isFounder);
+  const rest = staff.filter((s) => !isFounder(s));
   // label the second group by its shared role ("Talent Managers") when there is one
   const restRoles = [...new Set(rest.map((s) => (s.role || "").trim()).filter(Boolean))];
-  const restLabel = restRoles.length === 1 ? `${restRoles[0]}s` : "Team";
+  const restLabel = restRoles.length === 1 ? (/s$/i.test(restRoles[0]) ? restRoles[0] : `${restRoles[0]}s`) : "Team";
   const groups = founders.length && rest.length
     ? [["Co-Founders", founders], [restLabel, rest]]
     : [["", staff]];
@@ -1668,7 +1728,8 @@ function Roster({ publicData }) {
 /* ------------------------------------------------------------------ */
 // The name lands as flickering letters that settle left→right into the real
 // name. A hidden copy of the real name holds the width so nothing reflows.
-function DecodeName({ name, id }) {
+function DecodeName({ name: rawName, id }) {
+  const name = String(rawName ?? "");
   const boxRef = useRef(null);
   const liveRef = useRef(null);
   useFitLine(boxRef, name, { min: 20, max: 120 });
@@ -1713,7 +1774,7 @@ function ArtistPanel({ artist, publicData, list, onClose, onStep, focusOn, onFoc
   const prev = list.length > 1 ? list[(i - 1 + list.length) % list.length] : null;
   const next = list.length > 1 ? list[(i + 1) % list.length] : null;
   const slug = slugOf(artist);
-  const hasLinks = artist.spotify || artist.apple || artist.youtube || artist.instagram || artist.tiktok || artist.soundcloud;
+  const hasLinks = [artist.spotify, artist.apple, artist.youtube, artist.soundcloud].some(webLink) || artist.instagram || artist.tiktok;
   const [railAt, setRailAt] = useState(1);
   const railRef = useRef(null);
   // the grid-sized copy is free once the card has loaded it: it fills the frame for the card→panel
@@ -1799,15 +1860,15 @@ function ArtistPanel({ artist, publicData, list, onClose, onStep, focusOn, onFoc
           {artist.photo ? (
             <>
               {/* same sizes as the grid card = instant cache hit for the morph */}
-              {lo && <NextImage src={artist.photo} alt="" fill sizes={CARD_SIZES} style={{ objectFit: "cover" }} className="ap-photo-lo" />}
+              {lo && OPTIMIZABLE.test(artist.photo) && <NextImage src={artist.photo} alt="" fill sizes={CARD_SIZES} style={{ objectFit: "cover" }} className="ap-photo-lo" />}
               <Photo src={artist.photo} alt={artist.name} fill sizes="(max-width: 899px) 92vw, 620px" priority />
             </>
-          ) : <div className="ap-photo-empty">{artist.name[0].toUpperCase()}</div>}
+          ) : <div className="ap-photo-empty">{initialOf(artist.name)}</div>}
         </div>
 
         <div className="ap-info">
           <DecodeName name={artist.name} id={`ap-name-${slug}`} />
-          <div className="ap-stag" style={{ "--i": 0 }}><span className="chip-tag chip-tag-lg">{artist.role}</span></div>
+          {artist.role && <div className="ap-stag" style={{ "--i": 0 }}><span className="chip-tag chip-tag-lg">{artist.role}</span></div>}
 
           {releases.length > 0 && (
             <section className="ap-stag ap-rel" style={{ "--i": 1 }}>
@@ -1935,7 +1996,7 @@ function Contact({ publicData }) {
             />
             <div className="ct-row">
               <label className="ct-fld"><span>Name</span><input name="name" autoComplete="name" required value={f.name} onChange={set("name")} /></label>
-              <label className="ct-fld"><span>Email</span><input name="email" type="email" autoComplete="email" required value={f.email} onChange={set("email")} /></label>
+              <label className="ct-fld"><span>Email</span><input name="email" type="text" inputMode="email" autoComplete="email" autoCapitalize="off" autoCorrect="off" spellCheck={false} required pattern="\s*[^@\s]+@[^@\s]+\.[^@\s]+\s*" title="An email address, like name@example.com" value={f.email} onChange={set("email")} /></label>
             </div>
             <label className="ct-fld"><span>Instagram</span><input name="instagram" placeholder="@yourhandle" autoCapitalize="off" autoCorrect="off" spellCheck={false} required value={f.instagram} onChange={set("instagram")} /></label>
             <div className="ct-fld">
@@ -4586,6 +4647,8 @@ function StyleTag() {
     .ap-photo .ph-fade{z-index:1}
     .ap-photo-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Suntage','Inter',sans-serif;font-size:96px;color:#2c2c2e}
     .ap-info{display:flex;flex-direction:column;align-items:flex-start;gap:24px;min-width:0;padding-top:clamp(0px,1.5vw,20px)}
+    .ap-info>.ap-stag{max-width:100%}
+    .ap .pill-solid{max-width:100%} .ap .pill-solid>span{min-width:0;overflow:hidden;text-overflow:ellipsis}
     .ap-info>*{max-width:100%}
     .ap-name{align-self:stretch;margin:0;font-family:'Suntage','Inter',sans-serif;font-weight:400;font-synthesis:none;font-size:clamp(40px,8.6vw,132px);line-height:.95;letter-spacing:.01em;text-transform:uppercase;white-space:nowrap;overflow:hidden;
       padding:.04em 0;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
@@ -4593,6 +4656,8 @@ function StyleTag() {
     .ap-name-lock>*{grid-area:1/1}
     .ap-name-ghost{visibility:hidden}
     .ap-name-live{contain:inline-size;overflow-x:clip}
+    .ap-name[data-wrap],.pc-name[data-wrap]{white-space:normal;overflow-wrap:anywhere;text-wrap:balance}
+    .pc-name[data-wrap]{line-height:1.15}
     .ap-name .emo,.about2-band b .emo{-webkit-text-fill-color:#fff}
     .ap-stag{animation:rv .55s var(--ease-out) both;animation-delay:calc(240ms + var(--i) * 55ms)}
     .ap-rel{align-self:stretch}
