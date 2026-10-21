@@ -800,7 +800,7 @@ function Credit({ c, sizes, lift }) {
   );
 }
 
-// The About band's headline numbers. Written here rather than on the dashboard, so they only change with
+// The Home band's headline numbers. Written here rather than on the dashboard, so they only change with
 // a deploy: every one is checked against its source (in the comment beside it) before it goes in.
 const STATS = [
   // Billboard 200 dated May 30, 2026: MAID OF HONOUR debuted at No. 3 (ICEMAN 1, HABIBTI 2); Stack!e is one of
@@ -1243,7 +1243,6 @@ function Home({ publicData }) {
   };
   const release = (e) => { clearTimeout(holdT.current); cycle(e.currentTarget).forEach((a) => a.play()); };
 
-  const credits = creditsOf(publicData);
   return (
     <main className="home2">
       {/* arriving through the logo morph, the morph is the entrance: no light-scan wipe to hide
@@ -1269,17 +1268,7 @@ function Home({ publicData }) {
           <TLink href={ROUTE_TO_PATH.roster} className="pill pill-solid">See the roster</TLink>
           <TLink href={ROUTE_TO_PATH.contact} className="pill pill-ghost">Work with us</TLink>
         </div>
-        {credits.length > 0 && (
-          <Marquee
-            className="ign-ribbon"
-            label="Notable placements"
-            seconds={Math.max(40, credits.length * 5)}
-            items={credits.map((c) => ({ ...c, text: creditText(c) }))}
-            // 21px, a touch under its real 19–24px: that keeps it on the 64px file even on 3x screens, where it
-            // looks the same at this size for a tenth of the bytes (the 300px one only comes in for a lifted cover)
-            render={(c) => <Credit c={c} sizes="21px" lift="77px" />}
-          />
-        )}
+        <Marquee className="ign-ribbon" label="Defied in numbers" seconds={STATS.length * 5} items={STATS} render={(s) => <Stat s={s} />} />
       </section>
     </main>
   );
@@ -1327,6 +1316,7 @@ function About({ publicData }) {
   if (!publicData) return <main className="pg"><PageLoading /></main>;
   const about = publicData.about || "";
   const notable = (publicData.notableReleases || []).filter((r) => r.song);
+  const credits = creditsOf(publicData);
   const nFeat = featuredCount(notable.length);
   return (
     <main className="pg about2">
@@ -1335,7 +1325,15 @@ function About({ publicData }) {
         {about.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}
       </div>
 
-      <Marquee className="about2-band" label="Defied in numbers" seconds={Math.max(36, STATS.length * 9)} items={STATS} render={(s) => <Stat s={s} />} />
+      {credits.length > 0 && (
+        <Marquee
+          className="about2-band"
+          label="Notable placements"
+          seconds={Math.max(45, credits.length * 7)}
+          items={credits.map((c) => ({ ...c, text: creditText(c) }))}
+          render={(c) => <Credit c={c} sizes="(max-width: 666px) 21px, 42px" lift="105px" />}
+        />
+      )}
 
 
       <section className="rel2">
@@ -1971,11 +1969,6 @@ function Login({ login }) {
   };
   return (
     <main className="pg lg">
-      {/* the D catches the light once as the page opens, like the wordmark on Home */}
-      <span className="lg-d" aria-hidden="true">
-        <img src="/brand/d.png" alt="" width="180" height="144" draggable={false} />
-        <span className="lg-d-shine" />
-      </span>
       <p className="micro-label lg-label">Staff and client portal</p>
       <SplitHead text="SIGN IN." chrome className="pg-head lg-head" />
       <form className="lg-form" onSubmit={submit} aria-busy={busy}>
@@ -4350,13 +4343,8 @@ function StyleTag() {
     @media(max-width:599px){ .nf-lead{margin-left:0} .nf-cta{flex-direction:column;align-items:stretch;width:min(100%,280px)} }
 
     /* ---------- sign in ---------- */
-    /* one narrow column, centred like the 404, with the D standing large and faint behind it */
+    /* one narrow column, centred like the 404 */
     .lg{position:relative;isolation:isolate;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:clamp(56px,8vw,100px)}
-    .lg-d{position:absolute;z-index:-1;top:50%;right:max(-10vw,-150px);height:min(80vh,760px);aspect-ratio:180/144;translate:0 -50%;pointer-events:none;user-select:none}
-    .lg-d img{display:block;width:100%;height:100%;opacity:.05;-webkit-user-drag:none;animation:vt-fade-in 1.2s ease .2s both}
-    .lg-d-shine{position:absolute;inset:0;overflow:hidden;-webkit-mask:url(/brand/d-mask.png) center/100% 100% no-repeat;mask:url(/brand/d-mask.png) center/100% 100% no-repeat}
-    .lg-d-shine::before{content:"";position:absolute;top:-20%;bottom:-20%;left:0;width:45%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.17),transparent);transform:translateX(-150%) skewX(-14deg);animation:lg-sheen 2.6s var(--ease-light) .8s both}
-    @keyframes lg-sheen{to{transform:translateX(330%) skewX(-14deg)}}
     .lg-label{margin:0 0 18px;animation:rv .6s var(--ease-out) both}
     .lg-head{margin:0 0 36px}
     .lg-form{width:100%;max-width:420px;display:flex;flex-direction:column;gap:20px;text-align:left;animation:rv .7s var(--ease-out) .3s both}
@@ -4382,7 +4370,6 @@ function StyleTag() {
     @media(max-width:599px){
       .lg{align-items:stretch}
       .lg-form{max-width:none}
-      .lg-d{top:auto;bottom:2vh;right:-34vw;height:62vh;translate:none}
     }
 
     /* ---------- home: chrome ignition ---------- */
@@ -4425,23 +4412,22 @@ function StyleTag() {
     .ign-cta>:nth-child(2){animation-delay:.47s}
     .ign-seen .ign-cta>*{animation-delay:.12s}
     .ign-seen .ign-cta>:nth-child(2){animation-delay:.2s}
-    /* the Home credits band: the cover, the artist in chrome, and the song and producer as a two-line
-       caption beside it. Sized off its font-size, so the phone and landscape rules only change that */
+    /* the Home numbers band: each figure in chrome, with what it is and where it's from as a two-line caption
+       beside it. Sized off its font-size, so the phone and landscape rules only change that */
     .ign-ribbon{position:absolute;left:0;right:0;bottom:calc(20px + env(safe-area-inset-bottom));padding:15px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
-      font-family:'Suntage','Inter',sans-serif;font-size:clamp(18px,1.6vw,23px);line-height:1;letter-spacing:.03em;text-transform:uppercase;text-align:left;
+      font-family:'Suntage','Inter',sans-serif;font-size:clamp(20px,1.9vw,27px);line-height:1;letter-spacing:.03em;text-transform:uppercase;text-align:left;
       animation:vt-fade-in .7s ease .6s both}
     .ign-seen .ign-ribbon{animation-delay:.2s}
-    /* the ends fade into the black: an overlay, as a mask would also cut off a lifted cover */
+    /* the ends fade into the black */
     .ign-ribbon::before,.ign-ribbon::after{content:"";position:absolute;top:0;bottom:0;z-index:3;width:7%;pointer-events:none}
     .ign-ribbon::before{left:0;background:linear-gradient(90deg,#000,transparent)}
     .ign-ribbon::after{right:0;background:linear-gradient(270deg,#000,transparent)}
-    .ign-ribbon .cr-cov{width:1.05em;height:1.05em;margin-right:.4em;border-radius:4px;--lift:translateY(-.1em) scale(3.2) rotate(-4deg)}
-    .ign-ribbon .cr-txt{align-items:center}
-    .ign-ribbon .cr-artist{padding:.05em 0;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
-    .ign-ribbon .cr-sub{flex-direction:column;gap:5px;margin-left:.6em;font-size:9px;letter-spacing:.16em;line-height:1;color:var(--mut3)}
-    .ign-ribbon .cr-prod{color:#68686a}
-    .ign-ribbon .mq-sep{height:.5em;margin:0 1.15em;opacity:.55}
-    @media (hover:hover){ .ign-ribbon .mq-link:hover .cr-song{color:var(--ink)} }
+    .st{display:inline-flex;align-items:center}
+    .st-num{font-weight:400;padding:.05em 0;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
+    .st-cap{display:flex;flex-direction:column;gap:.55em;margin-left:.55em;font-size:max(9px,.22em);letter-spacing:.16em;line-height:1}
+    .st-label{color:var(--ink)}
+    .st-ctx{color:#68686a}
+    .ign-ribbon .mq-sep{height:.45em;margin:0 1.1em;opacity:.55}
     /* the rail holds still (lead credit parked in view) until the ribbon has faded in */
     @media (prefers-reduced-motion:no-preference){
       .ign-ribbon .mq-rail{animation-delay:1.8s}
@@ -4466,15 +4452,16 @@ function StyleTag() {
     /* ---------- about ---------- */
     .about2-head{font-size:clamp(30px,5.3vw,76px);line-height:1.02;margin:0 auto 34px;max-width:1160px}
     .about2-body p{color:#b8b8b8;font-size:clamp(16px,1.3vw,18.5px);line-height:1.7;max-width:660px;margin:0 auto 18px;text-wrap:pretty;animation:rv .75s var(--ease-out) .4s both}
-    /* the big numbers band: each figure in chrome, with what it is and where it's from as a caption beside it */
+    /* the big credits band: cover, the artist in chrome, and the song and producer as a caption beside it */
     .about2-band{margin:clamp(56px,7vw,88px) calc(50% - 50vw) 0;padding:clamp(18px,2vw,26px) 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
-      font-family:'Suntage','Inter',sans-serif;font-size:clamp(26px,3.8vw,52px);line-height:1;letter-spacing:.03em;text-transform:uppercase;text-align:left;animation:vt-fade-in .8s ease .6s both}
-    .st{display:inline-flex;align-items:center}
-    .st-num{font-weight:400;padding:.05em 0;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
-    .st-cap{display:flex;flex-direction:column;gap:.55em;margin-left:.5em;font-size:max(9px,.22em);letter-spacing:.16em;line-height:1}
-    .st-label{color:var(--ink)}
-    .st-ctx{color:#68686a}
-    .about2-band .mq-sep{height:.4em;margin:0 1em}
+      font-family:'Suntage','Inter',sans-serif;font-size:clamp(22px,3.3vw,44px);line-height:1;letter-spacing:.03em;text-transform:uppercase;text-align:left;animation:vt-fade-in .8s ease .6s both}
+    .about2-band .cr-cov{width:.95em;height:.95em;margin-right:.34em;border-radius:6px;--lift:scale(2.5) rotate(-4deg)}
+    .about2-band .cr-txt{align-items:center}
+    .about2-band .cr-artist{padding:.05em 0;background:var(--chrome);-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent}
+    .about2-band .cr-sub{flex-direction:column;gap:.6em;margin-left:.5em;font-size:max(9px,.25em);letter-spacing:.16em;line-height:1;color:var(--mut3)}
+    .about2-band .cr-prod{color:#68686a}
+    .about2-band .mq-sep{height:.46em;margin:0 .9em}
+    @media (hover:hover){ .about2-band .mq-link:hover .cr-song{color:var(--ink)} }
     .rel2{margin-top:clamp(64px,8vw,108px)}
     .sec-head{font-size:clamp(24px,3.4vw,42px);line-height:1.05;margin:0 0 38px}
     .rel2-grid{--cols:5;--g:20px;display:flex;flex-wrap:wrap;justify-content:center;gap:30px var(--g)}
@@ -4580,7 +4567,7 @@ function StyleTag() {
     .ap-name-lock>*{grid-area:1/1}
     .ap-name-ghost{visibility:hidden}
     .ap-name-live{contain:inline-size;overflow-x:clip}
-    .ap-name .emo,.ign-ribbon b .emo{-webkit-text-fill-color:#fff}
+    .ap-name .emo,.about2-band b .emo{-webkit-text-fill-color:#fff}
     .ap-stag{animation:rv .55s var(--ease-out) both;animation-delay:calc(240ms + var(--i) * 55ms)}
     .ap-rel{align-self:stretch}
     .ap-rel-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}
@@ -4795,6 +4782,7 @@ function StyleTag() {
       .rel2-grid.rel2-feat{grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 12px}
       .rc-feat .rc-meta strong{font-size:17px}
       .chip-tag{font-size:9.5px;letter-spacing:.06em;padding:4px 7px}
+      .about2-band .cr-artist{background:none;color:var(--ink);-webkit-text-fill-color:currentColor}
       .ros2-filter{align-self:stretch;margin-bottom:36px}
       .ros2-filter .chip{flex:1}
       .ros2-filter .chip>span{display:flex;justify-content:center;padding:0 8px;font-size:9.5px;letter-spacing:.1em;gap:6px}
@@ -4823,7 +4811,7 @@ function StyleTag() {
       .pub .ap-name,.pub .ap-name *,.pub .pc-name,.pub .pc-name *{transition:none!important}
       ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}
       .wm-img{-webkit-mask:none!important;mask:none!important}
-      .wm-shine,.wm-spot,.lg-d-shine{display:none}
+      .wm-shine,.wm-spot{display:none}
       .wm-spark{opacity:.85!important;scale:1!important}
       /* marquees become a still, wrapped block that starts at the first credit */
       .ign-ribbon::before,.ign-ribbon::after{display:none}
@@ -4834,8 +4822,7 @@ function StyleTag() {
       /* in the flow under the CTAs, so the taller wrapped ribbon can never cover them */
       .ign{padding-bottom:28px}
       .ign-ribbon{position:relative;left:auto;right:auto;bottom:auto;align-self:stretch;margin:44px calc(-1 * var(--gutter)) 0}
-      /* the numbers stay big when still: only a handful, so they wrap into a row or two, not a wall */
-      .about2-band{font-size:clamp(24px,3vw,40px)} .about2-band .mq-track{gap:22px 1.3em}
+      .about2-band{font-size:clamp(18px,2.2vw,28px)}
       .grain{display:none}
       [data-reveal]:not([data-reveal=split]){opacity:1!important;translate:none!important}
       .split[data-reveal] .w>span{animation-play-state:running!important}
