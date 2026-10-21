@@ -4428,12 +4428,10 @@ function StyleTag() {
     .st-label{color:var(--ink)}
     .st-ctx{color:#68686a}
     .ign-ribbon .mq-sep{height:.45em;margin:0 1.1em;opacity:.55}
-    /* the rail holds still (lead credit parked in view) until the ribbon has faded in */
+    /* the rail rolls from the first frame, so the band is already moving as it fades in */
     @media (prefers-reduced-motion:no-preference){
-      .ign-ribbon .mq-rail{animation-delay:1.8s}
-      .ign-seen .ign-ribbon .mq-rail{animation-delay:1.2s}
-      /* the lead credit parks in from the edge, with the copy before it already behind it, so no gap ever passes */
-      .ign-ribbon .mq-rail{animation-name:mq-park;animation-fill-mode:backwards}
+      /* the lead stat starts in from the edge, with the copy before it already behind it, so no gap ever passes */
+      .ign-ribbon .mq-rail{animation-name:mq-park}
       @keyframes mq-park{from{transform:translateX(calc(min(9vw,130px) - 100% / 3))}to{transform:translateX(calc(min(9vw,130px) - 200% / 3))}}
     }
 
