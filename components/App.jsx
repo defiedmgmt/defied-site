@@ -848,11 +848,28 @@ const publicDataRequest = typeof window === "undefined" ? null : fetchPublicData
 // how often a tab coming back into view may ask for the site data again
 const PUBLIC_REFRESH_MS = 60 * 1000;
 
-// a roster member's ?artist= key: "Stack!e" → stacke, "Beyoncé" → beyonce. Letters and digits of any
+// one rule for "is this the same person" wherever a client/writer/split name is compared (never song
+// titles), kept identical to lib/names.js: accents and punctuation drop out and a "!" standing in for
+// an i counts as one, so Stack!e, STACK!E and Stackie are "stackie" and Stacke ("stacke") is someone else
+const personKey = (s) => String(s ?? "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase()
+  .replace(/(\p{L})!(?=\p{L})/gu, "$1i").replace(/[^\p{L}\p{N}]+/gu, "");
+// the entry of `list` that `name` refers to: an exact (case-insensitive) match always wins over a personKey one
+const findByName = (list, name, nameOf = (x) => x.name) => {
+  const n = String(name ?? "").trim().toLowerCase(), k = personKey(name);
+  return (n && list.find((x) => String(nameOf(x) ?? "").trim().toLowerCase() === n)) || (k && list.find((x) => personKey(nameOf(x)) === k)) || null;
+};
+// a client's own split on a song (what their own streams/revenue share comes from)
+const ownSplit = (p, client) => (client?.name ? findByName(p?.splits || [], client.name) : null);
+
+// a roster member's ?artist= key: "Stack!e" → stackie, "Beyoncé" → beyonce. Letters and digits of any
 // alphabet stay; a name with none (emoji only) falls back to the record's id, so every card opens
-const nameKey = (person) => String(person?.name || "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "") || String(person?.id || "");
+const nameKey = (person) => personKey(person?.name) || String(person?.id || "");
 const slugOf = (person) => person?.slug || nameKey(person);
-// Two names can reduce to the same key ("Stack!e" and "Stacke", or one name typed twice): the first
+// links shared before the key counted "!" as an i (?artist=stacke) still open the same panel, as long
+// as no one's own key is that
+const legacyKey = (person) => String(person?.name || "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+const bySlug = (clients, slug) => (slug ? clients.find((c) => slugOf(c) === slug) || clients.find((c) => legacyKey(c) === slug) || null : null);
+// Two names can reduce to the same key ("Stack!e" and "Stackie", or one name typed twice): the first
 // on the roster keeps it and the others add their record id, so every card still opens its own panel
 function withSlugs(d) {
   const seen = new Set();
@@ -872,7 +889,7 @@ const splitNames = (s) => String(s || "").split(",").map((x) => x.trim()).filter
 // "Presidential (with Jenn Carter, Kyle Richh, TaTa)" -> "Presidential"
 const cleanTitle = (song) => String(song || "").replace(/\s*[([](?:with|feat\.?|ft\.?)\s[^)\]]*[)\]]/gi, "").trim();
 const primaryArtist = (artist) => splitNames(artist)[0] || "";
-const sameName = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+const sameName = (a, b) => !!findByName([a], b, (x) => x);
 
 // streaming links are typed in on the dashboard: only ever hand a real web address to an href.
 // One pasted without its https:// ("open.spotify.com/artist/…") gets it back; anything else is dropped.
@@ -987,7 +1004,7 @@ function glyphNodes(text) {
 // the song — otherwise just their name, never a guessed role.
 function rosterCreditsOn(release, clients) {
   return splitNames(release.client).map((name) => {
-    const c = clients.find((x) => sameName(x.name, name));
+    const c = findByName(clients, name);
     const onArtist = splitNames(release.artist).some((a) => sameName(a, name));
     return { name, prod: !!c && /producer/i.test(c.role || "") && !onArtist };
   });
@@ -1703,8 +1720,10 @@ function Roster({ publicData }) {
   const visible = clients.filter((c) => filter === "all" || (filter === "producers" ? isProducer(c) : isArtist(c)));
   useLitBand(gridRef, [publicData, filter]);
 
-  const activeSlug = router.isReady ? router.query.artist : undefined;
-  const active = activeSlug ? clients.find((c) => slugOf(c) === activeSlug) || null : null;
+  const urlSlug = router.isReady ? router.query.artist : undefined;
+  const active = bySlug(clients, urlSlug);
+  // the open card's own key, even when the link used an older one
+  const activeSlug = active ? slugOf(active) : urlSlug;
   useEffect(() => {
     if (activeSlug) { lastSlug.current = activeSlug; return; }
     pushedRef.current = false;
@@ -2040,7 +2059,7 @@ function Contact({ publicData }) {
   useEffect(() => {
     if (!router.isReady || !publicData) return;
     const slug = router.query.artist;
-    const c = slug && (publicData.clients || []).find((x) => slugOf(x) === slug);
+    const c = bySlug(publicData.clients || [], slug);
     if (c) setF((cur) => (cur.message ? cur : { ...cur, subject: "Booking", message: `Re: ${c.name} — ` }));
   }, [router.isReady, publicData]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2413,7 +2432,7 @@ async function deleteClientCascade(db, commit, id) {
 
   const results = await Promise.allSettled(
     clientPlacements
-      .filter((p) => (p.splits || []).some((s) => s.name === client?.name))
+      .filter((p) => ownSplit(p, client))
       .map(async (p) => {
         const splits = [{ name: client?.sheetTabName || client?.name }];
         const res = await fetch("/api/sheets-delete", {
@@ -2445,6 +2464,12 @@ async function deleteClientCascade(db, commit, id) {
   return null;
 }
 
+// another client already going by `value` as their name or sheet tab: the two would share one tab on
+// the pub sheet (or one would never find theirs). By personKey, so Stackie is Stack!e's but Stacke is free
+const NAME_TAKEN = "Another client already uses that name or sheet tab.";
+const nameTaken = (clients, id, value) => !!String(value || "").trim()
+  && clients.some((o) => o.id !== id && [o.name, o.sheetTabName].some((s) => String(s || "").trim() && sameName(s, value)));
+
 function ClientsAdmin({ db, commit }) {
   const cols = [
     { key: "name", label: "Name", render: (c) => <span className="cell-name"><Avatar src={c.photo} name={c.name} size={30} />{c.name}</span> },
@@ -2452,7 +2477,10 @@ function ClientsAdmin({ db, commit }) {
     { key: "onRoster", label: "Public", render: (c) => c.onRoster !== false ? <span className="badge-yes"><Check size={12} /> Live</span> : <span className="badge-no">Hidden</span> },
   ];
   const [deleteWarn, setDeleteWarn] = useState(null);
+  // only a name/tab being changed is checked, so an older pair that already clashes still saves other edits
+  const taken = (e, key) => (e[key] || "") !== (db.clients.find((c) => c.id === e.id)?.[key] || "") && nameTaken(db.clients, e.id, e[key]);
   const save = async (o) => {
+    if (taken(o, "name") || taken(o, "sheetTabName")) return false; // the form stays open, saying why
     const clients = o.id ? db.clients.map((c) => c.id === o.id ? o : c) : [...db.clients, { ...o, id: uid() }];
     return commit({ ...db, clients });
   };
@@ -2488,6 +2516,7 @@ function ClientsAdmin({ db, commit }) {
             <span>Show on the public roster page.</span>
           </label>
           <Field label="Name" value={e.name} onChange={(ev) => set({ ...e, name: ev.target.value })} />
+          {taken(e, "name") && <p className="hint err-text">{NAME_TAKEN}</p>}
           <label className="fld"><span>Role</span>
             <select value={e.role} onChange={(ev) => set({ ...e, role: ev.target.value })}>
               <option>Producer</option><option>Artist</option><option>Producer / Artist</option>
@@ -2502,7 +2531,8 @@ function ClientsAdmin({ db, commit }) {
           <Field label="Instagram handle" value={e.instagram} onChange={(ev) => set({ ...e, instagram: ev.target.value })} />
           <Field label="TikTok handle" value={e.tiktok} onChange={(ev) => set({ ...e, tiktok: ev.target.value })} />
           <Field label="SoundCloud URL" value={e.soundcloud} onChange={(ev) => set({ ...e, soundcloud: ev.target.value })} />
-          <Field label="Sheet tab name" value={e.sheetTabName} onChange={(ev) => set({ ...e, sheetTabName: ev.target.value })} hint="Only needed if it doesn't match this client's name exactly — e.g. this client is Stack!e but their tab on the pub sheet is named Stackie." />
+          <Field label="Sheet tab name" value={e.sheetTabName} onChange={(ev) => set({ ...e, sheetTabName: ev.target.value })} hint="Only needed if their tab on the pub sheet goes by a different name. Case, accents, punctuation and a “!” used as an i don't count — Stack!e already finds a tab named Stackie." />
+          {taken(e, "sheetTabName") && <p className="hint err-text">{NAME_TAKEN}</p>}
         </>
       )}
     />
@@ -3158,7 +3188,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
     for (const p of songs) {
       const streams = p.streams || 0;
       gross += streams;
-      const mine = (p.splits || []).find((s) => s.name === client?.name);
+      const mine = ownSplit(p, client);
       net += streams * ((Number(mine?.percent) || 0) / 100);
       revenue += p.revenue || 0;
       adminFee += p.adminFee || 0;
@@ -3189,15 +3219,15 @@ function SongManager({ db, commit, clientId, isStaff }) {
     // different songs can share a title with different people on them).
     const normTitle = normalizeTitle(o.song);
     const normArtist = normalizeTitle(o.artist);
-    const myName = normalizeTitle(client?.name);
+    const myName = personKey(client?.name);
     // exclude the client's own name — they're on every song on their own
     // page, so that alone would "match" any two same-titled entries.
-    const mySplitNames = new Set((o.splits || []).map((s) => normalizeTitle(s.name)).filter((n) => n && n !== myName));
+    const mySplitNames = new Set((o.splits || []).map((s) => personKey(s.name)).filter((n) => n && n !== myName));
     const possibleDup = songs.find((p) => {
       if (p.id === o.id) return false;
       if (normalizeTitle(p.song) !== normTitle || !normTitle) return false;
       const artistMatch = normArtist && normalizeTitle(p.artist) === normArtist;
-      const splitMatch = (p.splits || []).some((s) => mySplitNames.has(normalizeTitle(s.name)));
+      const splitMatch = (p.splits || []).some((s) => mySplitNames.has(personKey(s.name)));
       return artistMatch || splitMatch;
     });
     if (possibleDup) {
@@ -3225,7 +3255,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
     // not someone we auto-provision sheet tracking for. If that person is
     // also a client, their own row comes from adding this same song under
     // their own page, the same way this one did.
-    const mine = (saved.splits || []).find((s) => s.name === client?.name);
+    const mine = ownSplit(saved, client);
     const splits = mine ? [{ name: client?.sheetTabName || client?.name, percent: mine.percent }] : [];
     fetch("/api/sheets-push", {
       method: "POST",
@@ -3252,7 +3282,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
     if (!(await commit({ ...db, placements: db.placements.filter((p) => p.id !== id) }))) return;
     setOpenId(null); setEditing(null);
     if (!target) return;
-    const mine = (target.splits || []).find((s) => s.name === client?.name);
+    const mine = ownSplit(target, client);
     if (!mine) return; // nothing was ever pushed under this client for this song
     const splits = [{ name: client?.sheetTabName || client?.name }];
     fetch("/api/sheets-delete", {
@@ -3727,13 +3757,11 @@ function CatalogOverview({ db, commit, onSelectClient }) {
   // outright wrong (a row labeled "WRITER 13" was found to actually pull
   // from the "prodgavin" tab via its formulas). readMasterRollup already
   // extracts the real tab each row's formulas reference as row.sheetTab —
-  // match against THAT, not the label, with the same punctuation-tolerant
-  // comparison as findTab server-side.
+  // match against THAT, not the label, the way findTab does server-side:
+  // exact first, then personKey, a "Sheet tab name" override before a name.
   const findClient = (row) => {
-    const norm = (s) => (s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-    const target = norm(row.sheetTab || row.writer);
-    if (!target) return null;
-    return db.clients.find((c) => norm(c.sheetTabName || c.name) === target) || null;
+    const byTab = [...db.clients.filter((c) => c.sheetTabName), ...db.clients.filter((c) => !c.sheetTabName)];
+    return findByName(byTab, row.sheetTab || row.writer, (c) => c.sheetTabName || c.name);
   };
 
   const links = state.data?.links || {};
@@ -3845,7 +3873,7 @@ function CatalogAdmin({ db, commit }) {
 
   const addClient = async () => {
     const name = newClientForm.name.trim();
-    if (!name || adding) return;
+    if (!name || adding || nameTaken(db.clients, null, name)) return; // the form says why
     const client = {
       id: uid(), name, role: newClientForm.role, credit: "", bio: "", photo: "",
       spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "",
@@ -3920,6 +3948,7 @@ function CatalogAdmin({ db, commit }) {
             <div className="modal-head"><h3>New client</h3><button onClick={() => setAddingClient(false)}><X size={18} /></button></div>
             <div className="modal-body">
               <Field label="Name" value={newClientForm.name} onChange={(ev) => setNewClientForm({ ...newClientForm, name: ev.target.value })} onKeyDown={(ev) => ev.key === "Enter" && addClient()} />
+              {nameTaken(db.clients, null, newClientForm.name) && <p className="hint err-text">{NAME_TAKEN}</p>}
               <label className="fld"><span>Role</span>
                 <select value={newClientForm.role} onChange={(ev) => setNewClientForm({ ...newClientForm, role: ev.target.value })}>
                   <option>Producer</option><option>Artist</option><option>Producer / Artist</option>

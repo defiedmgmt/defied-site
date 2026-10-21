@@ -5,11 +5,12 @@
 // Sync ID used to find the same row again on a later edit instead of
 // duplicating it.
 import {
-  getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, otherClientTabNames,
+  getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers,
   claimTabForNewCollaborator, findRowBySyncId, findRowByLuminateId, findUnclaimedRowByTitle, readLuminateIdAt, writeSongRow, appendSongRow,
 } from "../../lib/sheets";
 import { requireUser, requireSameOrigin } from "../../lib/session";
 import { sql } from "../../lib/db";
+import { ownerOf } from "../../lib/names";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
@@ -21,21 +22,26 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "placementId, song, and splits are required." });
   }
 
-  // a client session may only ever write their own split (the site's own
-  // caller already sends exactly one entry: their own name/percent) — never
-  // let a client-controlled request smuggle a write into someone else's tab.
-  if (session.user.role !== "staff") {
-    const [client] = await sql`SELECT name, sheet_tab_name FROM clients WHERE id = ${session.user.clientId}`;
-    const mine = new Set([client?.name, client?.sheet_tab_name].filter(Boolean));
-    const allowed = splits.every((s) => mine.has((s.name || "").trim()));
-    if (!client || !allowed) return res.status(403).json({ error: "Not authorized for that split." });
-  }
-
+  const isStaff = session.user.role === "staff";
   try {
+    // whose song this is (saved just before this push): a split under one of
+    // that client's own names is theirs, even where another client's tab
+    // override reads the same
+    const known = await loadClientTabNames();
+    const songClient = isStaff
+      ? (await sql`SELECT client_id FROM placements WHERE id = ${placementId}`)[0]?.client_id
+      : session.user.clientId;
+    const whose = (name) => ownerOf(known, name, songClient);
+    // a client session may only ever write their own split (the site's own
+    // caller already sends exactly one entry: their own name/percent) — never
+    // let a client-controlled request smuggle a write into someone else's tab.
+    if (!isStaff && !splits.every((s) => whose((s.name || "").trim())?.id === session.user.clientId)) {
+      return res.status(403).json({ error: "Not authorized for that split." });
+    }
+
     const sheets = getSheetsClient();
     const spreadsheetId = getSheetId();
     let tabs = await listTabs(sheets, spreadsheetId);
-    const known = await loadClientTabNames();
 
     const results = [];
     for (const split of splits) {
@@ -43,9 +49,15 @@ export default async function handler(req, res) {
       const percent = Number(split.percent) || 0;
       if (!name || percent <= 0) continue;
 
-      let tab = findTab(tabs, name, otherClientTabNames(known, name));
+      let tab = findTab(tabs, name, tabsOfOthers(known, whose(name)));
       let created = false;
       if (!tab) {
+        // the tab of that exact name is another client's: never write into
+        // it, and the sheet won't take a second tab of the same name either
+        const n = name.toLowerCase();
+        if (tabs.some((t) => t.title.trim().toLowerCase() === n)) {
+          throw new Error(`The pub sheet's "${name}" tab is another client's. Give this client their own "Sheet tab name", then save the song again.`);
+        }
         tab = await claimTabForNewCollaborator(sheets, spreadsheetId, name, tabs);
         tabs = await listTabs(sheets, spreadsheetId); // refresh — a tab was renamed/created
         created = true;

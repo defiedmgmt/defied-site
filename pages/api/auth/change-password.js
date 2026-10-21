@@ -6,7 +6,7 @@
 // real owner out.
 import bcrypt from "bcryptjs";
 import { sql } from "../../../lib/db";
-import { requireUser, requireSameOrigin } from "../../../lib/session";
+import { requireUser, requireSameOrigin, restampSession } from "../../../lib/session";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -31,6 +31,8 @@ export default async function handler(req, res) {
     }
     const hash = await bcrypt.hash(newPassword.trim(), 12);
     await sql`UPDATE users SET password_hash = ${hash} WHERE id = ${session.user.id}`;
+    // every other session on this account ends; this one stays signed in
+    await restampSession(session, hash);
     return res.status(200).json({ ok: true });
   } catch (err) {
     console.error("change-password failed:", err);
