@@ -532,6 +532,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [loadErr, setLoadErr] = useState(null); // the dashboard's own load / save errors
   const [pubErr, setPubErr] = useState(null); // the public pages' data
+  const [authDown, setAuthDown] = useState(false); // /api/auth/me couldn't check the sign-in (not "signed out")
   useRevealOnScroll(route !== "staff" && route !== "client");
 
   // the fresh copy (see publicDataRequest) swaps in when it lands; a failed request only shows
@@ -570,10 +571,11 @@ export default function App() {
   useEffect(() => {
     let alive = true;
     fetch("/api/auth/me")
-      .then((r) => r.json())
-      // a 503 (the account couldn't be checked) has no user: signed out, not "still asking" forever
+      .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; })
       .then((d) => { if (alive) setSession(d.user ?? null); })
-      .catch(() => { if (alive) setSession(null); });
+      // a 503 (the account couldn't be checked) or no connection: signed out, not "still asking" forever,
+      // but the sign-in page says why
+      .catch(() => { if (alive) { setSession(null); setAuthDown(true); } });
     return () => { alive = false; };
   }, []);
 
@@ -590,16 +592,17 @@ export default function App() {
   // re-fires if the signed-in user actually changes (login/logout/switch).
   useEffect(() => {
     const s = saves.current;
-    s.gen++;
+    s.gen++; s.server = null;
     if (!session) { setDb(null); return; }
     let alive = true;
     (async () => {
       try {
         const res = await fetch("/api/dashboard-data");
         if (res.status === 401) { if (alive) setSession(null); return; }
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!alive) return;
-        if (!res.ok) throw new Error(data.error || "Failed to load.");
+        if (!res.ok || !data.role) throw new Error(data.error || "Failed to load.");
+        if (data.role !== session.role) throw new Error("Your account was changed — reload the page.");
         s.server = data; s.freshAt = Date.now();
         setDb(data);
       } catch (err) {
@@ -614,37 +617,37 @@ export default function App() {
   // see diffDb) is applied to the server's latest copy, and only the tables it touched are sent. So
   // a song a client added, a new message or another staff member's edit since this tab loaded is
   // never wiped by sending this tab's old copy back. base = the db next was built from: the one on
-  // screen, or for a slow job (the sheet sync) the copy it started from. Resolves true once saved.
+  // screen, or for a slow job (the sheet sync) the copy it started from. Resolves with the server's
+  // copy as saved (a row deleted elsewhere is missing from it), or false when nothing was saved.
   const commit = (next, base = shownDb.current) => {
     const patch = diffDb(base, next);
-    if (!patch) return Promise.resolve(true);
+    if (!patch) return Promise.resolve(next);
     const s = saves.current, gen = s.gen;
     setDb((cur) => (cur === base ? next : cur && applyPatch(cur, patch)));
-    s.pending++; s.calls++;
+    // leaving now would drop it: the browser asks first while anything is unsaved
+    if (s.pending++ === 0) window.addEventListener("beforeunload", holdUnload);
+    s.calls++;
     const run = s.chain.then(async () => {
-      let ok = false;
+      let saved = false;
       try {
         if (gen !== s.gen) return false; // signed out since
         const got = await fetch("/api/dashboard-data", { cache: "no-store" }).catch(() => null);
         const latest = got && await got.json().catch(() => null);
-        if (!got?.ok || !latest?.role) {
-          throw new Error(got?.status === 401 ? "You've been signed out, so that change wasn't saved — sign in again and redo it."
-            : "Couldn't reach the server, so that change wasn't saved — check your connection and try again.");
-        }
+        if (!got?.ok || !latest?.role) throw new Error(saveFailure(got, latest, SAVE_OFFLINE));
+        // the account was demoted or re-linked since this tab loaded: keep what's on screen as it is
+        if (accountChanged(latest, s.server || base)) throw new Error("Your account was changed — reload the page.");
         const fresh = inTabOrder(latest, s.server);
         s.server = fresh; s.freshAt = Date.now();
         const merged = applyPatch(fresh, patch);
+        const refused = refusal(patch, fresh, merged);
+        if (refused) throw new Error(refused);
         const res = await fetch("/api/dashboard-data", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-          body: JSON.stringify(Object.fromEntries(Object.keys(patch).map((k) => [k, merged[k]]))),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(res.status === 413 ? "That's too much to save in one go — try a smaller photo." : data.error || "Save failed.");
-        }
-        s.server = withoutPasswords(merged);
-        ok = true;
+          body: JSON.stringify(Object.fromEntries(saveKeys(patch, fresh, merged).map((k) => [k, merged[k]]))),
+        }).catch(() => null);
+        if (!res?.ok) throw new Error(saveFailure(res, res && await res.json().catch(() => null), "Save failed."));
+        s.server = saved = withoutPasswords(merged);
         if (!s.failed) setLoadErr(null);
         // the public pages' copy is now out of date: refetch it when staff next open one
         pubStale.current = true;
@@ -654,10 +657,10 @@ export default function App() {
         if (gen === s.gen) setLoadErr(err.message || "Couldn't save that change — try again.");
       } finally {
         // the last save out shows the server's copy: others' changes, minus anything that failed
-        if (--s.pending === 0) { s.failed = false; if (gen === s.gen) setDb(s.server); }
-        else if (ok && patch.users && gen === s.gen) setDb(withoutPasswords);
+        if (--s.pending === 0) { s.failed = false; window.removeEventListener("beforeunload", holdUnload); if (gen === s.gen) setDb(s.server); }
+        else if (saved && patch.users && gen === s.gen) setDb(withoutPasswords);
       }
-      return ok;
+      return saved;
     });
     s.chain = run;
     return run;
@@ -682,6 +685,7 @@ export default function App() {
       } catch { /* offline: the next return to the tab tries again */ }
     };
     const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    refresh(); // back on the dashboard from the public pages, in the same tab
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", onVisible);
     return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", onVisible); };
@@ -703,11 +707,14 @@ export default function App() {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data) return data?.error || (res.status >= 500 || res.ok ? "Sign-in isn't available right now — try again in a minute." : "Incorrect email or password.");
-    setSession(data.user);
+    setSession(data.user); setAuthDown(false);
     go(data.user.role === "staff" ? "staff" : "client");
     return null;
   };
   const logout = async () => {
+    // a save still queued or running needs the session: let it land first (but never hold sign-out long)
+    const s = saves.current, until = Date.now() + 8000;
+    while (s.pending && Date.now() < until) await Promise.race([s.chain, new Promise((r) => setTimeout(r, until - Date.now()))]);
     await fetch("/api/auth/logout", { method: "POST", headers: { "X-Requested-With": "defied-site" } }).catch(() => {});
     // navigate home BEFORE clearing session — otherwise the route-guard
     // effect below sees session go null while route is still "staff"/
@@ -767,7 +774,8 @@ export default function App() {
     <div className={inPortal ? "app" : "app pub"}>
       <StyleTag />
       {!inPortal && <div className="grain" aria-hidden="true" />}
-      {inPortal ? loadErr && <div className="storage-warn" role="alert">{loadErr}</div>
+      {/* signed out mid-edit: the page stays put so typed text can be copied; the link reloads it fresh */}
+      {inPortal ? loadErr && <div className="storage-warn" role="alert">{loadErr}{loadErr === SIGNED_OUT && <> <a href={ROUTE_TO_PATH.login} className="inline-link">Sign in again</a></>}</div>
         : pubErr && DATA_ROUTES.includes(route) && <div className="storage-warn" role="alert">{pubErr}</div>}
       {!inPortal && (
         <PublicNav route={route} menuOpen={menuOpen} setMenuOpen={setMenuOpen} session={session} />
@@ -784,7 +792,7 @@ export default function App() {
           {route === "roster" && <Roster publicData={publicData} />}
           {route === "contact" && <Contact publicData={publicData} />}
         </PageGuard>
-        {route === "login" && <Login login={login} />}
+        {route === "login" && <Login login={login} notice={authDown ? "We couldn't check your sign-in just now — try again in a minute." : null} />}
         {route === "notfound" && <NotFound />}
 
         {route === "staff" && session?.role === "staff" && (
@@ -2138,7 +2146,7 @@ function Contact({ publicData }) {
 /* ------------------------------------------------------------------ */
 // The way into the dashboard and the client portal, built from the public pages' own parts: the chrome
 // heading and the contact form's fields and pill.
-function Login({ login }) {
+function Login({ login, notice }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -2175,7 +2183,7 @@ function Login({ login }) {
             <button type="button" className="lg-show" onClick={() => setShowPw((v) => !v)} aria-controls="lg-password" aria-label={showPw ? "Hide password" : "Show password"}>{showPw ? "Hide" : "Show"}</button>
           </div>
         </div>
-        {err && <p className="ct-err" role="alert">{err}</p>}
+        {(err || notice) && <p className="ct-err" role="alert">{err || notice}</p>}
         <button ref={submitRef} className="pill pill-solid pill-full" type="submit" disabled={busy}>
           {busy ? <><RefreshCw size={15} className="spin" /> Signing in…</> : "Sign in"}
         </button>
@@ -2268,8 +2276,33 @@ function applyPatch(fresh, patch) {
   // deleting a client takes along a song or login someone added for them since, as the server's
   // own cascade would — sent back, it would fail the whole save on the missing client
   const gone = new Set(patch.clients?.deleted);
-  if (gone.size) for (const k of ["placements", "users"]) if (patch[k]) out[k] = out[k].filter((r) => !gone.has(r.clientId));
+  if (gone.size) for (const k of ["placements", "users"]) if (out[k].some((r) => gone.has(r.clientId))) out[k] = out[k].filter((r) => !gone.has(r.clientId));
   return out;
+}
+// what a save sends: the tables it changed, plus any applyPatch rewrote for it (a login dropped with its client)
+const saveKeys = (patch, fresh, merged) => [...(SAVE_TABLES[fresh.role] || []), "site", "sheetSync"].filter((k) => patch[k] || merged[k] !== fresh[k]);
+const TOO_BIG = "That's too much to save — the photos and covers are over the size limit. Remove or shrink some images and try again.";
+const SAVE_OFFLINE = "Couldn't reach the server, so that change wasn't saved — check your connection and try again.";
+const SIGNED_OUT = "You've been signed out, so that change wasn't saved. Copy anything you need, then sign in again.";
+// what the banner says about a failed request: the server's own reason when it gave one
+const saveFailure = (res, data, fallback) => (!res ? SAVE_OFFLINE : res.status === 401 ? SIGNED_OUT : data?.error || (res.status === 413 ? TOO_BIG : fallback));
+const holdUnload = (e) => { e.preventDefault(); e.returnValue = ""; }; // "leave the page?" while a save is unsent
+// the dashboard loads everything in one reply (photos and covers included), and Vercel won't send one over 4.5 MB
+const MAX_DATA = 3500000;
+// a save that can't go onto the server's copy as it is now: why, or null. A save that shrinks the data always goes,
+// so there's a way back under the limit
+function refusal(patch, fresh, merged) {
+  if (patch.notableReleases?.added.length && merged.notableReleases.length > 10) return "There are already 10 notable releases (someone else added one) — remove one first.";
+  const size = JSON.stringify(merged).length;
+  return size > MAX_DATA && size > JSON.stringify(fresh).length ? TOO_BIG : null;
+}
+// a demoted or re-linked account: what this tab edits no longer fits what the server would take
+const accountChanged = (fresh, known) => fresh.role !== known.role || fresh.client?.id !== known.client?.id;
+// an edit of a row someone else deleted meanwhile saves nothing: the form says so
+const goneText = (thing) => `That ${thing} was deleted somewhere else, so this change wasn't saved.`;
+async function saveRow(commit, next, key, id, thing) {
+  const saved = await commit(next);
+  return saved && id && !saved[key].some((r) => r.id === id) ? goneText(thing) : saved;
 }
 // a typed password goes out only with the save it was typed for: re-sent later, it would undo
 // one the user has since chosen themselves
@@ -2313,6 +2346,7 @@ function StaffDashboard({ db, commit, logout }) {
 function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete }) {
   const [editing, setEditing] = useState(null); // object or null
   const [saving, setSaving] = useState(false);
+  const [formErr, setFormErr] = useState(null);
   const from = useRef(null); // the row as it was when the form opened
   useEffect(() => {
     if (!editing) return;
@@ -2320,15 +2354,17 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, [editing]);
-  const start = (obj) => { from.current = obj; setEditing(obj ? { ...obj } : { id: null, ...blank }); };
+  const start = (obj) => { from.current = obj; setFormErr(null); setEditing(obj ? { ...obj } : { id: null, ...blank }); };
   // only what was changed in the form goes onto the row as it is now, so a change that landed while
-  // it was open (another tab's save, the Clients-tab sync) isn't put back. A failed save stays open.
+  // it was open (another tab's save, the Clients-tab sync) isn't put back. A failed save stays open:
+  // onSave gives false (the banner says why) or a message for the form.
   const save = async () => {
     const cur = editing.id && items.find((it) => it.id === editing.id);
-    setSaving(true);
+    setSaving(true); setFormErr(null);
     try {
       const ok = await onSave(cur && from.current ? { ...cur, ...changedFields(from.current, editing) } : editing);
-      if (ok !== false) setEditing(null);
+      if (typeof ok === "string") setFormErr(ok);
+      else if (ok !== false) setEditing(null);
     } finally { setSaving(false); }
   };
   const remove = (it) => {
@@ -2378,6 +2414,7 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
               <button onClick={() => setEditing(null)}><X size={18} /></button>
             </div>
             <div className="modal-body">{extra(editing, setEditing)}</div>
+            {formErr && <p className="hint err-text modal-save-warn" role="alert">{formErr}</p>}
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button>
               <button className="btn sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
@@ -2454,7 +2491,7 @@ function ClientsAdmin({ db, commit }) {
   const [deleteWarn, setDeleteWarn] = useState(null);
   const save = async (o) => {
     const clients = o.id ? db.clients.map((c) => c.id === o.id ? o : c) : [...db.clients, { ...o, id: uid() }];
-    return commit({ ...db, clients });
+    return saveRow(commit, { ...db, clients }, "clients", o.id, "client");
   };
   const del = async (id) => {
     setDeleteWarn(null);
@@ -2617,7 +2654,7 @@ function TeamAdmin({ db, commit }) {
   ];
   const save = async (o) => {
     const staff = o.id ? db.staff.map((s) => s.id === o.id ? o : s) : [...db.staff, { ...o, id: uid() }];
-    return commit({ ...db, staff });
+    return saveRow(commit, { ...db, staff }, "staff", o.id, "team member");
   };
   const del = async (id) => commit({ ...db, staff: db.staff.filter((s) => s.id !== id) });
   return (
@@ -2644,12 +2681,14 @@ function UsersAdmin({ db, commit }) {
     { key: "clientId", label: "Linked client", render: (u) => db.clients.find((c) => c.id === u.clientId)?.name || "—" },
   ];
   const save = async (o) => {
+    // the server skips a new login with no password, which would leave it on screen but never saved
+    if (!o.id && !(o.password || "").trim()) return "Enter a password to create this account.";
     const users = o.id ? db.users.map((u) => u.id === o.id ? o : u) : [...db.users, { ...o, id: uid() }];
     if (!users.some((u) => u.role === "staff")) {
       window.alert("At least one staff account must exist — can't demote the last one.");
       return;
     }
-    return commit({ ...db, users });
+    return saveRow(commit, { ...db, users }, "users", o.id, "user");
   };
   const del = async (id) => {
     const users = db.users.filter((u) => u.id !== id);
@@ -3168,6 +3207,8 @@ function SongManager({ db, commit, clientId, isStaff }) {
   const [openId, setOpenId] = useState(null);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [formErr, setFormErr] = useState(null);
+  useEffect(() => { if (!editing) setFormErr(null); }, [editing]); // a closed form takes its message with it
   const editFrom = useRef(null); // the song as it was when Edit was pressed
   const active = songs.find((p) => p.id === openId);
   const [pushWarn, setPushWarn] = useState(null);
@@ -3206,14 +3247,18 @@ function SongManager({ db, commit, clientId, isStaff }) {
       if (!ok) return;
     }
     const placementId = o.id || uid();
-    const saved = { ...o, id: placementId, clientId };
+    const row = { ...o, id: placementId, clientId };
     const placements = o.id
-      ? db.placements.map((p) => p.id === o.id ? saved : p)
-      : [...db.placements, saved];
-    setSaving(true);
-    const ok = await commit({ ...db, placements }).finally(() => setSaving(false));
+      ? db.placements.map((p) => p.id === o.id ? row : p)
+      : [...db.placements, row];
+    setSaving(true); setFormErr(null);
+    const done = await commit({ ...db, placements }).finally(() => setSaving(false));
     // a song that didn't save stays in its form, and never reaches the sheet
-    if (!ok) return;
+    if (!done) return;
+    // the sheet gets the song as it was saved, others' changes to it included — and a song deleted
+    // elsewhere meanwhile gets nothing (a push would re-create its row for the next sync to bring back)
+    const saved = done.placements.find((p) => p.id === placementId);
+    if (!saved) return setFormErr(goneText(done.clients && !done.clients.some((c) => c.id === clientId) ? "client" : "song"));
     setEditing(null);
     // push to the pub sheet in the background — a slow/failed network call
     // should never block or undo the local save that already succeeded —
@@ -3235,7 +3280,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
         // lets the push route tell a genuinely-still-claimed sheet row apart
         // from one whose syncId belongs to a placement that no longer
         // exists on this browser — see findUnclaimedRowByTitle.
-        liveIds: placements.map((p) => p.id),
+        liveIds: done.placements.map((p) => p.id),
       }),
     }).then(async (res) => {
       if (res.ok) return;
@@ -3394,6 +3439,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
             {isStaff && splitTotal(editing.splits) <= 0 && (
               <p className="hint err-text modal-save-warn">Nothing has a split percentage set — give at least one person a % above 0, or this song saves here but won't sync to the pub sheet at all.</p>
             )}
+            {formErr && <p className="hint err-text modal-save-warn" role="alert">{formErr}</p>}
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button>
               <button className="btn sm" onClick={() => saveSong(editing)} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
@@ -3600,9 +3646,14 @@ const sheetSongId = (clientId, title) => {
 // Shared by the "Sync from sheet" button and the Overview page's "Sync
 // Streams" button, which chains this right after refreshing STREAM DATA so
 // one click keeps both the sheet and the site current — see runStreamSync.
-// db is the copy the pull starts from; saved as the base, it makes the save
-// carry only the sync's own changes, so an edit made during the pull stays.
-async function fullSiteSync(db, commit) {
+// It starts from the server's latest copy, not the tab's (which only falls in
+// when that can't be fetched): a song added elsewhere since the tab loaded is
+// matched to its sheet row instead of coming in again as a stripped duplicate.
+// Saved as the base, that copy makes the save carry only the sync's own
+// changes, so an edit made during the pull stays.
+async function fullSiteSync(tabDb, commit) {
+  const latest = await fetch("/api/dashboard-data", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const db = latest?.role === "staff" ? latest : tabDb;
   const { data, totalsByClient, rowsByClient, claimedRows, placements } = await pullAndMergeSheetData(db, db.clients);
 
   // a client's tab can hold more than one row for the same title (an old
@@ -3652,12 +3703,14 @@ async function fullSiteSync(db, commit) {
   const saved = await commit({ ...db, placements: [...placements, ...created], clients, sheetSync: { lastSyncedAt: data.syncedAt } }, db);
   // songs that never reached the site get no Site Sync IDs on the sheet
   if (!saved) throw new Error("The sheet was read, but the synced numbers couldn't be saved — try again.");
+  const onSite = new Set(saved.placements.map((p) => p.id));
+  const kept = claims.filter((c) => onSite.has(c.syncId.split(":")[0]));
 
-  if (claims.length) {
+  if (kept.length) {
     fetch("/api/sheets-claim", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-      body: JSON.stringify({ claims }),
+      body: JSON.stringify({ claims: kept }),
     }).catch((err) => console.error("Claim-back failed:", err));
   }
 
@@ -3980,7 +4033,7 @@ function NotableAdmin({ db, commit }) {
   const list = db.notableReleases || [];
   const save = async (o) => {
     const notableReleases = o.id ? list.map((r) => r.id === o.id ? o : r) : [...list, { ...o, id: uid() }];
-    return commit({ ...db, notableReleases });
+    return saveRow(commit, { ...db, notableReleases }, "notableReleases", o.id, "notable release");
   };
   const del = async (id) => commit({ ...db, notableReleases: list.filter((r) => r.id !== id) });
   const cols = [
