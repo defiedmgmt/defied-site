@@ -4,7 +4,7 @@
 // Luminate stream data by hand, so there's nothing to poll). The caller
 // merges the returned rows onto its own placements — this route has no
 // access to localStorage, it just reads the sheet.
-import { getSheetsClient, getSheetId, listTabs, findTab, readTabRows } from "../../lib/sheets";
+import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, otherClientTabNames, readTabRows } from "../../lib/sheets";
 import { requireUser, requireSameOrigin } from "../../lib/session";
 
 export default async function handler(req, res) {
@@ -28,11 +28,12 @@ export default async function handler(req, res) {
     const sheets = getSheetsClient();
     const spreadsheetId = getSheetId();
     const tabs = await listTabs(sheets, spreadsheetId);
+    const known = await loadClientTabNames();
 
     const out = [];
     for (const c of clients) {
       const tabName = (c.sheetTabName || c.name || "").trim();
-      const tab = findTab(tabs, tabName);
+      const tab = findTab(tabs, tabName, otherClientTabNames(known, tabName));
       if (!tab) { out.push({ clientId: c.id, tabFound: false, totalStreams: 0, rows: [] }); continue; }
       const rawRows = await readTabRows(sheets, spreadsheetId, tab.title);
       const totalStreams = rawRows.reduce((sum, r) => sum + r.grossStreams, 0);

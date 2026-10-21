@@ -5,7 +5,7 @@
 // Sync ID used to find the same row again on a later edit instead of
 // duplicating it.
 import {
-  getSheetsClient, getSheetId, listTabs, findTab,
+  getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, otherClientTabNames,
   claimTabForNewCollaborator, findRowBySyncId, findRowByLuminateId, findUnclaimedRowByTitle, readLuminateIdAt, writeSongRow, appendSongRow,
 } from "../../lib/sheets";
 import { requireUser, requireSameOrigin } from "../../lib/session";
@@ -35,6 +35,7 @@ export default async function handler(req, res) {
     const sheets = getSheetsClient();
     const spreadsheetId = getSheetId();
     let tabs = await listTabs(sheets, spreadsheetId);
+    const known = await loadClientTabNames();
 
     const results = [];
     for (const split of splits) {
@@ -42,7 +43,7 @@ export default async function handler(req, res) {
       const percent = Number(split.percent) || 0;
       if (!name || percent <= 0) continue;
 
-      let tab = findTab(tabs, name);
+      let tab = findTab(tabs, name, otherClientTabNames(known, name));
       let created = false;
       if (!tab) {
         tab = await claimTabForNewCollaborator(sheets, spreadsheetId, name, tabs);

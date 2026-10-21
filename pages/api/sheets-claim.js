@@ -3,7 +3,7 @@
 // Stamps each row's Site Sync ID so the next push updates that exact row
 // instead of appending a duplicate, and the next pull matches it by
 // syncId instead of re-detecting it as "new" every time.
-import { getSheetsClient, getSheetId, writeSyncId } from "../../lib/sheets";
+import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, otherClientTabNames, writeSyncId } from "../../lib/sheets";
 import { requireStaff, requireSameOrigin } from "../../lib/session";
 
 export default async function handler(req, res) {
@@ -18,9 +18,17 @@ export default async function handler(req, res) {
   try {
     const sheets = getSheetsClient();
     const spreadsheetId = getSheetId();
+    const tabs = await listTabs(sheets, spreadsheetId);
+    const known = await loadClientTabNames();
     for (const c of claims) {
       if (!c.tab || !c.row || !c.syncId) continue;
-      await writeSyncId(sheets, spreadsheetId, c.tab, c.row, c.syncId);
+      // c.tab is the client's name or override, not the tab's real title —
+      // resolve it the way the pull that found this row did, or a client
+      // matched by the fuzzy fallback ("Liyakk!" -> "Liyakk") sends this
+      // write to a tab that doesn't exist and fails the whole claim
+      const tab = findTab(tabs, c.tab, otherClientTabNames(known, c.tab));
+      if (!tab) continue;
+      await writeSyncId(sheets, spreadsheetId, tab.title, c.row, c.syncId);
     }
     return res.status(200).json({ ok: true });
   } catch (err) {
