@@ -545,9 +545,20 @@ export default function App() {
     return () => { alive = false; };
   }, []);
 
+  // the db the dashboard last drew — what an edit made in it was derived from
+  const shownDb = useRef(null);
+  shownDb.current = db;
+  // save bookkeeping: chain = the queue saves run through one at a time; pending = saves queued or
+  // in flight; calls = saves ever started; failed = one failed since the queue last emptied;
+  // server = the latest server copy this tab knows of; gen = bumped per sign-in, so a save still
+  // queued from the last one is dropped; freshAt = when server was last fetched
+  const saves = useRef({ chain: Promise.resolve(), pending: 0, calls: 0, failed: false, server: null, gen: 0, freshAt: 0 });
+
   // once a session is known, load its scoped dashboard/portal data —
   // re-fires if the signed-in user actually changes (login/logout/switch).
   useEffect(() => {
+    const s = saves.current;
+    s.gen++;
     if (!session) { setDb(null); return; }
     let alive = true;
     (async () => {
@@ -557,6 +568,7 @@ export default function App() {
         const data = await res.json();
         if (!alive) return;
         if (!res.ok) throw new Error(data.error || "Failed to load.");
+        s.server = data; s.freshAt = Date.now();
         setDb(data);
       } catch (err) {
         if (alive) setLoadErr(err.message || "Couldn't load your dashboard data.");
@@ -565,29 +577,83 @@ export default function App() {
     return () => { alive = false; };
   }, [session?.id]);
 
-  // mirrors the old commit({...db, changedKey: newValue}) call shape used
-  // everywhere in the admin/portal components — update local state
-  // optimistically, then persist the same object to the server.
-  const commit = async (next) => {
-    setDb(next);
-    try {
-      const res = await fetch("/api/dashboard-data", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-        body: JSON.stringify(next),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Save failed.");
+  // Callers keep the old commit({...db, changedKey: newValue}) shape. The UI updates at once; the
+  // save itself waits its turn, then rebases: what this edit changed (base -> next, field by field,
+  // see diffDb) is applied to the server's latest copy, and only the tables it touched are sent. So
+  // a song a client added, a new message or another staff member's edit since this tab loaded is
+  // never wiped by sending this tab's old copy back. base = the db next was built from: the one on
+  // screen, or for a slow job (the sheet sync) the copy it started from. Resolves true once saved.
+  const commit = (next, base = shownDb.current) => {
+    const patch = diffDb(base, next);
+    if (!patch) return Promise.resolve(true);
+    const s = saves.current, gen = s.gen;
+    setDb((cur) => (cur === base ? next : cur && applyPatch(cur, patch)));
+    s.pending++; s.calls++;
+    const run = s.chain.then(async () => {
+      let ok = false;
+      try {
+        if (gen !== s.gen) return false; // signed out since
+        const got = await fetch("/api/dashboard-data", { cache: "no-store" }).catch(() => null);
+        const latest = got && await got.json().catch(() => null);
+        if (!got?.ok || !latest?.role) {
+          throw new Error(got?.status === 401 ? "You've been signed out, so that change wasn't saved — sign in again and redo it."
+            : "Couldn't reach the server, so that change wasn't saved — check your connection and try again.");
+        }
+        const fresh = inTabOrder(latest, s.server);
+        s.server = fresh; s.freshAt = Date.now();
+        const merged = applyPatch(fresh, patch);
+        const res = await fetch("/api/dashboard-data", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+          body: JSON.stringify(Object.fromEntries(Object.keys(patch).map((k) => [k, merged[k]]))),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(res.status === 413 ? "That's too much to save in one go — try a smaller photo." : data.error || "Save failed.");
+        }
+        s.server = withoutPasswords(merged);
+        ok = true;
+        if (!s.failed) setLoadErr(null);
+        // the public pages' copy is now out of date: refetch it when staff next open one
+        pubStale.current = true;
+        try { localStorage.removeItem(PUBLIC_CACHE_KEY); } catch { /* storage blocked */ }
+      } catch (err) {
+        s.failed = true;
+        if (gen === s.gen) setLoadErr(err.message || "Couldn't save that change — try again.");
+      } finally {
+        // the last save out shows the server's copy: others' changes, minus anything that failed
+        if (--s.pending === 0) { s.failed = false; if (gen === s.gen) setDb(s.server); }
+        else if (ok && patch.users && gen === s.gen) setDb(withoutPasswords);
       }
-      setLoadErr(null);
-      // the public pages' copy is now out of date: refetch it when staff next open one
-      pubStale.current = true;
-      try { localStorage.removeItem(PUBLIC_CACHE_KEY); } catch { /* storage blocked */ }
-    } catch (err) {
-      setLoadErr(err.message || "Couldn't save that change — try again.");
-    }
+      return ok;
+    });
+    s.chain = run;
+    return run;
   };
+
+  // an open dashboard shows new contact messages when staff come back to the tab (at most every
+  // 30 s, never mid-save). Only the Messages list is swapped in, so nothing being edited is touched.
+  useEffect(() => {
+    if (route !== "staff" || session?.role !== "staff") return;
+    const s = saves.current;
+    const refresh = async () => {
+      if (document.visibilityState !== "visible" || s.pending || !s.server || Date.now() - s.freshAt < 30000) return;
+      s.freshAt = Date.now();
+      const { gen, calls } = s;
+      try {
+        const res = await fetch("/api/dashboard-data", { cache: "no-store" });
+        const fresh = res.ok ? await res.json() : null;
+        // a save started meanwhile brings its own fresh copy
+        if (!Array.isArray(fresh?.submissions) || gen !== s.gen || calls !== s.calls) return;
+        s.server = { ...s.server, submissions: fresh.submissions };
+        setDb((cur) => cur && { ...cur, submissions: fresh.submissions });
+      } catch { /* offline: the next return to the tab tries again */ }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", onVisible); };
+  }, [route, session?.id, session?.role]);
 
   const go = (r) => {
     const path = ROUTE_TO_PATH[r] || "/";
@@ -2080,6 +2146,93 @@ function Login({ login }) {
 /* ------------------------------------------------------------------ */
 /*  STAFF DASHBOARD                                                     */
 /* ------------------------------------------------------------------ */
+/* dashboard saves (see App's commit) ---------------------------------- */
+// what each role can write. POST /api/dashboard-data replaces every table it's sent (rows
+// reinserted in array order; clients take roster_order from it), so each one goes out whole
+const SAVE_TABLES = { staff: ["clients", "placements", "staff", "users", "submissions", "notableReleases"], client: ["placements"] };
+const sameValue = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
+// b's top-level fields that differ from a's (one b dropped comes back undefined), or null
+function changedFields(a = {}, b = {}) {
+  const out = {};
+  for (const k of new Set([...Object.keys(a || {}), ...Object.keys(b || {})])) if (!sameValue(a?.[k], b?.[k])) out[k] = b?.[k];
+  return Object.keys(out).length ? out : null;
+}
+// one edit to a table: ids deleted, rows added, fields changed per id, the new id order, and
+// whether the rows on both sides were reordered
+function diffRows(base = [], next = []) {
+  if (base === next) return null;
+  const was = new Map(base.map((r) => [r.id, r]));
+  const ids = next.map((r) => r.id);
+  const now = new Set(ids);
+  const deleted = base.filter((r) => !now.has(r.id)).map((r) => r.id);
+  const added = next.filter((r) => !was.has(r.id));
+  const changed = {};
+  for (const r of next) {
+    const f = was.has(r.id) && was.get(r.id) !== r && changedFields(was.get(r.id), r);
+    if (f) changed[r.id] = f;
+  }
+  const reordered = !sameValue(base.map((r) => r.id).filter((id) => now.has(id)), ids.filter((id) => was.has(id)));
+  return deleted.length || added.length || Object.keys(changed).length || reordered ? { deleted, added, changed, ids, reordered } : null;
+}
+// null when next changes nothing
+function diffDb(base, next) {
+  const patch = {};
+  for (const k of SAVE_TABLES[next.role] || []) { const d = diffRows(base[k], next[k]); if (d) patch[k] = d; }
+  if (next.role === "staff") for (const k of ["site", "sheetSync"]) { const f = changedFields(base[k], next[k]); if (f) patch[k] = f; }
+  return Object.keys(patch).length ? patch : null;
+}
+// puts each id of seq that isNew into order (a list of ids), in before the next id of seq already
+// there — so at the end, for the usual append
+const placeNew = (order, seq, isNew) => seq.forEach((id, i) => {
+  if (!isNew(id)) return;
+  const before = seq.slice(i + 1).find((x) => order.includes(x));
+  order.splice(before === undefined ? order.length : order.indexOf(before), 0, id);
+});
+// one edit's table diff onto the server's latest rows: a row deleted elsewhere isn't brought back,
+// a row added elsewhere stays (ahead of this edit's own new rows), and the edit's order wins only
+// if it reordered
+function applyRows(fresh = [], d) {
+  const rows = new Map(fresh.map((r) => [r.id, r]));
+  for (const id of d.deleted) rows.delete(id);
+  for (const [id, f] of Object.entries(d.changed)) if (rows.has(id)) rows.set(id, { ...rows.get(id), ...f });
+  const added = new Set();
+  for (const r of d.added) { if (!rows.has(r.id)) added.add(r.id); rows.set(r.id, { ...rows.get(r.id), ...r }); }
+  const known = new Set(d.ids);
+  const order = (d.reordered ? d.ids : fresh.map((r) => r.id)).filter((id) => known.has(id) && rows.has(id) && !added.has(id));
+  placeNew(order, fresh.map((r) => r.id), (id) => rows.has(id) && !known.has(id));
+  placeNew(order, d.ids, (id) => added.has(id));
+  return order.map((id) => rows.get(id));
+}
+// these GETs have no ORDER BY, so they come back in whatever order Postgres stored the last
+// rewrite; a tab keeps the order it loaded them in (what it shows, and writes back), as saves
+// always have. Clients come back in roster order and submissions newest first.
+const UNORDERED = ["placements", "staff", "users", "notableReleases"];
+function inTabOrder(fresh, tab) {
+  const out = { ...fresh };
+  for (const k of UNORDERED) {
+    if (!Array.isArray(fresh[k]) || !Array.isArray(tab?.[k])) continue;
+    const byId = new Map(fresh[k].map((r) => [r.id, r]));
+    const order = tab[k].map((r) => r.id).filter((id) => byId.has(id));
+    const had = new Set(order);
+    placeNew(order, fresh[k].map((r) => r.id), (id) => !had.has(id));
+    out[k] = order.map((id) => byId.get(id));
+  }
+  return out;
+}
+function applyPatch(fresh, patch) {
+  const out = { ...fresh };
+  for (const k of SAVE_TABLES[fresh.role] || []) if (patch[k]) out[k] = applyRows(fresh[k], patch[k]);
+  for (const k of ["site", "sheetSync"]) if (patch[k]) out[k] = { ...fresh[k], ...patch[k] };
+  // deleting a client takes along a song or login someone added for them since, as the server's
+  // own cascade would — sent back, it would fail the whole save on the missing client
+  const gone = new Set(patch.clients?.deleted);
+  if (gone.size) for (const k of ["placements", "users"]) if (patch[k]) out[k] = out[k].filter((r) => !gone.has(r.clientId));
+  return out;
+}
+// a typed password goes out only with the save it was typed for: re-sent later, it would undo
+// one the user has since chosen themselves
+const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d, users: d.users.map(({ password, ...u }) => u) } : d);
+
 function StaffDashboard({ db, commit, logout }) {
   const [tab, setTab] = useState("website");
   const unreadCount = db.submissions.filter((s) => !s.read).length;
@@ -2117,14 +2270,25 @@ function StaffDashboard({ db, commit, logout }) {
 /* generic editable list ------------------------------------------------ */
 function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete }) {
   const [editing, setEditing] = useState(null); // object or null
+  const [saving, setSaving] = useState(false);
+  const from = useRef(null); // the row as it was when the form opened
   useEffect(() => {
     if (!editing) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, [editing]);
-  const start = (obj) => setEditing(obj ? { ...obj } : { id: null, ...blank });
-  const save = async () => { await onSave(editing); setEditing(null); };
+  const start = (obj) => { from.current = obj; setEditing(obj ? { ...obj } : { id: null, ...blank }); };
+  // only what was changed in the form goes onto the row as it is now, so a change that landed while
+  // it was open (another tab's save, the Clients-tab sync) isn't put back. A failed save stays open.
+  const save = async () => {
+    const cur = editing.id && items.find((it) => it.id === editing.id);
+    setSaving(true);
+    try {
+      const ok = await onSave(cur && from.current ? { ...cur, ...changedFields(from.current, editing) } : editing);
+      if (ok !== false) setEditing(null);
+    } finally { setSaving(false); }
+  };
   const remove = (it) => {
     const label = it.name || it.song || it.email || "this entry";
     const msg = confirmDelete ? confirmDelete(it) : `Delete "${label}"? This can't be undone.`;
@@ -2174,7 +2338,7 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
             <div className="modal-body">{extra(editing, setEditing)}</div>
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="btn sm" onClick={save}>Save</button>
+              <button className="btn sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
             </div>
           </div>
         </div>
@@ -2196,12 +2360,14 @@ async function deleteClientCascade(db, commit, id) {
   // just 404s on their own data forever instead of being cleaned up — same
   // class of gap as data the UI hides but the API still allows; remove it
   // here instead of leaving stale valid credentials with nothing behind them.
-  await commit({
+  const saved = await commit({
     ...db,
     clients: db.clients.filter((c) => c.id !== id),
     placements: db.placements.filter((p) => p.clientId !== id),
     users: db.users.filter((u) => u.clientId !== id),
-  });
+  }, db);
+  // still on the site: their sheet rows and tab must stay too (the banner says why it failed)
+  if (!saved) return null;
 
   const results = await Promise.allSettled(
     clientPlacements
@@ -2246,7 +2412,7 @@ function ClientsAdmin({ db, commit }) {
   const [deleteWarn, setDeleteWarn] = useState(null);
   const save = async (o) => {
     const clients = o.id ? db.clients.map((c) => c.id === o.id ? o : c) : [...db.clients, { ...o, id: uid() }];
-    await commit({ ...db, clients });
+    return commit({ ...db, clients });
   };
   const del = async (id) => {
     setDeleteWarn(null);
@@ -2313,7 +2479,7 @@ function PlacementsAdmin({ db, commit }) {
   ];
   const save = async (o) => {
     const placements = o.id ? db.placements.map((p) => p.id === o.id ? o : p) : [...db.placements, { ...o, id: uid() }];
-    await commit({ ...db, placements });
+    return commit({ ...db, placements });
   };
   const del = async (id) => commit({ ...db, placements: db.placements.filter((p) => p.id !== id) });
   return (
@@ -2358,20 +2524,24 @@ function SpotifyFill({ e, set }) {
   const [link, setLink] = useState("");
   const [status, setStatus] = useState(null); // null | loading | ok | err
   const [errMsg, setErrMsg] = useState("");
+  const open = useRef(true);
+  useEffect(() => { open.current = true; return () => { open.current = false; }; }, []);
   const run = async () => {
     const t = (link || e.link || "").trim();
     if (!t) return;
     setStatus("loading");
     try {
       const meta = await lookupSpotifyTrack(t);
-      set({
-        ...e,
-        song: meta.title || e.song,
-        artist: meta.artist || e.artist,
-        releaseDate: e.releaseDate || meta.releaseDate || "",
-        cover: meta.cover || e.cover,
-        link: meta.link || e.link || t,
-      });
+      if (!open.current) return; // the form was closed meanwhile
+      // onto the form as it is now, so anything typed during the lookup stays
+      set((cur) => ({
+        ...cur,
+        song: meta.title || cur.song,
+        artist: meta.artist || cur.artist,
+        releaseDate: cur.releaseDate || meta.releaseDate || "",
+        cover: meta.cover || cur.cover,
+        link: meta.link || cur.link || t,
+      }));
       setStatus("ok");
     } catch (err) {
       setErrMsg(err.message || "Lookup failed");
@@ -2405,7 +2575,7 @@ function TeamAdmin({ db, commit }) {
   ];
   const save = async (o) => {
     const staff = o.id ? db.staff.map((s) => s.id === o.id ? o : s) : [...db.staff, { ...o, id: uid() }];
-    await commit({ ...db, staff });
+    return commit({ ...db, staff });
   };
   const del = async (id) => commit({ ...db, staff: db.staff.filter((s) => s.id !== id) });
   return (
@@ -2437,7 +2607,7 @@ function UsersAdmin({ db, commit }) {
       window.alert("At least one staff account must exist — can't demote the last one.");
       return;
     }
-    await commit({ ...db, users });
+    return commit({ ...db, users });
   };
   const del = async (id) => {
     const users = db.users.filter((u) => u.id !== id);
@@ -2924,6 +3094,12 @@ function AdvanceCalcPanel({ data, reload }) {
 /*  CLIENT PORTAL                                                       */
 /* ------------------------------------------------------------------ */
 /*  shared: song + splits manager (used by client portal and staff)    */
+// a release date is a calendar day (YYYY-MM-DD): new Date() reads it as UTC midnight, which is
+// still the day before everywhere in the Americas
+const releaseDay = (s) => {
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  return (ymd ? new Date(+ymd[1], ymd[2] - 1, +ymd[3]) : new Date(s)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+};
 function SongManager({ db, commit, clientId, isStaff }) {
   // staff's db has a `clients` array; a client session's db has just their
   // own `client` record (no `clients` array — that's not sent to them).
@@ -2949,6 +3125,8 @@ function SongManager({ db, commit, clientId, isStaff }) {
   }, [songs, client?.name]);
   const [openId, setOpenId] = useState(null);
   const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const editFrom = useRef(null); // the song as it was when Edit was pressed
   const active = songs.find((p) => p.id === openId);
   const [pushWarn, setPushWarn] = useState(null);
   useEffect(() => {
@@ -2958,7 +3136,11 @@ function SongManager({ db, commit, clientId, isStaff }) {
     return () => { document.body.style.overflow = prev; };
   }, [active, editing]);
 
-  const saveSong = async (o) => {
+  const saveSong = async (form) => {
+    // only what was changed in the form goes onto the song as it is now — streams the sync
+    // brought in while it was open aren't put back (see Editor)
+    const cur = form.id && db.placements.find((p) => p.id === form.id);
+    const o = cur && editFrom.current ? { ...cur, ...changedFields(editFrom.current, form) } : form;
     // catch likely duplicates before they happen — same title plus at least
     // one more matching signal (the credited artist, or a shared name in
     // the splits) is "probably a dupe"; same title alone isn't (two real,
@@ -2986,7 +3168,10 @@ function SongManager({ db, commit, clientId, isStaff }) {
     const placements = o.id
       ? db.placements.map((p) => p.id === o.id ? saved : p)
       : [...db.placements, saved];
-    await commit({ ...db, placements });
+    setSaving(true);
+    const ok = await commit({ ...db, placements }).finally(() => setSaving(false));
+    // a song that didn't save stays in its form, and never reaches the sheet
+    if (!ok) return;
     setEditing(null);
     // push to the pub sheet in the background — a slow/failed network call
     // should never block or undo the local save that already succeeded —
@@ -3021,7 +3206,8 @@ function SongManager({ db, commit, clientId, isStaff }) {
   };
   const removeSong = async (id) => {
     const target = songs.find((p) => p.id === id);
-    await commit({ ...db, placements: db.placements.filter((p) => p.id !== id) });
+    // not deleted on the site: its sheet row stays too
+    if (!(await commit({ ...db, placements: db.placements.filter((p) => p.id !== id) }))) return;
     setOpenId(null); setEditing(null);
     if (!target) return;
     const mine = (target.splits || []).find((s) => s.name === client?.name);
@@ -3106,7 +3292,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
                 </div>
                 <div>
                   <div className="song-detail-artist">{active.artist}</div>
-                  {active.releaseDate && <div className="song-detail-date">{new Date(active.releaseDate).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}</div>}
+                  {active.releaseDate && <div className="song-detail-date">{releaseDay(active.releaseDate)}</div>}
                   {active.link && <ExtLink className="inline-link" href={active.link}>Open track ↗</ExtLink>}
                 </div>
               </div>
@@ -3137,7 +3323,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
             </div>
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => { if (window.confirm(`Delete "${active.song || "this song"}"? This can't be undone.`)) removeSong(active.id); }}>Delete</button>
-              <button className="btn sm" onClick={() => setEditing({ ...active })}>Edit</button>
+              <button className="btn sm" onClick={() => { editFrom.current = active; setEditing({ ...active }); }}>Edit</button>
             </div>
           </div>
         </div>
@@ -3168,7 +3354,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
             )}
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button>
-              <button className="btn sm" onClick={() => saveSong(editing)}>Save</button>
+              <button className="btn sm" onClick={() => saveSong(editing)} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
             </div>
           </div>
         </div>
@@ -3357,12 +3543,23 @@ async function pullAndMergeSheetData(db, clients) {
   return { data, totalsByClient, rowsByClient, claimedRows, placements };
 }
 
+// a song brought in from the sheet gets an id made from its client + title, so two syncs that
+// overlap (two staff, or Sync Streams pressed while the Clients-tab sync still runs) save one
+// song, not two: the second save finds that id already there and just updates it
+const sheetSongId = (clientId, title) => {
+  let a = 0x811c9dc5, b = 0x9e3779b9;
+  for (const ch of `${clientId}:${title}`) { const c = ch.codePointAt(0); a = Math.imul(a ^ c, 0x01000193); b = Math.imul(b ^ c, 0x5bd1e995); }
+  return [a, b].map((h) => ((h >>> 0) % 1679616).toString(36).padStart(4, "0")).join("");
+};
+
 // Full site-wide sync — merges sheet data onto existing placements (via
 // pullAndMergeSheetData) AND picks up any genuinely new song staff typed
 // straight into the sheet, claiming its row back with a Site Sync ID.
 // Shared by the "Sync from sheet" button and the Overview page's "Sync
 // Streams" button, which chains this right after refreshing STREAM DATA so
 // one click keeps both the sheet and the site current — see runStreamSync.
+// db is the copy the pull starts from; saved as the base, it makes the save
+// carry only the sync's own changes, so an edit made during the pull stays.
 async function fullSiteSync(db, commit) {
   const { data, totalsByClient, rowsByClient, claimedRows, placements } = await pullAndMergeSheetData(db, db.clients);
 
@@ -3395,7 +3592,8 @@ async function fullSiteSync(db, commit) {
       const title = normalizeTitle(row.song);
       if (seen.has(title)) continue;
       seen.add(title);
-      const id = uid();
+      const key = sheetSongId(c.id, title);
+      const id = db.placements.some((p) => p.id === key) ? uid() : key;
       created.push({
         id, clientId: c.id, song: row.song, artist: row.artist || c.name,
         releaseDate: "", link: "", cover: "", notable: false,
@@ -3409,7 +3607,9 @@ async function fullSiteSync(db, commit) {
   }
 
   const clients = db.clients.map((c) => ({ ...c, totalStreams: totalsByClient[c.id] ?? c.totalStreams }));
-  await commit({ ...db, placements: [...placements, ...created], clients, sheetSync: { lastSyncedAt: data.syncedAt } });
+  const saved = await commit({ ...db, placements: [...placements, ...created], clients, sheetSync: { lastSyncedAt: data.syncedAt } }, db);
+  // songs that never reached the site get no Site Sync IDs on the sheet
+  if (!saved) throw new Error("The sheet was read, but the synced numbers couldn't be saved — try again.");
 
   if (claims.length) {
     fetch("/api/sheets-claim", {
@@ -3434,6 +3634,8 @@ async function fullSiteSync(db, commit) {
 function CatalogOverview({ db, commit, onSelectClient }) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [streamSync, setStreamSync] = useState({ syncing: false, error: null });
+  const dbNow = useRef(db); // the sheet pull below starts from the db as it is then, not at the click
+  dbNow.current = db;
 
   useEffect(() => {
     let alive = true;
@@ -3465,7 +3667,7 @@ function CatalogOverview({ db, commit, onSelectClient }) {
       const res = await fetch("/api/sync-streams", { method: "POST", headers: { "X-Requested-With": "defied-site" } });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Stream sync failed.");
-      const { missing } = await fullSiteSync(db, commit);
+      const { missing } = await fullSiteSync(dbNow.current, commit);
       const res2 = await fetch("/api/sheets-master");
       const data2 = await res2.json();
       if (res2.ok) setState({ loading: false, error: null, data: data2 });
@@ -3596,17 +3798,20 @@ function CatalogAdmin({ db, commit }) {
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;
   const [addingClient, setAddingClient] = useState(false);
   const [newClientForm, setNewClientForm] = useState({ name: "", role: "Producer" });
+  const [adding, setAdding] = useState(false);
   const [deleteWarn, setDeleteWarn] = useState(null);
 
   const addClient = async () => {
     const name = newClientForm.name.trim();
-    if (!name) return;
+    if (!name || adding) return;
     const client = {
       id: uid(), name, role: newClientForm.role, credit: "", bio: "", photo: "",
       spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "",
       sheetTabName: "", totalStreams: 0, onRoster: false,
     };
-    await commit({ ...db, clients: [...db.clients, client] });
+    setAdding(true);
+    const ok = await commit({ ...db, clients: [...db.clients, client] }).finally(() => setAdding(false));
+    if (!ok) return; // the form stays open with the name typed
     setClientId(client.id);
     setAddingClient(false);
     setNewClientForm({ name: "", role: "Producer" });
@@ -3682,7 +3887,7 @@ function CatalogAdmin({ db, commit }) {
             </div>
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setAddingClient(false)}>Cancel</button>
-              <button className="btn sm" onClick={addClient} disabled={!newClientForm.name.trim()}>Add client</button>
+              <button className="btn sm" onClick={addClient} disabled={!newClientForm.name.trim() || adding}>{adding ? "Adding…" : "Add client"}</button>
             </div>
           </div>
         </div>
@@ -3713,13 +3918,16 @@ function WebsiteAdmin({ db, commit }) {
 function AboutEditor({ db, commit }) {
   const [text, setText] = useState(db.site?.about || "");
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const save = async () => {
-    await commit({ ...db, site: { ...db.site, about: text } });
+    setSaving(true);
+    const ok = await commit({ ...db, site: { ...db.site, about: text } }).finally(() => setSaving(false));
+    if (!ok) return; // the banner says why; the text stays in the box
     setSaved(true); setTimeout(() => setSaved(false), 1600);
   };
   return (
     <div>
-      <div className="admin-head"><h2>About page</h2><button className="btn sm" onClick={save}>{saved ? "Saved ✓" : "Save"}</button></div>
+      <div className="admin-head"><h2>About page</h2><button className="btn sm" onClick={save} disabled={saving}>{saving ? "Saving…" : saved ? "Saved ✓" : "Save"}</button></div>
       <p className="muted mb">This text shows on the public About page. Leave a blank line between paragraphs.</p>
       <textarea className="about-editor" rows={9} value={text} onChange={(e) => setText(e.target.value)} />
     </div>
@@ -3730,7 +3938,7 @@ function NotableAdmin({ db, commit }) {
   const list = db.notableReleases || [];
   const save = async (o) => {
     const notableReleases = o.id ? list.map((r) => r.id === o.id ? o : r) : [...list, { ...o, id: uid() }];
-    await commit({ ...db, notableReleases });
+    return commit({ ...db, notableReleases });
   };
   const del = async (id) => commit({ ...db, notableReleases: list.filter((r) => r.id !== id) });
   const cols = [
