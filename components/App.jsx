@@ -904,7 +904,9 @@ const XIcon = ({ size = 18 }) => (
 // Headline whose words rise out of clipped slots. Plays on mount by default;
 // `onView` waits for the shared reveal observer instead (below-the-fold heads).
 // Screen readers get the whole sentence from aria-label, not word fragments.
-function SplitHead({ text, tag: Tag = "h1", className = "", chrome = false, onView = false, strike, delay = 80 }) {
+// `breakAfter`: the word that ends the first line on tablets and up, so the line falls on a phrase, not
+// wherever the width runs out (phones wrap on their own)
+function SplitHead({ text, tag: Tag = "h1", className = "", chrome = false, onView = false, strike, breakAfter, delay = 80 }) {
   const words = String(text).split(/\s+/).filter(Boolean);
   return (
     <Tag
@@ -923,7 +925,7 @@ function SplitHead({ text, tag: Tag = "h1", className = "", chrome = false, onVi
               </svg>
             )}
           </span>
-          {i < words.length - 1 && " "}
+          {i < words.length - 1 && (breakAfter && w === breakAfter ? <br className="split-br" /> : " ")}
         </React.Fragment>
       ))}
     </Tag>
@@ -1320,7 +1322,7 @@ function About({ publicData }) {
   const nFeat = featuredCount(notable.length);
   return (
     <main className="pg about2">
-      <SplitHead text="DEFYING THE NORMS OF TALENT MANAGEMENT." chrome strike="NORMS" className="about2-head" />
+      <SplitHead text="DEFYING THE NORMS OF TALENT MANAGEMENT." chrome strike="NORMS" breakAfter="NORMS" className="about2-head" />
       <div className="about2-body">
         {about.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}
       </div>
@@ -4448,7 +4450,8 @@ function StyleTag() {
     @keyframes dot{50%{background:#f5f5f5;transform:translateY(-4px)}}
 
     /* ---------- about ---------- */
-    .about2-head{font-size:clamp(30px,5.3vw,76px);line-height:1.02;margin:0 auto 34px;max-width:1160px}
+    /* "DEFYING THE NORMS / OF TALENT MANAGEMENT." — sized so the longer second line (16.9em) always fits */
+    .about2-head{font-size:clamp(30px,5vw,64px);line-height:1.02;margin:0 auto 34px;max-width:1160px}
     .about2-body p{color:#b8b8b8;font-size:clamp(16px,1.3vw,18.5px);line-height:1.7;max-width:660px;margin:0 auto 18px;text-wrap:pretty;animation:rv .75s var(--ease-out) .4s both}
     /* the big credits band: cover, the artist in chrome, and the song and producer as a caption beside it */
     .about2-band{margin:clamp(56px,7vw,88px) calc(50% - 50vw) 0;padding:clamp(18px,2vw,26px) 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);
@@ -4772,7 +4775,7 @@ function StyleTag() {
       .pg{text-align:left}
       .ros2-head{align-items:flex-start}
       .chips{justify-content:flex-start}
-      .about2-head{font-size:clamp(28px,8.6vw,40px)}
+      .about2-head{font-size:clamp(28px,8.6vw,40px)} .split-br{display:none}
       .about2-body p{margin-left:0;font-size:16px;line-height:1.65}
       .sec-head{text-align:left}
       .rel2-grid,.pgrid{--cols:2;--g:12px;row-gap:28px}
