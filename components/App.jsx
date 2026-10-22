@@ -180,7 +180,7 @@ function CropModal({ src, onCancel, onDone }) {
   return (
     <div className="modal crop-overlay" onClick={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="crop-card">
-        <div className="modal-head"><h3>Position &amp; crop</h3><button onClick={onCancel}><X size={18} /></button></div>
+        <div className="modal-head"><h3>Position &amp; crop</h3><button onClick={onCancel} aria-label="Close"><X size={18} /></button></div>
         <div className="crop-body">
           <div
             className="crop-view"
@@ -351,7 +351,7 @@ function Socials({ c, size = 26 }) {
 /* ------------------------------------------------------------------ */
 /*  splits: pie chart + editor                                          */
 /* ------------------------------------------------------------------ */
-const PIE_COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"];
+const PIE_COLORS = ["#f5f5f5", "#8a8a8a", "#c8c8cc", "#5f5f61", "#a3a3a3", "#3a3a3c", "#e2e2e4", "#6e6e70"];
 const splitTotal = (splits) => (splits || []).reduce((a, s) => a + Number(s.percent || 0), 0);
 
 // recharts (~350KB min / ~90KB gzip) is only drawn in the song-splits view (staff Clients tab +
@@ -532,6 +532,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [loadErr, setLoadErr] = useState(null); // the dashboard's own load / save errors
   const [pubErr, setPubErr] = useState(null); // the public pages' data
+  const [authDown, setAuthDown] = useState(false); // /api/auth/me couldn't check the sign-in (not "signed out")
   useRevealOnScroll(route !== "staff" && route !== "client");
 
   // the fresh copy (see publicDataRequest) swaps in when it lands; a failed request only shows
@@ -570,10 +571,11 @@ export default function App() {
   useEffect(() => {
     let alive = true;
     fetch("/api/auth/me")
-      .then((r) => r.json())
-      // a 503 (the account couldn't be checked) has no user: signed out, not "still asking" forever
+      .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; })
       .then((d) => { if (alive) setSession(d.user ?? null); })
-      .catch(() => { if (alive) setSession(null); });
+      // a 503 (the account couldn't be checked) or no connection: signed out, not "still asking" forever,
+      // but the sign-in page says why
+      .catch(() => { if (alive) { setSession(null); setAuthDown(true); } });
     return () => { alive = false; };
   }, []);
 
@@ -590,16 +592,17 @@ export default function App() {
   // re-fires if the signed-in user actually changes (login/logout/switch).
   useEffect(() => {
     const s = saves.current;
-    s.gen++;
+    s.gen++; s.server = null;
     if (!session) { setDb(null); return; }
     let alive = true;
     (async () => {
       try {
         const res = await fetch("/api/dashboard-data");
         if (res.status === 401) { if (alive) setSession(null); return; }
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!alive) return;
-        if (!res.ok) throw new Error(data.error || "Failed to load.");
+        if (!res.ok || !data.role) throw new Error(data.error || "Failed to load.");
+        if (data.role !== session.role) throw new Error("Your account was changed — reload the page.");
         s.server = data; s.freshAt = Date.now();
         setDb(data);
       } catch (err) {
@@ -614,37 +617,37 @@ export default function App() {
   // see diffDb) is applied to the server's latest copy, and only the tables it touched are sent. So
   // a song a client added, a new message or another staff member's edit since this tab loaded is
   // never wiped by sending this tab's old copy back. base = the db next was built from: the one on
-  // screen, or for a slow job (the sheet sync) the copy it started from. Resolves true once saved.
+  // screen, or for a slow job (the sheet sync) the copy it started from. Resolves with the server's
+  // copy as saved (a row deleted elsewhere is missing from it), or false when nothing was saved.
   const commit = (next, base = shownDb.current) => {
     const patch = diffDb(base, next);
-    if (!patch) return Promise.resolve(true);
+    if (!patch) return Promise.resolve(next);
     const s = saves.current, gen = s.gen;
     setDb((cur) => (cur === base ? next : cur && applyPatch(cur, patch)));
-    s.pending++; s.calls++;
+    // leaving now would drop it: the browser asks first while anything is unsaved
+    if (s.pending++ === 0) window.addEventListener("beforeunload", holdUnload);
+    s.calls++;
     const run = s.chain.then(async () => {
-      let ok = false;
+      let saved = false;
       try {
         if (gen !== s.gen) return false; // signed out since
         const got = await fetch("/api/dashboard-data", { cache: "no-store" }).catch(() => null);
         const latest = got && await got.json().catch(() => null);
-        if (!got?.ok || !latest?.role) {
-          throw new Error(got?.status === 401 ? "You've been signed out, so that change wasn't saved — sign in again and redo it."
-            : "Couldn't reach the server, so that change wasn't saved — check your connection and try again.");
-        }
+        if (!got?.ok || !latest?.role) throw new Error(saveFailure(got, latest, SAVE_OFFLINE));
+        // the account was demoted or re-linked since this tab loaded: keep what's on screen as it is
+        if (accountChanged(latest, s.server || base)) throw new Error("Your account was changed — reload the page.");
         const fresh = inTabOrder(latest, s.server);
         s.server = fresh; s.freshAt = Date.now();
         const merged = applyPatch(fresh, patch);
+        const refused = refusal(patch, fresh, merged);
+        if (refused) throw new Error(refused);
         const res = await fetch("/api/dashboard-data", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-          body: JSON.stringify(Object.fromEntries(Object.keys(patch).map((k) => [k, merged[k]]))),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(res.status === 413 ? "That's too much to save in one go — try a smaller photo." : data.error || "Save failed.");
-        }
-        s.server = withoutPasswords(merged);
-        ok = true;
+          body: JSON.stringify(Object.fromEntries(saveKeys(patch, fresh, merged).map((k) => [k, merged[k]]))),
+        }).catch(() => null);
+        if (!res?.ok) throw new Error(saveFailure(res, res && await res.json().catch(() => null), "Save failed."));
+        s.server = saved = withoutPasswords(merged);
         if (!s.failed) setLoadErr(null);
         // the public pages' copy is now out of date: refetch it when staff next open one
         pubStale.current = true;
@@ -654,10 +657,10 @@ export default function App() {
         if (gen === s.gen) setLoadErr(err.message || "Couldn't save that change — try again.");
       } finally {
         // the last save out shows the server's copy: others' changes, minus anything that failed
-        if (--s.pending === 0) { s.failed = false; if (gen === s.gen) setDb(s.server); }
-        else if (ok && patch.users && gen === s.gen) setDb(withoutPasswords);
+        if (--s.pending === 0) { s.failed = false; window.removeEventListener("beforeunload", holdUnload); if (gen === s.gen) setDb(s.server); }
+        else if (saved && patch.users && gen === s.gen) setDb(withoutPasswords);
       }
-      return ok;
+      return saved;
     });
     s.chain = run;
     return run;
@@ -682,6 +685,7 @@ export default function App() {
       } catch { /* offline: the next return to the tab tries again */ }
     };
     const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    refresh(); // back on the dashboard from the public pages, in the same tab
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", onVisible);
     return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", onVisible); };
@@ -703,11 +707,14 @@ export default function App() {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data) return data?.error || (res.status >= 500 || res.ok ? "Sign-in isn't available right now — try again in a minute." : "Incorrect email or password.");
-    setSession(data.user);
+    setSession(data.user); setAuthDown(false);
     go(data.user.role === "staff" ? "staff" : "client");
     return null;
   };
   const logout = async () => {
+    // a save still queued or running needs the session: let it land first (but never hold sign-out long)
+    const s = saves.current, until = Date.now() + 8000;
+    while (s.pending && Date.now() < until) await Promise.race([s.chain, new Promise((r) => setTimeout(r, until - Date.now()))]);
     await fetch("/api/auth/logout", { method: "POST", headers: { "X-Requested-With": "defied-site" } }).catch(() => {});
     // navigate home BEFORE clearing session — otherwise the route-guard
     // effect below sees session go null while route is still "staff"/
@@ -767,7 +774,8 @@ export default function App() {
     <div className={inPortal ? "app" : "app pub"}>
       <StyleTag />
       {!inPortal && <div className="grain" aria-hidden="true" />}
-      {inPortal ? loadErr && <div className="storage-warn" role="alert">{loadErr}</div>
+      {/* signed out mid-edit: the page stays put so typed text can be copied; the link reloads it fresh */}
+      {inPortal ? loadErr && <div className="storage-warn" role="alert">{loadErr}{loadErr === SIGNED_OUT && <> <a href={ROUTE_TO_PATH.login} className="inline-link">Sign in again</a></>}</div>
         : pubErr && DATA_ROUTES.includes(route) && <div className="storage-warn" role="alert">{pubErr}</div>}
       {!inPortal && (
         <PublicNav route={route} menuOpen={menuOpen} setMenuOpen={setMenuOpen} session={session} />
@@ -784,7 +792,7 @@ export default function App() {
           {route === "roster" && <Roster publicData={publicData} />}
           {route === "contact" && <Contact publicData={publicData} />}
         </PageGuard>
-        {route === "login" && <Login login={login} />}
+        {route === "login" && <Login login={login} notice={authDown ? "We couldn't check your sign-in just now — try again in a minute." : null} />}
         {route === "notfound" && <NotFound />}
 
         {route === "staff" && session?.role === "staff" && (
@@ -848,11 +856,28 @@ const publicDataRequest = typeof window === "undefined" ? null : fetchPublicData
 // how often a tab coming back into view may ask for the site data again
 const PUBLIC_REFRESH_MS = 60 * 1000;
 
-// a roster member's ?artist= key: "Stack!e" → stacke, "Beyoncé" → beyonce. Letters and digits of any
+// one rule for "is this the same person" wherever a client/writer/split name is compared (never song
+// titles), kept identical to lib/names.js: accents and punctuation drop out and a "!" standing in for
+// an i counts as one, so Stack!e, STACK!E and Stackie are "stackie" and Stacke ("stacke") is someone else
+const personKey = (s) => String(s ?? "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase()
+  .replace(/(\p{L})!(?=\p{L})/gu, "$1i").replace(/[^\p{L}\p{N}]+/gu, "");
+// the entry of `list` that `name` refers to: an exact (case-insensitive) match always wins over a personKey one
+const findByName = (list, name, nameOf = (x) => x.name) => {
+  const n = String(name ?? "").trim().toLowerCase(), k = personKey(name);
+  return (n && list.find((x) => String(nameOf(x) ?? "").trim().toLowerCase() === n)) || (k && list.find((x) => personKey(nameOf(x)) === k)) || null;
+};
+// a client's own split on a song (what their own streams/revenue share comes from)
+const ownSplit = (p, client) => (client?.name ? findByName(p?.splits || [], client.name) : null);
+
+// a roster member's ?artist= key: "Stack!e" → stackie, "Beyoncé" → beyonce. Letters and digits of any
 // alphabet stay; a name with none (emoji only) falls back to the record's id, so every card opens
-const nameKey = (person) => String(person?.name || "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "") || String(person?.id || "");
+const nameKey = (person) => personKey(person?.name) || String(person?.id || "");
 const slugOf = (person) => person?.slug || nameKey(person);
-// Two names can reduce to the same key ("Stack!e" and "Stacke", or one name typed twice): the first
+// links shared before the key counted "!" as an i (?artist=stacke) still open the same panel, as long
+// as no one's own key is that
+const legacyKey = (person) => String(person?.name || "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+const bySlug = (clients, slug) => (slug ? clients.find((c) => slugOf(c) === slug) || clients.find((c) => legacyKey(c) === slug) || null : null);
+// Two names can reduce to the same key ("Stack!e" and "Stackie", or one name typed twice): the first
 // on the roster keeps it and the others add their record id, so every card still opens its own panel
 function withSlugs(d) {
   const seen = new Set();
@@ -872,7 +897,7 @@ const splitNames = (s) => String(s || "").split(",").map((x) => x.trim()).filter
 // "Presidential (with Jenn Carter, Kyle Richh, TaTa)" -> "Presidential"
 const cleanTitle = (song) => String(song || "").replace(/\s*[([](?:with|feat\.?|ft\.?)\s[^)\]]*[)\]]/gi, "").trim();
 const primaryArtist = (artist) => splitNames(artist)[0] || "";
-const sameName = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+const sameName = (a, b) => !!findByName([a], b, (x) => x);
 
 // streaming links are typed in on the dashboard: only ever hand a real web address to an href.
 // One pasted without its https:// ("open.spotify.com/artist/…") gets it back; anything else is dropped.
@@ -987,7 +1012,7 @@ function glyphNodes(text) {
 // the song — otherwise just their name, never a guessed role.
 function rosterCreditsOn(release, clients) {
   return splitNames(release.client).map((name) => {
-    const c = clients.find((x) => sameName(x.name, name));
+    const c = findByName(clients, name);
     const onArtist = splitNames(release.artist).some((a) => sameName(a, name));
     return { name, prod: !!c && /producer/i.test(c.role || "") && !onArtist };
   });
@@ -1703,8 +1728,10 @@ function Roster({ publicData }) {
   const visible = clients.filter((c) => filter === "all" || (filter === "producers" ? isProducer(c) : isArtist(c)));
   useLitBand(gridRef, [publicData, filter]);
 
-  const activeSlug = router.isReady ? router.query.artist : undefined;
-  const active = activeSlug ? clients.find((c) => slugOf(c) === activeSlug) || null : null;
+  const urlSlug = router.isReady ? router.query.artist : undefined;
+  const active = bySlug(clients, urlSlug);
+  // the open card's own key, even when the link used an older one
+  const activeSlug = active ? slugOf(active) : urlSlug;
   useEffect(() => {
     if (activeSlug) { lastSlug.current = activeSlug; return; }
     pushedRef.current = false;
@@ -2040,7 +2067,7 @@ function Contact({ publicData }) {
   useEffect(() => {
     if (!router.isReady || !publicData) return;
     const slug = router.query.artist;
-    const c = slug && (publicData.clients || []).find((x) => slugOf(x) === slug);
+    const c = bySlug(publicData.clients || [], slug);
     if (c) setF((cur) => (cur.message ? cur : { ...cur, subject: "Booking", message: `Re: ${c.name} — ` }));
   }, [router.isReady, publicData]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2138,7 +2165,7 @@ function Contact({ publicData }) {
 /* ------------------------------------------------------------------ */
 // The way into the dashboard and the client portal, built from the public pages' own parts: the chrome
 // heading and the contact form's fields and pill.
-function Login({ login }) {
+function Login({ login, notice }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -2175,7 +2202,7 @@ function Login({ login }) {
             <button type="button" className="lg-show" onClick={() => setShowPw((v) => !v)} aria-controls="lg-password" aria-label={showPw ? "Hide password" : "Show password"}>{showPw ? "Hide" : "Show"}</button>
           </div>
         </div>
-        {err && <p className="ct-err" role="alert">{err}</p>}
+        {(err || notice) && <p className="ct-err" role="alert">{err || notice}</p>}
         <button ref={submitRef} className="pill pill-solid pill-full" type="submit" disabled={busy}>
           {busy ? <><RefreshCw size={15} className="spin" /> Signing in…</> : "Sign in"}
         </button>
@@ -2268,8 +2295,33 @@ function applyPatch(fresh, patch) {
   // deleting a client takes along a song or login someone added for them since, as the server's
   // own cascade would — sent back, it would fail the whole save on the missing client
   const gone = new Set(patch.clients?.deleted);
-  if (gone.size) for (const k of ["placements", "users"]) if (patch[k]) out[k] = out[k].filter((r) => !gone.has(r.clientId));
+  if (gone.size) for (const k of ["placements", "users"]) if (out[k].some((r) => gone.has(r.clientId))) out[k] = out[k].filter((r) => !gone.has(r.clientId));
   return out;
+}
+// what a save sends: the tables it changed, plus any applyPatch rewrote for it (a login dropped with its client)
+const saveKeys = (patch, fresh, merged) => [...(SAVE_TABLES[fresh.role] || []), "site", "sheetSync"].filter((k) => patch[k] || merged[k] !== fresh[k]);
+const TOO_BIG = "That's too much to save — the photos and covers are over the size limit. Remove or shrink some images and try again.";
+const SAVE_OFFLINE = "Couldn't reach the server, so that change wasn't saved — check your connection and try again.";
+const SIGNED_OUT = "You've been signed out, so that change wasn't saved. Copy anything you need, then sign in again.";
+// what the banner says about a failed request: the server's own reason when it gave one
+const saveFailure = (res, data, fallback) => (!res ? SAVE_OFFLINE : res.status === 401 ? SIGNED_OUT : data?.error || (res.status === 413 ? TOO_BIG : fallback));
+const holdUnload = (e) => { e.preventDefault(); e.returnValue = ""; }; // "leave the page?" while a save is unsent
+// the dashboard loads everything in one reply (photos and covers included), and Vercel won't send one over 4.5 MB
+const MAX_DATA = 3500000;
+// a save that can't go onto the server's copy as it is now: why, or null. A save that shrinks the data always goes,
+// so there's a way back under the limit
+function refusal(patch, fresh, merged) {
+  if (patch.notableReleases?.added.length && merged.notableReleases.length > 10) return "There are already 10 notable releases (someone else added one) — remove one first.";
+  const size = JSON.stringify(merged).length;
+  return size > MAX_DATA && size > JSON.stringify(fresh).length ? TOO_BIG : null;
+}
+// a demoted or re-linked account: what this tab edits no longer fits what the server would take
+const accountChanged = (fresh, known) => fresh.role !== known.role || fresh.client?.id !== known.client?.id;
+// an edit of a row someone else deleted meanwhile saves nothing: the form says so
+const goneText = (thing) => `That ${thing} was deleted somewhere else, so this change wasn't saved.`;
+async function saveRow(commit, next, key, id, thing) {
+  const saved = await commit(next);
+  return saved && id && !saved[key].some((r) => r.id === id) ? goneText(thing) : saved;
 }
 // a typed password goes out only with the save it was typed for: re-sent later, it would undo
 // one the user has since chosen themselves
@@ -2289,16 +2341,18 @@ function StaffDashboard({ db, commit, logout }) {
         <div className="dash-brand"><Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link></div>
         <nav>
           {tabs.map(([id, label, Icon, badge]) => (
-            <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+            <button key={id} className={tab === id ? "active" : ""} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
               <Icon size={17} /> <span className="nav-label">{label}</span>
               {!!badge && <span className="nav-badge">{badge}</span>}
             </button>
           ))}
         </nav>
-        <button className="dash-out" onClick={logout}><LogOut size={16} /> Sign out</button>
+        <div className="dash-side-foot">
+          <div className="dash-role">Staff — full edit access</div>
+          <button className="dash-out" onClick={logout}><LogOut size={16} /> Sign out</button>
+        </div>
       </aside>
       <main className="dash-main">
-        <div className="dash-role">Staff — full edit access</div>
         {tab === "website" && <WebsiteAdmin db={db} commit={commit} />}
         {tab === "catalog" && <CatalogAdmin db={db} commit={commit} />}
         {tab === "ar" && <ARAdmin />}
@@ -2313,6 +2367,7 @@ function StaffDashboard({ db, commit, logout }) {
 function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete }) {
   const [editing, setEditing] = useState(null); // object or null
   const [saving, setSaving] = useState(false);
+  const [formErr, setFormErr] = useState(null);
   const from = useRef(null); // the row as it was when the form opened
   useEffect(() => {
     if (!editing) return;
@@ -2320,15 +2375,17 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, [editing]);
-  const start = (obj) => { from.current = obj; setEditing(obj ? { ...obj } : { id: null, ...blank }); };
+  const start = (obj) => { from.current = obj; setFormErr(null); setEditing(obj ? { ...obj } : { id: null, ...blank }); };
   // only what was changed in the form goes onto the row as it is now, so a change that landed while
-  // it was open (another tab's save, the Clients-tab sync) isn't put back. A failed save stays open.
+  // it was open (another tab's save, the Clients-tab sync) isn't put back. A failed save stays open:
+  // onSave gives false (the banner says why) or a message for the form.
   const save = async () => {
     const cur = editing.id && items.find((it) => it.id === editing.id);
-    setSaving(true);
+    setSaving(true); setFormErr(null);
     try {
       const ok = await onSave(cur && from.current ? { ...cur, ...changedFields(from.current, editing) } : editing);
-      if (ok !== false) setEditing(null);
+      if (typeof ok === "string") setFormErr(ok);
+      else if (ok !== false) setEditing(null);
     } finally { setSaving(false); }
   };
   const remove = (it) => {
@@ -2363,8 +2420,8 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
                   <button onClick={() => onReorder(it.id, 1)} disabled={i === items.length - 1} title="Move down"><ChevronDown size={14} /></button>
                 </>
               )}
-              <button onClick={() => start(it)}><Pencil size={14} /></button>
-              <button onClick={() => remove(it)}><Trash2 size={14} /></button>
+              <button onClick={() => start(it)} aria-label={`Edit ${it.name || it.song || it.email || "entry"}`}><Pencil size={14} /></button>
+              <button onClick={() => remove(it)} aria-label={`Delete ${it.name || it.song || it.email || "entry"}`}><Trash2 size={14} /></button>
             </span>
           </div>
         ))}
@@ -2375,9 +2432,10 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
           <div className="modal-card">
             <div className="modal-head">
               <h3>{editing.id ? "Edit" : "New"} {title.replace(/s$/, "")}</h3>
-              <button onClick={() => setEditing(null)}><X size={18} /></button>
+              <button onClick={() => setEditing(null)} aria-label="Close"><X size={18} /></button>
             </div>
             <div className="modal-body">{extra(editing, setEditing)}</div>
+            {formErr && <p className="hint err-text modal-save-warn" role="alert">{formErr}</p>}
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button>
               <button className="btn sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
@@ -2413,7 +2471,7 @@ async function deleteClientCascade(db, commit, id) {
 
   const results = await Promise.allSettled(
     clientPlacements
-      .filter((p) => (p.splits || []).some((s) => s.name === client?.name))
+      .filter((p) => ownSplit(p, client))
       .map(async (p) => {
         const splits = [{ name: client?.sheetTabName || client?.name }];
         const res = await fetch("/api/sheets-delete", {
@@ -2445,6 +2503,12 @@ async function deleteClientCascade(db, commit, id) {
   return null;
 }
 
+// another client already going by `value` as their name or sheet tab: the two would share one tab on
+// the pub sheet (or one would never find theirs). By personKey, so Stackie is Stack!e's but Stacke is free
+const NAME_TAKEN = "Another client already uses that name or sheet tab.";
+const nameTaken = (clients, id, value) => !!String(value || "").trim()
+  && clients.some((o) => o.id !== id && [o.name, o.sheetTabName].some((s) => String(s || "").trim() && sameName(s, value)));
+
 function ClientsAdmin({ db, commit }) {
   const cols = [
     { key: "name", label: "Name", render: (c) => <span className="cell-name"><Avatar src={c.photo} name={c.name} size={30} />{c.name}</span> },
@@ -2452,9 +2516,12 @@ function ClientsAdmin({ db, commit }) {
     { key: "onRoster", label: "Public", render: (c) => c.onRoster !== false ? <span className="badge-yes"><Check size={12} /> Live</span> : <span className="badge-no">Hidden</span> },
   ];
   const [deleteWarn, setDeleteWarn] = useState(null);
+  // only a name/tab being changed is checked, so an older pair that already clashes still saves other edits
+  const taken = (e, key) => (e[key] || "") !== (db.clients.find((c) => c.id === e.id)?.[key] || "") && nameTaken(db.clients, e.id, e[key]);
   const save = async (o) => {
+    if (taken(o, "name") || taken(o, "sheetTabName")) return false; // the form stays open, saying why
     const clients = o.id ? db.clients.map((c) => c.id === o.id ? o : c) : [...db.clients, { ...o, id: uid() }];
-    return commit({ ...db, clients });
+    return saveRow(commit, { ...db, clients }, "clients", o.id, "client");
   };
   const del = async (id) => {
     setDeleteWarn(null);
@@ -2488,6 +2555,7 @@ function ClientsAdmin({ db, commit }) {
             <span>Show on the public roster page.</span>
           </label>
           <Field label="Name" value={e.name} onChange={(ev) => set({ ...e, name: ev.target.value })} />
+          {taken(e, "name") && <p className="hint err-text">{NAME_TAKEN}</p>}
           <label className="fld"><span>Role</span>
             <select value={e.role} onChange={(ev) => set({ ...e, role: ev.target.value })}>
               <option>Producer</option><option>Artist</option><option>Producer / Artist</option>
@@ -2502,7 +2570,8 @@ function ClientsAdmin({ db, commit }) {
           <Field label="Instagram handle" value={e.instagram} onChange={(ev) => set({ ...e, instagram: ev.target.value })} />
           <Field label="TikTok handle" value={e.tiktok} onChange={(ev) => set({ ...e, tiktok: ev.target.value })} />
           <Field label="SoundCloud URL" value={e.soundcloud} onChange={(ev) => set({ ...e, soundcloud: ev.target.value })} />
-          <Field label="Sheet tab name" value={e.sheetTabName} onChange={(ev) => set({ ...e, sheetTabName: ev.target.value })} hint="Only needed if it doesn't match this client's name exactly — e.g. this client is Stack!e but their tab on the pub sheet is named Stackie." />
+          <Field label="Sheet tab name" value={e.sheetTabName} onChange={(ev) => set({ ...e, sheetTabName: ev.target.value })} hint="Only needed if their tab on the pub sheet goes by a different name. Case, accents, punctuation and a “!” used as an i don't count — Stack!e already finds a tab named Stackie." />
+          {taken(e, "sheetTabName") && <p className="hint err-text">{NAME_TAKEN}</p>}
         </>
       )}
     />
@@ -2617,7 +2686,7 @@ function TeamAdmin({ db, commit }) {
   ];
   const save = async (o) => {
     const staff = o.id ? db.staff.map((s) => s.id === o.id ? o : s) : [...db.staff, { ...o, id: uid() }];
-    return commit({ ...db, staff });
+    return saveRow(commit, { ...db, staff }, "staff", o.id, "team member");
   };
   const del = async (id) => commit({ ...db, staff: db.staff.filter((s) => s.id !== id) });
   return (
@@ -2644,12 +2713,14 @@ function UsersAdmin({ db, commit }) {
     { key: "clientId", label: "Linked client", render: (u) => db.clients.find((c) => c.id === u.clientId)?.name || "—" },
   ];
   const save = async (o) => {
+    // the server skips a new login with no password, which would leave it on screen but never saved
+    if (!o.id && !(o.password || "").trim()) return "Enter a password to create this account.";
     const users = o.id ? db.users.map((u) => u.id === o.id ? o : u) : [...db.users, { ...o, id: uid() }];
     if (!users.some((u) => u.role === "staff")) {
       window.alert("At least one staff account must exist — can't demote the last one.");
       return;
     }
-    return commit({ ...db, users });
+    return saveRow(commit, { ...db, users }, "users", o.id, "user");
   };
   const del = async (id) => {
     const users = db.users.filter((u) => u.id !== id);
@@ -2770,6 +2841,9 @@ function ARAdmin() {
   );
 }
 
+// sheet status -> chip tone (statuses come from OUTREACH_STATUSES; anything else stays neutral)
+const statusTone = (s = "") => /signed/i.test(s) ? "pos" : /offer/i.test(s) ? "warn" : /talk|negotiat/i.test(s) ? "info" : /not contacted|pass|declin/i.test(s) ? "muted" : undefined;
+
 function OutreachPanel({ data, reload }) {
   const cols = "1.2fr 1fr 1fr 1fr 1fr 0.6fr 1fr";
   const [adding, setAdding] = useState(false);
@@ -2810,7 +2884,7 @@ function OutreachPanel({ data, reload }) {
               <span className="cell">{fmt(p.netStreams)}</span>
               <span className="cell">{money(p.grossRevenue)}</span>
               <span className="cell">{p.songs.filter((s) => s.streams > 0).length || "—"}</span>
-              <span className="cell">{p.status ? <span className="tag">{p.status}</span> : "—"}</span>
+              <span className="cell">{p.status ? <span className="tag" data-tone={statusTone(p.status)}>{p.status}</span> : "—"}</span>
             </button>
           ))}
         </div>
@@ -2884,7 +2958,7 @@ function ProspectForm({ prospect, blendedRate, statuses, onClose, onChanged }) {
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-card">
-        <div className="modal-head"><h3>{isNew ? "New prospect" : prospect.name}</h3><button onClick={onClose}><X size={18} /></button></div>
+        <div className="modal-head"><h3>{isNew ? "New prospect" : prospect.name}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
         <div className="modal-body">
           {err && <p className="hint err-text">{err}</p>}
 
@@ -3089,7 +3163,7 @@ function AdvanceCalcPanel({ data, reload }) {
             read-only reference block above on the very next render — the
             confirmation has to live outside that block or it vanishes
             before anyone sees it */}
-        {saved && <p className="hint" style={{ color: "#9ad39a" }}>Saved to Outreach ✓ — {scenario.name} now appears in the pipeline, shown below with its real numbers.</p>}
+        {saved && <p className="hint ok-text">Saved to Outreach ✓ — {scenario.name} now appears in the pipeline, shown below with its real numbers.</p>}
         {scenario.kind === "new" && (
           <button className="btn sm" onClick={saveToOutreach} disabled={busy || !scenario.name.trim() || !netStreams}>
             {busy ? "Saving…" : "Save to Outreach"}
@@ -3112,7 +3186,7 @@ function AdvanceCalcPanel({ data, reload }) {
           <div className="cat-stat"><span className="cat-stat-label">Recommended Advance</span><span className="cat-stat-val">{money(result.advance)}</span></div>
           <div className="cat-stat"><span className="cat-stat-label">Months to Recoup</span><span className="cat-stat-val">{result.monthsToRecoup != null ? `${result.monthsToRecoup.toFixed(1)} mo` : "—"}</span></div>
           <div className="cat-stat"><span className="cat-stat-label">Coverage</span><span className="cat-stat-val">{result.coverage != null ? `${result.coverage.toFixed(1)}x` : "—"}</span></div>
-          <div className="cat-stat"><span className="cat-stat-label">Verdict</span><span className="cat-stat-val">{result.verdict || "—"}</span></div>
+          <div className="cat-stat"><span className="cat-stat-label">Verdict</span><span className="cat-stat-val" data-tone={!result.verdict ? undefined : result.verdict === "Safe" ? "pos" : result.verdict === "Tight" ? "warn" : result.verdict.startsWith("Too high") ? "neg" : "neutral"}>{result.verdict || "—"}</span></div>
         </div>
       </div>
 
@@ -3158,7 +3232,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
     for (const p of songs) {
       const streams = p.streams || 0;
       gross += streams;
-      const mine = (p.splits || []).find((s) => s.name === client?.name);
+      const mine = ownSplit(p, client);
       net += streams * ((Number(mine?.percent) || 0) / 100);
       revenue += p.revenue || 0;
       adminFee += p.adminFee || 0;
@@ -3168,6 +3242,8 @@ function SongManager({ db, commit, clientId, isStaff }) {
   const [openId, setOpenId] = useState(null);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [formErr, setFormErr] = useState(null);
+  useEffect(() => { if (!editing) setFormErr(null); }, [editing]); // a closed form takes its message with it
   const editFrom = useRef(null); // the song as it was when Edit was pressed
   const active = songs.find((p) => p.id === openId);
   const [pushWarn, setPushWarn] = useState(null);
@@ -3189,15 +3265,15 @@ function SongManager({ db, commit, clientId, isStaff }) {
     // different songs can share a title with different people on them).
     const normTitle = normalizeTitle(o.song);
     const normArtist = normalizeTitle(o.artist);
-    const myName = normalizeTitle(client?.name);
+    const myName = personKey(client?.name);
     // exclude the client's own name — they're on every song on their own
     // page, so that alone would "match" any two same-titled entries.
-    const mySplitNames = new Set((o.splits || []).map((s) => normalizeTitle(s.name)).filter((n) => n && n !== myName));
+    const mySplitNames = new Set((o.splits || []).map((s) => personKey(s.name)).filter((n) => n && n !== myName));
     const possibleDup = songs.find((p) => {
       if (p.id === o.id) return false;
       if (normalizeTitle(p.song) !== normTitle || !normTitle) return false;
       const artistMatch = normArtist && normalizeTitle(p.artist) === normArtist;
-      const splitMatch = (p.splits || []).some((s) => mySplitNames.has(normalizeTitle(s.name)));
+      const splitMatch = (p.splits || []).some((s) => mySplitNames.has(personKey(s.name)));
       return artistMatch || splitMatch;
     });
     if (possibleDup) {
@@ -3206,14 +3282,18 @@ function SongManager({ db, commit, clientId, isStaff }) {
       if (!ok) return;
     }
     const placementId = o.id || uid();
-    const saved = { ...o, id: placementId, clientId };
+    const row = { ...o, id: placementId, clientId };
     const placements = o.id
-      ? db.placements.map((p) => p.id === o.id ? saved : p)
-      : [...db.placements, saved];
-    setSaving(true);
-    const ok = await commit({ ...db, placements }).finally(() => setSaving(false));
+      ? db.placements.map((p) => p.id === o.id ? row : p)
+      : [...db.placements, row];
+    setSaving(true); setFormErr(null);
+    const done = await commit({ ...db, placements }).finally(() => setSaving(false));
     // a song that didn't save stays in its form, and never reaches the sheet
-    if (!ok) return;
+    if (!done) return;
+    // the sheet gets the song as it was saved, others' changes to it included — and a song deleted
+    // elsewhere meanwhile gets nothing (a push would re-create its row for the next sync to bring back)
+    const saved = done.placements.find((p) => p.id === placementId);
+    if (!saved) return setFormErr(goneText(done.clients && !done.clients.some((c) => c.id === clientId) ? "client" : "song"));
     setEditing(null);
     // push to the pub sheet in the background — a slow/failed network call
     // should never block or undo the local save that already succeeded —
@@ -3225,7 +3305,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
     // not someone we auto-provision sheet tracking for. If that person is
     // also a client, their own row comes from adding this same song under
     // their own page, the same way this one did.
-    const mine = (saved.splits || []).find((s) => s.name === client?.name);
+    const mine = ownSplit(saved, client);
     const splits = mine ? [{ name: client?.sheetTabName || client?.name, percent: mine.percent }] : [];
     fetch("/api/sheets-push", {
       method: "POST",
@@ -3235,7 +3315,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
         // lets the push route tell a genuinely-still-claimed sheet row apart
         // from one whose syncId belongs to a placement that no longer
         // exists on this browser — see findUnclaimedRowByTitle.
-        liveIds: placements.map((p) => p.id),
+        liveIds: done.placements.map((p) => p.id),
       }),
     }).then(async (res) => {
       if (res.ok) return;
@@ -3252,7 +3332,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
     if (!(await commit({ ...db, placements: db.placements.filter((p) => p.id !== id) }))) return;
     setOpenId(null); setEditing(null);
     if (!target) return;
-    const mine = (target.splits || []).find((s) => s.name === client?.name);
+    const mine = ownSplit(target, client);
     if (!mine) return; // nothing was ever pushed under this client for this song
     const splits = [{ name: client?.sheetTabName || client?.name }];
     fetch("/api/sheets-delete", {
@@ -3272,6 +3352,16 @@ function SongManager({ db, commit, clientId, isStaff }) {
 
   return (
     <>
+      {/* read-only: shows staff which sheet tab this client's numbers come from (Stack!e reads tab Stackie) */}
+      {isStaff && client && (
+        <div className="client-head">
+          <Avatar src={client.photo} name={client.name} size={40} />
+          <div className="client-head-text">
+            <div className="client-head-name">{client.name}</div>
+            <div className="client-head-meta">{client.role || "Client"} · Sheet tab: {client.sheetTabName?.trim() || client.name}</div>
+          </div>
+        </div>
+      )}
       <div className="portal-block-head">
         <div>
           <h2>Songs &amp; Splits</h2>
@@ -3316,7 +3406,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
               <div className="song-info">
                 <strong>{p.song || "Untitled"}</strong>
                 <span>{p.artist}</span>
-                <em>{(p.splits || []).length} Splits · {splitTotal(p.splits)}%{p.notable ? " · ★ Featured" : ""}</em>
+                <em>{(p.splits || []).length} {(p.splits || []).length === 1 ? "split" : "splits"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitTotal(p.splits)}%</span>{p.notable ? " · Featured" : ""}</em>
               </div>
             </button>
           ))}
@@ -3326,7 +3416,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
       {active && !editing && (
         <div className="modal" onClick={(e) => e.target === e.currentTarget && setOpenId(null)}>
           <div className="modal-card song-detail">
-            <div className="modal-head"><h3>{active.song || "Untitled"}</h3><button onClick={() => setOpenId(null)}><X size={18} /></button></div>
+            <div className="modal-head"><h3>{active.song || "Untitled"}</h3><button onClick={() => setOpenId(null)} aria-label="Close"><X size={18} /></button></div>
             <div className="modal-body">
               <div className="song-detail-top">
                 <div className="song-detail-cover">
@@ -3374,7 +3464,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
       {editing && (
         <div className="modal" onClick={(e) => e.target === e.currentTarget && setEditing(null)}>
           <div className="modal-card">
-            <div className="modal-head"><h3>{editing.id ? "Edit song" : "Add song"}</h3><button onClick={() => setEditing(null)}><X size={18} /></button></div>
+            <div className="modal-head"><h3>{editing.id ? "Edit song" : "Add song"}</h3><button onClick={() => setEditing(null)} aria-label="Close"><X size={18} /></button></div>
             <div className="modal-body">
               <SpotifyFill e={editing} set={setEditing} />
               <PhotoUpload label="Cover art" value={editing.cover} onChange={(v) => setEditing({ ...editing, cover: v })} />
@@ -3394,6 +3484,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
             {isStaff && splitTotal(editing.splits) <= 0 && (
               <p className="hint err-text modal-save-warn">Nothing has a split percentage set — give at least one person a % above 0, or this song saves here but won't sync to the pub sheet at all.</p>
             )}
+            {formErr && <p className="hint err-text modal-save-warn" role="alert">{formErr}</p>}
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button>
               <button className="btn sm" onClick={() => saveSong(editing)} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
@@ -3447,7 +3538,7 @@ function ChangePassword() {
       <div className="portal-block-head">
         <div>
           <h2>Password</h2>
-          {done && !open && <p className="hint" style={{ color: "#8fce8f" }}>Password changed.</p>}
+          {done && !open && <p className="hint ok-text">Password changed.</p>}
         </div>
         {!open && <button className="btn ghost sm" onClick={() => { setOpen(true); setDone(false); }}>Change password</button>}
       </div>
@@ -3487,6 +3578,7 @@ function ClientPortal({ db, commit, session, logout }) {
       </header>
       <main className="portal-main">
         <div className="portal-role">Your catalog — only you and Defied staff can see this</div>
+        <h1 className="portal-title">{client?.name || session.name}</h1>
         <div className="portal-block">
           <SongManager db={db} commit={commit} clientId={session.clientId} />
         </div>
@@ -3600,9 +3692,14 @@ const sheetSongId = (clientId, title) => {
 // Shared by the "Sync from sheet" button and the Overview page's "Sync
 // Streams" button, which chains this right after refreshing STREAM DATA so
 // one click keeps both the sheet and the site current — see runStreamSync.
-// db is the copy the pull starts from; saved as the base, it makes the save
-// carry only the sync's own changes, so an edit made during the pull stays.
-async function fullSiteSync(db, commit) {
+// It starts from the server's latest copy, not the tab's (which only falls in
+// when that can't be fetched): a song added elsewhere since the tab loaded is
+// matched to its sheet row instead of coming in again as a stripped duplicate.
+// Saved as the base, that copy makes the save carry only the sync's own
+// changes, so an edit made during the pull stays.
+async function fullSiteSync(tabDb, commit) {
+  const latest = await fetch("/api/dashboard-data", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const db = latest?.role === "staff" ? latest : tabDb;
   const { data, totalsByClient, rowsByClient, claimedRows, placements } = await pullAndMergeSheetData(db, db.clients);
 
   // a client's tab can hold more than one row for the same title (an old
@@ -3652,12 +3749,14 @@ async function fullSiteSync(db, commit) {
   const saved = await commit({ ...db, placements: [...placements, ...created], clients, sheetSync: { lastSyncedAt: data.syncedAt } }, db);
   // songs that never reached the site get no Site Sync IDs on the sheet
   if (!saved) throw new Error("The sheet was read, but the synced numbers couldn't be saved — try again.");
+  const onSite = new Set(saved.placements.map((p) => p.id));
+  const kept = claims.filter((c) => onSite.has(c.syncId.split(":")[0]));
 
-  if (claims.length) {
+  if (kept.length) {
     fetch("/api/sheets-claim", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-      body: JSON.stringify({ claims }),
+      body: JSON.stringify({ claims: kept }),
     }).catch((err) => console.error("Claim-back failed:", err));
   }
 
@@ -3727,13 +3826,11 @@ function CatalogOverview({ db, commit, onSelectClient }) {
   // outright wrong (a row labeled "WRITER 13" was found to actually pull
   // from the "prodgavin" tab via its formulas). readMasterRollup already
   // extracts the real tab each row's formulas reference as row.sheetTab —
-  // match against THAT, not the label, with the same punctuation-tolerant
-  // comparison as findTab server-side.
+  // match against THAT, not the label, the way findTab does server-side:
+  // exact first, then personKey, a "Sheet tab name" override before a name.
   const findClient = (row) => {
-    const norm = (s) => (s || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-    const target = norm(row.sheetTab || row.writer);
-    if (!target) return null;
-    return db.clients.find((c) => norm(c.sheetTabName || c.name) === target) || null;
+    const byTab = [...db.clients.filter((c) => c.sheetTabName), ...db.clients.filter((c) => !c.sheetTabName)];
+    return findByName(byTab, row.sheetTab || row.writer, (c) => c.sheetTabName || c.name);
   };
 
   const links = state.data?.links || {};
@@ -3845,7 +3942,7 @@ function CatalogAdmin({ db, commit }) {
 
   const addClient = async () => {
     const name = newClientForm.name.trim();
-    if (!name || adding) return;
+    if (!name || adding || nameTaken(db.clients, null, name)) return; // the form says why
     const client = {
       id: uid(), name, role: newClientForm.role, credit: "", bio: "", photo: "",
       spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "",
@@ -3917,9 +4014,10 @@ function CatalogAdmin({ db, commit }) {
       {addingClient && (
         <div className="modal" onClick={(e) => e.target === e.currentTarget && setAddingClient(false)}>
           <div className="modal-card">
-            <div className="modal-head"><h3>New client</h3><button onClick={() => setAddingClient(false)}><X size={18} /></button></div>
+            <div className="modal-head"><h3>New client</h3><button onClick={() => setAddingClient(false)} aria-label="Close"><X size={18} /></button></div>
             <div className="modal-body">
               <Field label="Name" value={newClientForm.name} onChange={(ev) => setNewClientForm({ ...newClientForm, name: ev.target.value })} onKeyDown={(ev) => ev.key === "Enter" && addClient()} />
+              {nameTaken(db.clients, null, newClientForm.name) && <p className="hint err-text">{NAME_TAKEN}</p>}
               <label className="fld"><span>Role</span>
                 <select value={newClientForm.role} onChange={(ev) => setNewClientForm({ ...newClientForm, role: ev.target.value })}>
                   <option>Producer</option><option>Artist</option><option>Producer / Artist</option>
@@ -3980,7 +4078,7 @@ function NotableAdmin({ db, commit }) {
   const list = db.notableReleases || [];
   const save = async (o) => {
     const notableReleases = o.id ? list.map((r) => r.id === o.id ? o : r) : [...list, { ...o, id: uid() }];
-    return commit({ ...db, notableReleases });
+    return saveRow(commit, { ...db, notableReleases }, "notableReleases", o.id, "notable release");
   };
   const del = async (id) => commit({ ...db, notableReleases: list.filter((r) => r.id !== id) });
   const cols = [
@@ -4371,50 +4469,653 @@ function StyleTag() {
 
     /* responsive */
     @media(max-width:820px){
-      .stat-row{grid-template-columns:1fr}
-      .dash{flex-direction:column}
-      .dash-side{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px}
-      .dash-brand{padding:6px 8px;width:100%}
-      .dash-side nav{flex-direction:row;flex-wrap:wrap}
-      .dash-side nav button .nav-label{display:none}
-      .dash-side nav button{padding:11px 13px}
-      .dash-main{padding:24px 20px}
-      .admin-row{grid-template-columns:1.4fr 1fr 60px !important;gap:8px}
-      .admin-row .cell:nth-child(n+3){display:none}
-      .admin-hd span:nth-child(n+3):not(.admin-act){display:none}
-      /* reorder rows carry 4 action buttons (up/down/edit/delete), not 2 —
-         the flat 60px above is too narrow and crams them into an overlapping mess */
-      .admin-row-reorder{grid-template-columns:1.3fr 1fr 112px !important}
-      .admin-row-reorder .admin-act{gap:4px}
-      .admin-row-reorder .admin-act button{padding:5px}
-      .splits-ed-row{grid-template-columns:1fr 74px 30px}
-      .splits-ed-row input:nth-child(2){grid-column:1 / -1}
-      .song-grid{grid-template-columns:repeat(2,1fr);gap:16px}
-      .catalog-wrap{grid-template-columns:1fr}
-      .catalog-clients{flex-direction:row;flex-wrap:nowrap;overflow-x:auto;max-height:none}
-      .cc-row{flex-shrink:0}
-      .cc{flex-direction:column;gap:4px;min-width:76px;text-align:center}
-      .cc .cc-count{display:none}
       .team-links a,.ros-links a,.social-ic,.icon-btn{padding:6px}
     }
     @media(max-width:520px){
       .page{padding:64px 20px 48px}
-      .form-card{padding:20px}
-      /* modals sit comfortably in view on phones */
-      .modal{align-items:flex-start;padding:16px 14px 28px}
-      .modal-body{padding:18px}
-      .modal-head{padding:16px 18px}
-      .song-detail-top{gap:12px}
-      .song-detail-cover{width:70px;height:70px}
-      .portal-main{padding:22px 18px 60px}
-      .portal-nav{padding:14px 18px}
-      .portal-block-head{flex-direction:column;align-items:stretch;gap:12px}
-      .portal-block-head .btn{align-self:flex-start}
-      .dash-role{margin-bottom:16px}
-      .subnav{gap:6px}
-      .subpill{padding:7px 13px;font-size:12.5px}
-      .splits-ed{padding:11px}
-      .split-list-row{font-size:13px}
+    }
+
+    /* ================================================================ */
+    /*  DASHBOARD + PORTAL v2 — every rule scoped to .app:not(.pub)     */
+    /* ================================================================ */
+    .app:not(.pub){
+      --d-bg:#000;--d-side:#050506;--d-s1:#0b0b0c;--d-s2:#111113;--d-s3:#161618;--d-field:#0d0d0f;
+      --d-hover:rgba(255,255,255,.04);--d-active:rgba(255,255,255,.07);--d-overlay:rgba(0,0,0,.72);
+      --d-line:#1c1c1e;--d-line-2:#2a2a2c;--d-line-3:#3a3a3c;
+      --d-ink:#f5f5f5;--d-ink-2:#d4d4d6;--d-ink-3:#a3a3a3;--d-ink-4:#8a8a8a;--d-ink-off:#5f5f61;--d-ph:#7a7a7c;
+      --d-pos:#8fce8f;--d-pos-bg:rgba(143,206,143,.08);--d-pos-line:rgba(143,206,143,.24);
+      --d-warn:#e0b48f;--d-warn-bg:rgba(224,180,143,.08);--d-warn-line:rgba(224,180,143,.24);
+      --d-neg:#ef8f8f;--d-neg-bg:rgba(229,72,77,.10);--d-neg-line:rgba(229,72,77,.30);
+      --d-info:#8ab4ff;--d-info-bg:rgba(138,180,255,.08);--d-info-line:rgba(138,180,255,.24);
+      --d-ban-neg-bg:#231111;--d-ban-neg-line:#552727;--d-ban-neg-ink:#f2c9c9;
+      --d-ban-warn-bg:#1c150e;--d-ban-warn-line:#4a3820;--d-ban-warn-ink:#ecd3b8;
+      --d-display:'Suntage','Inter',sans-serif;
+      --d-body:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+      --d-r-xs:6px;--d-r-sm:8px;--d-r-md:10px;--d-r-field:12px;--d-r-card:14px;--d-r-modal:16px;
+      --d-ctl-sm:36px;--d-ctl:40px;--d-ctl-lg:48px;--d-field-h:44px;--d-icon:32px;
+      --d-side-w:232px;--d-tab-h:64px;--d-ban-h:44px;
+      --d-t-fast:150ms;--d-t-press:120ms;--d-t-open:240ms;--d-t-sheet:280ms;
+      --d-shadow-pop:0 24px 64px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.06);
+      --d-chev:linear-gradient(45deg,transparent 50%,#8a8a8a 50%),linear-gradient(135deg,#8a8a8a 50%,transparent 50%);
+      --d-ic-alert:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E");
+      --d-ic-empty:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgb(138,138,138)' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 12h-6l-2 3h-4l-2-3H2'/%3E%3Cpath d='M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'/%3E%3C/svg%3E");
+      --d-ic-disc:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgb(138,138,138)' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M6 12c0-1.7.7-3.2 1.8-4.2'/%3E%3Ccircle cx='12' cy='12' r='2'/%3E%3Cpath d='M18 12c0 1.7-.7 3.2-1.8 4.2'/%3E%3C/svg%3E");
+      color-scheme:dark;font-size:14px;line-height:1.55;
+    }
+    @media (pointer:coarse){ .app:not(.pub){--d-ctl-sm:44px;--d-ctl:44px;--d-field-h:48px;--d-icon:44px} }
+    html:has(.app:not(.pub) .dash),html:has(.app:not(.pub) .portal){scrollbar-gutter:stable}
+    .app:not(.pub) :is(.dash-main,.portal-main,.modal){font-variant-numeric:tabular-nums}
+    .app:not(.pub) :is(button,a,select,input,textarea,[tabindex]):focus-visible{outline:1px solid #f5f5f5;outline-offset:2px}
+    .app:not(.pub) .muted{color:var(--d-ink-3)}
+    .app:not(.pub) .hint{color:var(--d-ink-4);font-size:12.5px;line-height:1.45;margin:4px 0 0}
+    .app:not(.pub) .err-text{color:var(--d-neg)}
+    .app:not(.pub) .ok-text{color:var(--d-pos)}
+    .app:not(.pub) .avatar,.app:not(.pub) .avatar-ph{background:var(--d-s3)}
+    .app:not(.pub) .avatar-ph{color:var(--d-ink-3)}
+    .app:not(.pub) :is(.master-table-wrap,.catalog-clients,.modal-body){scrollbar-width:thin;scrollbar-color:#3a3a3c transparent}
+
+    .app:not(.pub) .dash{display:flex;min-height:100vh;min-height:100dvh}
+    .app:not(.pub) .dash-side{flex:none;width:var(--d-side-w);align-self:flex-start;position:sticky;top:0;height:100vh;height:100dvh;
+      padding:20px 12px 16px;gap:0;background:var(--d-side);border-right:1px solid var(--d-line)}
+    .app:not(.pub):has(> .storage-warn) .dash-side{top:var(--d-ban-h);height:calc(100dvh - var(--d-ban-h))}
+    .app:not(.pub) .dash-brand{padding:4px 12px 28px}
+    .app:not(.pub) .dash-side nav{flex:1 1 auto;min-height:0;overflow-y:auto;gap:2px}
+    .app:not(.pub) .dash-side nav button{height:40px;padding:0 12px;gap:12px;border-radius:var(--d-r-md);background:none;
+      color:var(--d-ink-3);font-size:14px;font-weight:500;transition:background-color var(--d-t-fast) ease,color var(--d-t-fast) ease}
+    .app:not(.pub) .dash-side nav button svg{flex:none;width:18px;height:18px;stroke-width:1.75;color:var(--d-ink-4);transition:color var(--d-t-fast) ease}
+    @media (hover:hover){ .app:not(.pub) .dash-side nav button:hover{background:var(--d-hover);color:var(--d-ink)} }
+    .app:not(.pub) .dash-side nav button.active{background:var(--d-active);color:var(--d-ink)}
+    .app:not(.pub) .dash-side nav button.active svg{color:var(--d-ink)}
+    /* a ring tells the selected tab from a hovered one (same as the selected client) */
+    @media (min-width:900px){ .app:not(.pub) .dash-side nav button.active{box-shadow:inset 0 0 0 1px var(--d-line-2)} }
+    .app:not(.pub) .nav-badge{height:18px;min-width:18px;padding:0 6px;border-radius:100px;background:#f5f5f5;color:#000;-webkit-text-fill-color:#000;
+      font:700 11px/1 var(--d-body);font-variant-numeric:tabular-nums}
+    .app:not(.pub) .dash-side-foot{display:flex;flex-direction:column;gap:4px;margin-top:12px;padding-top:12px;border-top:1px solid var(--d-line)}
+    .app:not(.pub) .dash-role{margin:0;padding:4px 12px 6px;font:600 11px/1.3 var(--d-body);letter-spacing:.06em;
+      text-transform:uppercase;color:var(--d-ink-4)}
+    .app:not(.pub) .dash-out{width:100%;height:40px;padding:0 12px;gap:12px;border:0;border-radius:var(--d-r-md);background:none;
+      color:var(--d-ink-3);font-size:14px;font-weight:500}
+    @media (hover:hover){ .app:not(.pub) .dash-out:hover{background:var(--d-hover);color:var(--d-ink)} }
+    .app:not(.pub) .dash-main{flex:1 1 auto;min-width:0;max-width:none;padding:32px 40px 64px}
+    .app:not(.pub) .dash-main > *{max-width:1200px;margin-inline:auto}
+
+    .app:not(.pub) .admin-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px 16px;margin:0 0 20px}
+    .app:not(.pub) .dash-main .admin-head{min-height:var(--d-ctl-sm)}   /* titles sit at one height whether or not the head has a button */
+    .app:not(.pub) .admin-head h2{flex:1 1 auto;min-width:0}
+    .app:not(.pub) .dash-main .admin-head h2{margin:0;padding:0;font:400 24px/1.1 var(--d-display);font-synthesis:none;letter-spacing:.02em;
+      text-transform:uppercase;overflow-wrap:anywhere;color:var(--d-ink);
+      background:var(--chrome);background-size:100% 1.1em;background-repeat:repeat-y;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+    /* the Messages count badge lives INSIDE that h2: undo the text clip for it or its digits vanish */
+    .app:not(.pub) .dash-main .admin-head h2 .nav-badge{margin-left:12px;vertical-align:.25em;background:#f5f5f5;-webkit-background-clip:border-box;background-clip:border-box;
+      color:#000;-webkit-text-fill-color:#000}
+    /* second level (must come AFTER the rule above: same specificity) */
+    .app:not(.pub) .catalog-main .admin-head h2,
+    .app:not(.pub) .portal-block-head h2,
+    .app:not(.pub) .portal-block h2{margin:0 0 6px;padding:0;font:400 14px/1.2 var(--d-display);font-synthesis:none;letter-spacing:.08em;text-transform:uppercase;
+      color:var(--d-ink);background:none;-webkit-text-fill-color:currentColor}
+    /* one-line description under a title (About, Outreach, Advance) */
+    .app:not(.pub) .admin-head + p.muted{max-width:68ch;margin:-8px 0 24px;font-size:14px;line-height:1.55;color:var(--d-ink-3)}
+    .app:not(.pub) .overview-subhint{margin:-8px 0 20px;color:var(--d-ink-4)}
+    .app:not(.pub) .admin-head:has(~ .form-card),.app:not(.pub) .admin-head:has(~ .form-card) + p.muted{max-width:560px}
+    .app:not(.pub) .overview-links{gap:4px}
+    /* About: field and its Save share one 760px column */
+    .app:not(.pub) .subnav ~ div:has(> .about-editor){max-width:760px}
+    /* Roster + Notable: their how-to paragraph sits ABOVE the Editor in the DOM; show it as a hint UNDER the table
+       (CSS order only — DOM order, and therefore the tests that read the first .dash-main p.muted, are unchanged) */
+    .app:not(.pub) .subnav ~ div:has(> div > .admin-head):has(> p.muted.mb){display:flex;flex-direction:column}
+    .app:not(.pub) .subnav ~ div:has(> div > .admin-head):has(> p.muted.mb) > div:has(> .admin-head){order:1}
+    .app:not(.pub) .subnav ~ div:has(> div > .admin-head):has(> p.muted.mb) > p.muted.mb{order:2;max-width:68ch;margin:12px 0 0;font-size:12.5px;line-height:1.5;color:var(--d-ink-4)}
+    /* segmented sub-nav (Website, A&R) */
+    .app:not(.pub) .subnav{display:inline-flex;flex-wrap:nowrap;gap:4px;max-width:100%;margin:0 0 28px;padding:4px;
+      border:1px solid var(--d-line-2);border-radius:100px;overflow-x:auto;scrollbar-width:none}
+    .app:not(.pub) .subnav::-webkit-scrollbar{display:none}
+    .app:not(.pub) .subpill{flex:none;height:36px;padding:0 16px;border:1px solid transparent;border-radius:100px;background:none;color:var(--d-ink-3);
+      font:400 10.5px/1 var(--d-display);font-synthesis:none;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;
+      transition:background-color var(--d-t-fast) ease,color var(--d-t-fast) ease,border-color var(--d-t-fast) ease}
+    @media (hover:hover){ .app:not(.pub) .subpill:hover{color:var(--d-ink)} }
+    .app:not(.pub) .subpill.active{background:var(--d-active);border-color:var(--d-line-3);color:var(--d-ink);font-weight:400}
+    @media (pointer:coarse){ .app:not(.pub) .subpill{height:44px} }
+
+    .app:not(.pub) .admin-table{background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card);overflow:hidden}
+    .app:not(.pub) .admin-row{min-height:52px;padding:0 12px 0 16px;gap:16px;border-bottom:1px solid var(--d-line);font-size:14px;color:var(--d-ink-3)}
+    .app:not(.pub) .admin-row:last-child{border-bottom:0}
+    .app:not(.pub) .admin-hd{min-height:40px;background:transparent;border-bottom-color:var(--d-line-2);color:var(--d-ink-4);
+      font:600 11.5px/1 var(--d-body);letter-spacing:.06em;text-transform:uppercase}
+    .app:not(.pub) .cell{line-height:24px;color:var(--d-ink-3)}
+    .app:not(.pub) .admin-row:not(.admin-hd) > .cell:first-child,
+    .app:not(.pub) .admin-row:has(.rel-thumb) > .cell:nth-child(2){color:var(--d-ink);font-weight:500}
+    /* name ellipsis: .cell-name was flex, so its bare text node could never ellipsize */
+    .app:not(.pub) .cell-name{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    .app:not(.pub) .cell-name > .avatar{display:inline-block;vertical-align:middle;margin-right:12px;border-radius:var(--d-r-sm)}
+    .app:not(.pub) .cell-name > .avatar-ph{display:inline-flex}
+    /* chips inside a single-line cell were clipped top/bottom. min-width:0: every row is its own grid, so a
+       visible-overflow cell would otherwise size its own row's tracks and the columns drift row to row */
+    .app:not(.pub) .cell:has(> .tag),.app:not(.pub) .cell:has(> .badge-yes),.app:not(.pub) .cell:has(> .badge-no){overflow:visible;min-width:0}
+    .app:not(.pub) .rel-thumb{width:36px;height:36px;border-radius:var(--d-r-xs)}
+    /* clickable rows (Outreach) */
+    .app:not(.pub) .admin-row-link{color:var(--d-ink-3);transition:background-color var(--d-t-fast) ease}
+    @media (hover:hover){ .app:not(.pub) .admin-row-link:hover{background:var(--d-hover)} }
+    .app:not(.pub) .admin-row-link:focus-visible{outline:1px solid #f5f5f5;outline-offset:-1px}
+    .app:not(.pub) .admin-row-link > .cell:nth-child(n+3):nth-child(-n+6),
+    .app:not(.pub) .admin-table:has(.admin-row-link) .admin-hd > span:nth-child(n+3):nth-child(-n+6){text-align:right}
+    /* content-blind tracks, so every row lines up. Outreach: 144px fits the widest status chip (NOT CONTACTED).
+       Roster: the name gets most of the row; Public and the 4 row actions are fixed */
+    .app:not(.pub) .admin-table:has(.admin-row-link) .admin-row{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) repeat(3,minmax(0,1fr)) minmax(0,.6fr) 144px}
+    .app:not(.pub) .admin-table:has(.cell-name):has(.badge-yes,.badge-no) .admin-row{grid-template-columns:minmax(0,1.7fr) minmax(64px,.8fr) minmax(0,1.1fr) 84px calc(var(--d-icon) * 4 + 6px)}
+    @media (min-width:900px) and (max-width:1199px){
+      /* half-screen: Outreach drops Gross Streams + Songs (as the phone list does) so the numbers stay readable */
+      .app:not(.pub) .admin-table:has(.admin-row-link) .admin-row{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) repeat(2,minmax(88px,1fr)) 144px}
+      .app:not(.pub) .admin-table:has(.admin-row-link) .admin-row > :is(:nth-child(3),:nth-child(6)){display:none}
+    }
+    /* Users: role shows "Staff"/"Client" (CSS only — textContent stays "staff"/"client") */
+    .app:not(.pub) .admin-table:not(:has(.cell-name,.rel-thumb,.admin-row-link)) .admin-row:not(.admin-hd) > .cell:nth-child(2){text-transform:capitalize}
+    /* row actions: quiet icon buttons, always visible, delete turns red on hover */
+    .app:not(.pub) .admin-act{gap:2px}
+    .app:not(.pub) .admin-act button{width:var(--d-icon);height:var(--d-icon);padding:0;align-items:center;justify-content:center;border:0;
+      border-radius:var(--d-r-sm);background:none;color:var(--d-ink-4);transition:background-color var(--d-t-fast) ease,color var(--d-t-fast) ease}
+    .app:not(.pub) .admin-act button svg{width:16px;height:16px}
+    .app:not(.pub) .admin-act button:disabled{opacity:.5;color:var(--d-ink-off)}
+    /* tablets: the inline 72px actions track would shrink two 44px targets to 35px; let them run into the column gap */
+    @media (pointer:coarse) and (min-width:900px){ .app:not(.pub) .admin-act button{flex:none} }
+    @media (hover:hover){
+      .app:not(.pub) .admin-act button:hover{background:var(--d-active);color:var(--d-ink)}
+      .app:not(.pub) .admin-act button:last-child:hover{background:var(--d-neg-bg);color:var(--d-neg)}
+    }
+
+    .app:not(.pub) .cat-summary{margin:0 0 24px}
+    .app:not(.pub) .cat-summary-grid{display:grid;gap:1px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+      background:var(--d-line-2);border:1px solid var(--d-line-2);border-radius:var(--d-r-card);overflow:hidden}
+    @media (min-width:600px){
+      .app:not(.pub) .cat-summary-grid:has(> .cat-stat:nth-child(2):last-child){grid-template-columns:repeat(2,minmax(0,1fr))}
+      .app:not(.pub) .cat-summary-grid:has(> .cat-stat:nth-child(3):last-child){grid-template-columns:repeat(3,minmax(0,1fr))}
+      .app:not(.pub) .cat-summary-grid:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:repeat(4,minmax(0,1fr))}
+      .app:not(.pub) .cat-summary-grid:has(> .cat-stat:nth-child(6):last-child){grid-template-columns:repeat(3,minmax(0,1fr))}
+    }
+    .app:not(.pub) .cat-stat{justify-content:space-between;gap:8px;padding:16px 18px;background:var(--d-s1);border:0;border-radius:0}
+    .app:not(.pub) .cat-stat-label{font:400 10px/1.35 var(--d-display);font-synthesis:none;letter-spacing:.12em;text-transform:uppercase;color:var(--d-ink-4);
+      white-space:normal;overflow:visible;text-overflow:clip}
+    .app:not(.pub) .cat-stat-val{font-size:clamp(16px,11cqi,22px);font-weight:600;line-height:1.15;letter-spacing:-.01em;color:var(--d-ink)}
+    /* Advance: Verdict may wrap instead of being cut ("Too high — lower target") */
+    .app:not(.pub) .form-card ~ .cat-summary .cat-stat:last-child .cat-stat-val{white-space:normal;font-size:16px;line-height:1.3}
+    .app:not(.pub) .modal .cat-stat{padding:14px}   /* "Gross streams" fits one line in the 520px prospect card */
+
+    .app:not(.pub) .master-table-wrap{overflow-x:auto;overscroll-behavior-x:contain;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);
+      background-color:var(--d-s1);
+      /* scroll hint: a right-edge shadow that disappears when scrolled to the end (cover = local, shadow = scroll) */
+      background-image:linear-gradient(to left,var(--d-s1) 30%,rgba(11,11,12,0)),radial-gradient(farthest-side at 100% 50%,rgba(255,255,255,.16),rgba(255,255,255,0));
+      background-position:right center,right center;background-size:40px 100%,16px 100%;background-repeat:no-repeat;background-attachment:local,scroll}
+    .app:not(.pub) .master-table{width:100%;min-width:max-content;font-size:13px}
+    .app:not(.pub) .master-table th,.app:not(.pub) .master-table td{height:44px;padding:0 14px}
+    .app:not(.pub) .master-table thead th{height:40px;background:transparent;border-bottom:1px solid var(--d-line-2);color:var(--d-ink-4);
+      font:600 11px/1 var(--d-body);letter-spacing:.06em;text-transform:uppercase}
+    .app:not(.pub) .master-table tbody td{border-bottom:1px solid var(--d-line);color:var(--d-ink-2)}
+    .app:not(.pub) .master-table th:first-child,.app:not(.pub) .master-table td:first-child{position:sticky;left:0;z-index:1;background:var(--d-s1);box-shadow:inset -1px 0 0 var(--d-line)}
+    .app:not(.pub) .master-table tbody tr:not(.master-row-link) td:first-child{color:var(--d-ink-4)}
+    .app:not(.pub) .master-table tbody tr.master-row-link td:first-child{color:var(--d-ink);font-weight:500}
+    .app:not(.pub) .master-table tbody tr.master-row-link td:first-child::after{content:"›";margin-left:8px;color:var(--d-ink-4)}
+    @media (hover:hover){
+      .app:not(.pub) .master-row-link:hover{background:var(--d-hover)}
+      .app:not(.pub) .master-row-link:hover td:first-child{background:var(--d-s2)}
+    }
+    .app:not(.pub) .master-total-row td{background:transparent;border-top:1px solid var(--d-line-3);border-bottom:0;font-weight:600;color:var(--d-ink)}
+    .app:not(.pub) .master-total-row td:first-child{background:var(--d-s1)}
+
+    .app:not(.pub) .catalog-wrap{grid-template-columns:260px minmax(0,1fr);gap:28px}
+    .app:not(.pub) .catalog-clients{position:sticky;top:24px;max-height:calc(100dvh - 48px);gap:2px;padding:6px;background:var(--d-s1);
+      border:1px solid var(--d-line-2);border-radius:var(--d-r-card);overscroll-behavior:contain}
+    .app:not(.pub) .catalog-clients > *{flex:none}
+    .app:not(.pub):has(> .storage-warn) .catalog-clients{top:calc(var(--d-ban-h) + 24px);max-height:calc(100dvh - var(--d-ban-h) - 48px)}
+    .app:not(.pub) .cc{min-height:44px;padding:6px 8px;gap:10px;border-radius:var(--d-r-md);color:var(--d-ink-3);transition:background-color var(--d-t-fast) ease,color var(--d-t-fast) ease}
+    @media (hover:hover){ .app:not(.pub) .cc:hover{background:var(--d-hover);color:var(--d-ink)} }
+    .app:not(.pub) .cc.active{background:var(--d-active);color:var(--d-ink);box-shadow:inset 0 0 0 1px var(--d-line-3)}
+    /* flex:1 kept min-width:auto, so a long name pushed the count + trash out of the card instead of ellipsizing
+       (the chip rule's min-width:76px below still wins: same specificity, later) */
+    .app:not(.pub) .cc-row .cc{min-width:0}
+    .app:not(.pub) .cc-name{font-size:14px}
+    .app:not(.pub) .cc.active .cc-name{font-weight:500}
+    .app:not(.pub) .cc-count{color:var(--d-ink-4);font-size:12px}
+    .app:not(.pub) .cc-overview-ic{background:var(--d-s2);border-color:var(--d-line-2);color:var(--d-ink-3)}
+    .app:not(.pub) .catalog-clients .cc-add{height:40px;min-height:0;margin:2px 0 6px;justify-content:center;gap:8px;border:1px dashed var(--d-line-3);
+      border-radius:var(--d-r-md);color:var(--d-ink-3);font-size:13.5px}
+    @media (hover:hover){ .app:not(.pub) .catalog-clients .cc-add:hover{border-style:solid;color:var(--d-ink);background:var(--d-hover)} }
+    /* trash: no longer a permanent icon 2px from every select target. It shows on the SELECTED client (always),
+       and on hover / keyboard focus of a row (desktop). Tests click it with el.click(), which ignores visibility. */
+    .app:not(.pub) .cc-row{gap:2px}
+    .app:not(.pub) .cc-del{width:32px;height:32px;padding:0;justify-content:center;border-radius:var(--d-r-sm);color:var(--d-ink-off);visibility:hidden}
+    .app:not(.pub) .cc-row:has(> .cc.active) .cc-del,.app:not(.pub) .cc-row:focus-within .cc-del{visibility:visible}
+    @media (hover:hover){
+      .app:not(.pub) .cc-row:hover .cc-del{visibility:visible}
+      .app:not(.pub) .cc-del:hover{color:var(--d-neg);background:var(--d-neg-bg)}
+    }
+
+    .app:not(.pub) .client-head{display:flex;align-items:center;gap:14px;min-width:0;margin:0 0 24px;padding:0 0 20px;border-bottom:1px solid var(--d-line)}
+    .app:not(.pub) .client-head-text{min-width:0}
+    .app:not(.pub) .client-head-name{font-size:22px;font-weight:600;line-height:1.2;letter-spacing:-.01em;color:var(--d-ink);overflow-wrap:anywhere}
+    .app:not(.pub) .client-head-meta{margin-top:4px;font-size:13px;color:var(--d-ink-3);overflow-wrap:anywhere}
+    .app:not(.pub) .portal-block-head{gap:12px 16px;margin:0 0 20px}
+    .app:not(.pub) .portal-block-head .muted{margin:0;font-size:13.5px;color:var(--d-ink-3)}
+
+    .app:not(.pub) .song-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:24px 16px}
+    .app:not(.pub) .song-card{min-width:0;gap:10px;color:var(--d-ink)}
+    .app:not(.pub) .song-cover{border:0;border-radius:var(--d-r-field);background:var(--d-s2);box-shadow:0 0 0 1px var(--d-line-2);transition:box-shadow var(--d-t-fast) ease}
+    .app:not(.pub) .song-card:hover .song-cover{transform:none}
+    /* keep the shared .ph-fade opacity fade when adding the transform transition */
+    .app:not(.pub) .song-cover img{transition:transform .3s var(--ease-out),opacity .4s ease}
+    @media (hover:hover){
+      .app:not(.pub) .song-card:hover .song-cover{box-shadow:0 0 0 1px var(--d-line-3)}
+      .app:not(.pub) .song-card:hover .song-cover img{transform:scale(1.03)}
+    }
+    .app:not(.pub) .song-card:focus-visible{outline:0}
+    .app:not(.pub) .song-card:focus-visible .song-cover{box-shadow:0 0 0 2px #f5f5f5}
+    .app:not(.pub) .song-cover-empty{color:var(--d-ink-off)}
+    .app:not(.pub) .song-info{min-width:0;gap:2px}
+    .app:not(.pub) .song-info strong{font-size:14px;font-weight:600;line-height:1.35}
+    .app:not(.pub) .song-info span{font-size:13px;color:var(--d-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app:not(.pub) .song-info em{margin-top:4px;font-size:12px;color:var(--d-ink-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    /* the split total inside the meta line (not the artist span above): amber when it isn't 100% */
+    .app:not(.pub) .song-info em > span{font-size:inherit;color:inherit}
+    .app:not(.pub) .song-info em > span.split-warn{color:var(--d-warn)}
+
+    .app:not(.pub) .subs{gap:8px}
+    .app:not(.pub) .sub-card{min-width:0;padding:16px 18px;background:transparent;border:1px solid var(--d-line);border-radius:var(--d-r-card);overflow-wrap:anywhere}
+    .app:not(.pub) .sub-card.unread{background:var(--d-s1);border:1px solid var(--d-line-2)}   /* replaces the 3px red left border */
+    .app:not(.pub) .sub-top{flex-wrap:nowrap;align-items:flex-start;gap:12px;margin:0 0 2px}
+    .app:not(.pub) .sub-top-info{flex:1 1 auto;min-width:0;gap:8px 10px}
+    .app:not(.pub) .sub-top-info strong{min-width:0;max-width:calc(100% - 16px);font-size:15px;font-weight:500;line-height:1.4;overflow-wrap:anywhere}
+    .app:not(.pub) .sub-card.unread .sub-top-info strong{font-weight:600}
+    .app:not(.pub) .sub-card:not(.unread) .sub-top-info strong,.app:not(.pub) .sub-card:not(.unread) > p{color:var(--d-ink-3)}   /* read = quieter */
+    .app:not(.pub) .sub-dot{width:6px;height:6px;background:#f5f5f5}
+    .app:not(.pub) .sub-top .btn{flex:none;margin:calc((21px - var(--d-ctl-sm)) / 2) -10px calc((21px - var(--d-ctl-sm)) / 2) 0}   /* centred on the name line */
+    /* "Mark unread" has no icon in the markup: the unread dot, so both labels line up the same */
+    .app:not(.pub) .sub-top .btn:not(:has(svg))::before{content:"";flex:none;width:15px;height:15px;background:radial-gradient(circle,currentColor 3px,transparent 3.5px)}
+    .app:not(.pub) .sub-contact-row{gap:8px 10px;margin:6px 0 0;font-size:13.5px}
+    .app:not(.pub) .email-inline{min-width:0;max-width:100%;text-align:left;color:var(--d-ink-2);text-decoration-color:var(--d-line-3);text-underline-offset:3px;overflow-wrap:anywhere}
+    @media (hover:hover){ .app:not(.pub) .email-inline:hover{color:var(--d-ink);text-decoration-color:currentColor} }
+    .app:not(.pub) .copied-tag{color:var(--d-pos);font-size:12px}
+    .app:not(.pub) .sub-card > p{max-width:72ch;margin:10px 0 8px;font-size:14.5px;line-height:1.6;color:var(--d-ink-2);white-space:pre-line;overflow-wrap:anywhere}
+    .app:not(.pub) .sub-date{display:block;font-size:12.5px;color:var(--d-ink-4)}
+
+    .app:not(.pub) .fld{gap:8px;min-width:0}
+    .app:not(.pub) .fld > span:first-child{font-size:12.5px;letter-spacing:.04em;color:var(--d-ink-3)}
+    .app:not(.pub) .fld span.hint{margin:0;font-size:12.5px;letter-spacing:0;line-height:1.45;color:var(--d-ink-4)}
+    /* NEVER set "display" on .fld inputs: the hidden file input inside .photo-btn relies on the UA [hidden]{display:none},
+       which any author "display" would override. :where() keeps the type guards out of the specificity, or this rule
+       would outrank the :hover / :focus / 16px-on-phones rules below */
+    .app:not(.pub) .fld :is(input:where(:not([type=file]):not([type=checkbox]):not([type=range])),select,textarea),
+    .app:not(.pub) .sp-row input,.app:not(.pub) .splits-ed-row input,.app:not(.pub) .ar-song-row input,.app:not(.pub) .about-editor{
+      width:100%;min-width:0;height:var(--d-field-h);padding:0 14px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field);
+      background-color:var(--d-field);color:var(--d-ink);font:400 15px/1.4 var(--d-body);
+      transition:border-color var(--d-t-fast) ease,background-color var(--d-t-fast) ease,box-shadow var(--d-t-fast) ease}
+    .app:not(.pub) .fld textarea,.app:not(.pub) .about-editor{height:auto;min-height:112px;padding:12px 14px;line-height:1.6;resize:vertical}
+    .app:not(.pub) .about-editor{max-width:none;min-height:240px}
+    .app:not(.pub) :is(.fld,.sp-row,.splits-ed-row,.ar-song-row) :is(input,select,textarea)::placeholder,.app:not(.pub) .about-editor::placeholder{color:var(--d-ph)}
+    @media (hover:hover){
+      .app:not(.pub) :is(.fld,.sp-row,.splits-ed-row,.ar-song-row) :is(input,select,textarea):hover:not(:focus),.app:not(.pub) .about-editor:hover:not(:focus){border-color:var(--d-line-3)}
+    }
+    .app:not(.pub) :is(.fld,.sp-row,.splits-ed-row,.ar-song-row) :is(input,select,textarea):focus,.app:not(.pub) .about-editor:focus{
+      outline:none;border-color:#f5f5f5;background-color:var(--d-s2);box-shadow:0 0 0 3px rgba(255,255,255,.08)}
+    .app:not(.pub) .fld select{-webkit-appearance:none;appearance:none;padding-right:40px;cursor:pointer;
+      background-image:var(--d-chev);background-position:calc(100% - 20px) 50%,calc(100% - 15px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+    .app:not(.pub) input[type=number]{-moz-appearance:textfield;appearance:textfield}
+    .app:not(.pub) input[type=number]::-webkit-inner-spin-button,.app:not(.pub) input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+    .app:not(.pub) input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.75);cursor:pointer}
+    .app:not(.pub) .fld input:-webkit-autofill{-webkit-text-fill-color:var(--d-ink);caret-color:var(--d-ink);box-shadow:0 0 0 100px var(--d-field) inset}
+    @media (max-width:599px),(pointer:coarse){
+      .app:not(.pub) :is(.fld,.sp-row,.splits-ed-row,.ar-song-row) :is(input,select,textarea),.app:not(.pub) .about-editor{font-size:16px}
+    }
+    /* form cards (Advance calculator, portal password) — left-aligned, no longer centred */
+    .app:not(.pub) .form-card{margin:0 0 20px;padding:20px;gap:16px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}
+    .app:not(.pub) .form-card > .btn{align-self:flex-start}           /* "Save to Outreach" no longer stretches */
+    .app:not(.pub) .form-card ~ .cat-summary,.app:not(.pub) .form-card ~ .split-list{max-width:560px}   /* one 560px column on Advance */
+    /* wide screens: the answer (result strip + ledgers) sits beside the form, so it stays in view while typing.
+       Rows 1-3 = title, description, budget; the form spans 4-6 and the last row takes its extra height */
+    @media (min-width:1280px){
+      .app:not(.pub) div:has(> .form-card ~ .split-list){display:grid;grid-template-columns:560px minmax(0,440px);grid-template-rows:repeat(5,auto) 1fr;column-gap:24px;align-items:start}
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > *{grid-column:1}
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card{grid-row:4 / span 3}
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card ~ *{grid-column:2}
+      /* rows pinned: auto-placement would start column 2 beside the budget strip */
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card + .cat-summary{grid-row:4;margin:0!important}   /* inline marginTop */
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card + .cat-summary + .split-list{grid-row:5}
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card + .cat-summary + .split-list + .split-list{grid-row:6}
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card + .cat-summary .cat-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    }
+    .app:not(.pub) .form-card .portal-block-head{flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;margin:4px 0 0}  /* Cancel + Save together, right */
+    /* checkbox rows */
+    .app:not(.pub) .check-row{align-items:center;gap:12px;min-height:48px;padding:12px 14px;background:var(--d-s2);border:1px solid var(--d-line-2);border-radius:var(--d-r-field)}
+    .app:not(.pub) .check-row input{margin:0;width:18px;height:18px;accent-color:#f5f5f5}
+    .app:not(.pub) .check-row span{font-size:14px;color:var(--d-ink)}
+    /* photo upload */
+    .app:not(.pub) .photo-up{gap:16px}
+    .app:not(.pub) .photo-prev{width:64px;height:64px;border:0;border-radius:var(--d-r-field);background:var(--d-s2);box-shadow:0 0 0 1px var(--d-line-2)}
+    .app:not(.pub) .photo-prev-empty{color:var(--d-ink-4);font-size:11px}
+    .app:not(.pub) .photo-actions{flex-wrap:wrap;gap:4px}
+    .app:not(.pub) .photo-remove{height:var(--d-ctl-sm);padding:0 12px;border-radius:var(--d-r-md);color:var(--d-ink-3);font-size:13.5px;font-weight:500;text-decoration:none}
+    @media (hover:hover){ .app:not(.pub) .photo-remove:hover{background:var(--d-active);color:var(--d-ink)} }
+    /* Spotify auto-fill */
+    .app:not(.pub) .sp-fill{gap:10px;padding:14px;background:var(--d-s2);border:1px solid var(--d-line-2);border-radius:var(--d-r-field)}
+    .app:not(.pub) .fld-label{font-size:12.5px;letter-spacing:.04em;color:var(--d-ink-3)}
+    .app:not(.pub) .sp-row input{height:var(--d-ctl)}
+    .app:not(.pub) .sp-note{font-size:12.5px;line-height:1.45}
+    .app:not(.pub) .sp-note.ok{color:var(--d-pos)}
+    .app:not(.pub) .sp-note.err{padding:0;border:0;border-radius:0;background:none;color:var(--d-neg)}   /* was also caught by the boxed .err rule */
+    /* splits editor */
+    .app:not(.pub) .splits-ed{gap:8px;padding:14px;background:var(--d-s2);border:1px solid var(--d-line-2);border-radius:var(--d-r-field)}
+    .app:not(.pub) .splits-ed-head{margin-bottom:4px;font:400 10px/1.2 var(--d-display);font-synthesis:none;letter-spacing:.14em;color:var(--d-ink-4)}
+    .app:not(.pub) .splits-ed-row{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 92px var(--d-icon);gap:8px}
+    .app:not(.pub) .splits-ed-row input{height:var(--d-ctl)}
+    .app:not(.pub) .pct-in{gap:6px;font-size:13px;color:var(--d-ink-4)}
+    .app:not(.pub) .pct-in input{flex:1 1 auto;width:100%;padding:0 10px;text-align:right}
+    .app:not(.pub) .split-del{width:var(--d-icon);height:var(--d-icon);align-items:center;border-radius:var(--d-r-sm);color:var(--d-ink-4)}
+    @media (hover:hover){ .app:not(.pub) .split-del:hover{color:var(--d-neg);background:var(--d-neg-bg)} }
+    .app:not(.pub) .splits-ed > .btn{align-self:flex-start;margin-top:4px}
+    .app:not(.pub) .split-hint{font-size:12.5px;color:var(--d-warn)}
+    /* A&R prospect song rows: numbers right-aligned + CSS-only column headers (placeholders vanish once typed) */
+    .app:not(.pub) .ar-song-row{position:relative;grid-template-columns:24px minmax(0,1fr) minmax(0,1fr);gap:8px;margin-bottom:0}
+    .app:not(.pub) .ar-song-row + .ar-song-row{margin-top:-6px}
+    .app:not(.pub) .modal-body > p.fld-label.mb{margin-bottom:0}
+    .app:not(.pub) .ar-song-row input{height:var(--d-ctl);text-align:right}
+    .app:not(.pub) .ar-song-num{font-size:12.5px;color:var(--d-ink-4)}
+    .app:not(.pub) p.fld-label + .ar-song-row{margin-top:22px}
+    .app:not(.pub) p.fld-label + .ar-song-row::before,.app:not(.pub) p.fld-label + .ar-song-row::after{position:absolute;top:-20px;
+      font:600 11px/1 var(--d-body);letter-spacing:.06em;text-transform:uppercase;color:var(--d-ink-4)}
+    .app:not(.pub) p.fld-label + .ar-song-row::before{content:"Gross streams";right:calc(50% + 2px)}
+    .app:not(.pub) p.fld-label + .ar-song-row::after{content:"Writer %";right:14px}
+
+    .app:not(.pub) .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:var(--d-ctl);padding:0 18px;
+      border:1px solid #f5f5f5;border-radius:100px;background:#f5f5f5;color:#000;font:600 14px/1 var(--d-body);white-space:nowrap;text-decoration:none;opacity:1;cursor:pointer;
+      transition:background-color var(--d-t-fast) ease,border-color var(--d-t-fast) ease,color var(--d-t-fast) ease,transform var(--d-t-press) ease}
+    .app:not(.pub) .btn.sm{height:var(--d-ctl-sm);padding:0 14px;gap:6px;font-size:13.5px}
+    .app:not(.pub) .btn svg{flex:none;width:15px;height:15px}
+    @media (hover:hover){ .app:not(.pub) .btn:hover{background:#fff;border-color:#fff;opacity:1} }
+    .app:not(.pub) .btn:active{transform:scale(.97)}
+    .app:not(.pub) .btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+    /* secondary: .btn.ghost, plus the Auto-fill button so a modal never has two white pills */
+    .app:not(.pub) :is(.btn.ghost,.sp-fill .btn){background:transparent;border-color:var(--d-line-3);color:var(--d-ink)}
+    @media (hover:hover){ .app:not(.pub) :is(.btn.ghost,.sp-fill .btn):hover{background:var(--d-hover);border-color:#f5f5f5} }
+    .app:not(.pub) .sp-fill .btn{height:var(--d-ctl)}   /* same height as the link field beside it */
+    /* disabled primary: a flat grey pill (45% white read as "pressed") */
+    .app:not(.pub) .btn:not(.ghost):disabled{background:var(--d-s3);border-color:var(--d-line-2);color:var(--d-ink-4);opacity:1}
+    /* quiet: outbound links (Open in sheet / Folder / Portfolio A/B), Mark read/unread */
+    .app:not(.pub) :is(.overview-links a.btn,.admin-head a.btn,.sub-top .btn){padding:0 10px;border-color:transparent;border-radius:var(--d-r-md);background:transparent;color:var(--d-ink-3)}
+    @media (hover:hover){ .app:not(.pub) :is(.overview-links a.btn,.admin-head a.btn,.sub-top .btn):hover{background:var(--d-active);border-color:transparent;color:var(--d-ink)} }
+    /* destructive: Delete prospect (.btn.err-text) and song-detail Delete (the footer's first ghost) — pushed left */
+    .app:not(.pub) :is(.modal-foot .btn.err-text,.song-detail .modal-foot .btn.ghost:first-child){margin-right:auto;border-color:var(--d-neg-line);color:var(--d-neg)}
+    @media (hover:hover){ .app:not(.pub) :is(.modal-foot .btn.err-text,.song-detail .modal-foot .btn.ghost:first-child):hover{background:var(--d-neg-bg);border-color:var(--d-neg)} }
+    /* Advance "Advance given?" Yes/No = a selected toggle, not two primary pills */
+    .app:not(.pub) .ar-given-row{gap:6px}
+    .app:not(.pub) .ar-given-row .fld-label{margin-right:6px}
+    .app:not(.pub) .ar-given-row .btn{min-width:56px}
+    .app:not(.pub) .ar-given-row .btn:not(.ghost){background:var(--d-active);border-color:var(--d-line-3);color:var(--d-ink)}
+    .app:not(.pub) .ar-given-row .btn.ghost{border-color:transparent;color:var(--d-ink-3)}
+    /* chips (public .chip-tag shape; copied, not shared) */
+    .app:not(.pub) :is(.tag,.badge-yes,.badge-no){display:inline-flex;align-items:center;gap:6px;height:22px;max-width:100%;padding:0 9px;vertical-align:middle;
+      border:1px solid #262628;border-radius:100px;background:var(--d-s3);color:var(--d-ink-2);
+      font:400 9.5px/1 var(--d-display);font-synthesis:none;letter-spacing:.12em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app:not(.pub) .sub-contact-row .tag{font:500 12.5px/1 var(--d-body);letter-spacing:0;text-transform:none}   /* a typed @handle stays body font */
+    .app:not(.pub) .badge-yes{color:var(--d-pos);background:var(--d-pos-bg);border-color:var(--d-pos-line)}
+    .app:not(.pub) .badge-yes svg{display:none}
+    .app:not(.pub) .badge-yes::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:currentColor}
+    .app:not(.pub) .badge-no{color:var(--d-ink-4);background:transparent;border-color:var(--d-line-2)}
+    /* tone hooks (J7 adds data-tone; neutral = the default above) */
+    .app:not(.pub) [data-tone=pos]{color:var(--d-pos);background:var(--d-pos-bg);border-color:var(--d-pos-line)}
+    .app:not(.pub) [data-tone=warn]{color:var(--d-warn);background:var(--d-warn-bg);border-color:var(--d-warn-line)}
+    .app:not(.pub) [data-tone=neg]{color:var(--d-neg);background:var(--d-neg-bg);border-color:var(--d-neg-line)}
+    .app:not(.pub) [data-tone=info]{color:var(--d-info);background:var(--d-info-bg);border-color:var(--d-info-line)}
+    .app:not(.pub) [data-tone=muted]{color:var(--d-ink-4);background:transparent;border-color:var(--d-line-2)}
+    .app:not(.pub) [data-tone=neutral]{color:var(--d-ink-2);background:var(--d-s3);border-color:#262628}
+    /* border-width/style only: a "border" shorthand here would reset the tone's border-color */
+    .app:not(.pub) .cat-stat-val[data-tone]{align-self:flex-start;display:inline-flex;align-items:center;min-height:26px;padding:2px 10px;border-width:1px;border-style:solid;border-radius:100px;font-size:13px;line-height:1.25}
+    /* split totals as chips (editor head + detail total) */
+    .app:not(.pub) :is(.splits-ed-head,.split-list-total) :is(.split-ok,.split-warn){display:inline-flex;align-items:center;height:22px;padding:0 9px;border:1px solid;border-radius:100px;
+      font:600 12px/1 var(--d-body);letter-spacing:0;font-variant-numeric:tabular-nums}
+    .app:not(.pub) .split-ok{color:var(--d-pos)}
+    .app:not(.pub) .split-warn{color:var(--d-warn)}
+    .app:not(.pub) :is(.splits-ed-head,.split-list-total) .split-ok{background:var(--d-pos-bg);border-color:var(--d-pos-line)}
+    .app:not(.pub) :is(.splits-ed-head,.split-list-total) .split-warn{background:var(--d-warn-bg);border-color:var(--d-warn-line)}
+
+    .app:not(.pub) .modal{align-items:center;padding:24px;overflow:hidden;overscroll-behavior:contain;background:var(--d-overlay);
+      -webkit-backdrop-filter:none;backdrop-filter:none;animation:fadeIn .16s ease both}
+    @media (hover:hover){ .app:not(.pub) .modal{-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)} }
+    html:has(.app:not(.pub) .modal){overflow:hidden}
+    .app:not(.pub) .modal-card{display:flex;flex-direction:column;max-width:520px;max-height:calc(100vh - 48px);max-height:calc(100dvh - 48px);overflow:hidden;
+      background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-modal);box-shadow:var(--d-shadow-pop);
+      animation:popIn var(--d-t-open) var(--ease-out) both}
+    .app:not(.pub) .modal-card.song-detail{max-width:440px}
+    /* the sticky app banner (z 400) sits over the overlay: start the card below it (phone sheets: see the 899px block) */
+    @media (min-width:900px){
+      .app:not(.pub):has(> .storage-warn) .modal:not(.crop-overlay){padding-top:calc(var(--d-ban-h) + 24px)}
+      .app:not(.pub):has(> .storage-warn) .modal-card{max-height:calc(100vh - var(--d-ban-h) - 48px);max-height:calc(100dvh - var(--d-ban-h) - 48px)}
+    }
+    .app:not(.pub) .modal-head{flex:none;min-height:60px;gap:12px;padding:12px 12px 12px 22px;border-bottom:1px solid var(--d-line)}
+    /* up to 2 lines: the song detail is the only place a long title shows in full (tiles clamp too) */
+    .app:not(.pub) .modal-head h3{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;white-space:normal;overflow-wrap:anywhere;
+      font-size:17px;font-weight:600;line-height:1.3;letter-spacing:-.01em}
+    .app:not(.pub) .modal-head button{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border-radius:var(--d-r-md);color:var(--d-ink-4)}
+    @media (hover:hover){ .app:not(.pub) .modal-head button:hover{background:var(--d-active);color:var(--d-ink)} }
+    @media (pointer:coarse){ .app:not(.pub) .modal-head button{width:44px;height:44px} }
+    .app:not(.pub) .modal-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;gap:16px;padding:20px 22px}
+    .app:not(.pub) .modal-foot{flex:none;align-items:center;gap:8px;padding:14px 22px;border-top:1px solid var(--d-line);background:var(--d-s1)}
+    .app:not(.pub) .modal-foot .btn{height:var(--d-ctl)}
+    /* crop (stays centred on every size) */
+    .app:not(.pub) .modal.crop-overlay{padding:12px}
+    .app:not(.pub) .crop-card{max-width:380px;background:var(--d-s1);border:1px solid var(--d-line-2);box-shadow:var(--d-shadow-pop);animation:popIn var(--d-t-open) var(--ease-out) both}
+    .app:not(.pub) .crop-body{padding:20px 16px}
+    .app:not(.pub) .crop-zoom{width:300px;max-width:100%;margin-inline:auto}   /* edges line up with the 300px image */
+    .app:not(.pub) .crop-zoom span{font:400 10px/1 var(--d-display);font-synthesis:none;letter-spacing:.14em;color:var(--d-ink-4)}
+    .app:not(.pub) .crop-zoom input[type=range]{accent-color:#f5f5f5}
+    .app:not(.pub) .crop-hint{font-size:12.5px;color:var(--d-ink-4)}
+    /* song detail */
+    .app:not(.pub) .song-detail-top{gap:16px;margin:0 0 4px}
+    .app:not(.pub) .song-detail-cover{width:88px;height:88px;border:0;border-radius:var(--d-r-field);box-shadow:0 0 0 1px var(--d-line-2)}
+    .app:not(.pub) .song-detail-artist{font-size:16px;font-weight:600}
+    .app:not(.pub) .song-detail-date{font-size:13px;color:var(--d-ink-3)}
+    .app:not(.pub) .song-detail-top a.inline-link{display:inline-flex;align-items:center;height:var(--d-ctl-sm);margin-left:-10px;padding:0 10px;border-radius:var(--d-r-md);
+      color:var(--d-ink-3);font-size:13.5px;font-weight:500;text-decoration:none}
+    @media (hover:hover){ .app:not(.pub) .song-detail-top a.inline-link:hover{background:var(--d-active);color:var(--d-ink)} }
+    .app:not(.pub) .split-list{margin:0;border-top:1px solid var(--d-line)}
+    .app:not(.pub) .split-list-row{min-height:44px;gap:12px;padding:8px 0;border-bottom:1px solid var(--d-line);font-size:14px}
+    .app:not(.pub) .split-name{min-width:0;overflow-wrap:anywhere}
+    .app:not(.pub) .split-name em{color:var(--d-ink-4)}
+    .app:not(.pub) .split-pct{color:var(--d-ink-2)}
+    .app:not(.pub) .split-list-total{font-weight:600;color:var(--d-ink)}
+    .app:not(.pub) .split-list-row:last-child{border-bottom:0}
+    .app:not(.pub) .split-list + .split-list{margin-top:16px}
+    .app:not(.pub) .split-list > p.hint{margin:8px 0 0}
+    /* Advance ledgers reuse .split-list: give them a card */
+    .app:not(.pub) .form-card ~ .split-list{padding:0 16px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}
+    .app:not(.pub) .form-card ~ .split-list .split-list-row:last-child{border-bottom:0}
+
+    /* App-level banner. Shared class: style ONLY the dashboard/portal copy (direct child of the root). */
+    .app:not(.pub) > .storage-warn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:var(--d-ban-h);padding:10px 20px;
+      background:var(--d-ban-neg-bg);border-bottom:1px solid var(--d-ban-neg-line);color:var(--d-ban-neg-ink);font-size:13.5px;line-height:1.45;text-align:center}
+    .app:not(.pub) > .storage-warn::before,.app:not(.pub) p.hint.err-text::before{content:"";flex:none;width:16px;height:16px;background:currentColor;
+      -webkit-mask:var(--d-ic-alert) center/contain no-repeat;mask:var(--d-ic-alert) center/contain no-repeat}
+    /* every in-page error line (.hint.err-text) becomes an inline banner: sync errors, missing tab, push warning,
+       delete warnings, A&R load error, prospect/advance/password errors */
+    .app:not(.pub) p.hint.err-text{display:flex;align-items:flex-start;gap:10px;max-width:80ch;margin:0 0 16px;padding:12px 14px;
+      background:var(--d-ban-neg-bg);border:1px solid var(--d-ban-neg-line);border-radius:var(--d-r-field);color:var(--d-ban-neg-ink);font-size:13.5px;line-height:1.5}
+    .app:not(.pub) p.hint.err-text::before{margin-top:2px}
+    .app:not(.pub) .dash-main p.hint.err-text{max-width:none}   /* page banners run the width of the tables they sit over */
+    .app:not(.pub) p.hint.err-text.overview-subhint{margin:0 0 16px}
+    .app:not(.pub) .portal-block-head p.hint.err-text{margin:10px 0 0}
+    .app:not(.pub) :is(.modal-body,.form-card) > p.hint.err-text{margin:0}
+    .app:not(.pub) .modal-body > p.hint.err-text:first-child{position:sticky;top:-20px;z-index:2;flex:none;box-shadow:0 0 0 8px var(--d-s1)}   /* sticky insets by the body's padding */
+    .app:not(.pub) .catalog-clients p.hint.err-text{margin:4px 0;padding:10px 12px;font-size:12.5px}
+    .app:not(.pub) p.hint.err-text.modal-save-warn{flex:none;margin:0 22px 14px}
+    /* the staff "no split > 0" notice is a warning, not an error (form errors in that slot carry role=alert) */
+    .app:not(.pub) p.hint.err-text.modal-save-warn:not([role=alert]){padding:8px 12px;background:var(--d-ban-warn-bg);border-color:var(--d-ban-warn-line);color:var(--d-ban-warn-ink);
+      font-size:12.5px;line-height:1.4}   /* compact: it shows on every new song, and the splits box says the same */
+    /* empty states (text unchanged) */
+    .app:not(.pub) .admin-empty,.app:not(.pub) .portal-block-head ~ p.muted{display:flex;flex-direction:column;align-items:center;gap:12px;margin:0;padding:40px 24px;
+      text-align:center;font-size:14px;line-height:1.5;color:var(--d-ink-3)}
+    .app:not(.pub) .admin-empty::before,.app:not(.pub) .portal-block-head ~ p.muted::before{content:"";width:40px;height:40px;border:1px solid var(--d-line-2);border-radius:50%;
+      background:var(--d-s2) var(--d-ic-empty) center/18px no-repeat}
+    .app:not(.pub) .portal-block-head ~ p.muted{border:1px dashed var(--d-line-2);border-radius:var(--d-r-card)}
+    .app:not(.pub) .portal-block-head ~ p.muted::before{background-image:var(--d-ic-disc)}   /* no songs: a disc, not the inbox tray */
+    .app:not(.pub) .admin-head ~ .admin-empty{background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}  /* Messages / Outreach empty (outside a table) */
+    /* first-load "Loading…" (p.muted.page, text frozen): centred spinner + micro-label, only after 300ms */
+    .app:not(.pub) .view > p.muted.page{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;max-width:none;min-height:60vh;min-height:60dvh;margin:0;padding:24px;
+      font:400 10.5px/1 var(--d-display);font-synthesis:none;letter-spacing:.18em;text-transform:uppercase;color:var(--d-ink-4);animation:fadeIn .2s .3s both}
+    .app:not(.pub) .view > p.muted.page::before{content:"";width:20px;height:20px;border:2px solid var(--d-line-3);border-top-color:#f5f5f5;border-radius:50%;animation:spin 1s linear infinite}
+    .app:not(.pub) > .storage-warn ~ .view > p.muted.page{display:none}   /* load failed: the banner says so, nothing is still coming */
+    /* in-tab loading lines: A&R "Loading…" and Overview "Loading master sheet data…" */
+    .app:not(.pub) :is(.subnav,.overview-subhint) ~ p.muted{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 16px;font-size:13.5px;color:var(--d-ink-4);animation:fadeIn .2s .3s both}
+    .app:not(.pub) :is(.subnav,.overview-subhint) ~ p.muted::before{content:"";flex:none;width:14px;height:14px;border:2px solid var(--d-line-3);border-top-color:#f5f5f5;border-radius:50%;animation:spin 1s linear infinite}
+    .app:not(.pub) :is(.subnav,.overview-subhint) ~ p.muted::after{content:"";flex:0 0 100%;height:240px;margin-top:6px;border-radius:var(--d-r-card);
+      background:linear-gradient(100deg,#0c0c0d 40%,#18181a 50%,#0c0c0d 60%) 0 0/200% 100%;animation:shimmer 1.4s linear infinite}
+    /* motion: dashboard/portal had no reduced-motion handling at all */
+    @keyframes d-sheet-in{from{opacity:0;transform:translateY(24px)}}
+    @media (prefers-reduced-motion:reduce){
+      .app:not(.pub) *,.app:not(.pub) *::before,.app:not(.pub) *::after{animation-duration:.01ms!important;animation-delay:0s!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+      .app:not(.pub) :is(.subnav,.overview-subhint) ~ p.muted::after{background:var(--d-s2)}
+    }
+
+    .app:not(.pub) .portal{min-height:100vh;min-height:100dvh}
+    .app:not(.pub) .portal-nav{height:60px;padding:0 max(16px,calc(50% - 488px));background:rgba(0,0,0,.88);
+      -webkit-backdrop-filter:blur(20px) saturate(1.3);backdrop-filter:blur(20px) saturate(1.3);border-bottom:1px solid rgba(255,255,255,.07)}
+    .app:not(.pub):has(> .storage-warn) .portal-nav{top:var(--d-ban-h)}
+    .app:not(.pub) .portal-who{min-width:0;gap:12px;font-size:14px}
+    .app:not(.pub) .portal-who span{min-width:0;color:var(--d-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app:not(.pub) .portal-who button{flex:none;height:var(--d-ctl-sm);padding:0 14px;gap:8px;border:1px solid var(--d-line-3);border-radius:100px;background:transparent;color:var(--d-ink);font-size:13.5px;font-weight:500}
+    @media (hover:hover){ .app:not(.pub) .portal-who button:hover{border-color:#f5f5f5;background:var(--d-hover)} }
+    .app:not(.pub) .portal-main{max-width:1024px;padding:40px 24px 80px}
+    .app:not(.pub) .portal-role{margin:0 0 10px;font:400 11px/1.3 var(--d-display);font-synthesis:none;letter-spacing:.18em;text-transform:uppercase;color:var(--d-ink-4)}
+    .app:not(.pub) .portal-title{margin:0 0 32px;padding:0;font:400 clamp(28px,6vw,44px)/1.1 var(--d-display);font-synthesis:none;letter-spacing:.02em;text-transform:uppercase;overflow-wrap:anywhere;
+      color:var(--d-ink);background:var(--chrome);background-size:100% 1.1em;background-repeat:repeat-y;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+    .app:not(.pub) .portal-block{margin:0 0 48px}
+    /* the Password block is the last child of .portal-main (ClientPortal 3265) */
+    .app:not(.pub) .portal-main > .portal-block:last-child{padding:20px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}
+    .app:not(.pub) .portal-main > .portal-block:last-child > .portal-block-head{align-items:center;margin:0}
+    .app:not(.pub) .portal-main > .portal-block:last-child .form-card{max-width:440px;margin:16px 0 0;padding:0;background:none;border:0}
+
+    @media (max-width:1199px){
+      /* client list becomes a horizontal chip scroller (also on tablets, so the song grid keeps its width) */
+      .app:not(.pub) .catalog-wrap{grid-template-columns:minmax(0,1fr);gap:20px}
+      .app:not(.pub) .catalog-clients{position:static;flex-direction:row;flex-wrap:nowrap;align-items:flex-start;gap:4px;max-height:none;padding:6px;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none}
+      .app:not(.pub) .catalog-clients > *{flex:none;scroll-snap-align:start}
+      .app:not(.pub) .catalog-clients .cc{flex-direction:column;justify-content:flex-start;gap:6px;width:76px;min-width:76px;height:auto;min-height:0;padding:8px 4px;text-align:center;background:none;box-shadow:none}
+      .app:not(.pub) .catalog-clients .cc .avatar{width:44px!important;height:44px!important;font-size:17px!important;border-radius:50%}  /* Avatar sizes are inline styles */
+      .app:not(.pub) .catalog-clients .cc-overview-ic{width:44px;height:44px}
+      .app:not(.pub) .catalog-clients .cc-name{flex:none;width:100%;font-size:11.5px;color:var(--d-ink-3)}
+      .app:not(.pub) .catalog-clients .cc.active .cc-name{color:var(--d-ink)}
+      .app:not(.pub) .catalog-clients .cc.active :is(.avatar,.cc-overview-ic){box-shadow:0 0 0 2px var(--d-s1),0 0 0 4px #f5f5f5}
+      .app:not(.pub) .catalog-clients .cc-count{display:none}
+      .app:not(.pub) .catalog-clients .cc-add{height:auto;margin:0;border:0;font-size:11.5px}
+      .app:not(.pub) .catalog-clients .cc-add svg{width:44px;height:44px;padding:13px;border:1px dashed var(--d-line-3);border-radius:50%}
+      .app:not(.pub) .cc-row{align-items:flex-start}
+      /* a bare trash between two chips doesn't say what it deletes: delete from Website > Roster here (same cascade) */
+      .app:not(.pub) .catalog-clients .cc-del{display:none}
+      .app:not(.pub) .catalog-clients p.hint.err-text{order:-1;flex:0 0 min(320px,calc(100% - 12px));white-space:normal}
+    }
+    @media (max-width:899px){
+      /* top bar (static) */
+      .app:not(.pub) .dash{flex-direction:column}
+      .app:not(.pub) .dash-side,.app:not(.pub):has(> .storage-warn) .dash-side{position:static;top:auto;width:auto;height:auto;flex-direction:row;align-items:center;justify-content:space-between;
+        align-self:stretch;gap:12px;padding:10px 16px;background:var(--d-bg);border-right:0;border-bottom:1px solid var(--d-line)}
+      .app:not(.pub) .dash-brand{width:auto;padding:0}
+      .app:not(.pub) .dash-side-foot{flex-direction:row;align-items:center;margin:0;padding:0;border:0}
+      .app:not(.pub) .dash-role{display:none}
+      .app:not(.pub) .dash-out{width:auto;height:var(--d-ctl-sm);padding:0 14px;gap:8px;border:1px solid var(--d-line-3);border-radius:100px;color:var(--d-ink);font-size:13.5px}
+      /* bottom tab bar = the existing nav, fixed. No transform/filter/backdrop-filter may sit on ANY ancestor (.dash-side, .dash, .view, .app) */
+      .app:not(.pub) .dash-side nav{position:fixed;left:0;right:0;bottom:0;z-index:40;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;
+        height:calc(var(--d-tab-h) + env(safe-area-inset-bottom));padding:0 4px env(safe-area-inset-bottom);overflow:visible;
+        background:rgba(0,0,0,.88);-webkit-backdrop-filter:blur(20px) saturate(1.3);backdrop-filter:blur(20px) saturate(1.3);border-top:1px solid rgba(255,255,255,.07)}
+      .app:not(.pub) .dash-side nav button{position:relative;flex-direction:column;justify-content:center;gap:4px;height:var(--d-tab-h);padding:0 2px;border-radius:0;background:none;color:var(--d-ink-4)}
+      .app:not(.pub) .dash-side nav button .nav-label{display:block;flex:none;max-width:100%;font-size:11px;font-weight:500;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .app:not(.pub) .dash-side nav button svg{width:22px;height:22px}
+      .app:not(.pub) .dash-side nav button.active{background:none;color:var(--d-ink)}
+      .app:not(.pub) .dash-side nav .nav-badge{position:absolute;top:8px;left:calc(50% + 6px)}
+      .app:not(.pub) .dash-side nav button:focus-visible{outline-offset:-4px;border-radius:var(--d-r-md)}
+      .app:not(.pub) .dash-main{padding:20px 16px calc(var(--d-tab-h) + 24px + env(safe-area-inset-bottom))}
+      html:has(.app:not(.pub) .dash){scroll-padding-bottom:calc(var(--d-tab-h) + 16px + env(safe-area-inset-bottom))}
+      .app:not(.pub):has(.dash) .toast-wrap{bottom:calc(var(--d-tab-h) + 16px + env(safe-area-inset-bottom))}   /* for phase-2 toasts */
+      /* headers */
+      .app:not(.pub) .admin-head{align-items:flex-start}
+      /* sub-nav: an edge-to-edge chip row; the chip cut (and faded) by the screen edge says "scroll" */
+      .app:not(.pub) .subnav{display:flex;gap:6px;max-width:none;margin:0 -16px 20px;padding:0 16px;border:0;border-radius:0;scroll-padding-inline:16px;
+        -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 20px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 20px),transparent)}
+      .app:not(.pub) .subpill{padding:0 14px;border-color:var(--d-line-2);letter-spacing:.12em}
+      .app:not(.pub) .subpill.active{border-color:var(--d-line-3)}
+      .app:not(.pub) .subpill:focus-visible{outline-offset:-4px}   /* the row has no vertical padding to show an outside ring */
+      /* quiet links that start a line: text on the 16px gutter, not their padding */
+      .app:not(.pub) .admin-head > a.btn,.app:not(.pub) .admin-head > div > a.btn:first-child{margin-left:-10px}
+      .app:not(.pub) .about-editor{min-height:320px}
+      /* tables -> list rows: line 1 = name (+ actions / status), line 2 = the other columns joined by "·" */
+      .app:not(.pub) .admin-table .admin-hd{display:none}
+      .app:not(.pub) .admin-table .admin-row:not(.admin-hd){display:flex;flex-wrap:wrap;align-items:center;column-gap:8px;row-gap:0;min-height:60px;padding:8px 8px 10px 14px}
+      .app:not(.pub) .admin-row:not(.admin-hd) > .cell{display:block;order:3;flex:0 1 auto;min-width:0;max-width:100%;font-size:13px;line-height:20px;color:var(--d-ink-3)}
+      .app:not(.pub) .admin-row:not(.admin-hd) > .cell:first-child{order:0;flex:1 1 0;font-size:15px;line-height:24px;font-weight:500;color:var(--d-ink)}
+      .app:not(.pub) .admin-row:not(.admin-hd) > .admin-act{order:1;flex:none}
+      .app:not(.pub) .admin-row:not(.admin-hd)::after{content:"";order:2;flex-basis:100%;height:0}
+      .app:not(.pub) .admin-row:not(.admin-hd) > .cell:nth-child(n+3)::before{content:"·";margin-right:8px;color:var(--d-ink-off)}
+      .app:not(.pub) .admin-row:has(.cell-name) > .cell:nth-child(2){margin-left:42px}
+      /* line 2 stays one line (no "·" orphaned onto a third): the last column takes what's left and ellipsizes;
+         on Roster that's the credit, so the Live/Hidden chip lines up on the right */
+      .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link) > .cell:not(:first-child){max-width:70%}
+      .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link) > .cell:nth-last-child(2){flex:1 1 0;max-width:none}
+      .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link):has(.badge-yes,.badge-no) > .cell:nth-last-child(2){flex:none}
+      .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link):has(.badge-yes,.badge-no) > .cell:nth-last-child(2)::before{content:none}
+      .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link):has(.badge-yes,.badge-no) > .cell:nth-last-child(3){flex:1 1 0;max-width:none}
+      /* Notable: thumb + song on line 1 */
+      .app:not(.pub) .admin-row:has(.rel-thumb) > .cell:first-child{flex:none}
+      .app:not(.pub) .admin-row:has(.rel-thumb) > .cell:nth-child(2){order:0;flex:1 1 0;margin-left:0;font-size:15px;line-height:24px;font-weight:500;color:var(--d-ink)}
+      .app:not(.pub) .admin-row:has(.rel-thumb) > .cell:nth-child(3){margin-left:44px}
+      .app:not(.pub) .admin-row:has(.rel-thumb) > .cell:nth-child(3)::before{content:none}
+      /* Outreach: name + status chip on line 1; contact · Net · revenue on line 2 (gross + songs hidden) */
+      .app:not(.pub) .admin-row.admin-row-link > .cell:nth-child(7){order:1;flex:none}
+      .app:not(.pub) .admin-row.admin-row-link > .cell:nth-child(7)::before{content:none}
+      .app:not(.pub) .admin-row.admin-row-link > .cell:nth-child(3),.app:not(.pub) .admin-row.admin-row-link > .cell:nth-child(6){display:none}
+      .app:not(.pub) .admin-row.admin-row-link > .cell:nth-child(4)::before{content:"· Net ";margin-right:2px}
+      .app:not(.pub) .admin-row.admin-row-link > .cell:nth-child(2){max-width:calc(100% - 210px)}   /* a long contact ellipsizes instead of pushing Net down */
+      /* modals -> bottom sheets (crop stays centred) */
+      .app:not(.pub) .modal:not(.crop-overlay){align-items:flex-end;padding:0}
+      .app:not(.pub) .modal:not(.crop-overlay) .modal-card{max-width:none;max-height:92vh;max-height:92dvh;border-bottom:0;border-radius:16px 16px 0 0;animation:d-sheet-in var(--d-t-sheet) var(--ease-out) both}
+      /* under the app banner (which wraps to 2-3 lines here) the sheet starts lower */
+      .app:not(.pub):has(> .storage-warn) .modal:not(.crop-overlay) .modal-card{max-height:calc(100vh - 96px);max-height:calc(100dvh - 96px)}
+      .app:not(.pub) .modal-head{padding:10px 8px 10px 18px}
+      .app:not(.pub) .modal-body{padding:18px 16px}
+      .app:not(.pub) .modal-body > p.hint.err-text:first-child{top:-18px}
+      .app:not(.pub) .modal-foot{padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
+      .app:not(.pub) p.hint.err-text.modal-save-warn{margin:0 16px 12px}
+      /* messages */
+      .app:not(.pub) .sub-card{padding:14px}
+    }
+    @media (max-width:599px){
+      .app:not(.pub) .dash-main .admin-head h2{font-size:20px;background:none;-webkit-text-fill-color:currentColor;color:var(--d-ink)}  /* solid on phones: a wrapped chrome title bands badly */
+      .app:not(.pub) .catalog-main .admin-head h2{font-size:14px}   /* second level stays second level (same specificity: after) */
+      .app:not(.pub) .cat-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .app:not(.pub) .cat-stat:last-child:nth-child(odd){grid-column:1 / -1}
+      /* one size: the full-width odd cell would otherwise scale its value up (11cqi) */
+      .app:not(.pub) .cat-stat-val{font-size:17px}
+      /* Overview: Sync Streams on its own row, the three quiet links together on the next */
+      .app:not(.pub) .overview-links{display:grid;grid-template-columns:repeat(3,max-content);gap:4px}
+      .app:not(.pub) .overview-links > :first-child{grid-column:1 / -1;justify-self:start}
+      .app:not(.pub) .overview-links > :nth-child(2){margin-left:-10px}
+      .app:not(.pub) .song-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 12px}
+      .app:not(.pub) .modal-foot{flex-wrap:wrap}
+      .app:not(.pub) .modal-foot .btn{flex:1 1 0;height:var(--d-ctl-lg)}
+      /* Delete prospect = a full-width row under Cancel/Save, but quieter than them (not the biggest thumb target).
+         Selector weight matches the destructive :is() rule above, so this one (later) wins */
+      .app:not(.pub) .modal-card .modal-foot .btn.ghost.err-text{order:1;flex-basis:100%;height:var(--d-ctl);margin-right:0;border-color:transparent}
+      .app:not(.pub) .splits-ed-row{grid-template-columns:minmax(0,1fr) 96px var(--d-icon)}
+      .app:not(.pub) .splits-ed-row > input:first-child{grid-column:1 / -1}
+      .app:not(.pub) .splits-ed-row input:nth-child(2){grid-column:auto}
+      .app:not(.pub) .splits-ed-row + .splits-ed-row{margin-top:4px;padding-top:12px;border-top:1px solid var(--d-line)}
+      .app:not(.pub) .form-card{padding:16px}
+      .app:not(.pub) .portal-nav{height:56px}
+      .app:not(.pub) .portal-main{padding:24px 16px 64px}
+      .app:not(.pub) .portal-who span{max-width:40vw}
+      .app:not(.pub) .portal-block-head{flex-direction:row;flex-wrap:wrap;align-items:flex-start}
+      .app:not(.pub) .portal-block-head .btn{align-self:auto}
+      .app:not(.pub) .song-detail-cover{width:72px;height:72px}
+    }
+    @media (pointer:coarse){
+      .app:not(.pub) :is(.dash-brand,.portal-nav) .logo-link{min-height:44px;align-items:center}
+      .app:not(.pub) .crop-zoom input[type=range]{height:44px}
+      .app:not(.pub) .cc{min-height:44px}
+      .app:not(.pub) .cc-del{width:44px;height:44px}
+      .app:not(.pub) .email-inline{padding:12px 0;margin:-12px 0}
     }
 
     /* ================================================================ */

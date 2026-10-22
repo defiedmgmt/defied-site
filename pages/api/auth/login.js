@@ -4,7 +4,7 @@
 // email-only lockout allows guessing across many accounts from one IP.
 import bcrypt from "bcryptjs";
 import { sql } from "../../../lib/db";
-import { getSession, requireSameOrigin, clientIp } from "../../../lib/session";
+import { getSession, requireSameOrigin, clientIp, passwordStamp } from "../../../lib/session";
 
 const MAX_ATTEMPTS = 5;
 const WINDOW_MINUTES = 15;
@@ -41,6 +41,7 @@ export default async function handler(req, res) {
 
     const session = await getSession(req, res);
     session.user = { id: user.id, role: user.role, name: user.name, clientId: user.client_id };
+    session.pw = passwordStamp(user.password_hash); // a later password change ends this session
     await session.save();
 
     return res.status(200).json({ ok: true, user: session.user });

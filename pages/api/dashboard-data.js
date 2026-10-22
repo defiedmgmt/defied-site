@@ -8,12 +8,20 @@
 // a valid session.
 import bcrypt from "bcryptjs";
 import { sql } from "../../lib/db";
-import { requireUser, requireSameOrigin } from "../../lib/session";
+import { requireUser, requireSameOrigin, restampSession } from "../../lib/session";
 
 // photos are data: URIs inside the rows, so Next's default 1 MB body cap
 // turned every staff save into a 413 once ~5-8 had been uploaded. Vercel's
 // own request cap is 4.5 MB.
 export const config = { api: { bodyParser: { sizeLimit: "4mb" } } };
+
+// ...and Vercel cuts off any response over 4.5 MB too, so the staff GET, which
+// sends every photo and cover, must stay under it or the dashboard can't even
+// load to remove one. A save that would take it past this is refused (one that
+// shrinks it always goes through). /api/public-data is a subset of the same
+// rows, so it stays under as well.
+const MAX_DATASET_BYTES = 3500000;
+const TOO_BIG = "That's too much to save — the photos and covers are over the size limit. Remove or shrink some images and try again.";
 
 function toClient(row) {
   return {
@@ -46,31 +54,72 @@ function toNotable(row) {
   return { id: row.id, song: row.song, artist: row.artist, client: row.client, cover: row.cover, releaseDate: row.release_date, link: row.link };
 }
 
+// What each INSERT in handlePost stores for an incoming object. The size
+// guard reads these back through the same toX mappers the GET uses, so it
+// measures exactly what the next GET will send.
+const clientRow = (c, i) => ({
+  id: c.id, name: c.name, role: c.role || "", credit: c.credit || "", bio: c.bio || "", photo: c.photo || "",
+  spotify: c.spotify || "", apple: c.apple || "", instagram: c.instagram || "", tiktok: c.tiktok || "",
+  youtube: c.youtube || "", soundcloud: c.soundcloud || "", sheet_tab_name: c.sheetTabName || "",
+  total_streams: c.totalStreams || 0, on_roster: !!c.onRoster, roster_order: i,
+});
+const placementRow = (p) => ({
+  id: p.id, client_id: p.clientId, song: p.song || "", artist: p.artist || "", release_date: p.releaseDate || "",
+  link: p.link || "", cover: p.cover || "", notable: !!p.notable, luminate_id: p.luminateId || "",
+  streams: p.streams || 0, revenue: p.revenue || 0, admin_fee: p.adminFee || 0, splits: p.splits || [],
+});
+const staffRow = (s) => ({ id: s.id, name: s.name || "", role: s.role || "", credit: s.credit || "", bio: s.bio || "", photo: s.photo || "", email: s.email || "", instagram: s.instagram || "" });
+const userRow = (u) => ({ id: u.id, email: u.email.toLowerCase(), password_hash: u.hash, role: u.role, name: u.name || "", client_id: u.clientId || null });
+const submissionRow = (s) => ({ id: s.id, name: s.name || "", email: s.email || "", instagram: s.instagram || "", subject: s.subject || "", message: s.message || "", created_at: s.at || new Date().toISOString(), read: !!s.read });
+const notableRow = (n) => ({ id: n.id, song: n.song || "", artist: n.artist || "", client: n.client || "", cover: n.cover || "", release_date: n.releaseDate || "", link: n.link || "" });
+const insertPlacement = (r) => sql`
+  INSERT INTO placements (id, client_id, song, artist, release_date, link, cover, notable, luminate_id, streams, revenue, admin_fee, splits)
+  VALUES (${r.id}, ${r.client_id}, ${r.song}, ${r.artist}, ${r.release_date}, ${r.link}, ${r.cover}, ${r.notable}, ${r.luminate_id}, ${r.streams}, ${r.revenue}, ${r.admin_fee}, ${JSON.stringify(r.splits)})
+`;
+
+// Everything a staff session's GET returns — and what the size guard weighs.
+async function staffPayload() {
+  const [clients, placements, staff, users, submissions, notableReleases, [settings]] = await Promise.all([
+    sql`SELECT * FROM clients ORDER BY roster_order`,
+    sql`SELECT * FROM placements`,
+    sql`SELECT * FROM staff_bios`,
+    sql`SELECT * FROM users`,
+    sql`SELECT * FROM submissions ORDER BY created_at DESC`,
+    sql`SELECT * FROM notable_releases`,
+    sql`SELECT about_text, last_synced_at FROM site_settings WHERE id = 1`,
+  ]);
+  return {
+    role: "staff",
+    clients: clients.map(toClient),
+    placements: placements.map((p) => toPlacement(p)),
+    staff: staff.map(toStaffBio),
+    users: users.map(toUser),
+    submissions: submissions.map(toSubmission),
+    notableReleases: notableReleases.map(toNotable),
+    site: { about: settings.about_text },
+    sheetSync: { lastSyncedAt: settings.last_synced_at },
+  };
+}
+
+// Would this write take the staff GET past MAX_DATASET_BYTES, and make it
+// bigger than it is now? `change(now)` gives the tables it replaces, as the GET
+// would send them. With `clientIds` (the clients left after it), a removed
+// client's songs go too (ON DELETE CASCADE) and their login is unlinked.
+async function growsPastLimit(change, clientIds) {
+  const now = await staffPayload();
+  const after = { ...now, ...change(now) };
+  if (clientIds) {
+    after.placements = after.placements.filter((p) => clientIds.has(p.clientId));
+    after.users = after.users.map((u) => (u.clientId && !clientIds.has(u.clientId) ? { ...u, clientId: null } : u));
+  }
+  const size = Buffer.byteLength(JSON.stringify(after));
+  return size > MAX_DATASET_BYTES && size > Buffer.byteLength(JSON.stringify(now));
+}
+
 async function handleGet(req, res, session) {
   const { role, clientId } = session.user;
 
-  if (role === "staff") {
-    const [clients, placements, staff, users, submissions, notableReleases, [settings]] = await Promise.all([
-      sql`SELECT * FROM clients ORDER BY roster_order`,
-      sql`SELECT * FROM placements`,
-      sql`SELECT * FROM staff_bios`,
-      sql`SELECT * FROM users`,
-      sql`SELECT * FROM submissions ORDER BY created_at DESC`,
-      sql`SELECT * FROM notable_releases`,
-      sql`SELECT about_text, last_synced_at FROM site_settings WHERE id = 1`,
-    ]);
-    return res.status(200).json({
-      role: "staff",
-      clients: clients.map(toClient),
-      placements: placements.map((p) => toPlacement(p)),
-      staff: staff.map(toStaffBio),
-      users: users.map(toUser),
-      submissions: submissions.map(toSubmission),
-      notableReleases: notableReleases.map(toNotable),
-      site: { about: settings.about_text },
-      sheetSync: { lastSyncedAt: settings.last_synced_at },
-    });
-  }
+  if (role === "staff") return res.status(200).json(await staffPayload());
 
   // client: own record + own placements only, redacted
   const [clients, placements, [settings]] = await Promise.all([
@@ -130,15 +179,16 @@ async function handlePost(req, res, session) {
     // now and keep it, regardless of what the client's payload carries.
     const existing = await sql`SELECT id, luminate_id, revenue, admin_fee FROM placements WHERE client_id = ${clientId}`;
     const existingById = Object.fromEntries(existing.map((r) => [r.id, r]));
-    const queries = [sql`DELETE FROM placements WHERE client_id = ${clientId}`];
-    for (const p of body.placements) {
+    const rows = body.placements.map((p) => {
       const prior = existingById[p.id];
-      queries.push(sql`
-        INSERT INTO placements (id, client_id, song, artist, release_date, link, cover, notable, luminate_id, streams, revenue, admin_fee, splits)
-        VALUES (${p.id}, ${clientId}, ${p.song || ""}, ${p.artist || ""}, ${p.releaseDate || ""}, ${p.link || ""}, ${p.cover || ""}, ${!!p.notable}, ${prior ? prior.luminate_id : ""}, ${p.streams || 0}, ${prior ? Number(prior.revenue) : 0}, ${prior ? Number(prior.admin_fee) : 0}, ${JSON.stringify(p.splits || [])})
-      `);
-    }
+      return { ...placementRow({ ...p, clientId }), luminate_id: prior ? prior.luminate_id : "", revenue: prior ? Number(prior.revenue) : 0, admin_fee: prior ? Number(prior.admin_fee) : 0 };
+    });
+    const queries = [sql`DELETE FROM placements WHERE client_id = ${clientId}`, ...rows.map(insertPlacement)];
     try {
+      const tooBig = await growsPastLimit((now) => ({
+        placements: now.placements.filter((p) => p.clientId !== clientId).concat(rows.map((r) => toPlacement(r))),
+      }));
+      if (tooBig) return res.status(413).json({ error: TOO_BIG });
       await sql.transaction(queries);
     } catch (err) {
       console.error("client placements save failed:", err);
@@ -203,10 +253,10 @@ async function handlePost(req, res, session) {
     const ids = body.clients.map((c) => c.id);
     queries.push(ids.length ? sql`DELETE FROM clients WHERE id != ALL(${ids})` : sql`DELETE FROM clients`);
     for (let i = 0; i < body.clients.length; i++) {
-      const c = body.clients[i];
+      const c = clientRow(body.clients[i], i);
       queries.push(sql`
         INSERT INTO clients (id, name, role, credit, bio, photo, spotify, apple, instagram, tiktok, youtube, soundcloud, sheet_tab_name, total_streams, on_roster, roster_order)
-        VALUES (${c.id}, ${c.name}, ${c.role || ""}, ${c.credit || ""}, ${c.bio || ""}, ${c.photo || ""}, ${c.spotify || ""}, ${c.apple || ""}, ${c.instagram || ""}, ${c.tiktok || ""}, ${c.youtube || ""}, ${c.soundcloud || ""}, ${c.sheetTabName || ""}, ${c.totalStreams || 0}, ${!!c.onRoster}, ${i})
+        VALUES (${c.id}, ${c.name}, ${c.role}, ${c.credit}, ${c.bio}, ${c.photo}, ${c.spotify}, ${c.apple}, ${c.instagram}, ${c.tiktok}, ${c.youtube}, ${c.soundcloud}, ${c.sheet_tab_name}, ${c.total_streams}, ${c.on_roster}, ${c.roster_order})
         ON CONFLICT (id) DO UPDATE SET
           name = EXCLUDED.name, role = EXCLUDED.role, credit = EXCLUDED.credit, bio = EXCLUDED.bio,
           photo = EXCLUDED.photo, spotify = EXCLUDED.spotify, apple = EXCLUDED.apple, instagram = EXCLUDED.instagram,
@@ -218,46 +268,41 @@ async function handlePost(req, res, session) {
   }
   if ("placements" in body) {
     queries.push(sql`DELETE FROM placements`);
-    for (const p of body.placements) {
-      queries.push(sql`
-        INSERT INTO placements (id, client_id, song, artist, release_date, link, cover, notable, luminate_id, streams, revenue, admin_fee, splits)
-        VALUES (${p.id}, ${p.clientId}, ${p.song || ""}, ${p.artist || ""}, ${p.releaseDate || ""}, ${p.link || ""}, ${p.cover || ""}, ${!!p.notable}, ${p.luminateId || ""}, ${p.streams || 0}, ${p.revenue || 0}, ${p.adminFee || 0}, ${JSON.stringify(p.splits || [])})
-      `);
-    }
+    for (const p of body.placements) queries.push(insertPlacement(placementRow(p)));
   }
   if ("staff" in body) {
     queries.push(sql`DELETE FROM staff_bios`);
-    for (const s of body.staff) {
+    for (const s of body.staff.map(staffRow)) {
       queries.push(sql`
         INSERT INTO staff_bios (id, name, role, credit, bio, photo, email, instagram)
-        VALUES (${s.id}, ${s.name || ""}, ${s.role || ""}, ${s.credit || ""}, ${s.bio || ""}, ${s.photo || ""}, ${s.email || ""}, ${s.instagram || ""})
+        VALUES (${s.id}, ${s.name}, ${s.role}, ${s.credit}, ${s.bio}, ${s.photo}, ${s.email}, ${s.instagram})
       `);
     }
   }
   if (userQueryData) {
     queries.push(sql`DELETE FROM users`);
-    for (const u of userQueryData) {
+    for (const u of userQueryData.map(userRow)) {
       queries.push(sql`
         INSERT INTO users (id, email, password_hash, role, name, client_id)
-        VALUES (${u.id}, ${u.email.toLowerCase()}, ${u.hash}, ${u.role}, ${u.name || ""}, ${u.clientId || null})
+        VALUES (${u.id}, ${u.email}, ${u.password_hash}, ${u.role}, ${u.name}, ${u.client_id})
       `);
     }
   }
   if ("submissions" in body) {
     queries.push(sql`DELETE FROM submissions`);
-    for (const s of body.submissions) {
+    for (const s of body.submissions.map(submissionRow)) {
       queries.push(sql`
         INSERT INTO submissions (id, name, email, instagram, subject, message, created_at, read)
-        VALUES (${s.id}, ${s.name || ""}, ${s.email || ""}, ${s.instagram || ""}, ${s.subject || ""}, ${s.message || ""}, ${s.at || new Date().toISOString()}, ${!!s.read})
+        VALUES (${s.id}, ${s.name}, ${s.email}, ${s.instagram}, ${s.subject}, ${s.message}, ${s.created_at}, ${s.read})
       `);
     }
   }
   if ("notableReleases" in body) {
     queries.push(sql`DELETE FROM notable_releases`);
-    for (const n of body.notableReleases) {
+    for (const n of body.notableReleases.map(notableRow)) {
       queries.push(sql`
         INSERT INTO notable_releases (id, song, artist, client, cover, release_date, link)
-        VALUES (${n.id}, ${n.song || ""}, ${n.artist || ""}, ${n.client || ""}, ${n.cover || ""}, ${n.releaseDate || ""}, ${n.link || ""})
+        VALUES (${n.id}, ${n.song}, ${n.artist}, ${n.client}, ${n.cover}, ${n.release_date}, ${n.link})
       `);
     }
   }
@@ -269,13 +314,34 @@ async function handlePost(req, res, session) {
   }
 
   if (queries.length) {
+    // the GET's own mappers over what's about to be stored (a submission's
+    // time and the sync time come back from the database as Dates)
+    const at = (v) => (v ? new Date(v) : null);
+    const change = () => ({
+      ...("clients" in body && { clients: body.clients.map((c, i) => toClient(clientRow(c, i))) }),
+      ...("placements" in body && { placements: body.placements.map((p) => toPlacement(placementRow(p))) }),
+      ...("staff" in body && { staff: body.staff.map((s) => toStaffBio(staffRow(s))) }),
+      ...(userQueryData && { users: userQueryData.map((u) => toUser(userRow(u))) }),
+      ...("submissions" in body && { submissions: body.submissions.map(submissionRow).map((s) => toSubmission({ ...s, created_at: at(s.created_at) })) }),
+      ...("notableReleases" in body && { notableReleases: body.notableReleases.map((n) => toNotable(notableRow(n))) }),
+      ...(body.site && { site: { about: body.site.about || "" } }),
+      ...(body.sheetSync && { sheetSync: { lastSyncedAt: at(body.sheetSync.lastSyncedAt) } }),
+    });
     try {
+      if (await growsPastLimit(change, "clients" in body ? new Set(body.clients.map((c) => c.id)) : null)) {
+        return res.status(413).json({ error: TOO_BIG });
+      }
       await sql.transaction(queries);
     } catch (err) {
       console.error("dashboard-data save failed:", err);
       return res.status(502).json({ error: "Save failed — nothing was changed." });
     }
   }
+
+  // a staff member who just typed a new password for their own account stays
+  // signed in here; their other sessions end (see getCurrentSession)
+  const own = userQueryData?.find((u) => u.id === session.user.id && u.password && u.password.trim());
+  if (own) await restampSession(session, own.hash);
 
   return res.status(200).json({ ok: true });
 }

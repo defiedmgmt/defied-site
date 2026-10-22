@@ -3,9 +3,9 @@
 // doesn't keep counting toward anyone's streams/revenue. Only clears the
 // site-owned columns (Song Title, Recording Artist, Writer Share %,
 // Luminate ID, Site Sync ID); formula columns are never touched.
-import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, otherClientTabNames, findRowBySyncId, clearSongRow } from "../../lib/sheets";
+import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers, findRowBySyncId, clearSongRow } from "../../lib/sheets";
 import { requireUser, requireSameOrigin } from "../../lib/session";
-import { sql } from "../../lib/db";
+import { ownerOf } from "../../lib/names";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
@@ -21,24 +21,25 @@ export default async function handler(req, res) {
   // when a client deletes their own song (their own name only, shared
   // SongManager component) — a client session may only ever clear their own
   // split off the sheet, never smuggle someone else's name in.
-  if (session.user.role !== "staff") {
-    const [client] = await sql`SELECT name, sheet_tab_name FROM clients WHERE id = ${session.user.clientId}`;
-    const mine = new Set([client?.name, client?.sheet_tab_name].filter(Boolean));
-    const allowed = splits.every((s) => mine.has((s.name || "").trim()));
-    if (!client || !allowed) return res.status(403).json({ error: "Not authorized for that split." });
-  }
-
+  const isStaff = session.user.role === "staff";
   try {
+    // the song (and, deleting a whole client, the client) is already gone
+    // from the database: a name belongs to whoever still goes by it
+    const known = await loadClientTabNames();
+    const whose = (name) => ownerOf(known, name, isStaff ? undefined : session.user.clientId);
+    if (!isStaff && !splits.every((s) => whose((s.name || "").trim())?.id === session.user.clientId)) {
+      return res.status(403).json({ error: "Not authorized for that split." });
+    }
+
     const sheets = getSheetsClient();
     const spreadsheetId = getSheetId();
     const tabs = await listTabs(sheets, spreadsheetId);
-    const known = await loadClientTabNames();
 
     const results = [];
     for (const split of splits) {
       const name = (split.name || "").trim();
       if (!name) continue;
-      const tab = findTab(tabs, name, otherClientTabNames(known, name));
+      const tab = findTab(tabs, name, tabsOfOthers(known, whose(name)));
       if (!tab) { results.push({ name, found: false }); continue; }
 
       const syncId = `${placementId}:${name.toLowerCase()}`;

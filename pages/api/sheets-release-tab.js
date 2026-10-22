@@ -2,7 +2,7 @@
 // sheet (see /api/sheets-delete), to release their tab back into the
 // generic WRITER pool instead of leaving a deleted client's name sitting
 // on an otherwise-empty tab forever.
-import { getSheetsClient, getSheetId, listTabs, loadClientTabNames, otherClientTabNames, releaseTabToPool } from "../../lib/sheets";
+import { getSheetsClient, getSheetId, listTabs, loadClientTabNames, tabsOfOthers, releaseTabToPool } from "../../lib/sheets";
 import { requireStaff, requireSameOrigin } from "../../lib/session";
 
 export default async function handler(req, res) {
@@ -16,10 +16,11 @@ export default async function handler(req, res) {
     const sheets = getSheetsClient();
     const spreadsheetId = getSheetId();
     const tabs = await listTabs(sheets, spreadsheetId);
-    // releasing wipes the tab, so the fuzzy fallback must never land on one
-    // another client still owns ("Stacke" -> Stack!e's tab)
+    // releasing wipes the tab, so it must never land on one a client still
+    // owns: the deleted client is already gone from the database, so that's
+    // any owner at all ("Stacke" -> Stack!e's tab, "Indigo" -> Reallyindig0's)
     const known = await loadClientTabNames();
-    const released = await releaseTabToPool(sheets, spreadsheetId, tabName, tabs, otherClientTabNames(known, tabName));
+    const released = await releaseTabToPool(sheets, spreadsheetId, tabName, tabs, tabsOfOthers(known, null));
     return res.status(200).json({ ok: true, released });
   } catch (err) {
     return res.status(502).json({ error: err.message || "Tab release failed." });

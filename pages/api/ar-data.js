@@ -9,6 +9,7 @@
 // the dedicated actions in /api/ar-write.
 import { sql } from "../../lib/db";
 import { requireStaff } from "../../lib/session";
+import { findByName } from "../../lib/names";
 import {
   getSheetsClient, getSheetId, listTabs, tabLink,
   readAssumptions, readAdvanceCalcSettings, readAdvanceBudget, readAdvanceGivenMap,
@@ -30,7 +31,7 @@ async function readSignedClientsWithNetStreams() {
     if (!entry) continue;
     const streams = Number(p.streams) || 0;
     entry.grossStreams += streams;
-    const mine = (p.splits || []).find((s) => s.name === entry.name);
+    const mine = findByName(p.splits || [], entry.name); // same rule as SongManager's ownSplit
     entry.netStreams += streams * ((Number(mine?.percent) || 0) / 100);
   }
   return Array.from(byClient.values()).map((c) => ({ ...c, netStreams: Math.round(c.netStreams) }));
