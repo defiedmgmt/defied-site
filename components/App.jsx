@@ -3331,7 +3331,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
               <div className="song-info">
                 <strong>{p.song || "Untitled"}</strong>
                 <span>{p.artist}</span>
-                <em>{(p.splits || []).length} {(p.splits || []).length === 1 ? "split" : "splits"} · {splitTotal(p.splits)}%{p.notable ? " · Featured" : ""}</em>
+                <em>{(p.splits || []).length} {(p.splits || []).length === 1 ? "split" : "splits"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitTotal(p.splits)}%</span>{p.notable ? " · Featured" : ""}</em>
               </div>
             </button>
           ))}
@@ -4417,6 +4417,7 @@ function StyleTag() {
       --d-chev:linear-gradient(45deg,transparent 50%,#8a8a8a 50%),linear-gradient(135deg,#8a8a8a 50%,transparent 50%);
       --d-ic-alert:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E");
       --d-ic-empty:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgb(138,138,138)' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M22 12h-6l-2 3h-4l-2-3H2'/%3E%3Cpath d='M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'/%3E%3C/svg%3E");
+      --d-ic-disc:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='rgb(138,138,138)' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M6 12c0-1.7.7-3.2 1.8-4.2'/%3E%3Ccircle cx='12' cy='12' r='2'/%3E%3Cpath d='M18 12c0 1.7-.7 3.2-1.8 4.2'/%3E%3C/svg%3E");
       color-scheme:dark;font-size:14px;line-height:1.55;
     }
     @media (pointer:coarse){ .app:not(.pub){--d-ctl-sm:44px;--d-ctl:44px;--d-field-h:48px;--d-icon:44px} }
@@ -4443,6 +4444,8 @@ function StyleTag() {
     @media (hover:hover){ .app:not(.pub) .dash-side nav button:hover{background:var(--d-hover);color:var(--d-ink)} }
     .app:not(.pub) .dash-side nav button.active{background:var(--d-active);color:var(--d-ink)}
     .app:not(.pub) .dash-side nav button.active svg{color:var(--d-ink)}
+    /* a ring tells the selected tab from a hovered one (same as the selected client) */
+    @media (min-width:900px){ .app:not(.pub) .dash-side nav button.active{box-shadow:inset 0 0 0 1px var(--d-line-2)} }
     .app:not(.pub) .nav-badge{height:18px;min-width:18px;padding:0 6px;border-radius:100px;background:#f5f5f5;color:#000;-webkit-text-fill-color:#000;
       font:700 11px/1 var(--d-body);font-variant-numeric:tabular-nums}
     .app:not(.pub) .dash-side-foot{display:flex;flex-direction:column;gap:4px;margin-top:12px;padding-top:12px;border-top:1px solid var(--d-line)}
@@ -4455,6 +4458,7 @@ function StyleTag() {
     .app:not(.pub) .dash-main > *{max-width:1200px;margin-inline:auto}
 
     .app:not(.pub) .admin-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px 16px;margin:0 0 20px}
+    .app:not(.pub) .dash-main .admin-head{min-height:var(--d-ctl-sm)}   /* titles sit at one height whether or not the head has a button */
     .app:not(.pub) .admin-head h2{flex:1 1 auto;min-width:0}
     .app:not(.pub) .dash-main .admin-head h2{margin:0;padding:0;font:400 24px/1.1 var(--d-display);font-synthesis:none;letter-spacing:.02em;
       text-transform:uppercase;overflow-wrap:anywhere;color:var(--d-ink);
@@ -4470,7 +4474,7 @@ function StyleTag() {
     /* one-line description under a title (About, Outreach, Advance) */
     .app:not(.pub) .admin-head + p.muted{max-width:68ch;margin:-8px 0 24px;font-size:14px;line-height:1.55;color:var(--d-ink-3)}
     .app:not(.pub) .overview-subhint{margin:-8px 0 20px;color:var(--d-ink-4)}
-    .app:not(.pub) .admin-head:has(~ .form-card){max-width:560px}
+    .app:not(.pub) .admin-head:has(~ .form-card),.app:not(.pub) .admin-head:has(~ .form-card) + p.muted{max-width:560px}
     .app:not(.pub) .overview-links{gap:4px}
     /* About: field and its Save share one 760px column */
     .app:not(.pub) .subnav ~ div:has(> .about-editor){max-width:760px}
@@ -4502,8 +4506,9 @@ function StyleTag() {
     .app:not(.pub) .cell-name{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
     .app:not(.pub) .cell-name > .avatar{display:inline-block;vertical-align:middle;margin-right:12px;border-radius:var(--d-r-sm)}
     .app:not(.pub) .cell-name > .avatar-ph{display:inline-flex}
-    /* chips inside a single-line cell were clipped top/bottom */
-    .app:not(.pub) .cell:has(> .tag),.app:not(.pub) .cell:has(> .badge-yes),.app:not(.pub) .cell:has(> .badge-no){overflow:visible}
+    /* chips inside a single-line cell were clipped top/bottom. min-width:0: every row is its own grid, so a
+       visible-overflow cell would otherwise size its own row's tracks and the columns drift row to row */
+    .app:not(.pub) .cell:has(> .tag),.app:not(.pub) .cell:has(> .badge-yes),.app:not(.pub) .cell:has(> .badge-no){overflow:visible;min-width:0}
     .app:not(.pub) .rel-thumb{width:36px;height:36px;border-radius:var(--d-r-xs)}
     /* clickable rows (Outreach) */
     .app:not(.pub) .admin-row-link{color:var(--d-ink-3);transition:background-color var(--d-t-fast) ease}
@@ -4511,6 +4516,15 @@ function StyleTag() {
     .app:not(.pub) .admin-row-link:focus-visible{outline:1px solid #f5f5f5;outline-offset:-1px}
     .app:not(.pub) .admin-row-link > .cell:nth-child(n+3):nth-child(-n+6),
     .app:not(.pub) .admin-table:has(.admin-row-link) .admin-hd > span:nth-child(n+3):nth-child(-n+6){text-align:right}
+    /* content-blind tracks, so every row lines up. Outreach: 144px fits the widest status chip (NOT CONTACTED).
+       Roster: the name gets most of the row; Public and the 4 row actions are fixed */
+    .app:not(.pub) .admin-table:has(.admin-row-link) .admin-row{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) repeat(3,minmax(0,1fr)) minmax(0,.6fr) 144px}
+    .app:not(.pub) .admin-table:has(.cell-name):has(.badge-yes,.badge-no) .admin-row{grid-template-columns:minmax(0,1.7fr) minmax(64px,.8fr) minmax(0,1.1fr) 84px calc(var(--d-icon) * 4 + 6px)}
+    @media (min-width:900px) and (max-width:1199px){
+      /* half-screen: Outreach drops Gross Streams + Songs (as the phone list does) so the numbers stay readable */
+      .app:not(.pub) .admin-table:has(.admin-row-link) .admin-row{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) repeat(2,minmax(88px,1fr)) 144px}
+      .app:not(.pub) .admin-table:has(.admin-row-link) .admin-row > :is(:nth-child(3),:nth-child(6)){display:none}
+    }
     /* Users: role shows "Staff"/"Client" (CSS only — textContent stays "staff"/"client") */
     .app:not(.pub) .admin-table:not(:has(.cell-name,.rel-thumb,.admin-row-link)) .admin-row:not(.admin-hd) > .cell:nth-child(2){text-transform:capitalize}
     /* row actions: quiet icon buttons, always visible, delete turns red on hover */
@@ -4519,6 +4533,8 @@ function StyleTag() {
       border-radius:var(--d-r-sm);background:none;color:var(--d-ink-4);transition:background-color var(--d-t-fast) ease,color var(--d-t-fast) ease}
     .app:not(.pub) .admin-act button svg{width:16px;height:16px}
     .app:not(.pub) .admin-act button:disabled{opacity:.5;color:var(--d-ink-off)}
+    /* tablets: the inline 72px actions track would shrink two 44px targets to 35px; let them run into the column gap */
+    @media (pointer:coarse) and (min-width:900px){ .app:not(.pub) .admin-act button{flex:none} }
     @media (hover:hover){
       .app:not(.pub) .admin-act button:hover{background:var(--d-active);color:var(--d-ink)}
       .app:not(.pub) .admin-act button:last-child:hover{background:var(--d-neg-bg);color:var(--d-neg)}
@@ -4539,6 +4555,7 @@ function StyleTag() {
     .app:not(.pub) .cat-stat-val{font-size:clamp(16px,11cqi,22px);font-weight:600;line-height:1.15;letter-spacing:-.01em;color:var(--d-ink)}
     /* Advance: Verdict may wrap instead of being cut ("Too high — lower target") */
     .app:not(.pub) .form-card ~ .cat-summary .cat-stat:last-child .cat-stat-val{white-space:normal;font-size:16px;line-height:1.3}
+    .app:not(.pub) .modal .cat-stat{padding:14px}   /* "Gross streams" fits one line in the 520px prospect card */
 
     .app:not(.pub) .master-table-wrap{overflow-x:auto;overscroll-behavior-x:contain;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);
       background-color:var(--d-s1);
@@ -4569,6 +4586,9 @@ function StyleTag() {
     .app:not(.pub) .cc{min-height:44px;padding:6px 8px;gap:10px;border-radius:var(--d-r-md);color:var(--d-ink-3);transition:background-color var(--d-t-fast) ease,color var(--d-t-fast) ease}
     @media (hover:hover){ .app:not(.pub) .cc:hover{background:var(--d-hover);color:var(--d-ink)} }
     .app:not(.pub) .cc.active{background:var(--d-active);color:var(--d-ink);box-shadow:inset 0 0 0 1px var(--d-line-3)}
+    /* flex:1 kept min-width:auto, so a long name pushed the count + trash out of the card instead of ellipsizing
+       (the chip rule's min-width:76px below still wins: same specificity, later) */
+    .app:not(.pub) .cc-row .cc{min-width:0}
     .app:not(.pub) .cc-name{font-size:14px}
     .app:not(.pub) .cc.active .cc-name{font-weight:500}
     .app:not(.pub) .cc-count{color:var(--d-ink-4);font-size:12px}
@@ -4610,6 +4630,9 @@ function StyleTag() {
     .app:not(.pub) .song-info strong{font-size:14px;font-weight:600;line-height:1.35}
     .app:not(.pub) .song-info span{font-size:13px;color:var(--d-ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .app:not(.pub) .song-info em{margin-top:4px;font-size:12px;color:var(--d-ink-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    /* the split total inside the meta line (not the artist span above): amber when it isn't 100% */
+    .app:not(.pub) .song-info em > span{font-size:inherit;color:inherit}
+    .app:not(.pub) .song-info em > span.split-warn{color:var(--d-warn)}
 
     .app:not(.pub) .subs{gap:8px}
     .app:not(.pub) .sub-card{min-width:0;padding:16px 18px;background:transparent;border:1px solid var(--d-line);border-radius:var(--d-r-card);overflow-wrap:anywhere}
@@ -4618,8 +4641,11 @@ function StyleTag() {
     .app:not(.pub) .sub-top-info{flex:1 1 auto;min-width:0;gap:8px 10px}
     .app:not(.pub) .sub-top-info strong{min-width:0;max-width:calc(100% - 16px);font-size:15px;font-weight:500;line-height:1.4;overflow-wrap:anywhere}
     .app:not(.pub) .sub-card.unread .sub-top-info strong{font-weight:600}
+    .app:not(.pub) .sub-card:not(.unread) .sub-top-info strong,.app:not(.pub) .sub-card:not(.unread) > p{color:var(--d-ink-3)}   /* read = quieter */
     .app:not(.pub) .sub-dot{width:6px;height:6px;background:#f5f5f5}
     .app:not(.pub) .sub-top .btn{flex:none;margin:calc((21px - var(--d-ctl-sm)) / 2) -10px calc((21px - var(--d-ctl-sm)) / 2) 0}   /* centred on the name line */
+    /* "Mark unread" has no icon in the markup: the unread dot, so both labels line up the same */
+    .app:not(.pub) .sub-top .btn:not(:has(svg))::before{content:"";flex:none;width:15px;height:15px;background:radial-gradient(circle,currentColor 3px,transparent 3.5px)}
     .app:not(.pub) .sub-contact-row{gap:8px 10px;margin:6px 0 0;font-size:13.5px}
     .app:not(.pub) .email-inline{min-width:0;max-width:100%;text-align:left;color:var(--d-ink-2);text-decoration-color:var(--d-line-3);text-underline-offset:3px;overflow-wrap:anywhere}
     @media (hover:hover){ .app:not(.pub) .email-inline:hover{color:var(--d-ink);text-decoration-color:currentColor} }
@@ -4659,6 +4685,19 @@ function StyleTag() {
     .app:not(.pub) .form-card{margin:0 0 20px;padding:20px;gap:16px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}
     .app:not(.pub) .form-card > .btn{align-self:flex-start}           /* "Save to Outreach" no longer stretches */
     .app:not(.pub) .form-card ~ .cat-summary,.app:not(.pub) .form-card ~ .split-list{max-width:560px}   /* one 560px column on Advance */
+    /* wide screens: the answer (result strip + ledgers) sits beside the form, so it stays in view while typing.
+       Rows 1-3 = title, description, budget; the form spans 4-6 and the last row takes its extra height */
+    @media (min-width:1280px){
+      .app:not(.pub) div:has(> .form-card ~ .split-list){display:grid;grid-template-columns:560px minmax(0,440px);grid-template-rows:repeat(5,auto) 1fr;column-gap:24px;align-items:start}
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > *{grid-column:1}
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card{grid-row:4 / span 3}
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card ~ *{grid-column:2}
+      /* rows pinned: auto-placement would start column 2 beside the budget strip */
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card + .cat-summary{grid-row:4;margin:0!important}   /* inline marginTop */
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card + .cat-summary + .split-list{grid-row:5}
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card + .cat-summary + .split-list + .split-list{grid-row:6}
+      .app:not(.pub) div:has(> .form-card ~ .split-list) > .form-card + .cat-summary .cat-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    }
     .app:not(.pub) .form-card .portal-block-head{flex-direction:row;justify-content:flex-end;align-items:center;gap:8px;margin:4px 0 0}  /* Cancel + Save together, right */
     /* checkbox rows */
     .app:not(.pub) .check-row{align-items:center;gap:12px;min-height:48px;padding:12px 14px;background:var(--d-s2);border:1px solid var(--d-line-2);border-radius:var(--d-r-field)}
@@ -4712,6 +4751,9 @@ function StyleTag() {
     /* secondary: .btn.ghost, plus the Auto-fill button so a modal never has two white pills */
     .app:not(.pub) :is(.btn.ghost,.sp-fill .btn){background:transparent;border-color:var(--d-line-3);color:var(--d-ink)}
     @media (hover:hover){ .app:not(.pub) :is(.btn.ghost,.sp-fill .btn):hover{background:var(--d-hover);border-color:#f5f5f5} }
+    .app:not(.pub) .sp-fill .btn{height:var(--d-ctl)}   /* same height as the link field beside it */
+    /* disabled primary: a flat grey pill (45% white read as "pressed") */
+    .app:not(.pub) .btn:not(.ghost):disabled{background:var(--d-s3);border-color:var(--d-line-2);color:var(--d-ink-4);opacity:1}
     /* quiet: outbound links (Open in sheet / Folder / Portfolio A/B), Mark read/unread */
     .app:not(.pub) :is(.overview-links a.btn,.admin-head a.btn,.sub-top .btn){padding:0 10px;border-color:transparent;border-radius:var(--d-r-md);background:transparent;color:var(--d-ink-3)}
     @media (hover:hover){ .app:not(.pub) :is(.overview-links a.btn,.admin-head a.btn,.sub-top .btn):hover{background:var(--d-active);border-color:transparent;color:var(--d-ink)} }
@@ -4758,8 +4800,15 @@ function StyleTag() {
       background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-modal);box-shadow:var(--d-shadow-pop);
       animation:popIn var(--d-t-open) var(--ease-out) both}
     .app:not(.pub) .modal-card.song-detail{max-width:440px}
+    /* the sticky app banner (z 400) sits over the overlay: start the card below it (phone sheets: see the 899px block) */
+    @media (min-width:900px){
+      .app:not(.pub):has(> .storage-warn) .modal:not(.crop-overlay){padding-top:calc(var(--d-ban-h) + 24px)}
+      .app:not(.pub):has(> .storage-warn) .modal-card{max-height:calc(100vh - var(--d-ban-h) - 48px);max-height:calc(100dvh - var(--d-ban-h) - 48px)}
+    }
     .app:not(.pub) .modal-head{flex:none;min-height:60px;gap:12px;padding:12px 12px 12px 22px;border-bottom:1px solid var(--d-line)}
-    .app:not(.pub) .modal-head h3{font-size:17px;font-weight:600;line-height:1.3;letter-spacing:-.01em}
+    /* up to 2 lines: the song detail is the only place a long title shows in full (tiles clamp too) */
+    .app:not(.pub) .modal-head h3{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;white-space:normal;overflow-wrap:anywhere;
+      font-size:17px;font-weight:600;line-height:1.3;letter-spacing:-.01em}
     .app:not(.pub) .modal-head button{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border-radius:var(--d-r-md);color:var(--d-ink-4)}
     @media (hover:hover){ .app:not(.pub) .modal-head button:hover{background:var(--d-active);color:var(--d-ink)} }
     @media (pointer:coarse){ .app:not(.pub) .modal-head button{width:44px;height:44px} }
@@ -4770,6 +4819,7 @@ function StyleTag() {
     .app:not(.pub) .modal.crop-overlay{padding:12px}
     .app:not(.pub) .crop-card{max-width:380px;background:var(--d-s1);border:1px solid var(--d-line-2);box-shadow:var(--d-shadow-pop);animation:popIn var(--d-t-open) var(--ease-out) both}
     .app:not(.pub) .crop-body{padding:20px 16px}
+    .app:not(.pub) .crop-zoom{width:300px;max-width:100%;margin-inline:auto}   /* edges line up with the 300px image */
     .app:not(.pub) .crop-zoom span{font:400 10px/1 var(--d-display);font-synthesis:none;letter-spacing:.14em;color:var(--d-ink-4)}
     .app:not(.pub) .crop-zoom input[type=range]{accent-color:#f5f5f5}
     .app:not(.pub) .crop-hint{font-size:12.5px;color:var(--d-ink-4)}
@@ -4804,6 +4854,7 @@ function StyleTag() {
     .app:not(.pub) p.hint.err-text{display:flex;align-items:flex-start;gap:10px;max-width:80ch;margin:0 0 16px;padding:12px 14px;
       background:var(--d-ban-neg-bg);border:1px solid var(--d-ban-neg-line);border-radius:var(--d-r-field);color:var(--d-ban-neg-ink);font-size:13.5px;line-height:1.5}
     .app:not(.pub) p.hint.err-text::before{margin-top:2px}
+    .app:not(.pub) .dash-main p.hint.err-text{max-width:none}   /* page banners run the width of the tables they sit over */
     .app:not(.pub) p.hint.err-text.overview-subhint{margin:0 0 16px}
     .app:not(.pub) .portal-block-head p.hint.err-text{margin:10px 0 0}
     .app:not(.pub) :is(.modal-body,.form-card) > p.hint.err-text{margin:0}
@@ -4811,19 +4862,21 @@ function StyleTag() {
     .app:not(.pub) .catalog-clients p.hint.err-text{margin:4px 0;padding:10px 12px;font-size:12.5px}
     .app:not(.pub) p.hint.err-text.modal-save-warn{flex:none;margin:0 22px 14px}
     /* the staff "no split > 0" notice is a warning, not an error (form errors in that slot carry role=alert) */
-    .app:not(.pub) p.hint.err-text.modal-save-warn:not([role=alert]){background:var(--d-ban-warn-bg);border-color:var(--d-ban-warn-line);color:var(--d-ban-warn-ink)}
+    .app:not(.pub) p.hint.err-text.modal-save-warn:not([role=alert]){padding:8px 12px;background:var(--d-ban-warn-bg);border-color:var(--d-ban-warn-line);color:var(--d-ban-warn-ink);
+      font-size:12.5px;line-height:1.4}   /* compact: it shows on every new song, and the splits box says the same */
     /* empty states (text unchanged) */
     .app:not(.pub) .admin-empty,.app:not(.pub) .portal-block-head ~ p.muted{display:flex;flex-direction:column;align-items:center;gap:12px;margin:0;padding:40px 24px;
       text-align:center;font-size:14px;line-height:1.5;color:var(--d-ink-3)}
     .app:not(.pub) .admin-empty::before,.app:not(.pub) .portal-block-head ~ p.muted::before{content:"";width:40px;height:40px;border:1px solid var(--d-line-2);border-radius:50%;
       background:var(--d-s2) var(--d-ic-empty) center/18px no-repeat}
     .app:not(.pub) .portal-block-head ~ p.muted{border:1px dashed var(--d-line-2);border-radius:var(--d-r-card)}
+    .app:not(.pub) .portal-block-head ~ p.muted::before{background-image:var(--d-ic-disc)}   /* no songs: a disc, not the inbox tray */
     .app:not(.pub) .admin-head ~ .admin-empty{background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}  /* Messages / Outreach empty (outside a table) */
     /* first-load "Loading…" (p.muted.page, text frozen): centred spinner + micro-label, only after 300ms */
     .app:not(.pub) .view > p.muted.page{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;max-width:none;min-height:60vh;min-height:60dvh;margin:0;padding:24px;
       font:400 10.5px/1 var(--d-display);font-synthesis:none;letter-spacing:.18em;text-transform:uppercase;color:var(--d-ink-4);animation:fadeIn .2s .3s both}
     .app:not(.pub) .view > p.muted.page::before{content:"";width:20px;height:20px;border:2px solid var(--d-line-3);border-top-color:#f5f5f5;border-radius:50%;animation:spin 1s linear infinite}
-    .app:not(.pub) > .storage-warn ~ .view > p.muted.page::before{animation:none;border-top-color:var(--d-line-3)}   /* load failed: stop spinning */
+    .app:not(.pub) > .storage-warn ~ .view > p.muted.page{display:none}   /* load failed: the banner says so, nothing is still coming */
     /* in-tab loading lines: A&R "Loading…" and Overview "Loading master sheet data…" */
     .app:not(.pub) :is(.subnav,.overview-subhint) ~ p.muted{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 16px;font-size:13.5px;color:var(--d-ink-4);animation:fadeIn .2s .3s both}
     .app:not(.pub) :is(.subnav,.overview-subhint) ~ p.muted::before{content:"";flex:none;width:14px;height:14px;border:2px solid var(--d-line-3);border-top-color:#f5f5f5;border-radius:50%;animation:spin 1s linear infinite}
@@ -4869,8 +4922,8 @@ function StyleTag() {
       .app:not(.pub) .catalog-clients .cc-add{height:auto;margin:0;border:0;font-size:11.5px}
       .app:not(.pub) .catalog-clients .cc-add svg{width:44px;height:44px;padding:13px;border:1px dashed var(--d-line-3);border-radius:50%}
       .app:not(.pub) .cc-row{align-items:flex-start}
-      .app:not(.pub) .cc-row:not(:has(> .cc.active)) .cc-del{display:none}      /* trash only beside the selected chip */
-      .app:not(.pub) .cc-row:has(> .cc.active) .cc-del{visibility:visible;margin-top:14px}
+      /* a bare trash between two chips doesn't say what it deletes: delete from Website > Roster here (same cascade) */
+      .app:not(.pub) .catalog-clients .cc-del{display:none}
       .app:not(.pub) .catalog-clients p.hint.err-text{order:-1;flex:0 0 min(320px,calc(100% - 12px));white-space:normal}
     }
     @media (max-width:899px){
@@ -4897,10 +4950,14 @@ function StyleTag() {
       .app:not(.pub):has(.dash) .toast-wrap{bottom:calc(var(--d-tab-h) + 16px + env(safe-area-inset-bottom))}   /* for phase-2 toasts */
       /* headers */
       .app:not(.pub) .admin-head{align-items:flex-start}
-      /* sub-nav: an edge-to-edge chip row; the chip cut by the screen edge says "scroll" */
-      .app:not(.pub) .subnav{display:flex;gap:6px;margin:0 -16px 20px;padding:0 16px;border:0;border-radius:0;scroll-padding-inline:16px}
+      /* sub-nav: an edge-to-edge chip row; the chip cut (and faded) by the screen edge says "scroll" */
+      .app:not(.pub) .subnav{display:flex;gap:6px;max-width:none;margin:0 -16px 20px;padding:0 16px;border:0;border-radius:0;scroll-padding-inline:16px;
+        -webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 20px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 20px),transparent)}
       .app:not(.pub) .subpill{padding:0 14px;border-color:var(--d-line-2);letter-spacing:.12em}
       .app:not(.pub) .subpill.active{border-color:var(--d-line-3)}
+      .app:not(.pub) .subpill:focus-visible{outline-offset:-4px}   /* the row has no vertical padding to show an outside ring */
+      /* quiet links that start a line: text on the 16px gutter, not their padding */
+      .app:not(.pub) .admin-head > a.btn,.app:not(.pub) .admin-head > div > a.btn:first-child{margin-left:-10px}
       .app:not(.pub) .about-editor{min-height:320px}
       /* tables -> list rows: line 1 = name (+ actions / status), line 2 = the other columns joined by "·" */
       .app:not(.pub) .admin-table .admin-hd{display:none}
@@ -4932,6 +4989,8 @@ function StyleTag() {
       /* modals -> bottom sheets (crop stays centred) */
       .app:not(.pub) .modal:not(.crop-overlay){align-items:flex-end;padding:0}
       .app:not(.pub) .modal:not(.crop-overlay) .modal-card{max-width:none;max-height:92vh;max-height:92dvh;border-bottom:0;border-radius:16px 16px 0 0;animation:d-sheet-in var(--d-t-sheet) var(--ease-out) both}
+      /* under the app banner (which wraps to 2-3 lines here) the sheet starts lower */
+      .app:not(.pub):has(> .storage-warn) .modal:not(.crop-overlay) .modal-card{max-height:calc(100vh - 96px);max-height:calc(100dvh - 96px)}
       .app:not(.pub) .modal-head{padding:10px 8px 10px 18px}
       .app:not(.pub) .modal-body{padding:18px 16px}
       .app:not(.pub) .modal-body > p.hint.err-text:first-child{top:-18px}
@@ -4942,12 +5001,21 @@ function StyleTag() {
     }
     @media (max-width:599px){
       .app:not(.pub) .dash-main .admin-head h2{font-size:20px;background:none;-webkit-text-fill-color:currentColor;color:var(--d-ink)}  /* solid on phones: a wrapped chrome title bands badly */
+      .app:not(.pub) .catalog-main .admin-head h2{font-size:14px}   /* second level stays second level (same specificity: after) */
       .app:not(.pub) .cat-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
       .app:not(.pub) .cat-stat:last-child:nth-child(odd){grid-column:1 / -1}
+      /* one size: the full-width odd cell would otherwise scale its value up (11cqi) */
+      .app:not(.pub) .cat-stat-val{font-size:17px}
+      /* Overview: Sync Streams on its own row, the three quiet links together on the next */
+      .app:not(.pub) .overview-links{display:grid;grid-template-columns:repeat(3,max-content);gap:4px}
+      .app:not(.pub) .overview-links > :first-child{grid-column:1 / -1;justify-self:start}
+      .app:not(.pub) .overview-links > :nth-child(2){margin-left:-10px}
       .app:not(.pub) .song-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 12px}
       .app:not(.pub) .modal-foot{flex-wrap:wrap}
       .app:not(.pub) .modal-foot .btn{flex:1 1 0;height:var(--d-ctl-lg)}
-      .app:not(.pub) .modal-foot .btn.err-text{order:1;flex-basis:100%;margin-right:0}   /* Delete prospect = full-width row under Cancel/Save */
+      /* Delete prospect = a full-width row under Cancel/Save, but quieter than them (not the biggest thumb target).
+         Selector weight matches the destructive :is() rule above, so this one (later) wins */
+      .app:not(.pub) .modal-card .modal-foot .btn.ghost.err-text{order:1;flex-basis:100%;height:var(--d-ctl);margin-right:0;border-color:transparent}
       .app:not(.pub) .splits-ed-row{grid-template-columns:minmax(0,1fr) 96px var(--d-icon)}
       .app:not(.pub) .splits-ed-row > input:first-child{grid-column:1 / -1}
       .app:not(.pub) .splits-ed-row input:nth-child(2){grid-column:auto}
