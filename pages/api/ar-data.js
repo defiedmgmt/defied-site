@@ -72,6 +72,9 @@ export default async function handler(req, res) {
       signedClients,
     });
   } catch (err) {
-    return res.status(502).json({ error: err.message || "Failed to load A&R data." });
+    // Google's own wording ("Internal error encountered.") means nothing on the A&R tab: logged here,
+    // and the page gets a plain sentence (and a Try again button)
+    console.error("ar-data read failed:", err);
+    return res.status(502).json({ error: "Couldn't read the pub sheet just now — try again in a minute." });
   }
 }

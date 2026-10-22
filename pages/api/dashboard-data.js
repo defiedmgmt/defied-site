@@ -22,6 +22,8 @@ export const config = { api: { bodyParser: { sizeLimit: "4mb" } } };
 // rows, so it stays under as well.
 const MAX_DATASET_BYTES = 3500000;
 const TOO_BIG = "That's too much to save — the photos and covers are over the size limit. Remove or shrink some images and try again.";
+// a client can't see or shrink what fills it (other clients' photos and covers): they're told to ask
+const TOO_BIG_CLIENT = "Your change couldn't be saved right now — please let the Defied team know.";
 
 function toClient(row) {
   return {
@@ -188,7 +190,7 @@ async function handlePost(req, res, session) {
       const tooBig = await growsPastLimit((now) => ({
         placements: now.placements.filter((p) => p.clientId !== clientId).concat(rows.map((r) => toPlacement(r))),
       }));
-      if (tooBig) return res.status(413).json({ error: TOO_BIG });
+      if (tooBig) return res.status(413).json({ error: TOO_BIG_CLIENT });
       await sql.transaction(queries);
     } catch (err) {
       console.error("client placements save failed:", err);

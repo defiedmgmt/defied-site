@@ -33,7 +33,10 @@ export default async function handler(req, res) {
 
     const out = [];
     for (const c of clients) {
-      const tabName = (c.sheetTabName || c.name || "").trim();
+      // a client's tab is the one their own record names — never one the request names (that could
+      // be any tab nobody owns: MASTER, an empty WRITER slot, a former client's)
+      const own = !isStaff && known.find((k) => k.id === c.id);
+      const tabName = (isStaff ? c.sheetTabName || c.name || "" : own ? own.sheet_tab_name || own.name || "" : "").trim();
       const me = known.find((k) => k.id === c.id) || ownerOf(known, tabName);
       const tab = findTab(tabs, tabName, tabsOfOthers(known, me));
       if (!tab) { out.push({ clientId: c.id, tabFound: false, totalStreams: 0, rows: [] }); continue; }

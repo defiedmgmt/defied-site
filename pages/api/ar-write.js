@@ -10,6 +10,14 @@ import {
   writeOutreachProspectFull, writeAdvanceGiven,
 } from "../../lib/sheets";
 
+// a call to Google that failed (it carries its request config) is logged and answered in plain words;
+// this route's own messages (a full OUTREACH tab, a bad slot) still go through as they are
+const failure = (err) => {
+  if (!err?.config) return err?.message || "Failed to save.";
+  console.error("ar-write failed:", err);
+  return "Couldn't save to the pub sheet just now — try again in a minute.";
+};
+
 export default async function handler(req, res) {
   const session = await requireStaff(req, res);
   if (!session) return;
@@ -61,6 +69,6 @@ export default async function handler(req, res) {
     }
     return res.status(400).json({ error: "Unknown action." });
   } catch (err) {
-    return res.status(502).json({ error: err.message || "Failed to save." });
+    return res.status(502).json({ error: failure(err) });
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { flushSync } from "react-dom";
+import { flushSync, createPortal } from "react-dom";
 import NextImage from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/router";
@@ -131,13 +131,34 @@ async function fileToDataURL(file) {
   });
 }
 
+// Escape closes a dashboard dialog the same way its Cancel / X does (typed text goes with it, as
+// there). A key something else already took (the crop over an editor), or one that's finishing an
+// IME composition, is left alone. `first`: listen ahead of the rest, for a dialog opened over another.
+function useEscape(onClose, active = true, first = false) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (!active) return;
+    const onKey = (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+      e.preventDefault();
+      close.current();
+    };
+    window.addEventListener("keydown", onKey, first);
+    return () => window.removeEventListener("keydown", onKey, first);
+  }, [active, first]);
+}
+
 // Square crop tool: drag to reposition, slider to zoom, outputs a square JPEG data URL.
+// It opens from inside an editor's card, but renders at the top of the app: the card's open
+// animation leaves it a transform, which would make the card the box this fixed overlay is cut to.
 function CropModal({ src, onCancel, onDone }) {
   const V = 300, OUT = 520;
   const [img, setImg] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [off, setOff] = useState({ x: 0, y: 0 });
   const drag = useRef(null);
+  useEscape(onCancel, true, true); // only the crop closes, not the editor under it
 
   useEffect(() => {
     const i = new Image();
@@ -177,7 +198,7 @@ function CropModal({ src, onCancel, onDone }) {
     onDone(c.toDataURL("image/jpeg", 0.9));
   };
 
-  return (
+  return createPortal(
     <div className="modal crop-overlay" onClick={(e) => e.target === e.currentTarget && onCancel()}>
       <div className="crop-card">
         <div className="modal-head"><h3>Position &amp; crop</h3><button onClick={onCancel} aria-label="Close"><X size={18} /></button></div>
@@ -207,7 +228,8 @@ function CropModal({ src, onCancel, onDone }) {
           <button className="btn sm" onClick={confirm}>Use photo</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.querySelector(".app") || document.body
   );
 }
 
@@ -432,6 +454,19 @@ function jumpIntoView(el, { ifNeeded = false } = {}) {
   html.style.scrollBehavior = sb;
 }
 
+// a dashboard chip row that scrolls sideways (the sub-navs and the client chooser on phones and
+// tablets): the chosen chip comes fully into view instead of staying cut at the edge. The client
+// chooser snaps chips to its start, which would snap one only just brought in back out of view, so
+// a cut chip goes to the start there. "auto" is instant (the rows set no scroll-behavior, and
+// reduced motion turns html's smooth off)
+function revealChip(el) {
+  const row = el?.closest(".subnav, .catalog-clients");
+  if (!row) return;
+  const r = el.getBoundingClientRect(), box = row.getBoundingClientRect();
+  const cut = r.left < box.left || r.right > box.right;
+  el.scrollIntoView({ inline: cut && getComputedStyle(row).scrollSnapType !== "none" ? "start" : "nearest", block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+}
+
 // next/link that navigates inside a page View Transition. router.push only
 // resolves once the new route has actually committed, so the transition's
 // "new" snapshot is always the real next page, never a half-rendered one.
@@ -533,6 +568,7 @@ export default function App() {
   const [loadErr, setLoadErr] = useState(null); // the dashboard's own load / save errors
   const [pubErr, setPubErr] = useState(null); // the public pages' data
   const [authDown, setAuthDown] = useState(false); // /api/auth/me couldn't check the sign-in (not "signed out")
+  const [signingOut, setSigningOut] = useState(false); // sign-out is waiting for queued saves to land
   useRevealOnScroll(route !== "staff" && route !== "client");
 
   // the fresh copy (see publicDataRequest) swaps in when it lands; a failed request only shows
@@ -578,6 +614,16 @@ export default function App() {
       .catch(() => { if (alive) { setSession(null); setAuthDown(true); } });
     return () => { alive = false; };
   }, []);
+  // that notice is about one failed check: the sign-in page asks again before repeating it
+  useEffect(() => {
+    if (route !== "login" || !authDown) return;
+    let alive = true;
+    fetch("/api/auth/me")
+      .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; })
+      .then((d) => { if (!alive) return; setAuthDown(false); if (d.user) setSession(d.user); })
+      .catch(() => {}); // still down: the notice stays
+    return () => { alive = false; };
+  }, [route, authDown]);
 
   // the db the dashboard last drew — what an edit made in it was derived from
   const shownDb = useRef(null);
@@ -593,6 +639,7 @@ export default function App() {
   useEffect(() => {
     const s = saves.current;
     s.gen++; s.server = null;
+    setLoadErr(null); // the last account's banner isn't this one's
     if (!session) { setDb(null); return; }
     let alive = true;
     (async () => {
@@ -602,7 +649,7 @@ export default function App() {
         const data = await res.json().catch(() => ({}));
         if (!alive) return;
         if (!res.ok || !data.role) throw new Error(data.error || "Failed to load.");
-        if (data.role !== session.role) throw new Error("Your account was changed — reload the page.");
+        if (data.role !== session.role) throw new Error(ACCOUNT_CHANGED);
         s.server = data; s.freshAt = Date.now();
         setDb(data);
       } catch (err) {
@@ -633,9 +680,11 @@ export default function App() {
         if (gen !== s.gen) return false; // signed out since
         const got = await fetch("/api/dashboard-data", { cache: "no-store" }).catch(() => null);
         const latest = got && await got.json().catch(() => null);
+        // a 404: a client account with no client record (staff demoted with nobody linked)
+        if (got?.status === 404) throw new Error(ACCOUNT_CHANGED);
         if (!got?.ok || !latest?.role) throw new Error(saveFailure(got, latest, SAVE_OFFLINE));
         // the account was demoted or re-linked since this tab loaded: keep what's on screen as it is
-        if (accountChanged(latest, s.server || base)) throw new Error("Your account was changed — reload the page.");
+        if (accountChanged(latest, s.server || base)) throw new Error(ACCOUNT_CHANGED);
         const fresh = inTabOrder(latest, s.server);
         s.server = fresh; s.freshAt = Date.now();
         const merged = applyPatch(fresh, patch);
@@ -646,7 +695,7 @@ export default function App() {
           headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
           body: JSON.stringify(Object.fromEntries(saveKeys(patch, fresh, merged).map((k) => [k, merged[k]]))),
         }).catch(() => null);
-        if (!res?.ok) throw new Error(saveFailure(res, res && await res.json().catch(() => null), "Save failed."));
+        if (!res?.ok) throw new Error(saveFailure(res, res && await res.json().catch(() => null), "Save failed.", fresh.role));
         s.server = saved = withoutPasswords(merged);
         if (!s.failed) setLoadErr(null);
         // the public pages' copy is now out of date: refetch it when staff next open one
@@ -707,22 +756,28 @@ export default function App() {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data) return data?.error || (res.status >= 500 || res.ok ? "Sign-in isn't available right now — try again in a minute." : "Incorrect email or password.");
-    setSession(data.user); setAuthDown(false);
+    setSession(data.user); setAuthDown(false); setLoadErr(null);
     go(data.user.role === "staff" ? "staff" : "client");
     return null;
   };
   const logout = async () => {
-    // a save still queued or running needs the session: let it land first (but never hold sign-out long)
-    const s = saves.current, until = Date.now() + 8000;
-    while (s.pending && Date.now() < until) await Promise.race([s.chain, new Promise((r) => setTimeout(r, until - Date.now()))]);
-    await fetch("/api/auth/logout", { method: "POST", headers: { "X-Requested-With": "defied-site" } }).catch(() => {});
-    // navigate home BEFORE clearing session — otherwise the route-guard
-    // effect below sees session go null while route is still "staff"/
-    // "client" for one render and races router.replace("/login") against
-    // this push, sometimes winning and landing back on the login page.
-    await go("home");
-    setSession(null);
-    setDb(null);
+    if (signingOut) return;
+    // a save still queued or running needs the session: let it land first (but never hold sign-out
+    // long). The Sign out buttons say so meanwhile.
+    setSigningOut(true);
+    try {
+      const s = saves.current, until = Date.now() + 8000;
+      while (s.pending && Date.now() < until) await Promise.race([s.chain, new Promise((r) => setTimeout(r, until - Date.now()))]);
+      await fetch("/api/auth/logout", { method: "POST", headers: { "X-Requested-With": "defied-site" } }).catch(() => {});
+      // navigate home BEFORE clearing session — otherwise the route-guard
+      // effect below sees session go null while route is still "staff"/
+      // "client" for one render and races router.replace("/login") against
+      // this push, sometimes winning and landing back on the login page.
+      await go("home");
+      setSession(null);
+      setDb(null);
+      setLoadErr(null); setAuthDown(false);
+    } finally { setSigningOut(false); }
   };
 
   // a direct visit to /dashboard or /portal — a bookmark, a refresh, a
@@ -774,8 +829,9 @@ export default function App() {
     <div className={inPortal ? "app" : "app pub"}>
       <StyleTag />
       {!inPortal && <div className="grain" aria-hidden="true" />}
-      {/* signed out mid-edit: the page stays put so typed text can be copied; the link reloads it fresh */}
-      {inPortal ? loadErr && <div className="storage-warn" role="alert">{loadErr}{loadErr === SIGNED_OUT && <> <a href={ROUTE_TO_PATH.login} className="inline-link">Sign in again</a></>}</div>
+      {/* signed out mid-edit: the page stays put so typed text can be copied; the link (the sentence's last
+          words) reloads it fresh. One span, so text and link wrap as one line of text */}
+      {inPortal ? loadErr && <div className="storage-warn" role="alert"><span>{loadErr}{loadErr === SIGNED_OUT && <> <a href={ROUTE_TO_PATH.login} className="inline-link">sign in again.</a></>}</span></div>
         : pubErr && DATA_ROUTES.includes(route) && <div className="storage-warn" role="alert">{pubErr}</div>}
       {!inPortal && (
         <PublicNav route={route} menuOpen={menuOpen} setMenuOpen={setMenuOpen} session={session} />
@@ -795,11 +851,12 @@ export default function App() {
         {route === "login" && <Login login={login} notice={authDown ? "We couldn't check your sign-in just now — try again in a minute." : null} />}
         {route === "notfound" && <NotFound />}
 
-        {route === "staff" && session?.role === "staff" && (
-          db ? <StaffDashboard db={db} commit={commit} logout={logout} /> : <p className="muted page">Loading…</p>
+        {/* session undefined = /api/auth/me hasn't answered: the same "Loading…" as the data load after it */}
+        {route === "staff" && (session === undefined || session?.role === "staff") && (
+          db ? <StaffDashboard db={db} commit={commit} logout={logout} signingOut={signingOut} /> : <p className="muted page">Loading…</p>
         )}
-        {route === "client" && session?.role === "client" && (
-          db ? <ClientPortal db={db} commit={commit} session={session} logout={logout} /> : <p className="muted page">Loading…</p>
+        {route === "client" && (session === undefined || session?.role === "client") && (
+          db ? <ClientPortal db={db} commit={commit} session={session} logout={logout} signingOut={signingOut} /> : <p className="muted page">Loading…</p>
         )}
       </div>
 
@@ -2301,19 +2358,30 @@ function applyPatch(fresh, patch) {
 // what a save sends: the tables it changed, plus any applyPatch rewrote for it (a login dropped with its client)
 const saveKeys = (patch, fresh, merged) => [...(SAVE_TABLES[fresh.role] || []), "site", "sheetSync"].filter((k) => patch[k] || merged[k] !== fresh[k]);
 const TOO_BIG = "That's too much to save — the photos and covers are over the size limit. Remove or shrink some images and try again.";
+// a client can't shrink the photos and covers that fill the data, only the Defied team can
+const TOO_BIG_CLIENT = "Your change couldn't be saved right now — please let the Defied team know.";
 const SAVE_OFFLINE = "Couldn't reach the server, so that change wasn't saved — check your connection and try again.";
-const SIGNED_OUT = "You've been signed out, so that change wasn't saved. Copy anything you need, then sign in again.";
+// the banner finishes this sentence with a "sign in again." link
+const SIGNED_OUT = "You've been signed out, so that change wasn't saved. Copy anything you need first, then";
+const ACCOUNT_CHANGED = "Your account was changed — reload the page.";
 // what the banner says about a failed request: the server's own reason when it gave one
-const saveFailure = (res, data, fallback) => (!res ? SAVE_OFFLINE : res.status === 401 ? SIGNED_OUT : data?.error || (res.status === 413 ? TOO_BIG : fallback));
+const saveFailure = (res, data, fallback, role) => (!res ? SAVE_OFFLINE : res.status === 401 ? SIGNED_OUT
+  : data?.error || (res.status === 413 ? (role === "client" ? TOO_BIG_CLIENT : TOO_BIG) : fallback));
 const holdUnload = (e) => { e.preventDefault(); e.returnValue = ""; }; // "leave the page?" while a save is unsent
 // the dashboard loads everything in one reply (photos and covers included), and Vercel won't send one over 4.5 MB
 const MAX_DATA = 3500000;
+// weighed the way the server weighs it: UTF-8 bytes, and no typed passwords (those are never stored or sent back)
+const dataBytes = (d) => new TextEncoder().encode(JSON.stringify(withoutPasswords(d))).length;
 // a save that can't go onto the server's copy as it is now: why, or null. A save that shrinks the data always goes,
 // so there's a way back under the limit
 function refusal(patch, fresh, merged) {
+  // a song or login this save adds (or moves) for a client deleted elsewhere: the server would refuse the
+  // whole save on the missing client (fresh itself can't hold one: its rows went with their client)
+  const live = merged.clients && new Set(merged.clients.map((c) => c.id));
+  if (live && ["placements", "users"].some((k) => patch[k] && merged[k].some((r) => r.clientId && !live.has(r.clientId)))) return goneText("client");
   if (patch.notableReleases?.added.length && merged.notableReleases.length > 10) return "There are already 10 notable releases (someone else added one) — remove one first.";
-  const size = JSON.stringify(merged).length;
-  return size > MAX_DATA && size > JSON.stringify(fresh).length ? TOO_BIG : null;
+  const size = dataBytes(merged);
+  return size > MAX_DATA && size > dataBytes(fresh) ? (fresh.role === "client" ? TOO_BIG_CLIENT : TOO_BIG) : null;
 }
 // a demoted or re-linked account: what this tab edits no longer fits what the server would take
 const accountChanged = (fresh, known) => fresh.role !== known.role || fresh.client?.id !== known.client?.id;
@@ -2327,7 +2395,7 @@ async function saveRow(commit, next, key, id, thing) {
 // one the user has since chosen themselves
 const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d, users: d.users.map(({ password, ...u }) => u) } : d);
 
-function StaffDashboard({ db, commit, logout }) {
+function StaffDashboard({ db, commit, logout, signingOut }) {
   const [tab, setTab] = useState("website");
   const unreadCount = db.submissions.filter((s) => !s.read).length;
   const tabs = [
@@ -2349,7 +2417,7 @@ function StaffDashboard({ db, commit, logout }) {
         </nav>
         <div className="dash-side-foot">
           <div className="dash-role">Staff — full edit access</div>
-          <button className="dash-out" onClick={logout}><LogOut size={16} /> Sign out</button>
+          <button className="dash-out" onClick={logout} disabled={signingOut}>{signingOut ? <><RefreshCw size={16} className="spin" /> Signing out…</> : <><LogOut size={16} /> Sign out</>}</button>
         </div>
       </aside>
       <main className="dash-main">
@@ -2369,6 +2437,7 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState(null);
   const from = useRef(null); // the row as it was when the form opened
+  useEscape(() => setEditing(null), !!editing);
   useEffect(() => {
     if (!editing) return;
     const prev = document.body.style.overflow;
@@ -2824,16 +2893,18 @@ function ARAdmin() {
     .then((r) => r.json())
     .then((d) => { if (d.error) throw new Error(d.error); setData(d); setErr(null); })
     .catch((e) => setErr(e.message || "Couldn't load A&R data."));
+  const retry = () => { setErr(null); load(); }; // shows "Loading…" again until it answers
 
   useEffect(() => { load(); }, []);
 
+  const pick = (id) => (e) => { setSec(id); revealChip(e.currentTarget); };
   return (
     <div>
       <div className="subnav">
-        <button className={sec === "outreach" ? "subpill active" : "subpill"} onClick={() => setSec("outreach")}>Outreach</button>
-        <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={() => setSec("advance")}>Advance Calculator</button>
+        <button className={sec === "outreach" ? "subpill active" : "subpill"} onClick={pick("outreach")}>Outreach</button>
+        <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={pick("advance")}>Advance Calculator</button>
       </div>
-      {err && <p className="hint err-text mb">{err}</p>}
+      {err && <p className="hint err-text mb"><span>{err}</span> <button className="btn ghost sm" onClick={retry}>Try again</button></p>}
       {!data && !err && <p className="muted">Loading…</p>}
       {data && sec === "outreach" && <OutreachPanel data={data} reload={load} />}
       {data && sec === "advance" && <AdvanceCalcPanel data={data} reload={load} />}
@@ -2932,6 +3003,7 @@ function ProspectForm({ prospect, blendedRate, statuses, onClose, onChanged }) {
   );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  useEscape(onClose, !busy); // as Cancel, which is off while saving
   const setSong = (slot, patch) => setSongs(songs.map((s) => (s.slot === slot ? { ...s, ...patch } : s)));
 
   const grossStreams = songs.reduce((sum, s) => sum + (Number(s.streams) || 0), 0);
@@ -3247,6 +3319,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
   const editFrom = useRef(null); // the song as it was when Edit was pressed
   const active = songs.find((p) => p.id === openId);
   const [pushWarn, setPushWarn] = useState(null);
+  useEscape(() => (editing ? setEditing(null) : setOpenId(null)), !!(active || editing));
   useEffect(() => {
     if (!active && !editing) return;
     const prev = document.body.style.overflow;
@@ -3558,7 +3631,7 @@ function ChangePassword() {
   );
 }
 
-function ClientPortal({ db, commit, session, logout }) {
+function ClientPortal({ db, commit, session, logout, signingOut }) {
   // db here is already scoped to just this client by /api/dashboard-data —
   // db.client is their own record, db.placements is only their own songs.
   // The old per-browser "pull streams from the sheet on load" workaround is
@@ -3573,7 +3646,7 @@ function ClientPortal({ db, commit, session, logout }) {
         <Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link>
         <div className="portal-who">
           <span>{client?.name || session.name}</span>
-          <button onClick={logout}><LogOut size={16} /> Sign out</button>
+          <button onClick={logout} disabled={signingOut}>{signingOut ? <><RefreshCw size={16} className="spin" /> Signing out…</> : <><LogOut size={16} /> Sign out</>}</button>
         </div>
       </header>
       <main className="portal-main">
@@ -3939,10 +4012,19 @@ function CatalogAdmin({ db, commit }) {
   const [newClientForm, setNewClientForm] = useState({ name: "", role: "Producer" });
   const [adding, setAdding] = useState(false);
   const [deleteWarn, setDeleteWarn] = useState(null);
+  useEscape(() => setAddingClient(false), addingClient);
+  const newNameTaken = nameTaken(db.clients, null, newClientForm.name);
+  // the chip row scrolls sideways under 1200px: whichever way a client gets picked (a chip, a MASTER
+  // row, a new client) its chip comes into view. Not on arriving at the tab, which starts on Overview
+  const chips = useRef(null), picked = useRef(false);
+  useEffect(() => {
+    if (picked.current) revealChip(chips.current?.querySelector(".cc.active"));
+    picked.current = true;
+  }, [clientId]);
 
   const addClient = async () => {
     const name = newClientForm.name.trim();
-    if (!name || adding || nameTaken(db.clients, null, name)) return; // the form says why
+    if (!name || adding || newNameTaken) return; // the form says why
     const client = {
       id: uid(), name, role: newClientForm.role, credit: "", bio: "", photo: "",
       spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "",
@@ -3986,7 +4068,7 @@ function CatalogAdmin({ db, commit }) {
         <h2>Clients &amp; Catalog</h2>
       </div>
       <div className="catalog-wrap">
-        <div className="catalog-clients">
+        <div className="catalog-clients" ref={chips}>
           <button className={clientId === null ? "cc active" : "cc"} onClick={() => setClientId(null)}>
             <span className="cc-overview-ic"><LayoutGrid size={16} /></span>
             <span className="cc-name">Overview</span>
@@ -4007,7 +4089,9 @@ function CatalogAdmin({ db, commit }) {
         <div className="catalog-main">
           {clientId === null
             ? <CatalogOverview db={db} commit={commit} onSelectClient={setClientId} />
-            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff /> : <p className="muted">Select a client.</p>)}
+            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff />
+              // deleted in another tab (this one's next save brought the news): their songs went with them
+              : <p className="hint err-text">That client was deleted somewhere else.</p>)}
         </div>
       </div>
 
@@ -4017,7 +4101,7 @@ function CatalogAdmin({ db, commit }) {
             <div className="modal-head"><h3>New client</h3><button onClick={() => setAddingClient(false)} aria-label="Close"><X size={18} /></button></div>
             <div className="modal-body">
               <Field label="Name" value={newClientForm.name} onChange={(ev) => setNewClientForm({ ...newClientForm, name: ev.target.value })} onKeyDown={(ev) => ev.key === "Enter" && addClient()} />
-              {nameTaken(db.clients, null, newClientForm.name) && <p className="hint err-text">{NAME_TAKEN}</p>}
+              {newNameTaken && <p className="hint err-text">{NAME_TAKEN}</p>}
               <label className="fld"><span>Role</span>
                 <select value={newClientForm.role} onChange={(ev) => setNewClientForm({ ...newClientForm, role: ev.target.value })}>
                   <option>Producer</option><option>Artist</option><option>Producer / Artist</option>
@@ -4027,7 +4111,7 @@ function CatalogAdmin({ db, commit }) {
             </div>
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setAddingClient(false)}>Cancel</button>
-              <button className="btn sm" onClick={addClient} disabled={!newClientForm.name.trim() || adding}>{adding ? "Adding…" : "Add client"}</button>
+              <button className="btn sm" onClick={addClient} disabled={!newClientForm.name.trim() || adding || newNameTaken}>{adding ? "Adding…" : "Add client"}</button>
             </div>
           </div>
         </div>
@@ -4044,7 +4128,7 @@ function WebsiteAdmin({ db, commit }) {
     <div>
       <div className="subnav">
         {secs.map(([id, label]) => (
-          <button key={id} className={sec === id ? "subpill active" : "subpill"} onClick={() => setSec(id)}>{label}</button>
+          <button key={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { setSec(id); revealChip(e.currentTarget); }}>{label}</button>
         ))}
       </div>
       {sec === "about" && <AboutEditor db={db} commit={commit} />}
@@ -4536,6 +4620,7 @@ function StyleTag() {
     .app:not(.pub) .dash-out{width:100%;height:40px;padding:0 12px;gap:12px;border:0;border-radius:var(--d-r-md);background:none;
       color:var(--d-ink-3);font-size:14px;font-weight:500}
     @media (hover:hover){ .app:not(.pub) .dash-out:hover{background:var(--d-hover);color:var(--d-ink)} }
+    .app:not(.pub) :is(.dash-out,.portal-who button):disabled{cursor:progress}   /* "Signing out…": waiting for a save to land */
     .app:not(.pub) .dash-main{flex:1 1 auto;min-width:0;max-width:none;padding:32px 40px 64px}
     .app:not(.pub) .dash-main > *{max-width:1200px;margin-inline:auto}
 
@@ -4688,7 +4773,10 @@ function StyleTag() {
       .app:not(.pub) .cc-del:hover{color:var(--d-neg);background:var(--d-neg-bg)}
     }
 
-    .app:not(.pub) .client-head{display:flex;align-items:center;gap:14px;min-width:0;margin:0 0 24px;padding:0 0 20px;border-bottom:1px solid var(--d-line)}
+    .app:not(.pub) .client-head{display:flex;align-items:flex-start;gap:14px;min-width:0;margin:0 0 24px;padding:0 0 20px;border-bottom:1px solid var(--d-line)}
+    /* the photo stays by the name's first line: where centring put it beside a one-line name (name + meta = 50.5px),
+       and no lower when a long name wraps */
+    .app:not(.pub) .client-head > .avatar{flex:none;margin-top:5px}
     .app:not(.pub) .client-head-text{min-width:0}
     .app:not(.pub) .client-head-name{font-size:22px;font-weight:600;line-height:1.2;letter-spacing:-.01em;color:var(--d-ink);overflow-wrap:anywhere}
     .app:not(.pub) .client-head-meta{margin-top:4px;font-size:13px;color:var(--d-ink-3);overflow-wrap:anywhere}
@@ -4880,10 +4968,10 @@ function StyleTag() {
     html:has(.app:not(.pub) .modal){overflow:hidden}
     .app:not(.pub) .modal-card{display:flex;flex-direction:column;max-width:520px;max-height:calc(100vh - 48px);max-height:calc(100dvh - 48px);overflow:hidden;
       background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-modal);box-shadow:var(--d-shadow-pop);
-      animation:popIn var(--d-t-open) var(--ease-out) both}
+      animation:popIn var(--d-t-open) var(--ease-out) backwards}   /* backwards: no transform left once open (it would cut fixed things inside) */
     .app:not(.pub) .modal-card.song-detail{max-width:440px}
-    /* the sticky app banner (z 400) sits over the overlay: start the card below it (phone sheets: see the 899px block) */
-    @media (min-width:900px){
+    /* the sticky app banner (z 400) sits over the overlay: start the card below it (phone sheets: see the 599px block) */
+    @media (min-width:600px){
       .app:not(.pub):has(> .storage-warn) .modal:not(.crop-overlay){padding-top:calc(var(--d-ban-h) + 24px)}
       .app:not(.pub):has(> .storage-warn) .modal-card{max-height:calc(100vh - var(--d-ban-h) - 48px);max-height:calc(100dvh - var(--d-ban-h) - 48px)}
     }
@@ -4897,10 +4985,27 @@ function StyleTag() {
     .app:not(.pub) .modal-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;gap:16px;padding:20px 22px}
     .app:not(.pub) .modal-foot{flex:none;align-items:center;gap:8px;padding:14px 22px;border-top:1px solid var(--d-line);background:var(--d-s1)}
     .app:not(.pub) .modal-foot .btn{height:var(--d-ctl)}
-    /* crop (stays centred on every size) */
+    /* crop (stays centred on every size). It never runs past the screen: on a short one the picture area scrolls
+       and Cancel / Use photo stay in view (phones held sideways get the side-by-side layout below) */
     .app:not(.pub) .modal.crop-overlay{padding:12px}
-    .app:not(.pub) .crop-card{max-width:380px;background:var(--d-s1);border:1px solid var(--d-line-2);box-shadow:var(--d-shadow-pop);animation:popIn var(--d-t-open) var(--ease-out) both}
-    .app:not(.pub) .crop-body{padding:20px 16px}
+    .app:not(.pub):has(> .storage-warn) .modal.crop-overlay{padding-top:calc(var(--d-ban-h) + 12px)}
+    .app:not(.pub) .crop-card{display:flex;flex-direction:column;max-width:380px;max-height:100%;background:var(--d-s1);border:1px solid var(--d-line-2);box-shadow:var(--d-shadow-pop);
+      animation:popIn var(--d-t-open) var(--ease-out) backwards}
+    .app:not(.pub) .crop-card > :is(.modal-head,.modal-foot){flex:none}
+    .app:not(.pub) .crop-body{flex:1 1 auto;min-height:0;align-items:center;align-items:safe center;padding:20px 16px;overflow-y:auto;overscroll-behavior:contain}
+    .app:not(.pub) .crop-body > *{flex:none}   /* the 300px square never squashes (the crop maths assume it) */
+    /* short and wide (a phone held sideways, a short window): the square on the left, zoom and buttons beside it.
+       The overlay scrolls only if even that doesn't fit */
+    .app:not(.pub) .modal.crop-overlay{align-items:safe center;overflow-y:auto}
+    @media (max-height:599px) and (min-width:600px){
+      .app:not(.pub) .crop-card{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto 1fr auto;max-width:600px}
+      .app:not(.pub) .crop-body{display:contents}
+      .app:not(.pub) .crop-view{grid-column:1;grid-row:1 / -1;margin:12px}
+      .app:not(.pub) .crop-card > .modal-head{grid-column:2;grid-row:1}
+      .app:not(.pub) .crop-card .crop-zoom{grid-column:2;grid-row:2;width:auto;margin:20px 20px 0}
+      .app:not(.pub) .crop-hint{grid-column:2;grid-row:3;margin:12px 20px;text-align:left}
+      .app:not(.pub) .crop-card > .modal-foot{grid-column:2;grid-row:4;border-top:0}
+    }
     .app:not(.pub) .crop-zoom{width:300px;max-width:100%;margin-inline:auto}   /* edges line up with the 300px image */
     .app:not(.pub) .crop-zoom span{font:400 10px/1 var(--d-display);font-synthesis:none;letter-spacing:.14em;color:var(--d-ink-4)}
     .app:not(.pub) .crop-zoom input[type=range]{accent-color:#f5f5f5}
@@ -4929,6 +5034,8 @@ function StyleTag() {
     /* App-level banner. Shared class: style ONLY the dashboard/portal copy (direct child of the root). */
     .app:not(.pub) > .storage-warn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:var(--d-ban-h);padding:10px 20px;
       background:var(--d-ban-neg-bg);border-bottom:1px solid var(--d-ban-neg-line);color:var(--d-ban-neg-ink);font-size:13.5px;line-height:1.45;text-align:center}
+    .app:not(.pub) > .storage-warn > span{min-width:0}   /* the message and its link: one run of text beside the icon */
+    .app:not(.pub) > .storage-warn a{white-space:nowrap}
     .app:not(.pub) > .storage-warn::before,.app:not(.pub) p.hint.err-text::before{content:"";flex:none;width:16px;height:16px;background:currentColor;
       -webkit-mask:var(--d-ic-alert) center/contain no-repeat;mask:var(--d-ic-alert) center/contain no-repeat}
     /* every in-page error line (.hint.err-text) becomes an inline banner: sync errors, missing tab, push warning,
@@ -4937,6 +5044,10 @@ function StyleTag() {
       background:var(--d-ban-neg-bg);border:1px solid var(--d-ban-neg-line);border-radius:var(--d-r-field);color:var(--d-ban-neg-ink);font-size:13.5px;line-height:1.5}
     .app:not(.pub) p.hint.err-text::before{margin-top:2px}
     .app:not(.pub) .dash-main p.hint.err-text{max-width:none}   /* page banners run the width of the tables they sit over */
+    /* A&R's "Try again": at the line's end, centred on its first line of text (wraps under it on a phone) */
+    .app:not(.pub) p.hint.err-text:has(> .btn){flex-wrap:wrap;align-items:center;row-gap:8px}
+    .app:not(.pub) p.hint.err-text:has(> .btn) > span{flex:1 1 240px;min-width:0}
+    .app:not(.pub) p.hint.err-text > .btn{flex:none;margin:-6px -4px -6px 0}
     .app:not(.pub) p.hint.err-text.overview-subhint{margin:0 0 16px}
     .app:not(.pub) .portal-block-head p.hint.err-text{margin:10px 0 0}
     .app:not(.pub) :is(.modal-body,.form-card) > p.hint.err-text{margin:0}
@@ -5068,15 +5179,12 @@ function StyleTag() {
       .app:not(.pub) .admin-row.admin-row-link > .cell:nth-child(3),.app:not(.pub) .admin-row.admin-row-link > .cell:nth-child(6){display:none}
       .app:not(.pub) .admin-row.admin-row-link > .cell:nth-child(4)::before{content:"· Net ";margin-right:2px}
       .app:not(.pub) .admin-row.admin-row-link > .cell:nth-child(2){max-width:calc(100% - 210px)}   /* a long contact ellipsizes instead of pushing Net down */
-      /* modals -> bottom sheets (crop stays centred) */
-      .app:not(.pub) .modal:not(.crop-overlay){align-items:flex-end;padding:0}
-      .app:not(.pub) .modal:not(.crop-overlay) .modal-card{max-width:none;max-height:92vh;max-height:92dvh;border-bottom:0;border-radius:16px 16px 0 0;animation:d-sheet-in var(--d-t-sheet) var(--ease-out) both}
-      /* under the app banner (which wraps to 2-3 lines here) the sheet starts lower */
-      .app:not(.pub):has(> .storage-warn) .modal:not(.crop-overlay) .modal-card{max-height:calc(100vh - 96px);max-height:calc(100dvh - 96px)}
+      /* modals: a centred card on tablets, as on desktop (a little wider); phones get bottom sheets (599px block) */
+      .app:not(.pub) .modal-card{max-width:560px}
       .app:not(.pub) .modal-head{padding:10px 8px 10px 18px}
       .app:not(.pub) .modal-body{padding:18px 16px}
       .app:not(.pub) .modal-body > p.hint.err-text:first-child{top:-18px}
-      .app:not(.pub) .modal-foot{padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
+      .app:not(.pub) .modal-foot{padding:12px 16px}
       .app:not(.pub) p.hint.err-text.modal-save-warn{margin:0 16px 12px}
       /* messages */
       .app:not(.pub) .sub-card{padding:14px}
@@ -5093,8 +5201,16 @@ function StyleTag() {
       .app:not(.pub) .overview-links > :first-child{grid-column:1 / -1;justify-self:start}
       .app:not(.pub) .overview-links > :nth-child(2){margin-left:-10px}
       .app:not(.pub) .song-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 12px}
+      /* modals -> bottom sheets (crop stays centred) */
+      .app:not(.pub) .modal:not(.crop-overlay){align-items:flex-end;padding:0}
+      .app:not(.pub) .modal:not(.crop-overlay) .modal-card{max-width:none;max-height:92vh;max-height:92dvh;border-bottom:0;border-radius:16px 16px 0 0;animation:d-sheet-in var(--d-t-sheet) var(--ease-out) backwards}
+      /* under the app banner (which wraps to 2-3 lines here) the sheet starts lower */
+      .app:not(.pub):has(> .storage-warn) .modal:not(.crop-overlay) .modal-card{max-height:calc(100vh - 96px);max-height:calc(100dvh - 96px)}
+      .app:not(.pub) .modal:not(.crop-overlay) .modal-foot{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+      .app:not(.pub):has(> .storage-warn) .modal.crop-overlay{padding-top:96px}
       .app:not(.pub) .modal-foot{flex-wrap:wrap}
       .app:not(.pub) .modal-foot .btn{flex:1 1 0;height:var(--d-ctl-lg)}
+      .app:not(.pub) p.hint.err-text > .btn{margin-left:26px}   /* A&R's Try again wraps here: under the text, not the icon */
       /* Delete prospect = a full-width row under Cancel/Save, but quieter than them (not the biggest thumb target).
          Selector weight matches the destructive :is() rule above, so this one (later) wins */
       .app:not(.pub) .modal-card .modal-foot .btn.ghost.err-text{order:1;flex-basis:100%;height:var(--d-ctl);margin-right:0;border-color:transparent}
