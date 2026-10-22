@@ -566,6 +566,7 @@ export default function App() {
   const pubStale = useRef(false); // set by a dashboard save
   const [menuOpen, setMenuOpen] = useState(false);
   const [loadErr, setLoadErr] = useState(null); // the dashboard's own load / save errors
+  const [signIns, setSignIns] = useState(0); // each sign-in reloads its data, even as the same account
   const [pubErr, setPubErr] = useState(null); // the public pages' data
   const [authDown, setAuthDown] = useState(false); // /api/auth/me couldn't check the sign-in (not "signed out")
   const [signingOut, setSigningOut] = useState(false); // sign-out is waiting for queued saves to land
@@ -640,7 +641,8 @@ export default function App() {
     const s = saves.current;
     s.gen++; s.server = null;
     setLoadErr(null); // the last account's banner isn't this one's
-    if (!session) { setDb(null); return; }
+    setDb(null); // nor its data: "Loading…" until this account's own copy lands
+    if (!session) return;
     let alive = true;
     (async () => {
       try {
@@ -657,7 +659,7 @@ export default function App() {
       }
     })();
     return () => { alive = false; };
-  }, [session?.id]);
+  }, [session?.id, signIns]);
 
   // Callers keep the old commit({...db, changedKey: newValue}) shape. The UI updates at once; the
   // save itself waits its turn, then rebases: what this edit changed (base -> next, field by field,
@@ -756,7 +758,8 @@ export default function App() {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data) return data?.error || (res.status >= 500 || res.ok ? "Sign-in isn't available right now — try again in a minute." : "Incorrect email or password.");
-    setSession(data.user); setAuthDown(false); setLoadErr(null);
+    // in the same render as the route change: the new dashboard never draws the last account's data
+    setDb(null); setSession(data.user); setAuthDown(false); setLoadErr(null); setSignIns((n) => n + 1);
     go(data.user.role === "staff" ? "staff" : "client");
     return null;
   };
@@ -2437,7 +2440,7 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState(null);
   const from = useRef(null); // the row as it was when the form opened
-  useEscape(() => setEditing(null), !!editing);
+  useEscape(() => setEditing(null), !!editing && !saving); // as Cancel: a save in flight finishes into its own form
   useEffect(() => {
     if (!editing) return;
     const prev = document.body.style.overflow;
@@ -3319,7 +3322,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
   const editFrom = useRef(null); // the song as it was when Edit was pressed
   const active = songs.find((p) => p.id === openId);
   const [pushWarn, setPushWarn] = useState(null);
-  useEscape(() => (editing ? setEditing(null) : setOpenId(null)), !!(active || editing));
+  useEscape(() => (editing ? setEditing(null) : setOpenId(null)), !!(active || editing) && !saving);
   useEffect(() => {
     if (!active && !editing) return;
     const prev = document.body.style.overflow;
@@ -4012,13 +4015,18 @@ function CatalogAdmin({ db, commit }) {
   const [newClientForm, setNewClientForm] = useState({ name: "", role: "Producer" });
   const [adding, setAdding] = useState(false);
   const [deleteWarn, setDeleteWarn] = useState(null);
-  useEscape(() => setAddingClient(false), addingClient);
+  useEscape(() => setAddingClient(false), addingClient && !adding);
   const newNameTaken = nameTaken(db.clients, null, newClientForm.name);
   // the chip row scrolls sideways under 1200px: whichever way a client gets picked (a chip, a MASTER
   // row, a new client) its chip comes into view. Not on arriving at the tab, which starts on Overview
   const chips = useRef(null), picked = useRef(false);
   useEffect(() => {
-    if (picked.current) revealChip(chips.current?.querySelector(".cc.active"));
+    if (picked.current) {
+      // picked from deep in the taller Overview: start the client's page at its header, not cut above it
+      const m = document.querySelector(".catalog-main");
+      if (m && m.getBoundingClientRect().top < 0) m.scrollIntoView({ block: "start" });
+      revealChip(chips.current?.querySelector(".cc.active"));
+    }
     picked.current = true;
   }, [clientId]);
 
@@ -4073,7 +4081,7 @@ function CatalogAdmin({ db, commit }) {
             <span className="cc-overview-ic"><LayoutGrid size={16} /></span>
             <span className="cc-name">Overview</span>
           </button>
-          <button className="cc cc-add" onClick={() => setAddingClient(true)}><Plus size={14} /> Add client</button>
+          <button className="cc cc-add" onClick={() => { setNewClientForm({ name: "", role: "Producer" }); setAddingClient(true); }}><Plus size={14} /> Add client</button>
           {deleteWarn && <p className="hint err-text">{deleteWarn}</p>}
           {db.clients.map((c) => (
             <div key={c.id} className="cc-row">
