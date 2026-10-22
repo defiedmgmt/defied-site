@@ -41,7 +41,7 @@ export default function PageShell({ title, description, path = "/", image = DEFA
       {preloadHero && <link rel="preload" as="image" href="/brand/wordmark.webp" fetchpriority="high" />}
       {/* the same goes for the brand font and the site data: both start with the HTML, so they've
           landed by the time the App bundle runs instead of being fetched one after another after it */}
-      {/* the dashboard and portal never use it: there it would only earn a "preloaded but not used" warning */}
+      {/* the dashboard and portal set their titles and labels in it too, so they preload it as well */}
       {preloadFont && <link rel="preload" as="font" type="font/otf" href="/fonts/suntage.otf" crossOrigin="anonymous" />}
       <link rel="preload" as="fetch" href="/api/public-data" crossOrigin="anonymous" />
       {!noindex && <link rel="canonical" href={url} />}
