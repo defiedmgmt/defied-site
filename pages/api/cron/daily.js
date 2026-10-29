@@ -1,14 +1,17 @@
 // Runs once a day (vercel.json "crons"): pulls the sheet onto the site so a
 // change typed straight into the sheet shows up without anyone signed in,
-// looks up a few missing ISRCs, and pings ClickUp when no Luminate update has
-// come in for over a week. Vercel sends Authorization: Bearer $CRON_SECRET;
-// without that secret set, this refuses to run at all.
+// looks up a few missing ISRCs, pings ClickUp when no Luminate update has
+// come in for over a week, and keeps the two ClickUp tasks the dashboard owns
+// (the weekly sync one, "Log new payments") up to date. Vercel sends
+// Authorization: Bearer $CRON_SECRET; without that secret set, this refuses
+// to run at all.
 import { sql } from "../../../lib/db";
 import { syncSiteFromSheet } from "../../../lib/site-sync";
 import { getState, setState } from "../../../lib/luminate";
 import { findIsrc } from "../../../lib/isrc";
 import { normalizeTitle } from "../../../lib/sheets";
 import { notifyClickUp } from "../../../lib/clickup";
+import { checkClickUpTasks } from "../../../lib/money";
 
 const STALE_DAYS = 8;
 const DAY = 86400000;
@@ -72,6 +75,9 @@ export default async function handler(req, res) {
       report.staleAlert = true;
     } else report.staleAlertFailed = true; // tried again at the next run
   }
+  // the weekly "clear the sync tasks" task (Mondays) and "Log new payments" (H.3/H.4): one stored
+  // task each, written only with CLICKUP_TASK_WRITES=on
+  try { report.clickupTasks = await checkClickUpTasks({ force: true }); } catch (err) { report.clickupTasksError = err.message; }
   await setState("cron", report);
   return res.status(200).json(report);
 }
