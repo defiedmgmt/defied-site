@@ -5419,7 +5419,9 @@ function TopGainers({ db, lum, onGo }) {
   const shown = (kind === "artists" ? (artists || []).flatMap((a) => a.songs) : rows || []).map((s) => s.g);
   const from = shown.map((g) => (g.week != null ? g.weekFrom : g.gainFrom)).sort()[0];
   const to = shown.map((g) => g.latestOn).sort().pop();
-  const title = !shown.length || daysSince(from) <= 8 ? "Top gainers this week" : `Top gainers · ${dayRange(from, to)}`;
+  // (and only while the window itself is about a week: a skipped week spans more)
+  const weekLong = from && to && daysSince(from) - daysSince(to) <= 8;
+  const title = !shown.length || (daysSince(from) <= 8 && weekLong) ? "Top gainers this week" : `Top gainers · ${dayRange(from, to)}`;
   // one line instead of a list until there's something to rank
   const empty = !growth ? (failed ? "Couldn't load this week's numbers." : "Loading…")
     : !rows.length && (lum?.lastUpload ? "Shows up after next week's Luminate export." : "Shows up after two weekly Luminate exports.");
