@@ -4495,9 +4495,9 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
               <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterNetStreams)}</span></div>
               {/* the same words as each client's page; the fee figures are the sheet's own: the fee so far
-                  (the table's "Est. admin fee"), its 3-year forecast, and the two together */}
+                  (MASTER's "CATALOG TO DATE", the table's "Est. admin fee"), its 3-year forecast, and the two together */}
               <div className="cat-stat"><span className="cat-stat-label">Est. publishing earnings <span className="cat-stat-note">(paid to the client directly)</span></span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Est. catalog to date</span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Est. admin fee so far <span className="cat-stat-note">(our commission)</span></span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">3-yr fee forecast</span><span className="cat-stat-val">{money(state.data.totals.threeYearForecast)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Total est. fee <span className="cat-stat-note">(so far + 3 years)</span></span><span className="cat-stat-val">{money(state.data.totals.totalEstAdminFee)}</span></div>
             </div>
@@ -4512,8 +4512,9 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
               <thead>
                 <tr>
                   <th>Writer</th><th>Songs</th><th>Gross streams</th><th>Net streams</th>
-                  <th>Est. earnings</th><th>Est. admin fee</th><th>Yr 1</th><th>Yr 2</th><th>Yr 3</th>
-                  <th>3-yr fee forecast</th><th>Total est. fee</th><th>% of roster</th>
+                  {/* MASTER's own columns: "Year 1/2/3 Admin Cut" is each year's forecast fee, "% of Roster Admin Fee" a share of the fee */}
+                  <th>Est. earnings</th><th>Est. admin fee</th><th>Yr 1 fee</th><th>Yr 2 fee</th><th>Yr 3 fee</th>
+                  <th>3-yr fee forecast</th><th>Total est. fee</th><th>% of roster fee</th>
                 </tr>
               </thead>
               <tbody>
