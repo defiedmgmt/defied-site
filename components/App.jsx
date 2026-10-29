@@ -4399,7 +4399,8 @@ function ExportDrop({ onDone }) {
   };
   const results = out?.results || [];
   const ready = results.filter((r) => r.status === "ready"), blocked = results.filter((r) => r.status === "blocked");
-  const slots = (r) => `${r.songs} song${r.songs === 1 ? "" : "s"}${r.others ? ` + ${r.others} release${r.others === 1 ? "" : "s"}` : ""}`;
+  const slots = (r) => [r.songs && `${r.songs} song${r.songs === 1 ? "" : "s"}`, r.artists && `${r.artists} artist${r.artists === 1 ? "" : "s"}`,
+    r.releases && `${r.releases} release${r.releases === 1 ? "" : "s"}`].filter(Boolean).join(" + ") || "nothing";
   return (
     <div className="lm-drop-wrap">
       <label
