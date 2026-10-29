@@ -10,7 +10,7 @@ import {
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
   Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator, Copy,
   Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
-  LayoutDashboard, ListChecks, Receipt, FileSpreadsheet, CircleDollarSign,
+  LayoutDashboard, ListChecks, Receipt, FileSpreadsheet, CircleDollarSign, Flag,
 } from "lucide-react";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
@@ -320,19 +320,19 @@ function EmailButton({ email, size = 18, inline = false }) {
 // Reliable external/email link: mirrors a real click on a target=_blank anchor
 // (the behavior that already works for the X link), which opens https in a new
 // tab and hands mailto: to the mail client — without ever navigating the app frame.
+function openTab(href) {
+  try {
+    const a = document.createElement("a");
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch { /* ignore */ }
+}
 function ExtLink({ href, className, label, title, children }) {
-  const onClick = (e) => {
-    e.preventDefault();
-    try {
-      const a = document.createElement("a");
-      a.href = href;
-      a.target = "_blank";
-      a.rel = "noopener noreferrer";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    } catch { /* ignore */ }
-  };
+  const onClick = (e) => { e.preventDefault(); openTab(href); };
   return (
     <a href={href} onClick={onClick} target="_blank" rel="noopener noreferrer" className={className} aria-label={label} title={title}>
       {children}
@@ -3195,8 +3195,18 @@ function ArTrackedForm({ kind, t, prefill, picker, pg, onClose, onSaved }) {
 }
 
 // Summary: the top gainers in the A&R lists, then what needs doing. Nothing else.
+// ClickUp's A&R Tasks list for the Summary's task list (read-only, /api/home?list=ar)
+function useArClickUp() {
+  const [cu, setCu] = useState(null);
+  const load = () => fetch("/api/home?list=ar", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+    .then((d) => setCu(d?.clickup || { error: "Couldn't reach ClickUp." })).catch(() => setCu({ error: "Couldn't reach ClickUp." }));
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return { cu, retry: () => { setCu(null); load(); } };
+}
+
 function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const { data, pg, pgErr, loadPg } = ar;
+  const { cu, retry: retryCu } = useArClickUp();
   const watch = pg?.watch;
   const { cards } = arCards(data, pg);
   const ranked = (list) => list.filter((r) => r.current != null).slice(0, 5);
@@ -3219,8 +3229,15 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
     tasks.push({ k: "noNumbers", t: `${n} ${pplOnly ? (n === 1 ? "person isn't" : "people aren't") : n === 1 ? "one you added isn't" : "you added aren't"} in your Luminate A&R list yet, so ${n === 1 ? "their" : "their"} numbers can't come in.`, cta: "See who", go: () => goWatch({ pill: noNums.every((r) => !r.role) ? "songs" : "people", noNumbers: true }) });
   }
   if (old) tasks.push({ k: "stale", t: `A&R numbers are from ${shortDay(to)}.`, cta: "Drop new exports", go: () => onGo("luminate", "drop") });
-  // HOOK (a later builder): ClickUp's A&R Tasks (urgent/high priority) are merged into this same
-  // list here, by urgency, each with its own one button. Not built yet.
+  // ClickUp's A&R Tasks, merged by urgency: urgent ones above the late follow-ups, high ones right
+  // after them, the rest only while the list is short. Each opens the task in ClickUp.
+  const cuItem = (t) => ({ k: `cu:${t.id}`, pri: t.priority, t: `${t.name}${t.due ? ` (${dueLate(t.due) ? "late, was due" : "due"} ${shortDay(t.due)})` : ""}`, cta: "Open in ClickUp", go: () => openTab(t.url) });
+  const cuOpen = cu?.tasks || [];
+  const lateN = tasks.filter((x) => x.k.startsWith("late:")).length;
+  const merged = [...cuOpen.filter((t) => t.priority === "urgent").map(cuItem), ...tasks.slice(0, lateN), ...cuOpen.filter((t) => t.priority === "high").map(cuItem), ...tasks.slice(lateN)];
+  const others = cuOpen.filter((t) => t.priority !== "urgent" && t.priority !== "high");
+  if (merged.length < 5) merged.push(...others.slice(0, 5 - merged.length).map(cuItem));
+  if (cu?.error) merged.push({ k: "cu:error", t: "Couldn't reach ClickUp, so its A&R tasks aren't listed here.", cta: "Try again", go: retryCu });
   const talking = cards.filter((c) => c.stage === "talking").length, offers = cards.filter((c) => c.stage === "offer").length;
   const value = data?.totals?.totalValue;
   const Gainers = ({ list, kind }) => (
@@ -3246,10 +3263,13 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
       <div className="ar-sum-head"><h3 className="ar-h3">{title}</h3><button className="inline-link" onClick={() => goWatch(null)}>See everyone →</button></div>
       <div className="home-pair ar-gainer-pair"><Gainers list={people} kind="people" /><Gainers list={songs} kind="songs" /></div>
       <h3 className="ar-h3">Top priority A&amp;R tasks</h3>
-      <div className={tasks.length ? "attn ar-tasks" : "attn clear ar-tasks"}>
-        {!tasks.length && <div className="attn-head"><CheckCircle2 size={15} /> All caught up</div>}
-        {tasks.map((it) => (
-          <div key={it.k} className="attn-row" data-task={it.k}><span>{it.t}</span><button className="btn ghost sm" onClick={it.go}>{it.cta}</button></div>
+      <div className={merged.length ? "attn ar-tasks" : "attn clear ar-tasks"}>
+        {!merged.length && <div className="attn-head"><CheckCircle2 size={15} /> All caught up</div>}
+        {merged.map((it) => (
+          <div key={it.k} className="attn-row" data-task={it.k} data-pri={it.pri || undefined}>
+            <span>{it.pri && <span className="cu-pri" data-pri={it.pri} title={`${PRIORITY[it.pri] || it.pri} priority in ClickUp`}><Flag size={13} /></span>}{it.t}</span>
+            <button className="btn ghost sm" onClick={it.go}>{it.cta}</button>
+          </div>
         ))}
       </div>
       <p className="ar-pipe"><button className="inline-link" onClick={goBoard}>Pipeline: {talking} talking · {offers} offer{offers === 1 ? "" : "s"} out{value != null ? ` · ≈ ${wholeMoney(value)} value` : ""}</button></p>
@@ -5783,7 +5803,7 @@ function Tasks({ items, loading, failed, onRetry, onGo }) {
       {items.map((it) => (
         <div key={it.k} className="attn-row" data-task={it.k}>
           <span>{it.t}</span>
-          <button className="btn ghost sm" onClick={() => onGo(it.tab, it.sub)}>{it.cta}</button>
+          <button className="btn ghost sm" onClick={() => (it.go ? it.go() : onGo(it.tab, it.sub))}>{it.cta}</button>
         </div>
       ))}
       {loading && items.length > 0 && <div className="attn-row attn-wait"><span>Checking Luminate…</span></div>}
@@ -5881,34 +5901,217 @@ function TopGainers({ db, lum, onGo }) {
 }
 
 // The landing tab: the company at a glance. Money first (Defied's commission, from Stripe), then
-// what needs doing beside what's growing, then payments and the accounting sheet. Publishing's own
-// detail (MASTER, the clients, their splits) stays on Publishing. pay (Stripe) arrives with a later
-// batch: until then its cards say what will show up there.
-function HomeDashboard({ db, lum, lumErr = false, reloadLum, pay = null, onGo }) {
-  const tasks = useMemo(() => dashTasks(db, lum), [db, lum]);
+// what needs doing (the Dashboard's own tasks beside ClickUp's), what's growing beside what came in,
+// then the accounting sheet. Publishing's own detail (MASTER, the clients, their splits) stays on
+// Publishing. The money, accounting and ClickUp parts come from /api/home; each says on its own
+// when it can't load, so the rest of the page never waits on it.
+function useHome() {
+  const [home, setHome] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const loader = useRef(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => { setFailed(false); return fetch("/api/home", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!alive) return; if (d?.money) setHome(d); else setFailed(true); }).catch(() => alive && setFailed(true)); };
+    loader.current = load;
+    load();
+    return () => { alive = false; };
+  }, []);
+  return { home, failed, retry: () => loader.current?.() };
+}
+const monthName = (ym) => (ym ? new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: "long" }) : "This month");
+
+function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo }) {
+  const { home, failed, retry } = useHome();
+  const unlogged = home?.accounting?.unlogged;
+  const tasks = useMemo(() => {
+    const list = dashTasks(db, lum);
+    // phase 6 logs them in one click; until then the button shows the list on the Accounting card
+    if (unlogged?.length) list.push({ k: "unlogged", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? " isn't" : "s aren't"} in the accounting sheet yet.`, cta: "See them", go: () => document.getElementById("payments")?.scrollIntoView({ behavior: "smooth", block: "start" }) });
+    return list;
+  }, [db, lum, unlogged]);
   return (
     <div className="home">
       <div className="admin-head"><h2>Dashboard</h2></div>
-      {!pay && (
-        <div className="home-money">
-          <span className="cat-stat-label">Commission</span>
-          <p className="home-muted"><CircleDollarSign size={15} /> Connect Stripe to see your commission here.</p>
-        </div>
-      )}
+      <MoneyRow money={home?.money} failed={failed} retry={retry} />
       <div className="home-pair">
         <Tasks items={tasks} loading={!lum && !lumErr} failed={!lum && lumErr} onRetry={reloadLum} onGo={onGo} />
-        <TopGainers db={db} lum={lum} onGo={onGo} />
+        <ClickUpCard first={home?.clickup} failed={failed} retry={retry} />
       </div>
       <div className="home-pair">
-        <div className="home-card">
-          <div className="attn-head"><Receipt size={15} /> Recent payments</div>
-          {!pay && <p className="home-muted">Connect Stripe to see recent payments here.</p>}
+        <TopGainers db={db} lum={lum} onGo={onGo} />
+        <PaymentsCard payments={home?.payments} failed={failed} retry={retry} />
+      </div>
+      <AccountingCard acct={home?.accounting} failed={failed} retry={retry} />
+    </div>
+  );
+}
+
+// A card's calm line while /api/home is on its way, or when it couldn't load at all
+function HomeWait({ failed, retry, what }) {
+  return failed
+    ? <p className="home-muted"><AlertTriangle size={15} /> <span>Couldn't load {what}. <button className="inline-link" onClick={retry}>Try again</button></span></p>
+    : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>;
+}
+
+function MoneyRow({ money: m, failed, retry }) {
+  if (!m || !m.connected || m.error) {
+    return (
+      <div className="home-money">
+        <span className="cat-stat-label">Commission</span>
+        {!m ? <HomeWait failed={failed} retry={retry} what="the commission" />
+          : !m.connected ? <p className="home-muted"><CircleDollarSign size={15} /> Connect Stripe to see your commission here.</p>
+          : <p className="home-muted"><AlertTriangle size={15} /> {m.error}</p>}
+      </div>
+    );
+  }
+  const stats = [["thisMonth", "Commission this month"], ["lastMonth", "Last month"], ["thisYear", "This year"]];
+  return (
+    <div className="cat-summary home-money-row">
+      <div className="cat-summary-grid">
+        {stats.map(([k, label]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(m[k])}</span></div>)}
+      </div>
+      <p className="hint home-src">From Stripe · updated {clock(m.updatedAt)}</p>
+    </div>
+  );
+}
+
+// "via Devin's link", or straight to Defied's own account (tests and deposits so far)
+const viaText = (p) => (p.direct ? "paid to Defied directly" : p.via ? `via ${p.via}'s link` : "via a payment link");
+function PayRow({ p }) {
+  return (
+    <div className="pay-row" data-pay={p.id}>
+      <span className="pay-main"><strong>{p.client || p.payer || "Unknown payer"}</strong><span>{shortDay(p.at)} · {viaText(p)}</span></span>
+      <span className="pay-amt"><b>{money(p.fee)}</b><em>Defied's cut of {money(p.amount)}</em></span>
+    </div>
+  );
+}
+
+function PaymentsCard({ payments: P, failed, retry }) {
+  const [all, setAll] = useState(false);
+  return (
+    <div className="home-card pay-card">
+      <div className="attn-head"><Receipt size={15} /> Recent payments
+        {P?.items?.length > 0 && <button className="inline-link pay-all" onClick={() => setAll(true)}>View all</button>}</div>
+      {!P ? <HomeWait failed={failed} retry={retry} what="the payments" />
+        : !P.connected ? <p className="home-muted">Connect Stripe to see recent payments here.</p>
+        : P.error ? <p className="home-muted"><AlertTriangle size={15} /> {P.error}</p>
+        : !P.items.length ? <p className="home-muted">No payments yet.</p>
+        : P.items.map((p) => <PayRow key={p.id} p={p} />)}
+      {all && <PaymentsModal onClose={() => setAll(false)} />}
+    </div>
+  );
+}
+
+function PaymentsModal({ onClose }) {
+  const [P, setP] = useState(null);
+  const [err, setErr] = useState(false);
+  useEscape(onClose);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/home?all=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!alive) return; if (d?.payments?.items) setP(d.payments); else setErr(d?.payments?.error || true); }).catch(() => alive && setErr(true));
+    return () => { alive = false; };
+  }, []);
+  return (
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-card pay-modal">
+        <div className="modal-head"><h3>Payments{P ? ` (last ${P.items.length})` : ""}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-body">
+          {err ? <p className="home-muted"><AlertTriangle size={15} /> {typeof err === "string" ? err : "Couldn't load the payments. Close this and try again."}</p>
+            : !P ? <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>
+            : P.items.map((p) => <PayRow key={p.id} p={p} />)}
         </div>
-        <div className="home-card">
-          <div className="attn-head"><FileSpreadsheet size={15} /> Accounting</div>
-          <p className="home-muted">Accounting sheet: not connected yet. Once it's shared, live numbers and one-click logging of payments show up here.</p>
+        <div className="modal-foot"><button className="btn sm" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  );
+}
+
+function AccountingCard({ acct: A, failed, retry }) {
+  const month = monthName(A?.month);
+  const stats = A && !A.error && A.connected ? [
+    ["monthRevenue", `Revenue · ${month}`], ["monthExpenses", `Expenses · ${month}`], ["monthNet", `Net · ${month}`],
+    ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (quarter)"],
+  ] : [];
+  const U = A?.unlogged;
+  return (
+    <div className="home-card acct-card" id="payments">
+      <div className="attn-head"><FileSpreadsheet size={15} /> Accounting</div>
+      {!A ? <HomeWait failed={failed} retry={retry} what="the accounting sheet" />
+        : !A.connected ? <p className="home-muted">Accounting sheet: not connected yet. Once it's shared, live numbers and one-click logging of payments show up here.</p>
+        : A.error ? <p className="home-muted"><AlertTriangle size={15} /> {A.error}</p>
+        : (
+          <>
+            <div className="cat-summary-grid acct-grid">
+              {stats.map(([k, label]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(A[k])}</span></div>)}
+            </div>
+            {U === null ? <p className="home-muted">Stripe couldn't be read just now, so the payments missing from the sheet can't be checked.</p>
+              : !U.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every Stripe payment is in the accounting sheet.</p>
+              : (
+                <div className="acct-unlogged">
+                  <p className="acct-unlogged-head"><strong>{U.length} payment{U.length === 1 ? " isn't" : "s aren't"} in the accounting sheet yet</strong> ({money(A.unloggedTotal)})</p>
+                  {U.map((p) => (
+                    <div key={p.id} className="acct-row" data-pay={p.id}><span>{shortDay(p.at)}</span><span className="acct-who">{p.client || p.payer || "Unknown payer"}</span><span className="acct-amt">{money(p.amount)}</span></div>
+                  ))}
+                  <p className="hint">One-click logging comes next; for now add them in the sheet.</p>
+                </div>
+              )}
+          </>
+        )}
+    </div>
+  );
+}
+
+// ClickUp's open tasks, read-only: Internal Tasks first, with Pub and A&R a click away. Each row
+// opens the task in ClickUp in a new tab.
+const CU_TABS = [["internal", "Internal"], ["pub", "Pub"], ["ar", "A&R"]];
+const PRIORITY = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
+const dueLate = (iso) => !!iso && new Date(iso).getTime() < new Date().setHours(0, 0, 0, 0);
+function useClickUpList(key, first) {
+  const [lists, setLists] = useState({});
+  const [busy, setBusy] = useState(false);
+  const have = lists[key] || (key === "internal" ? first : null);
+  const load = (k = key) => {
+    setBusy(true);
+    return fetch(`/api/home?list=${k}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => setLists((x) => ({ ...x, [k]: d?.clickup || { key: k, error: "Couldn't reach ClickUp." } })))
+      .catch(() => setLists((x) => ({ ...x, [k]: { key: k, error: "Couldn't reach ClickUp." } }))).finally(() => setBusy(false));
+  };
+  // Internal Tasks comes with the Dashboard's own load; the other two when first opened
+  useEffect(() => { if (key !== "internal" && !lists[key]) load(key); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { list: have, busy, reload: () => load(key) };
+}
+function CuTask({ t }) {
+  const late = dueLate(t.due);
+  return (
+    <ExtLink href={t.url} className="cu-row" title="Open in ClickUp">
+      <span className="cu-main"><strong>{t.name}</strong>
+        <span className="cu-meta">
+          <span className="cu-status" style={t.statusColor ? { "--cu": t.statusColor } : undefined}>{t.status}</span>
+          {t.due && <span className={late ? "cu-due late" : "cu-due"}>{late ? "Late · " : "Due "}{shortDay(t.due)}</span>}
+        </span>
+      </span>
+      {t.priority && <span className="cu-pri" data-pri={t.priority} title={`${PRIORITY[t.priority] || t.priority} priority`}><Flag size={13} /></span>}
+      <span className="cu-who">{t.assignees.slice(0, 3).map((a, i) => <span key={i} className="cu-av">{a}</span>)}</span>
+    </ExtLink>
+  );
+}
+function ClickUpCard({ first, failed, retry }) {
+  const [key, setKey] = useState("internal");
+  const { list, busy, reload } = useClickUpList(key, first);
+  return (
+    <div className="home-card cu-card">
+      <div className="attn-head"><ListChecks size={15} /> ClickUp
+        <div className="cu-tabs" role="tablist">
+          {CU_TABS.map(([k, label]) => <button key={k} role="tab" aria-selected={key === k} className={key === k ? "active" : ""} onClick={() => setKey(k)}>{label}</button>)}
         </div>
       </div>
+      {!list ? (key === "internal" && !first ? <HomeWait failed={failed} retry={retry} what="ClickUp" /> : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>)
+        : list.error ? <p className="home-muted"><AlertTriangle size={15} /> <span>{list.error} <button className="inline-link" onClick={reload} disabled={busy}>Try again</button></span></p>
+        : !list.tasks.length ? <p className="home-muted"><CheckCircle2 size={15} /> Nothing open in {list.name}.</p>
+        : list.tasks.map((t) => <CuTask key={t.id} t={t} />)}
+      {list?.url && <div className="cu-foot"><ExtLink href={list.url} className="inline-link">Open in ClickUp <ExternalLink size={12} /></ExtLink></div>}
     </div>
   );
 }
@@ -7932,10 +8135,10 @@ function StyleTag() {
     .app:not(.pub) .attn.wait .attn-head svg{color:var(--d-ink-4)}
     .app:not(.pub) .attn-wait span{color:var(--d-ink-4)}
     .app:not(.pub) .gainers .attn-head{flex-wrap:wrap;row-gap:10px}
-    .app:not(.pub) .gainer-tabs{margin-left:auto;display:inline-flex;gap:2px;padding:2px;border:1px solid var(--d-line-2);border-radius:100px}
-    .app:not(.pub) .gainer-tabs button{height:26px;padding:0 10px;border:0;border-radius:100px;background:none;color:var(--d-ink-4);font:500 12px/1 var(--d-body);white-space:nowrap;cursor:pointer;transition:background-color var(--d-t-fast) ease,color var(--d-t-fast) ease}
-    @media (hover:hover){ .app:not(.pub) .gainer-tabs button:hover{color:var(--d-ink)} }
-    .app:not(.pub) .gainer-tabs button.active{background:var(--d-active);color:var(--d-ink)}
+    .app:not(.pub) :is(.gainer-tabs,.cu-tabs){margin-left:auto;display:inline-flex;gap:2px;padding:2px;border:1px solid var(--d-line-2);border-radius:100px}
+    .app:not(.pub) :is(.gainer-tabs,.cu-tabs) button{height:26px;padding:0 10px;border:0;border-radius:100px;background:none;color:var(--d-ink-4);font:500 12px/1 var(--d-body);white-space:nowrap;cursor:pointer;transition:background-color var(--d-t-fast) ease,color var(--d-t-fast) ease}
+    @media (hover:hover){ .app:not(.pub) :is(.gainer-tabs,.cu-tabs) button:hover{color:var(--d-ink)} }
+    .app:not(.pub) :is(.gainer-tabs,.cu-tabs) button.active{background:var(--d-active);color:var(--d-ink)}
     .app:not(.pub) .gainers-empty{margin:0;padding:14px 16px;font-size:13.5px;line-height:1.5;color:var(--d-ink-4)}
     @media (max-width:899px){
       .app:not(.pub) .home-pair{grid-template-columns:minmax(0,1fr)}
@@ -7949,7 +8152,47 @@ function StyleTag() {
       .app:not(.pub) .dash-side nav button{padding:0 1px}
       .app:not(.pub) .dash-side nav button .nav-label{font-size:10px;letter-spacing:-.01em}
     }
-    @media (max-width:599px){ .app:not(.pub) .gainer-tabs{margin-left:0;width:100%} .app:not(.pub) .gainer-tabs button{flex:1} }
+    @media (max-width:599px){ .app:not(.pub) :is(.gainer-tabs,.cu-tabs){margin-left:0;width:100%} .app:not(.pub) :is(.gainer-tabs,.cu-tabs) button{flex:1} }
+    /* Dashboard money (Stripe), payments, the accounting sheet and ClickUp's lists */
+    .app:not(.pub) .home-money-row{margin:0 0 12px}
+    .app:not(.pub) .home-money-row .cat-stat-val{font-size:clamp(18px,10cqi,26px)}
+    .app:not(.pub) .home-src{margin:8px 2px 0}
+    .app:not(.pub) .pay-all{margin-left:auto;font:500 12.5px/1 var(--d-body);color:var(--d-ink-3);background:none;border:0;padding:6px 0}
+    .app:not(.pub) :is(.pay-row,.cu-row){display:flex;align-items:center;gap:12px;min-height:56px;padding:9px 16px;border-bottom:1px solid var(--d-line);text-decoration:none;color:inherit}
+    .app:not(.pub) :is(.pay-row,.cu-row):last-of-type{border-bottom:0}
+    .app:not(.pub) :is(.pay-main,.cu-main){flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+    .app:not(.pub) :is(.pay-main,.cu-main) strong{font-size:14px;font-weight:500;color:var(--d-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app:not(.pub) .pay-main > span,.app:not(.pub) .cu-meta{font-size:12.5px;color:var(--d-ink-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app:not(.pub) .pay-amt{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+    .app:not(.pub) .pay-amt b{font-size:15px;font-weight:600;color:var(--d-pos)} .app:not(.pub) .pay-amt em{font-style:normal;font-size:11.5px;color:var(--d-ink-4)}
+    .app:not(.pub) .pay-modal{max-width:620px} .app:not(.pub) .pay-modal .modal-body{padding:0}
+    .app:not(.pub) .acct-grid{margin:12px 16px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+    .app:not(.pub) .acct-card{margin:0 0 12px}
+    .app:not(.pub) .acct-card > .home-muted{padding:14px 16px}
+    .app:not(.pub) .acct-clear svg{color:var(--d-pos)}
+    .app:not(.pub) .acct-unlogged{margin:0 16px 14px;border:1px solid var(--d-warn-line);border-radius:var(--d-r-md);background:var(--d-warn-bg)}
+    .app:not(.pub) .acct-unlogged-head{margin:0;padding:10px 14px;font-size:13.5px;color:var(--d-ink-2);border-bottom:1px solid var(--d-line)}
+    .app:not(.pub) .acct-unlogged-head strong{color:var(--d-warn);font-weight:600}
+    .app:not(.pub) .acct-row{display:grid;grid-template-columns:64px minmax(0,1fr) auto;gap:12px;padding:8px 14px;border-bottom:1px solid var(--d-line);font-size:13.5px;color:var(--d-ink-3)}
+    .app:not(.pub) .acct-who{color:var(--d-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .app:not(.pub) .acct-amt{color:var(--d-ink-2)}
+    .app:not(.pub) .acct-unlogged .hint{margin:0;padding:9px 14px}
+    .app:not(.pub) .cu-card .attn-head{flex-wrap:wrap;row-gap:10px}
+    @media (hover:hover){ .app:not(.pub) .cu-row:hover{background:var(--d-hover)} }
+    .app:not(.pub) .cu-meta{display:flex;align-items:center;gap:8px}
+    .app:not(.pub) .cu-status{display:inline-flex;align-items:center;gap:5px;text-transform:uppercase;letter-spacing:.04em;font-size:11px}
+    .app:not(.pub) .cu-status::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--cu,var(--d-ink-4))}
+    .app:not(.pub) .cu-due.late{color:var(--d-neg)}
+    .app:not(.pub) .cu-pri{flex:none;display:inline-flex;color:var(--d-ink-4)}
+    .app:not(.pub) .cu-pri[data-pri=urgent]{color:var(--d-neg)} .app:not(.pub) .cu-pri[data-pri=high]{color:var(--d-warn)} .app:not(.pub) .cu-pri[data-pri=normal]{color:var(--d-info)}
+    .app:not(.pub) .attn-row .cu-pri{margin-right:6px;vertical-align:-2px}
+    .app:not(.pub) .cu-who{flex:none;display:flex;gap:2px}
+    .app:not(.pub) .cu-av{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--d-s3);border:1px solid var(--d-line-2);font:600 10px/1 var(--d-body);color:var(--d-ink-3)}
+    .app:not(.pub) .cu-foot{margin-top:auto;padding:10px 16px;border-top:1px solid var(--d-line);font-size:12.5px}
+    .app:not(.pub) .cu-foot a{display:inline-flex;align-items:center;gap:4px;color:var(--d-ink-3)}
+    @media (max-width:599px){
+      .app:not(.pub) .acct-row{grid-template-columns:52px minmax(0,1fr) auto;gap:8px}
+      .app:not(.pub) .cu-who{display:none}
+    }
     /* Publishing: "2 publishing tasks · see the Dashboard", the calculator's title one level down, money notes */
     .app:not(.pub) .pub-tasks{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:-8px 0 20px;font-size:13px;line-height:1.45;color:var(--d-ink-3)}
     .app:not(.pub) .pub-tasks svg{flex:none;color:var(--d-warn)}
