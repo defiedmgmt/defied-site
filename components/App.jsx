@@ -8081,7 +8081,10 @@ function StyleTag() {
     .app:not(.pub) .ar-show select,.app:not(.pub) .ar-kind select{height:36px;padding:0 10px;background:var(--d-field);border:1px solid var(--d-line-2);border-radius:9px;color:var(--d-ink);font:400 13px var(--d-body)}
     .app:not(.pub) .ar-sort{padding:0;border:0;background:none;font:inherit;color:inherit;cursor:pointer;text-align:left}
     .app:not(.pub) .ar-sort.on{color:var(--d-ink)}
+    .app:not(.pub) .admin-table.ar-watch-list .admin-row{grid-template-columns:var(--cols)}   /* its own columns, not the generic link-table's 7 */
     .app:not(.pub) .ar-who{display:flex;flex-direction:column;gap:2px;min-width:0}
+    .app:not(.pub) .ar-watch-list .ar-who,.app:not(.pub) .ar-watch-list .ar-who > *{white-space:normal;overflow:visible}
+    .app:not(.pub) .ar-watch-list .ar-row{padding-block:10px}
     .app:not(.pub) .ar-num{font-variant-numeric:tabular-nums}
     .app:not(.pub) .ar-period{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
     .app:not(.pub) .ar-totals{margin:0 0 16px}
