@@ -4760,6 +4760,17 @@ const ago = (iso) => {
 };
 // a bare date ("2026-10-14", a snapshot's day) is that day wherever this is read, not UTC midnight
 const shortDay = (iso) => (iso ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00` : iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+// a run of days, as short as it reads: "Sep 17 – 23", "Aug 27 – Sep 8" (with the year when it isn't this one)
+const dayRange = (from, to) => {
+  const day = (iso) => new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00` : iso);
+  const a = day(from), b = day(to), yr = (d) => (d.getFullYear() !== new Date().getFullYear() ? `, ${d.getFullYear()}` : "");
+  const md = (d) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (a.toDateString() === b.toDateString()) return md(b) + yr(b);
+  if (a.getFullYear() !== b.getFullYear()) return `${md(a)}, ${a.getFullYear()} – ${md(b)}, ${b.getFullYear()}`;
+  return `${md(a)} – ${a.getMonth() === b.getMonth() ? b.toLocaleDateString(undefined, { day: "numeric" }) : md(b)}${yr(b)}`;
+};
+// whole days from a date ("2026-10-14") to today, wherever this is read
+const daysSince = (iso) => Math.round((new Date().setHours(12, 0, 0, 0) - new Date(`${iso}T12:00:00`).getTime()) / 86400000);
 const signed = (n) => `${n >= 0 ? "+" : "−"}${fmt(Math.abs(Math.round(n)))}`;
 const compact = (n) => {
   const a = Math.abs(n), s = n < 0 ? "−" : "+";
@@ -5403,11 +5414,12 @@ function TopGainers({ db, lum, onGo }) {
   }, [songs, db.clients]);
   const rows = kind === "artists" ? artists : songs && songs.slice(0, 5);
   const name = (id) => db.clients.find((c) => c.id === id)?.name || "";
-  // "this week" only when every number shown is a week's; else the real dates
+  // "this week" only while the numbers shown are the last week's (every gain measured from a snapshot
+  // at most 8 days back); else the real dates they cover, from the earliest snapshot to the newest
   const shown = (kind === "artists" ? (artists || []).flatMap((a) => a.songs) : rows || []).map((s) => s.g);
-  const froms = [...new Set(shown.filter((g) => g.week == null).map((g) => g.gainFrom))];
-  const title = !shown.length || !froms.length ? "Top gainers this week"
-    : shown.every((g) => g.week == null) && froms.length === 1 ? `Top gainers since ${shortDay(froms[0])}` : "Top gainers";
+  const from = shown.map((g) => (g.week != null ? g.weekFrom : g.gainFrom)).sort()[0];
+  const to = shown.map((g) => g.latestOn).sort().pop();
+  const title = !shown.length || daysSince(from) <= 8 ? "Top gainers this week" : `Top gainers · ${dayRange(from, to)}`;
   // one line instead of a list until there's something to rank
   const empty = !growth ? (failed ? "Couldn't load this week's numbers." : "Loading…")
     : !rows.length && (lum?.lastUpload ? "Shows up after next week's Luminate export." : "Shows up after two weekly Luminate exports.");
