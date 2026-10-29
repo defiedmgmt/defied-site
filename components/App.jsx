@@ -2940,7 +2940,8 @@ async function arWrite(body) {
     body: JSON.stringify(body),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Save failed.");
+  // a 409 carries what the panel needs to say it plainly: the clashing fields, or "reload"
+  if (!res.ok) throw Object.assign(new Error(data.error || "Save failed."), { status: res.status, conflict: data.conflict, reload: !!data.reload });
   return data;
 }
 
@@ -2959,14 +2960,21 @@ function useArData() {
 }
 const ArDataError = ({ err, retry }) => <p className="hint err-text mb"><span>{err}</span> <button className="btn ghost sm" onClick={retry}>Try again</button></p>;
 
-// (the Advance calculator moved to Publishing: A&R is the prospects, Publishing the money side)
+// A&R: Board (default) · Top gainers · Luminate (addendum B.3; the Advance calculator lives in
+// Publishing). Top gainers and Luminate fill in once prospects' weekly numbers come from Luminate.
+const AR_SECS = [["board", "Board"], ["gainers", "Top gainers"], ["luminate", "Luminate"]];
 function ARAdmin() {
-  const { data, err, load, retry } = useArData();
+  const [sec, setSec] = useState("board");
   return (
     <div>
-      {err && <ArDataError err={err} retry={retry} />}
-      {!data && !err && <p className="muted dash-wait">Loading…</p>}
-      {data && <OutreachPanel data={data} reload={load} />}
+      <div className="subnav">
+        {AR_SECS.map(([id, label]) => (
+          <button key={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { setSec(id); revealChip(e.currentTarget); }}>{label}</button>
+        ))}
+      </div>
+      {sec === "board" && <ArBoard />}
+      {sec === "gainers" && <div className="admin-empty">Prospects with the biggest weekly gains show up here once their weekly numbers come in from Luminate.</div>}
+      {sec === "luminate" && <div className="admin-empty">Prospects' artists and songs in Luminate will be set up here, along with where to drop their weekly exports.</div>}
     </div>
   );
 }
@@ -2974,179 +2982,598 @@ function ARAdmin() {
 // sheet status -> chip tone (statuses come from OUTREACH_STATUSES; anything else stays neutral)
 const statusTone = (s = "") => /signed/i.test(s) ? "pos" : /offer/i.test(s) ? "warn" : /talk|negotiat/i.test(s) ? "info" : /not contacted|pass|declin/i.test(s) ? "muted" : undefined;
 
-function OutreachPanel({ data, reload }) {
-  const cols = "1.2fr 1fr 1fr 1fr 1fr 0.6fr 1fr";
+// spec 8: the board's columns and the exact sheet statuses in each; anything else typed by hand
+// goes to Other, which only shows when it isn't empty
+const AR_COLUMNS = [
+  ["new", "Not contacted yet", ["Not Contacted", "Researching", ""]],
+  ["talking", "Talking", ["Contacted", "In Talks"]],
+  ["offer", "Offer out", ["Offer Out"]],
+  ["signed", "Signed", ["Signed"]],
+  ["passed", "Passed", ["Passed"]],
+];
+const arColumnOf = (status) => (AR_COLUMNS.find(([, , list]) => list.includes(String(status || "").trim())) || ["other"])[0];
+// "Net 1.48M · Est. $3,700": the card's short numbers (the panel has the exact ones)
+const shortNum = (n) => { const a = Math.abs(Number(n) || 0); return a >= 1e6 ? `${(a / 1e6).toFixed(a >= 1e7 ? 1 : 2)}M` : a >= 1e3 ? `${Math.round(a / 1e3)}K` : fmt(Math.round(a)); };
+const roundMoney = (n) => { const a = Number(n) || 0; return `$${fmt(a >= 1000 ? Math.round(a / 100) * 100 : Math.round(a / 10) * 10)}`; };
+const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "");
+const weekday = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" });
+function followChip(f) {
+  if (!f?.on) return null;
+  if (f.state === "overdue") return <span className="arb-chip neg">{f.daysLate === 1 ? "1 day late" : `${f.daysLate} days late`}</span>;
+  if (f.state === "due") return <span className="arb-chip warn">Follow-up due</span>;
+  const days = (Date.parse(`${f.on}T12:00:00`) - Date.now()) / 864e5;
+  return <span className="arb-chip">Follow up {days < 6 ? weekday(f.on) : shortDay(f.on)}</span>;
+}
+
+// Postgres-only A&R calls (/api/ar): merges, the first-run card. They keep working while Sheets is down.
+async function arPost(body) {
+  const res = await fetch("/api/ar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Save failed.");
+  return data;
+}
+
+function ArBoard() {
+  const { data, err, load, retry } = useArData(); // the sheet read: money, cells, rows free
+  const [pg, setPg] = useState(null); // /api/ar: Postgres only, so the board draws before the sheet answers
+  const [pgErr, setPgErr] = useState(null);
+  const loadPg = () => fetch("/api/ar").then((r) => r.json())
+    .then((d) => { if (d.error) throw new Error(d.error); setPg(d); setPgErr(null); })
+    .catch((e) => setPgErr(e.message || "Couldn't load the A&R board."));
+  useEffect(() => { loadPg(); }, []);
+  // each sheet read can bring in or settle prospects (the first one imports them all), so the
+  // Postgres side is read again once it lands
+  useEffect(() => { if (data) loadPg(); }, [data]);
+  const reload = () => load();
+  const [view, setView] = useState("board");
+  const [find, setFind] = useState("");
+  const [openId, setOpenId] = useState(null);
   const [adding, setAdding] = useState(false);
-  const [activeId, setActiveId] = useState(null); // the prospect currently open for editing (its permanent id)
-  // look up fresh each render (not a stale snapshot) so the modal reflects
-  // updated sums immediately if reload() ever fires while it's open
-  const active = data.prospects.find((p) => p.id && p.id === activeId) || null;
-  const canSave = data.sheet?.ok !== false;
+  const [moving, setMoving] = useState({}); // id → the status shown while its move saves; snaps back if refused
+  const [flash, setFlash] = useState(null);
+  const [showOff, setShowOff] = useState(false);
+  const [showCheck, setShowCheck] = useState(false);
+  const [passedOpen, setPassedOpen] = useState(false);
+  const [quick, setQuick] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // sheet state: null = still reading, true = in step, false = showing the last copy (saving paused)
+  const sheetOk = data ? data.sheet?.ok !== false : err ? false : null;
+  const canSave = sheetOk === true;
+  const paused = canSave ? undefined : "Saving is paused until the pub sheet can be read again.";
+  const sheetById = useMemo(() => Object.fromEntries((data?.prospects || []).map((p) => [p.id, p])), [data]);
+  const statuses = data?.statuses || ["Not Contacted", "Researching", "Contacted", "In Talks", "Offer Out", "Signed", "Passed"];
+  const live = (pg?.prospects || []).filter((p) => !p.removedAt);
+  const offBoard = data?.offBoard || (pg?.prospects || []).filter((p) => p.removedAt).map((p) => ({ id: p.id, name: p.name, removedAt: p.removedAt, why: "removed" }));
+  const needle = find.trim().toLowerCase();
+  const shown = live.filter((p) => !needle || p.name.toLowerCase().includes(needle) || (sheetById[p.id]?.contact || "").toLowerCase().includes(needle))
+    .map((p) => ({ ...p, status: moving[p.id] ?? sheetById[p.id]?.status ?? p.status }));
+  const cols = [...AR_COLUMNS, ["other", "Other", []]].map(([id, label]) => ({ id, label, cards: shown.filter((p) => arColumnOf(p.status) === id) }))
+    .filter((c) => c.id !== "other" || c.cards.length);
+  const active = openId ? sheetById[openId] : null;
+
+  const move = async (p, status) => {
+    const s = sheetById[p.id];
+    if (!s || status === s.status) return;
+    setMoving((m) => ({ ...m, [p.id]: status })); setFlash(null);
+    try {
+      const r = await arWrite({ action: "setStatus", prospectId: p.id, status, expect: s.cells.O ?? "" });
+      setFlash({ ok: true, text: `${p.name} moved to ${status}.${r.followUpSet ? ` Follow-up set for ${shortDay(r.followUpSet)}.` : ""}` });
+      await reload();
+    } catch (e) { setFlash({ ok: false, text: e.message }); }
+    setMoving((m) => { const n = { ...m }; delete n[p.id]; return n; });
+  };
+  const quickAdd = async (e) => {
+    e.preventDefault();
+    const name = quick.trim();
+    if (!name || !canSave) return;
+    setBusy(true); setFlash(null);
+    try {
+      const r = await arWrite({ action: "createProspect", name });
+      setQuick("");
+      await reload();
+      if (r.prospect?.id) setOpenId(r.prospect.id);
+      if (r.note) setFlash({ ok: true, text: r.note });
+    } catch (e2) { setFlash({ ok: false, text: e2.message }); }
+    setBusy(false);
+  };
+  const act = async (fn) => {
+    setBusy(true); setFlash(null);
+    try { await fn(); await reload(); } catch (e) { setFlash({ ok: false, text: e.message }); }
+    setBusy(false);
+  };
+
+  const sheetLine = sheetOk === null ? <span className="muted">Reading the OUTREACH tab…</span>
+    : canSave ? <span>In step with the OUTREACH tab · read {clock(data.sheet.readAt)} · {data.sheet.layout?.free ?? 0} rows free</span>
+    : null;
 
   return (
-    <div>
+    <div className="arb">
       <div className="admin-head">
-        <h2>Outreach pipeline</h2>
-        <div style={{ display: "flex", gap: 8 }}>
-          {data.sheet?.links?.outreach && (
-            <ExtLink href={data.sheet.links.outreach} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
-          )}
-          <button className="btn sm" onClick={() => setAdding(true)} disabled={!canSave} title={canSave ? undefined : "Saving is paused until the pub sheet can be read again."}><Plus size={15} /> Add prospect</button>
+        <h2>A&amp;R board</h2>
+        <div className="arb-head-actions">
+          <div className="gainer-tabs" role="group" aria-label="View">
+            <button className={view === "board" ? "active" : ""} onClick={() => setView("board")}>Board</button>
+            <button className={view === "list" ? "active" : ""} onClick={() => setView("list")}>List</button>
+          </div>
+          {data?.sheet?.links?.outreach && <ExtLink href={data.sheet.links.outreach} className="btn ghost sm"><ExternalLink size={14} /> Open OUTREACH tab</ExtLink>}
+          <button className="btn sm" onClick={() => setAdding(true)} disabled={!canSave} title={paused}><Plus size={15} /> Add prospect</button>
         </div>
       </div>
-      {!canSave && <p className="hint err-text mb">Couldn't read the pub sheet just now. Showing what it said last time. Saving is paused until it's back.</p>}
-      <p className="muted mb">
-        Up to 5 songs per prospect — fill out their name, contact, and each song's Gross Streams and Writer %,
-        then hit Save once. Gross Streams, Net Streams, and Est. publishing earnings all sum/compute automatically — Net
-        Streams is the sum of each song's own streams × its own split, never an average. Never touches MASTER or
-        roster totals.
-      </p>
-      {data.prospects.length === 0 ? (
-        <div className="admin-empty">No prospects logged yet — click "Add prospect".</div>
-      ) : (
-        <div className="admin-table">
-          <div className="admin-row admin-hd" style={{ "--cols": cols }}>
-            <span>Prospect</span><span>Contact</span><span>Gross Streams</span><span>Net Streams</span><span title="Est. publishing earnings">Est. earnings</span><span>Songs</span><span>Status</span>
-          </div>
-          {data.prospects.map((p) => (
-            <button key={p.id || `row-${p.row}`} className="admin-row admin-row-link" style={{ "--cols": cols }} onClick={() => p.id && canSave && setActiveId(p.id)}>
-              <span className="cell">{p.name}</span>
-              <span className="cell">{p.contact || "—"}</span>
-              <span className="cell">{fmt(p.money.grossStreams)}</span>
-              <span className="cell">{fmt(Math.round(p.money.netStreams))}</span>
-              <span className="cell">{money(p.money.grossRevenue)}</span>
-              <span className="cell">{p.songs.filter((s) => s.streams > 0).length || "—"}</span>
-              <span className="cell">{p.status ? <span className="tag" data-tone={statusTone(p.status)}>{p.status}</span> : "—"}</span>
-            </button>
+
+      {sheetOk === false ? (
+        <div className="arb-banner neg">
+          <AlertTriangle size={16} />
+          <span>Couldn't read the pub sheet just now. {data?.sheet?.seenAt ? `Showing what it said at ${clock(data.sheet.seenAt)}.` : "Showing what it said last time."} Saving is paused until it's back.</span>
+          <button className="btn ghost sm" onClick={() => { retry(); loadPg(); }}>Try again</button>
+        </div>
+      ) : <p className="arb-status">{sheetLine}</p>}
+      {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
+      {flash && <p className={`hint ${flash.ok ? "ok-text" : "err-text"} arb-flash`} role="status">{flash.text}</p>}
+
+      {data?.firstRun && (
+        <div className="arb-card-note">
+          <CheckCircle2 size={16} />
+          <span>Brought in {data.firstRun.found} prospect{data.firstRun.found === 1 ? "" : "s"} from the OUTREACH tab. Nothing in the sheet was changed. From now on, saves here go straight to each prospect's own row.</span>
+          <button className="btn ghost sm" onClick={() => act(() => arPost({ action: "dismissFirstRun" }))} disabled={busy}>Got it</button>
+        </div>
+      )}
+      {(data?.sheet?.problems || []).map((pr) => (
+        <div key={pr.id || pr.text} className="arb-banner warn"><AlertTriangle size={16} /><span>{pr.text || String(pr)}</span></div>
+      ))}
+      {(data?.givenMismatch || []).length > 0 && (
+        <div className="attn arb-check">
+          <div className="attn-head"><AlertTriangle size={15} /> Changes to check</div>
+          {data.givenMismatch.map((g) => (
+            <div key={g.prospectId} className="attn-row">
+              <span>'Advance given?' for {g.name} says "{g.sheet || "blank"}" in the sheet, but the dashboard last saved "{g.remembered || "blank"}".</span>
+              <span className="arb-row-actions">
+                <button className="btn ghost sm" disabled={busy} onClick={() => act(() => arWrite({ action: "fixGiven", prospectIds: [g.prospectId], use: "sheet" }))}>Keep the sheet's</button>
+                <button className="btn ghost sm" disabled={busy || !canSave} title={paused} onClick={() => act(() => arWrite({ action: "fixGiven", prospectIds: [g.prospectId], use: "remembered" }))}>Fix: put back "{g.remembered || "blank"}"</button>
+              </span>
+            </div>
           ))}
         </div>
       )}
+      {(data?.changesToCheck || []).length > 0 && (
+        <div className="attn arb-check">
+          <div className="attn-head"><AlertTriangle size={15} /> Saves to double-check</div>
+          {data.changesToCheck.map((c, i) => <div key={c.id || i} className="attn-row"><span>{c.text || String(c)}</span></div>)}
+        </div>
+      )}
+
+      <div className="arb-tools">
+        <input className="arb-find" type="search" placeholder="Find a prospect" value={find} onChange={(e) => setFind(e.target.value)} aria-label="Find a prospect" />
+      </div>
+
+      {!pg && !pgErr && <p className="muted dash-wait">Loading…</p>}
+      {pg && view === "board" && (
+        <div className="arb-board">
+          {cols.map((c) => {
+            const collapsed = c.id === "passed" && !passedOpen && !needle;
+            return (
+              <section key={c.id} className={`arb-col${collapsed ? " collapsed" : ""}`} data-col={c.id}>
+                {c.id === "passed" ? (
+                  <button className="arb-col-head arb-col-toggle" onClick={() => setPassedOpen(!passedOpen)} aria-expanded={!collapsed}>
+                    <span>Passed ({c.cards.length}) {collapsed ? "▸" : "▾"}</span>
+                  </button>
+                ) : (
+                  <div className="arb-col-head"><span>{c.label}</span><span className="arb-n">{c.cards.length}</span></div>
+                )}
+                {!collapsed && (
+                  <div className="arb-cards">
+                    {c.id === "new" && (
+                      <form onSubmit={quickAdd} className="arb-quick">
+                        <input placeholder="Add a prospect… (type a name, press Enter)" value={quick} onChange={(e) => setQuick(e.target.value)} disabled={!canSave || busy} title={paused} aria-label="Add a prospect" />
+                      </form>
+                    )}
+                    {c.cards.map((p) => (
+                      <ArCard key={p.id} p={p} s={sheetById[p.id]} statuses={statuses} canSave={canSave && !moving[p.id]} paused={paused}
+                        onOpen={() => setOpenId(p.id)} onMove={(st) => move(p, st)} />
+                    ))}
+                    {!c.cards.length && c.id !== "new" && <p className="arb-empty">Nobody here yet.</p>}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      )}
+      {pg && view === "list" && <ArList rows={shown} sheetById={sheetById} pgById={Object.fromEntries(live.map((p) => [p.id, p]))} onOpen={setOpenId} />}
+
+      <div className="arb-foot">
+        <button className="inline-link" onClick={() => setShowOff(true)}>Off the board ({offBoard.length})</button>
+        <span aria-hidden="true">·</span>
+        <button className="inline-link" onClick={() => setShowCheck(true)}>Sheet check</button>
+      </div>
 
       {adding && (
         <ProspectForm
           blendedRate={data.assumptions.blendedRate}
-          statuses={data.statuses}
+          statuses={statuses}
           onClose={() => setAdding(false)}
-          onChanged={async () => { await reload(); setAdding(false); }}
+          onChanged={async (r) => { await reload(); setAdding(false); if (r?.prospect?.id) setOpenId(r.prospect.id); }}
         />
       )}
       {active && (
         <ProspectForm
+          key={active.id}
           prospect={active}
+          pg={live.find((p) => p.id === active.id)}
           blendedRate={data.assumptions.blendedRate}
-          statuses={data.statuses}
-          onClose={() => setActiveId(null)}
-          onChanged={async () => { await reload(); setActiveId(null); }}
+          statuses={statuses}
+          canSave={canSave}
+          reload={reload}
+          onClose={() => setOpenId(null)}
+          onChanged={async () => { await reload(); setOpenId(null); }}
         />
       )}
+      {showOff && <OffBoardList items={offBoard} live={live} canSave={canSave} onClose={() => setShowOff(false)} reload={reload} />}
+      {showCheck && <SheetCheck onClose={() => setShowCheck(false)} />}
+    </div>
+  );
+}
+
+function ArCard({ p, s, statuses, canSave, paused, onOpen, onMove }) {
+  return (
+    <div className="arb-card">
+      <button className="arb-card-open" onClick={onOpen} disabled={!s} title={s ? undefined : "Waiting for the pub sheet"}>
+        <span className="arb-card-top">
+          <span className="arb-name">{p.name}</span>
+          {p.clientId && <span className="tag" data-tone="pos">Client</span>}
+        </span>
+        {s?.contact && <span className="arb-contact">{s.contact}</span>}
+        <span className="arb-tags">
+          <span className="tag" data-tone={statusTone(p.status)}>{p.status || "No status"}</span>
+          {followChip(p.followUp)}
+        </span>
+        {s && <span className="arb-money">Net {shortNum(s.money.netStreams)} · Est. {roundMoney(s.money.grossRevenue)}</span>}
+        <span className="arb-tracked">{p.tracked?.length ? `${p.tracked.length} song${p.tracked.length === 1 ? "" : "s"} tracked` : "Not in Luminate yet"}</span>
+      </button>
+      <select className="arb-move" value="" onChange={(e) => e.target.value && onMove(e.target.value)} disabled={!canSave} title={paused} aria-label={`Move ${p.name} to…`}>
+        <option value="">Move to…</option>
+        {statuses.filter((st) => st !== p.status).map((st) => <option key={st} value={st}>{st}</option>)}
+      </select>
+    </div>
+  );
+}
+
+// The Board | List switch's list: the old table plus Last contact and Next follow-up
+function ArList({ rows, sheetById, pgById, onOpen }) {
+  const cols = "1.3fr 1fr 1fr 1fr 0.9fr 0.9fr 1fr";
+  if (!rows.length) return <div className="admin-empty">No prospects yet. Add one above.</div>;
+  return (
+    <div className="admin-table arb-list">
+      <div className="admin-row admin-hd" style={{ "--cols": cols }}>
+        <span>Prospect</span><span>Contact</span><span>Net Streams</span><span title="Est. publishing earnings">Est. earnings</span><span>Last contact</span><span>Next follow-up</span><span>Status</span>
+      </div>
+      {rows.map((p) => {
+        const s = sheetById[p.id];
+        return (
+          <button key={p.id} className="admin-row admin-row-link" style={{ "--cols": cols }} onClick={() => s && onOpen(p.id)}>
+            <span className="cell">{p.name}</span>
+            <span className="cell">{s?.contact || "—"}</span>
+            <span className="cell">{s ? fmt(Math.round(s.money.netStreams)) : "—"}</span>
+            <span className="cell">{s ? money(s.money.grossRevenue) : "—"}</span>
+            <span className="cell">{s?.lastContact?.date ? shortDay(s.lastContact.date) : s?.lastContact?.text || "—"}</span>
+            <span className="cell">{pgById[p.id]?.followUp?.on ? shortDay(pgById[p.id].followUp.on) : "—"}</span>
+            <span className="cell"><span className="tag" data-tone={statusTone(p.status)}>{p.status || "No status"}</span></span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// "Off the board": removed by staff, or gone from the sheet. Put back writes them into a free row;
+// "Same person as…" folds a record into someone already on the board (Postgres only)
+function OffBoardList({ items, live, canSave, onClose, reload }) {
+  const [busy, setBusy] = useState(null);
+  const [err, setErr] = useState(null);
+  const [into, setInto] = useState({});
+  useEscape(onClose, !busy);
+  const run = async (id, fn) => {
+    setBusy(id); setErr(null);
+    try { await fn(); await reload(); } catch (e) { setErr(e.message); }
+    setBusy(null);
+  };
+  return (
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal-card arb-off">
+        <div className="modal-head"><h3>Off the board ({items.length})</h3><button onClick={onClose} aria-label="Close" disabled={!!busy}><X size={18} /></button></div>
+        <div className="modal-body">
+          <p className="muted mb">Their songs, notes and history are kept. Put back returns them to a free row in the OUTREACH tab.</p>
+          {err && <p className="hint err-text">{err}</p>}
+          {!items.length && <p className="arb-empty">Nobody is off the board.</p>}
+          {items.map((o) => (
+            <div key={o.id} className="arb-off-row">
+              <div className="arb-off-who">
+                <span className="arb-name">{o.name}</span>
+                <span className="arb-contact">{o.why === "gone from the sheet" ? "Gone from the sheet" : "Removed"}{o.removedAt ? ` · ${shortDay(o.removedAt)}` : ""}</span>
+              </div>
+              <div className="arb-off-actions">
+                <button className="btn sm" disabled={!!busy || !canSave} title={canSave ? undefined : "Saving is paused until the pub sheet can be read again."}
+                  onClick={() => run(o.id, () => arWrite({ action: "restoreProspect", prospectId: o.id }))}>{busy === o.id ? "Putting back…" : "Put back"}</button>
+                {live.length > 0 && (
+                  <span className="arb-merge">
+                    <select value={into[o.id] || ""} onChange={(e) => setInto({ ...into, [o.id]: e.target.value })} aria-label={`${o.name} is the same person as…`}>
+                      <option value="">Same person as…</option>
+                      {live.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <button className="btn ghost sm" disabled={!!busy || !into[o.id]} onClick={() => run(o.id, () => arPost({ action: "mergeProspect", fromId: o.id, intoId: into[o.id] }))}>Merge</button>
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="modal-foot"><button className="btn ghost sm" onClick={onClose} disabled={!!busy}>Close</button></div>
+      </div>
+    </div>
+  );
+}
+
+// Sheet check (spec 5.7): read-only, so it's safe to run against the real sheet before any save
+function SheetCheck({ onClose }) {
+  const [res, setRes] = useState(null);
+  const [err, setErr] = useState(null);
+  const run = () => {
+    setRes(null); setErr(null);
+    fetch("/api/ar-data?check=1").then((r) => r.json())
+      .then((d) => { if (d.error) throw new Error(d.error); setRes(d); })
+      .catch((e) => setErr(e.message || "Couldn't check the pub sheet just now."));
+  };
+  useEffect(run, []);
+  useEscape(onClose);
+  const bad = (res?.checks || []).filter((c) => !c.ok).length;
+  return (
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-card arb-sheetcheck">
+        <div className="modal-head"><h3>Sheet check</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-body">
+          <p className="muted mb">Reads the OUTREACH, ADVANCE CALCULATOR and ASSUMPTIONS tabs and checks they're laid out the way the dashboard expects. It doesn't change anything in the sheet.</p>
+          {err && <ArDataError err={err} retry={run} />}
+          {!res && !err && <p className="muted">Checking the sheet…</p>}
+          {res && <p className={`hint ${bad ? "err-text" : "ok-text"} mb`}>{bad ? `${bad} thing${bad === 1 ? "" : "s"} to look at before saving from here.` : "Everything looks right."}</p>}
+          {res && (
+            <ul className="arb-checks">
+              {res.checks.map((c) => (
+                <li key={c.id} className={c.ok ? "ok" : "bad"}>{c.ok ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}<span>{c.text}</span></li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="modal-foot"><button className="btn ghost sm" onClick={run} disabled={!res && !err}>Check again</button><button className="btn sm" onClick={onClose}>Close</button></div>
+      </div>
     </div>
   );
 }
 
 const BLANK_SONGS = [1, 2, 3, 4, 5].map((slot) => ({ slot, streams: "", writerShare: "" }));
+const FIELD_LABEL = { name: "Name", contact: "Contact", status: "Status", lastContact: "Last contacted", notes: "Notes", given: "'Advance given?'" };
+const fieldLabel = (f) => FIELD_LABEL[f] || f.replace(/^slot(\d)\.(streams|share)$/, (_, n, k) => `Song ${n} ${k === "streams" ? "streams" : "writer %"}`);
+const showVal = (f, v) => (v === "" || v == null ? "blank" : /\.share$/.test(f) && typeof v === "number" ? `${Math.round(v * 1e6) / 1e4}%` : typeof v === "number" ? fmt(v) : String(v));
 
-// One form for both adding and editing a prospect — name, contact, and all
-// 5 song slots are filled out together and saved in a single click (one
-// createProspect, or one updateProspect carrying only what was changed), instead
-// of a separate save per field/song. The preview
-// totals are computed the same way the sheet computes them: Gross Streams
-// is a straight sum of the streams typed in each slot, and Net Streams is
-// the sum of each individual slot's own streams × its own writer % — never
-// a single blended percentage applied to the summed total, which is what
-// made the old one-pair-per-prospect design inaccurate for anyone with
-// more than one song at a different split.
-function ProspectForm({ prospect, blendedRate, statuses, onClose, onChanged }) {
+// The prospect panel (spec 14 S2), and the same form for a new prospect. Name, contact, notes,
+// last contacted and the 5 song slots save together in one click (one createProspect, or one
+// updateProspect carrying only what was changed, each with the value this panel opened with as
+// `expect`); the status and "Advance given?" save at once. The preview totals are computed the way
+// the sheet computes them: Net Streams is the sum of each slot's own streams × its own writer %.
+function ProspectForm({ prospect, pg, blendedRate, statuses, canSave = true, reload, onClose, onChanged }) {
   const isNew = !prospect;
+  const [base] = useState(prospect); // what this panel opened with: the `expect` of every Save
   const [name, setName] = useState(prospect?.name || "");
   const [contact, setContact] = useState(prospect?.contact || "");
   const [status, setStatus] = useState(prospect?.status || "");
-  const startSongs = prospect ? prospect.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })) : BLANK_SONGS;
+  const [notes, setNotes] = useState(prospect?.notes || "");
+  const [lastContact, setLastContact] = useState(prospect?.lastContact?.date || "");
+  const startSongs = base ? base.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })) : BLANK_SONGS;
   const [songs, setSongs] = useState(startSongs);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-  useEscape(onClose, !busy); // as Cancel, which is off while saving
+  const [err, setErr] = useState(null); // {text, reload?}
+  const [ok, setOk] = useState(null);
+  const [conflict, setConflict] = useState(null); // {list, send}
+  const [events, setEvents] = useState(null);
+  useEscape(onClose, !busy && !conflict); // as Cancel, which is off while saving
+  const loadEvents = () => !isNew && fetch(`/api/ar?events=${encodeURIComponent(prospect.id)}`).then((r) => r.json()).then((d) => setEvents(d.events || [])).catch(() => setEvents([]));
+  useEffect(() => { loadEvents(); }, []);
   const setSong = (slot, patch) => setSongs(songs.map((s) => (s.slot === slot ? { ...s, ...patch } : s)));
+  const paused = canSave ? undefined : "Saving is paused until the pub sheet can be read again.";
 
   const grossStreams = songs.reduce((sum, s) => sum + (Number(s.streams) || 0), 0);
   const netStreams = songs.reduce((sum, s) => sum + (Number(s.streams) || 0) * ((Number(s.writerShare) || 0) / 100), 0);
   const estRevenue = netStreams * blendedRate;
 
+  // a refusal in plain words: a hand edit meanwhile opens the conflict dialog, a moved row asks for a reload
+  const fail = (e, send) => {
+    if (e.conflict?.length && send) setConflict({ list: e.conflict, send });
+    else setErr({ text: e.message, reload: !!e.reload });
+    setBusy(false);
+  };
+  const after = async (r, keepOpen) => {
+    if (keepOpen) { await reload?.(); loadEvents(); setBusy(false); setOk(r?.note || "Saved ✓"); }
+    else await onChanged(r);
+  };
+  const send = async (body, keepOpen = false) => {
+    setBusy(true); setErr(null); setOk(null);
+    try { await after(await arWrite(body), keepOpen); } catch (e) { fail(e, body); }
+  };
+
   // a slot as the sheet holds it: streams, and the writer % as a 0-1 fraction (blank = cleared)
   const slotOf = (s) => ({ slot: s.slot, streams: s.streams === "" ? null : Number(s.streams), share: s.writerShare === "" ? null : Number(s.writerShare) / 100 });
   const save = async () => {
     if (!name.trim()) return;
-    setBusy(true); setErr(null);
-    try {
-      if (isNew) {
-        await arWrite({ action: "createProspect", name: name.trim(), contact: contact.trim(), status, slots: songs.filter((s) => s.streams !== "" || s.writerShare !== "").map(slotOf) });
-      } else {
-        // only what changed is sent, each with the value this form started from, so a hand edit in the
-        // sheet meanwhile (to any field) is never overwritten
-        const changes = {}, expect = {};
-        if (name.trim() !== prospect.name) { changes.name = name.trim(); expect.name = prospect.cells.A; }
-        if (contact.trim() !== prospect.contact.trim()) { changes.contact = contact.trim(); expect.contact = prospect.cells.B; }
-        if (status !== prospect.status) { changes.status = status; expect.status = prospect.cells.O; }
-        // per cell, so a writer % shown rounded (33.3333) is never written back unless it was changed
-        const slots = songs.map((s, i) => {
-          const was = startSongs[i], out = { slot: s.slot }, cell = slotOf(s);
-          if (String(s.streams) !== String(was.streams)) out.streams = cell.streams;
-          if (String(s.writerShare) !== String(was.writerShare)) out.share = cell.share;
-          return out;
-        }).filter((x) => "streams" in x || "share" in x);
-        if (slots.length) { changes.slots = slots; expect.slots = slots.map((s) => prospect.cells.slots[s.slot - 1]); }
-        if (Object.keys(changes).length) await arWrite({ action: "updateProspect", prospectId: prospect.id, changes, expect });
-      }
-      await onChanged();
-    } catch (e) { setErr(e.message); setBusy(false); }
+    if (isNew) return send({ action: "createProspect", name: name.trim(), contact: contact.trim(), status, notes: notes.trim(), slots: songs.filter((s) => s.streams !== "" || s.writerShare !== "").map(slotOf) });
+    // only what changed is sent, each with the value this panel opened with, so a hand edit in the
+    // sheet meanwhile (to any field) is never overwritten
+    const changes = {}, expect = {};
+    if (name.trim() !== base.name) { changes.name = name.trim(); expect.name = base.cells.A; }
+    if (contact.trim() !== base.contact.trim()) { changes.contact = contact.trim(); expect.contact = base.cells.B; }
+    if (notes.trim() !== (base.notes || "").trim()) { changes.notes = notes.trim(); expect.notes = base.cells.Q; }
+    if (lastContact !== (base.lastContact?.date || "")) { changes.lastContact = lastContact; expect.lastContact = base.cells.P; }
+    // per cell, so a writer % shown rounded (33.3333) is never written back unless it was changed
+    const slots = songs.map((s, i) => {
+      const was = startSongs[i], out = { slot: s.slot }, cell = slotOf(s);
+      if (String(s.streams) !== String(was.streams)) out.streams = cell.streams;
+      if (String(s.writerShare) !== String(was.writerShare)) out.share = cell.share;
+      return out;
+    }).filter((x) => "streams" in x || "share" in x);
+    if (slots.length) { changes.slots = slots; expect.slots = slots.map((s) => base.cells.slots[s.slot - 1]); }
+    if (!Object.keys(changes).length) return onClose();
+    return send({ action: "updateProspect", prospectId: base.id, changes, expect });
   };
+  // [Use mine]: the same save again, now expecting what the sheet holds for the fields that clashed
+  const useMine = () => {
+    const body = JSON.parse(JSON.stringify(conflict.send));
+    for (const c of conflict.list) {
+      const m = /^slot(\d)\.(streams|share)$/.exec(c.field);
+      if (m) { const e = (body.expect.slots || []).find((x) => Number(x.slot) === Number(m[1])); if (e) e[m[2]] = c.sheet; }
+      else if (body.action === "setGiven") body.expect = { given: c.sheet };
+      else if (body.action === "setStatus") body.expect = c.sheet;
+      else body.expect[c.field] = c.sheet;
+    }
+    setConflict(null);
+    send(body, body.action !== "updateProspect");
+  };
+  const keepSheets = async () => { setConflict(null); setBusy(true); await onChanged(); };
+  const saveStatus = (st) => { setStatus(st); send({ action: "setStatus", prospectId: base.id, status: st, expect: prospect.cells.O ?? "" }, true); };
+  const saveGiven = (v) => v && send({ action: "setGiven", prospectId: base.id, given: v === "Yes", expect: { given: prospect.advance?.given ?? "" } }, true);
+  const logContact = () => send({ action: "logContact", prospectId: base.id, expect: { lastContact: prospect.cells.P ?? "", status: prospect.cells.O ?? "" } }, true);
+  const undo = (id) => send({ action: "undo", eventId: id }, true);
   const deleteProspect = async () => {
     if (!window.confirm(`Take ${prospect.name} off the board? Their row in the OUTREACH tab is cleared, including 'Advance given?'. Their songs, notes and history stay here, and 'Put back' returns them to the sheet.`)) return;
-    setBusy(true); setErr(null);
-    try {
-      await arWrite({ action: "removeProspect", prospectId: prospect.id, expect: { A: prospect.cells.A } });
-      await onChanged();
-    } catch (e) { setErr(e.message); setBusy(false); }
+    send({ action: "removeProspect", prospectId: prospect.id, expect: { A: prospect.cells.A } });
   };
+  const adv = prospect?.advance;
 
   return (
-    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-card">
-        <div className="modal-head"><h3>{isNew ? "New prospect" : prospect.name}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && !conflict && onClose()}>
+      <div className={`modal-card${isNew ? "" : " arb-panel"}`}>
+        <div className="modal-head">
+          <h3>{isNew ? "New prospect" : prospect.name}</h3>
+          {!isNew && (
+            <select className="arb-panel-status" value={prospect.status} onChange={(e) => saveStatus(e.target.value)} disabled={busy || !canSave} title={paused} aria-label="Status">
+              {!prospect.status && <option value="">No status</option>}
+              {!statuses.includes(prospect.status) && prospect.status && <option value={prospect.status}>{prospect.status}</option>}
+              {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
+          <button onClick={onClose} aria-label="Close" disabled={busy}><X size={18} /></button>
+        </div>
         <div className="modal-body">
-          {err && <p className="hint err-text">{err}</p>}
+          {err && (
+            <p className="hint err-text arb-err" role="alert">
+              <span>{err.text}</span>
+              {err.reload && <button className="btn ghost sm" onClick={() => onChanged()}>Reload</button>}
+            </p>
+          )}
+          {ok && <p className="hint ok-text" role="status">{ok}</p>}
+          {!canSave && !isNew && <p className="hint err-text">Couldn't read the pub sheet just now, so saving is paused. What you see is what it said last time.</p>}
 
-          <div className="cat-summary" style={{ marginBottom: 18 }}>
-            <div className="cat-summary-grid">
-              <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(grossStreams)}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(Math.round(netStreams))}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Est. publishing earnings</span><span className="cat-stat-val">{money(estRevenue)}</span></div>
+          {!isNew && (
+            <div className="arb-actions">
+              <button className="btn ghost sm" onClick={logContact} disabled={busy || !canSave} title={paused}><Check size={14} /> Log contact</button>
+              {pg?.followUp?.on && (pg.followUp.state ? followChip(pg.followUp)
+                : <span className="arb-follow">Follow up: {new Date(`${pg.followUp.on}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</span>)}
+            </div>
+          )}
+
+          <div className="arb-panel-grid">
+            <div>
+              <p className="fld-label mb">Contact</p>
+              <Field label="Prospect / Producer" value={name} onChange={(e) => setName(e.target.value)} />
+              <Field label="Contact or handle" value={contact} onChange={(e) => setContact(e.target.value)} />
+              {isNew ? (
+                <label className="fld"><span>Outreach Status</span>
+                  <select value={status} onChange={(e) => setStatus(e.target.value)}>
+                    <option value="">— not set —</option>
+                    {(statuses || []).map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <Field label="Last contacted" type="date" value={lastContact} onChange={(e) => setLastContact(e.target.value)} hint={!prospect.lastContact?.date && prospect.lastContact?.text ? `The sheet says "${prospect.lastContact.text}"` : undefined} />
+              )}
+              <Area label="Notes (also in the OUTREACH sheet)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+
+              <p className="fld-label mb" style={{ marginTop: 18 }}>Songs (up to 5) — Gross Streams and Writer %</p>
+              {songs.map((s) => (
+                <div key={s.slot} className="ar-song-row">
+                  <span className="ar-song-num">{s.slot}</span>
+                  <input type="number" placeholder="Gross streams" value={s.streams} onChange={(e) => setSong(s.slot, { streams: e.target.value })} aria-label={`Song ${s.slot} gross streams`} />
+                  <input type="number" placeholder="Writer %" value={s.writerShare} onChange={(e) => setSong(s.slot, { writerShare: e.target.value })} aria-label={`Song ${s.slot} writer %`} />
+                </div>
+              ))}
+              <p className="hint">The OUTREACH tab has 5 song slots; those feed the sheet's estimates.</p>
+            </div>
+
+            <div>
+              <p className="fld-label mb">Money (estimates from the pub sheet)</p>
+              <div className="cat-summary" style={{ marginBottom: 10 }}>
+                <div className="cat-summary-grid">
+                  <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(grossStreams)}</span></div>
+                  <div className="cat-stat"><span className="cat-stat-label">Net Streams (their share)</span><span className="cat-stat-val">{fmt(Math.round(netStreams))}</span></div>
+                  <div className="cat-stat"><span className="cat-stat-label">Est. publishing earnings</span><span className="cat-stat-val">{money(estRevenue)}</span></div>
+                  {!isNew && <div className="cat-stat"><span className="cat-stat-label">3-yr est. value</span><span className="cat-stat-val">{money(prospect.money.totalEstValue)}</span></div>}
+                </div>
+              </div>
+              <p className="hint arb-money-tip">Estimates, not payouts: all-time streams × their writer share × ${blendedRate} a stream (the rate in ASSUMPTIONS), from the OUTREACH tab's own formulas. The sheet counts all-time streams as one year of earnings, so an older catalog can look bigger than it is. Real income depends on platform, country and deal.</p>
+              {!isNew && (
+                <label className="fld"><span>Advance given?</span>
+                  <select value={adv?.given || ""} onChange={(e) => saveGiven(e.target.value)} disabled={busy || !canSave || !adv?.editable} title={adv?.editable ? paused : adv?.why || undefined}>
+                    {!adv?.given && <option value="">Not answered</option>}
+                    <option value="Yes">Yes</option>
+                    <option value="No">No</option>
+                  </select>
+                  {adv && !adv.editable && adv.why && <span className="hint">{adv.why}</span>}
+                </label>
+              )}
+
+              {!isNew && (
+                <>
+                  <p className="fld-label mb" style={{ marginTop: 18 }}>History</p>
+                  {!events && <p className="muted">Loading…</p>}
+                  {events && !events.length && <p className="arb-empty">Nothing yet.</p>}
+                  {events && events.length > 0 && (
+                    <ul className="arb-history">
+                      {events.map((e) => (
+                        <li key={e.id}>
+                          <span><span className="arb-when">{shortDay(e.at)}</span> · {e.text}{e.status === "undone" ? " (undone)" : e.status === "failed" ? " (didn't save)" : ""}</span>
+                          {e.undoable && <button className="btn ghost sm" onClick={() => undo(e.id)} disabled={busy || !canSave} title={paused}>Undo</button>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
             </div>
           </div>
-
-          <Field label="Prospect / Producer" value={name} onChange={(e) => setName(e.target.value)} />
-          <Field label="Contact or Handle" value={contact} onChange={(e) => setContact(e.target.value)} />
-          <label className="fld"><span>Outreach Status</span>
-            <select value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">— not set —</option>
-              {(statuses || []).map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </label>
-
-          <p className="fld-label mb" style={{ marginTop: 18 }}>Songs (up to 5) — Gross Streams and Writer %</p>
-          {songs.map((s) => (
-            <div key={s.slot} className="ar-song-row">
-              <span className="ar-song-num">{s.slot}</span>
-              <input type="number" placeholder="Gross streams" value={s.streams} onChange={(e) => setSong(s.slot, { streams: e.target.value })} />
-              <input type="number" placeholder="Writer %" value={s.writerShare} onChange={(e) => setSong(s.slot, { writerShare: e.target.value })} />
-            </div>
-          ))}
         </div>
         <div className="modal-foot">
-          {!isNew && <button className="btn ghost sm err-text" onClick={deleteProspect} disabled={busy}>Remove from board</button>}
+          {!isNew && <button className="btn ghost sm err-text arb-remove" onClick={deleteProspect} disabled={busy || !canSave} title={paused}>Remove from board</button>}
           <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="btn sm" onClick={save} disabled={busy || !name.trim()}>{busy ? "Saving…" : "Save"}</button>
+          <button className="btn sm" onClick={save} disabled={busy || !name.trim() || !canSave} title={paused}>{busy ? "Saving…" : isNew ? "Save" : "Save changes"}</button>
         </div>
       </div>
+      {conflict && (
+        <div className="modal arb-conflict" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-card">
+            <div className="modal-head"><h3>Someone changed this in the sheet</h3></div>
+            <div className="modal-body">
+              {conflict.list.map((c) => (
+                <p key={c.field} className="mb">While you were editing, the OUTREACH tab changed. {fieldLabel(c.field)} now says "{showVal(c.field, c.sheet)}". Yours says "{showVal(c.field, c.yours)}".</p>
+              ))}
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost sm" onClick={keepSheets}>Keep the sheet's</button>
+              <button className="btn sm" onClick={useMine}>Use mine</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3267,7 +3694,7 @@ function AdvanceCalcPanel({ data, reload }) {
           <ExtLink href={links.advanceCalculator} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
         )}
       </div>
-      <p className="muted mb">Mirrors the sheet's own math exactly — pick an Outreach prospect or a signed client, or fill out a brand-new scenario and save it to Outreach once you're happy with it.</p>
+      <p className="muted mb">Mirrors the sheet's own math exactly — pick an Outreach prospect or a signed client, or fill out a brand-new scenario and add it as a prospect once you're happy with it.</p>
 
       <div className="cat-summary" style={{ marginBottom: 20, maxWidth: 560 }}>
         <div className="cat-summary-grid">
@@ -3312,15 +3739,16 @@ function AdvanceCalcPanel({ data, reload }) {
           onChange={(e) => setRecoupMonths(e.target.value)}
           hint="Advance = this many months of Year 1 admin cut · recouped from your 20% admin, not the writer's share · 12-18 mo traditional, 24-36 aggressive"
         />
+        <p className="hint">Recouped from our commission (the admin fee). Uses the same numbers as the ADVANCE CALCULATOR tab.</p>
         {err && <p className="hint err-text">{err}</p>}
         {/* saving flips scenario.kind to "outreach", which swaps in the
             read-only reference block above on the very next render — the
             confirmation has to live outside that block or it vanishes
             before anyone sees it */}
-        {saved && <p className="hint ok-text">Saved to Outreach ✓ — {scenario.name} now appears in the pipeline, shown below with its real numbers.</p>}
+        {saved && <p className="hint ok-text">Added as a prospect ✓ — {scenario.name} is now on the A&amp;R board, shown below with its real numbers.</p>}
         {scenario.kind === "new" && (
           <button className="btn sm" onClick={saveToOutreach} disabled={busy || !scenario.name.trim() || !netStreams}>
-            {busy ? "Saving…" : "Save to Outreach"}
+            {busy ? "Saving…" : "Add as prospect"}
           </button>
         )}
         {selectedProspect && (
@@ -5760,7 +6188,7 @@ function StyleTag() {
     }
     /* form cards (Advance calculator, portal password) — left-aligned, no longer centred */
     .app:not(.pub) .form-card{margin:0 0 20px;padding:20px;gap:16px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}
-    .app:not(.pub) .form-card > .btn{align-self:flex-start}           /* "Save to Outreach" no longer stretches */
+    .app:not(.pub) .form-card > .btn{align-self:flex-start}           /* "Add as prospect" no longer stretches */
     .app:not(.pub) .form-card ~ .cat-summary,.app:not(.pub) .form-card ~ .split-list{max-width:560px}   /* one 560px column on Advance */
     /* wide screens: the answer (result strip + ledgers) sits beside the form, so it stays in view while typing.
        Rows 1-3 = title, description, budget; the form spans 4-6 and the last row takes its extra height */
@@ -7071,6 +7499,88 @@ function StyleTag() {
     .app:not(.pub) .cat-stat-label:has(.cat-stat-note){white-space:normal}
     .app:not(.pub) .cat-stat-note{display:block;margin-top:2px;font:400 11px/1.35 var(--d-body);letter-spacing:0;text-transform:none;color:var(--d-ink-4)}
     .app:not(.pub) .money-hint{max-width:80ch}
+    /* A&R board (spec 8 / 14): status columns of cards, the panel, off-the-board list, Sheet check */
+    .app:not(.pub) .arb-head-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+    .app:not(.pub) .arb-head-actions .gainer-tabs{margin-left:0}
+    .app:not(.pub) .arb-status{margin:-6px 0 14px;font-size:13px;line-height:1.45;color:var(--d-ink-3)}
+    .app:not(.pub) .arb-banner,.app:not(.pub) .arb-card-note{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:0 0 12px;padding:11px 14px;border-radius:var(--d-r-card);font-size:13.5px;line-height:1.45}
+    .app:not(.pub) .arb-banner span,.app:not(.pub) .arb-card-note span{flex:1 1 240px}
+    .app:not(.pub) .arb-banner svg,.app:not(.pub) .arb-card-note svg{flex:none}
+    .app:not(.pub) .arb-banner.neg{background:var(--d-ban-neg-bg);border:1px solid var(--d-ban-neg-line);color:var(--d-ban-neg-ink)}
+    .app:not(.pub) .arb-banner.warn{background:var(--d-ban-warn-bg);border:1px solid var(--d-ban-warn-line);color:var(--d-ban-warn-ink)}
+    .app:not(.pub) .arb-card-note{background:var(--d-s1);border:1px solid var(--d-line-2);color:var(--d-ink-2)} .app:not(.pub) .arb-card-note svg{color:var(--d-pos)}
+    .app:not(.pub) .arb-check{margin:0 0 12px}
+    .app:not(.pub) .arb-row-actions{display:flex;flex-wrap:wrap;gap:6px;flex:none}
+    .app:not(.pub) .arb-flash{margin:0 0 12px}
+    .app:not(.pub) .arb-tools{display:flex;gap:8px;margin:0 0 14px}
+    .app:not(.pub) .arb-find,.app:not(.pub) .arb-quick input,.app:not(.pub) .arb-move,.app:not(.pub) .arb-merge select,.app:not(.pub) .arb-panel-status{background:var(--d-field);border:1px solid var(--d-line-2);color:var(--d-ink);border-radius:9px;font:400 13px/1.2 var(--d-body);min-width:0}
+    .app:not(.pub) .arb-find{width:280px;max-width:100%;height:36px;padding:0 12px}
+    .app:not(.pub) .arb-board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) minmax(150px,.7fr);gap:10px;align-items:start}
+    .app:not(.pub) .arb-board:has(.arb-col[data-col=other]){grid-template-columns:repeat(4,minmax(0,1fr)) minmax(150px,.7fr) minmax(0,1fr)}
+    .app:not(.pub) .arb-col{display:flex;flex-direction:column;min-width:0;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card);overflow:hidden}
+    .app:not(.pub) .arb-col-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 14px;border-bottom:1px solid var(--d-line);font:600 13px/1.2 var(--d-body);color:var(--d-ink)}
+    .app:not(.pub) .arb-col-toggle{width:100%;background:none;border:0;border-bottom:1px solid var(--d-line);cursor:pointer;text-align:left;font-family:inherit}
+    .app:not(.pub) .arb-col.collapsed .arb-col-toggle{border-bottom:0;color:var(--d-ink-3)}
+    .app:not(.pub) .arb-n{font:500 12px/1 var(--d-body);color:var(--d-ink-4)}
+    .app:not(.pub) .arb-cards{display:flex;flex-direction:column;gap:8px;padding:10px}
+    .app:not(.pub) .arb-quick input{width:100%;height:36px;padding:0 10px}
+    .app:not(.pub) .arb-card{display:flex;flex-direction:column;gap:8px;padding:12px;background:var(--d-s2);border:1px solid var(--d-line-2);border-radius:10px;transition:border-color var(--d-t-fast) ease}
+    @media (hover:hover){ .app:not(.pub) .arb-card:hover{border-color:var(--d-line-3)} }
+    .app:not(.pub) .arb-card-open{display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:0;background:none;border:0;color:inherit;text-align:left;cursor:pointer;font-family:inherit;min-width:0}
+    .app:not(.pub) .arb-card-open:disabled{cursor:default}
+    .app:not(.pub) .arb-card-top{display:flex;align-items:center;gap:6px;max-width:100%}
+    .app:not(.pub) .arb-name{font:600 14px/1.3 var(--d-body);color:var(--d-ink);overflow-wrap:anywhere}
+    .app:not(.pub) .arb-contact{font-size:12.5px;line-height:1.35;color:var(--d-ink-4);overflow-wrap:anywhere}
+    .app:not(.pub) .arb-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
+    .app:not(.pub) .arb-money{font:500 12.5px/1.35 var(--d-body);color:var(--d-ink-2);font-variant-numeric:tabular-nums}
+    .app:not(.pub) .arb-tracked{font-size:12px;line-height:1.35;color:var(--d-ink-4)}
+    .app:not(.pub) .arb-chip{font-size:11px;padding:3px 9px;border-radius:100px;border:1px solid var(--d-line-2);color:var(--d-ink-3)}
+    .app:not(.pub) .arb-chip.warn{background:var(--d-warn-bg);border-color:var(--d-warn-line);color:var(--d-warn)}
+    .app:not(.pub) .arb-chip.neg{background:var(--d-neg-bg);border-color:var(--d-neg-line);color:var(--d-neg)}
+    .app:not(.pub) .arb-move{width:100%;height:32px;padding:0 8px}
+    .app:not(.pub) .arb-empty{margin:0;padding:4px 2px;font-size:13px;color:var(--d-ink-4)}
+    .app:not(.pub) .arb-foot{display:flex;align-items:center;gap:8px;margin:16px 0 0;font-size:13px;color:var(--d-ink-4)}
+    .app:not(.pub) .arb-foot .inline-link{padding:0;border:0;background:none;font:inherit;color:var(--d-ink-2);cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--d-line-3)}
+    .app:not(.pub) .modal-card.arb-panel{max-width:920px;width:100%}
+    .app:not(.pub) .arb-panel .modal-head{gap:10px} .app:not(.pub) .arb-panel .modal-head h3{flex:1;min-width:0}
+    .app:not(.pub) .arb-panel-status{height:34px;padding:0 8px}
+    .app:not(.pub) .arb-panel-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}
+    .app:not(.pub) .arb-panel .cat-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .app:not(.pub) .arb-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 16px}
+    .app:not(.pub) .arb-follow{font-size:13px;color:var(--d-ink-3)}
+    .app:not(.pub) .arb-money-tip{margin:0 0 16px}
+    .app:not(.pub) .arb-err{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+    .app:not(.pub) .arb-history{list-style:none;margin:0;padding:0;border:1px solid var(--d-line-2);border-radius:10px;overflow:hidden}
+    .app:not(.pub) .arb-history li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-bottom:1px solid var(--d-line);font-size:13px;line-height:1.45;color:var(--d-ink-2)}
+    .app:not(.pub) .arb-history li:last-child{border-bottom:0}
+    .app:not(.pub) .arb-when{color:var(--d-ink-4);font-variant-numeric:tabular-nums}
+    .app:not(.pub) .modal-foot .arb-remove{margin-right:auto}
+    .app:not(.pub) .arb-conflict{z-index:2}
+    .app:not(.pub) .arb-off-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:12px 0;border-bottom:1px solid var(--d-line)}
+    .app:not(.pub) .arb-off-row:last-child{border-bottom:0}
+    .app:not(.pub) .arb-off-who{display:flex;flex-direction:column;gap:3px;min-width:0}
+    .app:not(.pub) .arb-off-actions,.app:not(.pub) .arb-merge{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+    .app:not(.pub) .arb-merge select{height:32px;padding:0 8px;max-width:180px}
+    .app:not(.pub) .arb-checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+    .app:not(.pub) .arb-checks li{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;line-height:1.45;color:var(--d-ink-2)}
+    .app:not(.pub) .arb-checks li svg{flex:none;margin-top:2px} .app:not(.pub) .arb-checks li.ok svg{color:var(--d-pos)} .app:not(.pub) .arb-checks li.bad svg{color:var(--d-warn)}
+    .app:not(.pub) .arb-checks li.bad span{color:var(--d-ink)}
+    .app:not(.pub) .arb-checks li span{min-width:0;overflow-wrap:anywhere}   /* a quoted formula wraps instead of running off a phone */
+    @media (max-width:1100px){
+      /* narrower screens: the columns wrap two or three across instead of squeezing */
+      .app:not(.pub) .arb-board,.app:not(.pub) .arb-board:has(.arb-col[data-col=other]){grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+    }
+    @media (max-width:699px){
+      /* phones: the columns stack as full-width sections, the panel goes full screen */
+      .app:not(.pub) .arb-board,.app:not(.pub) .arb-board:has(.arb-col[data-col=other]){grid-template-columns:minmax(0,1fr)}
+      .app:not(.pub) .arb-find{width:100%}
+      .app:not(.pub) .arb-panel-grid{grid-template-columns:minmax(0,1fr);gap:8px}
+      .app:not(.pub) .admin-head .arb-head-actions{width:100%}
+      .app:not(.pub) .arb-head-actions .btn{flex:1 1 auto;justify-content:center}
+      .app:not(.pub) .modal-card.arb-panel{max-width:none;max-height:100dvh;height:100dvh;border-radius:0}
+      .app:not(.pub) .modal:has(.arb-panel){padding:0}
+      .app:not(.pub) .arb-history li{flex-wrap:wrap}
+    }
     `}</style>
   );
 }

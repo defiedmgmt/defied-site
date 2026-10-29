@@ -1,10 +1,19 @@
 // Staff-only A&R data from Postgres alone: the board can draw from this first, and it keeps working
 // while the pub sheet can't be read. GET = every prospect with its follow-up, socials and tracked
-// songs (?summary=1: the counts for the sidebar badge and the Dashboard's tasks). POST takes one
+// songs (?summary=1: the counts for the sidebar badge and the Dashboard's tasks; ?events=<id>: one
+// prospect's History for the panel, newest first). POST takes one
 // {action} that never touches the sheet. Pub-sheet changes go through /api/ar-write.
 import { sql } from "../../lib/db";
 import { requireStaff, requireSameOrigin } from "../../lib/session";
 import { arState, arSummary, mergeProspect, ArError } from "../../lib/ar";
+
+// the panel's History: plain sentences only (the cells stay server-side); pending ones are left out
+// until the next load settles them
+const UNDOABLE = ["edit", "status", "contact", "song", "given", "undo"];
+async function eventsOf(prospectId) {
+  const rows = await sql`SELECT id, at, by, kind, text, status FROM ar_events WHERE prospect_id = ${prospectId} AND status <> 'pending' ORDER BY at DESC LIMIT 40`;
+  return rows.map((e) => ({ id: e.id, at: e.at, by: e.by, kind: e.kind, text: e.text, status: e.status, undoable: e.status === "done" && UNDOABLE.includes(e.kind) }));
+}
 
 async function act(body, by) {
   const { action } = body;
@@ -20,6 +29,7 @@ export default async function handler(req, res) {
   const session = await requireStaff(req, res);
   if (!session) return;
   try {
+    if (req.method === "GET" && req.query.events) return res.status(200).json({ events: await eventsOf(String(req.query.events)) });
     if (req.method === "GET") return res.status(200).json(req.query.summary ? await arSummary() : await arState());
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
