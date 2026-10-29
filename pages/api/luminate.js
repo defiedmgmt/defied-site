@@ -3,7 +3,7 @@
 // takes one { action, ... } at a time.
 import { sql } from "../../lib/db";
 import { requireStaff, requireSameOrigin } from "../../lib/session";
-import { lumState, portfolioIdOf, writeLuminateIds } from "../../lib/luminate";
+import { lumState, portfolioIdOf, writeLuminateIds, knownAreas, isAR, isRoster } from "../../lib/luminate";
 import { afterExports } from "../../lib/luminate-run";
 import { syncSiteFromSheet } from "../../lib/site-sync";
 import { findIsrc, cleanIsrc, ISRC_RE } from "../../lib/isrc";
@@ -29,11 +29,15 @@ async function act(body, session) {
     const name = String(body.name || "").trim().slice(0, 80);
     const url = String(body.url || "").trim().slice(0, 600);
     const capacity = Math.max(1, Math.min(1000, parseInt(body.capacity, 10) || 100));
-    const kind = body.kind === "watchlist" ? "watchlist" : "roster";
+    // this page holds the clients' portfolios only: the batch-1 "A&R watchlist" kind is gone
+    if (body.kind && body.kind !== "roster") return [400, { error: "This page is for the clients' portfolios only. A&R portfolios are recognized from their exports and kept for the A&R tab." }];
+    const kind = "roster";
     if (!name) return [400, { error: "Give the portfolio a name." }];
     if (url && !/^https:\/\//i.test(url)) return [400, { error: "The link should start with https://" }];
     const lumId = portfolioIdOf(url) || (body.luminateId ? portfolioIdOf(body.luminateId) : null);
     if (lumId) {
+      const known = (await knownAreas()).get(lumId);
+      if (isAR(known?.area)) return [400, { error: `That's the ${known.name || "A&R"} portfolio. Its exports are kept for the A&R tab, so it can't be added here.` }];
       const [other] = await sql`SELECT id, name FROM luminate_portfolios WHERE luminate_id = ${lumId} AND id <> ${body.id || ""}`;
       if (other) return [400, { error: `That's the same Luminate portfolio as "${other.name}".` }];
     }
@@ -84,8 +88,9 @@ async function act(body, session) {
     const list = ids(body.placementIds);
     let portfolioId = null;
     if (action === "markAdded") {
-      const [p] = await sql`SELECT id FROM luminate_portfolios WHERE id = ${body.portfolioId || ""}`;
+      const [p] = await sql`SELECT id, kind FROM luminate_portfolios WHERE id = ${body.portfolioId || ""}`;
       if (!p) return [400, { error: "Pick the portfolio you added them to." }];
+      if (!isRoster(p)) return [400, { error: "Clients' songs can only be marked as added to a clients' portfolio." }];
       portfolioId = p.id;
     }
     const at = portfolioId ? new Date().toISOString() : null;
@@ -109,6 +114,12 @@ async function act(body, session) {
     const list = ids(body.placementIds);
     if (!list.length) return [400, { error: "Pick the song to link." }];
     if (lumId) {
+      // an A&R portfolio's row is a prospect's, never a client song's numbers
+      const [ar] = await sql`
+        SELECT 1 FROM luminate_ar_held h, jsonb_array_elements(h.entities) e WHERE e->>'id' = ${lumId}
+          AND NOT EXISTS (SELECT 1 FROM luminate_exports x, jsonb_array_elements(x.entities) f WHERE f->>'id' = ${lumId}) LIMIT 1
+      `;
+      if (ar) return [400, { error: "That Luminate row is in an A&R portfolio, not a clients' one, so it can't be linked to a client's song here." }];
       const taken = await sql`SELECT song FROM placements WHERE luminate_id = ${lumId} AND id <> ALL(${list})`;
       if (taken.length) return [400, { error: `That Luminate song is already linked to "${taken[0].song}".` }];
     }

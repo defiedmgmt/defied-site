@@ -2422,7 +2422,7 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   useEffect(() => { reloadLum(); }, []);
   const lumCount = useMemo(() => {
     if (!lum) return 0;
-    return lumGroups(db, lum).filter((g) => g.status === "toAdd" || g.status === "unplaced").length + lum.unlinked.length;
+    return lumGroups(db, lum).filter((g) => g.status === "toAdd" || g.status === "unplaced" || g.status === "missing").length + lum.unlinked.length;
   }, [db, lum]);
   const tabs = [
     ["catalog", "Dashboard", LayoutGrid], ["luminate", "Luminate", Radar, lumCount],
@@ -3558,7 +3558,8 @@ function SongManager({ db, commit, clientId, isStaff }) {
               {growth?.[active.id]?.series?.length > 1 && (
                 <div className="song-growth">
                   <div className="song-growth-nums">
-                    {growth[active.id].week != null && <span><b className="grow-val">{signed(growth[active.id].week)}</b> since {shortDay(growth[active.id].weekFrom)}</span>}
+                    {growth[active.id].week != null ? <span><b className="grow-val">{signed(growth[active.id].week)}</b> since {shortDay(growth[active.id].weekFrom)}</span>
+                      : growth[active.id].gain != null && <span><b className="grow-val">{signed(growth[active.id].gain)}</b> since {shortDay(growth[active.id].gainFrom)}</span>}
                     {growth[active.id].ytd != null && <span><b>{fmt(growth[active.id].ytd)}</b> this year</span>}
                   </div>
                   <Sparkline series={growth[active.id].series} />
@@ -3920,19 +3921,19 @@ function CatalogOverview({ db, commit, lum, onSelectClient, onOpenLuminate }) {
     return () => { alive = false; };
   }, []);
 
-  // triggers the "Luminate Portfolio Sync" Apps Script bound to the sheet
-  // (reads the latest CSV exports from its Drive folder into STREAM DATA,
-  // which every client tab's Gross Streams formula reads from live), then
-  // chains a full site sync (fullSiteSync) so this one click — the only
-  // manual sync action left anywhere on the site — updates the sheet AND
-  // every client's numbers together, with the "as of" date below reflecting
-  // that exact moment rather than whenever something last happened to pull.
+  // rebuilds STREAM DATA from the newest exports dropped on the Luminate page
+  // (the same as its "Update the sheet again"), then chains a full site sync
+  // (fullSiteSync) so this one click updates the sheet AND every client's
+  // numbers together, with the "as of" date below reflecting that exact
+  // moment. It no longer runs the sheet's Apps Script: that reads the Drive
+  // folder, which stops getting new exports once they're dropped here, so
+  // one press would roll every client back to older numbers. (The
+  // /api/sync-streams route stays as a fallback.)
   const runStreamSync = async () => {
     setStreamSync({ syncing: true, error: null });
     try {
-      const res = await fetch("/api/sync-streams", { method: "POST", headers: { "X-Requested-With": "defied-site" } });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Stream sync failed.");
+      await lumPost({ action: "resync" });
+      window.dispatchEvent(new Event(STREAMS_EVENT));
       const { missing } = await fullSiteSync(dbNow.current, commit);
       const res2 = await fetch("/api/sheets-master");
       const data2 = await res2.json();
@@ -3964,8 +3965,8 @@ function CatalogOverview({ db, commit, lum, onSelectClient, onOpenLuminate }) {
       <div className="admin-head">
         <h2>Publishing Overview</h2>
         <div className="overview-links">
-          <button className="btn ghost sm" onClick={runStreamSync} disabled={streamSync.syncing} title="Run the Luminate portfolio sync script">
-            <RefreshCw size={14} className={streamSync.syncing ? "spin" : ""} /> {streamSync.syncing ? "Syncing streams…" : "Sync Streams"}
+          <button className="btn ghost sm" onClick={runStreamSync} disabled={streamSync.syncing} title="Rebuild STREAM DATA from the newest exports dropped on the Luminate page and pull every client's numbers again">
+            <RefreshCw size={14} className={streamSync.syncing ? "spin" : ""} /> {streamSync.syncing ? "Refreshing numbers…" : "Refresh numbers"}
           </button>
           {links.folder && <ExtLink href={links.folder} className="btn ghost sm" title="Open the pub sheet's Drive folder"><Folder size={14} /> Folder</ExtLink>}
           {links.portfolioA && <ExtLink href={links.portfolioA} className="btn ghost sm" title="Open Luminate portfolio A"><ExternalLink size={14} /> Portfolio A</ExtLink>}
@@ -4184,12 +4185,21 @@ function CatalogAdmin({ db, commit, lum, onOpenLuminate }) {
 
 /* staff: Luminate — the songs to add to its portfolios, and this week's exports ------------- */
 // One entry per real-world song: the same song on two co-writers' pages is one thing to add to a
-// Luminate portfolio and one Luminate id. Status: tracked (its Luminate song is in a portfolio's
-// latest export), unplaced (has a Luminate id no export holds), waiting (added in Luminate, no
-// numbers yet), toAdd, or skipped ("don't track").
+// Luminate portfolio and one Luminate id. Status: tracked (its Luminate song is in a clients'
+// portfolio's latest export), unplaced (has a Luminate id no export holds), waiting (added in
+// Luminate, no numbers yet), missing (marked as added before its portfolio's latest export but not
+// in it: takes no room), toAdd, or skipped ("don't track").
 function lumGroups(db, lum) {
   const t = lum?.tracking || {}, inPortfolio = lum?.inPortfolio || {};
-  const hasExports = (lum?.portfolios || []).some((p) => p.exportedAt);
+  const ports = (lum?.portfolios || []).filter((p) => p.kind === "roster");
+  const hasExports = ports.some((p) => p.exportedAt);
+  // the same rule as the server's pendingCount: added before the file was made, and not in it
+  const missed = (g) => {
+    const p = ports.find((x) => x.id === g.portfolioId);
+    if (!p) return true;
+    const made = p.exportedAt || p.uploadedAt;
+    return !!(made && g.addedAt && new Date(g.addedAt) < new Date(made));
+  };
   // a song is its Luminate id once it has one; a copy with no id joins the only linked copy of the
   // same title and artist (the next update gives it that id too)
   const title = (p) => `${normalizeTitle(p.song)}|${normalizeTitle(p.artist)}`;
@@ -4217,7 +4227,7 @@ function lumGroups(db, lum) {
   const offered = new Set((lum?.unlinked || []).flatMap((u) => u.suggestions));
   for (const g of byKey.values()) {
     g.inPortfolio = g.luminateId ? inPortfolio[g.luminateId] || null : null;
-    g.status = g.skip ? "skipped" : g.inPortfolio || (g.luminateId && !hasExports) ? "tracked" : g.portfolioId ? "waiting" : g.luminateId ? "unplaced"
+    g.status = g.skip ? "skipped" : g.inPortfolio || (g.luminateId && !hasExports) ? "tracked" : g.portfolioId ? (missed(g) ? "missing" : "waiting") : g.luminateId ? "unplaced"
       : g.ids.some((id) => offered.has(id)) ? "match" : "toAdd";
   }
   return [...byKey.values()];
@@ -4293,9 +4303,13 @@ function Sparkline({ series, height = 56 }) {
   );
 }
 
+// "+12K this week" when the last two numbers are about a week apart, else the real gain with its
+// date ("+30K since Oct 16"), never stretched or squeezed into a week
 function GrowthChip({ g }) {
-  if (!g || g.week == null || g.week <= 0) return null;
-  return <span className="grow-chip" title={`${signed(g.week)} streams since ${shortDay(g.weekFrom)}`}>{compact(g.week)} this week</span>;
+  if (!g) return null;
+  if (g.week != null) return g.week > 0 ? <span className="grow-chip" title={`${signed(g.week)} streams since ${shortDay(g.weekFrom)}`}>{compact(g.week)} this week</span> : null;
+  if (!(g.gain > 0)) return null;
+  return <span className="grow-chip" title={`${signed(g.gain)} streams since ${shortDay(g.gainFrom)}`}>{compact(g.gain)} since {shortDay(g.gainFrom)}</span>;
 }
 
 function CopyButton({ text, label = "Copy", onCopied }) {
@@ -4326,13 +4340,8 @@ function PortfolioForm({ initial, onClose, onSaved }) {
           <Field label="Name" value={f.name} placeholder="Portfolio C" onChange={(e) => setF({ ...f, name: e.target.value })} />
           <Field label="Link to it in Luminate" value={f.url} placeholder="https://…" onChange={(e) => setF({ ...f, url: e.target.value })}
             hint="Open the portfolio in Luminate and copy the address bar. Used for the Open buttons, and to recognize its exports." />
-          <label className="fld"><span>What it holds</span>
-            <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
-              <option value="roster">Our clients' songs</option>
-              <option value="watchlist">A&amp;R watchlist (prospects' songs)</option>
-            </select>
-          </label>
-          <Field label="Songs it can hold" type="number" min={1} max={1000} value={f.capacity} onChange={(e) => setF({ ...f, capacity: e.target.value })} />
+          <Field label="Slots it holds (songs, artists and releases)" type="number" min={1} max={1000} value={f.capacity} onChange={(e) => setF({ ...f, capacity: e.target.value })}
+            hint="For your clients' songs. A&R portfolios aren't added here: their exports are recognized by themselves." />
           {err && <p className="hint err-text" role="alert">{err}</p>}
         </div>
         <div className="modal-foot">
@@ -4357,13 +4366,18 @@ function lumByPortfolio(results) {
   });
 }
 
+const AR_AREAS = ["ar_artists", "ar_songs"];
 // Dropped CSVs are checked first and nothing changes yet: the preview says what each file would do
 // (songs and slots, growth since the last export, new songs, songs that would link), then Apply
-// takes them in. A blocked file can be applied on purpose ("use it anyway") after a warning.
+// takes them in. A blocked file can be applied on purpose ("use it anyway") after a warning. A
+// portfolio this page has never seen asks "What's in it?": one that looks like A&R (only artists,
+// or weekly numbers) has no answer picked for it, so it's never taken by accident. A&R files are
+// only kept for the A&R tab; they never touch STREAM DATA or the clients' numbers.
 function ExportDrop({ onDone }) {
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(null); // "checking" | "applying"
   const [out, setOut] = useState(null);
+  const [areas, setAreas] = useState({}); // POR id -> the picker's answer, for portfolios never seen
   const files = useRef(null);
   const post = async (body) => {
     const res = await fetch("/api/luminate-upload", {
@@ -4377,7 +4391,15 @@ function ExportDrop({ onDone }) {
   };
   const check = async (list) => {
     setBusy("checking"); setOut(null);
-    try { const { data } = await post({ files: list, dryRun: true }); setOut(data.error && !data.results ? { fatal: data.error } : data); }
+    try {
+      const { data } = await post({ files: list, dryRun: true });
+      // a clients'-looking new portfolio starts on "Clients' songs", an all-artist one on "A&R artists";
+      // anything else that looks A&R waits for an answer
+      const first = {};
+      for (const r of data.results || []) if (r.unknown) first[r.portfolioId] = !r.needsArea ? "clients" : r.entities && r.artists === r.entities ? "ar_artists" : "";
+      setAreas(first);
+      setOut(data.error && !data.results ? { fatal: data.error } : data);
+    }
     catch (e) { setOut({ fatal: e.message }); }
     finally { setBusy(null); }
   };
@@ -4385,9 +4407,10 @@ function ExportDrop({ onDone }) {
     const pick = (out?.results || []).filter((r) => r.status === "ready" || (force && r.status === "blocked")).map((r) => r.fileName);
     setBusy("applying");
     try {
-      const { data } = await post({ files: files.current.filter((f) => pick.includes(f.name)), force });
+      const { data } = await post({ files: files.current.filter((f) => pick.includes(f.name)), force, areas });
       setOut({ ...data, applied: true, fatal: data.updated ? null : data.error || null });
-      if (data.updated) { window.dispatchEvent(new Event(STREAMS_EVENT)); onDone(); }
+      if (data.updated) window.dispatchEvent(new Event(STREAMS_EVENT));
+      if (data.updated || data.kept) onDone();
     } catch (e) { setOut({ ...out, fatal: e.message }); }
     finally { setBusy(null); }
   };
@@ -4400,7 +4423,9 @@ function ExportDrop({ onDone }) {
   const results = out?.results || [];
   const ready = results.filter((r) => r.status === "ready"), blocked = results.filter((r) => r.status === "blocked");
   const slots = (r) => [r.songs && `${r.songs} song${r.songs === 1 ? "" : "s"}`, r.artists && `${r.artists} artist${r.artists === 1 ? "" : "s"}`,
-    r.releases && `${r.releases} release${r.releases === 1 ? "" : "s"}`].filter(Boolean).join(" + ") || "nothing";
+    r.releases && `${r.releases} release${r.releases === 1 ? "" : "s"}`, r.otherTypes && `${r.otherTypes} other (${(r.otherNames || []).join(", ")})`].filter(Boolean).join(" + ") || "nothing";
+  const areaOf = (r) => (r.unknown ? areas[r.portfolioId] || "" : r.area);
+  const unanswered = lumByPortfolio(results).filter(({ r }) => r.unknown && r.status === "ready" && !areas[r.portfolioId]);
   return (
     <div className="lm-drop-wrap">
       <label
@@ -4420,18 +4445,32 @@ function ExportDrop({ onDone }) {
           {out.fatal && <p className="hint err-text">{out.fatal}</p>}
           {lumByPortfolio(results).map(({ r, history, dupes }) => (
             <div key={r.fileName} className={`lm-result-row ${r.status}`}>
-              {r.status === "taken" || r.status === "ready" ? <CheckCircle2 size={15} /> : r.status === "blocked" ? <AlertTriangle size={15} /> : <Clock size={15} />}
+              {r.status === "taken" || r.status === "ready" ? <CheckCircle2 size={15} /> : r.status === "blocked" || r.status === "needsArea" ? <AlertTriangle size={15} /> : <Clock size={15} />}
               <span>
                 <strong>{r.portfolioName || `New portfolio …${String(r.portfolioId).slice(-4)}`}</strong>
                 {r.status === "ready" && <>
-                  {` · ${slots(r)} (${r.entities} of 100 slots)`}
+                  {AR_AREAS.includes(areaOf(r)) ? ` · ${slots(r)}` : ` · ${slots(r)} (${r.entities} of ${r.capacity || 100} slots)`}
                   {r.preview?.first ? ` · first export of this portfolio · ${fmt(r.preview.totalStreams)} all-time streams`
                     : ` · ${signed(r.preview?.gain || 0)} streams since its last export`}
                   {r.preview?.newCount && !r.preview.first ? <em> {r.preview.newCount} new: {r.preview.newSongs.slice(0, 6).join(", ")}{r.preview.newCount > 6 ? "…" : ""}.</em> : null}
                   {r.preview?.goneCount ? <em> {r.preview.goneCount} no longer in it: {r.preview.goneSongs.slice(0, 4).join(", ")}{r.preview.goneCount > 4 ? "…" : ""}.</em> : null}
+                  {AR_AREAS.includes(areaOf(r)) && <em> A&amp;R export — kept for the A&amp;R tab (coming next). It doesn't touch STREAM DATA or the clients' numbers.</em>}
                 </>}
-                {r.status === "taken" && ` · ${slots(r)} taken in`}
+                {r.status === "taken" && (AR_AREAS.includes(r.area) ? ` · ${slots(r)} · ${r.message}` : ` · ${slots(r)} taken in`)}
                 {r.status !== "ready" && r.status !== "taken" && ` · ${r.message}`}
+                {r.unknown && r.status === "ready" && (
+                  <span className="lm-area">
+                    <label>What's in it?{" "}
+                      <select className="lm-pick" value={areas[r.portfolioId] || ""} disabled={!!busy} onChange={(e) => setAreas((a) => ({ ...a, [r.portfolioId]: e.target.value }))}>
+                        <option value="" disabled>Pick one…</option>
+                        <option value="clients">Clients' songs</option>
+                        <option value="ar_artists">A&amp;R artists</option>
+                        <option value="ar_songs">A&amp;R songs</option>
+                      </select>
+                    </label>
+                    {r.needsArea && <em> {r.entities && r.artists === r.entities ? "It only holds artists" : "It has weekly numbers"}, so it looks like an A&amp;R portfolio.{areas[r.portfolioId] ? "" : " Pick what it holds before you apply."}</em>}
+                  </span>
+                )}
                 {(r.notes || []).map((n) => <em key={n}> {n}</em>)}
                 {history.length > 0 && <em> Plus {history.length} earlier export{history.length === 1 ? "" : "s"} ({shortDay(history[0].exportedAt)} – {shortDay(history[history.length - 1].exportedAt)}) {r.status === "ready" ? "to keep" : "kept"} as growth history.</em>}
                 {dupes > 0 && <em> {dupes} duplicate{dupes === 1 ? "" : "s"} or older file{dupes === 1 ? "" : "s"} skipped.</em>}
@@ -4439,7 +4478,7 @@ function ExportDrop({ onDone }) {
             </div>
           ))}
           {(out.errors || []).map((e) => (
-            <div key={e.fileName} className="lm-result-row blocked"><AlertTriangle size={15} /><span>{e.message}</span></div>
+            <div key={e.fileName || e.message} className="lm-result-row blocked"><AlertTriangle size={15} /><span>{e.message}</span></div>
           ))}
           {out.preview && out.links?.length > 0 && <p className="hint">Would link {out.links.length} song{out.links.length === 1 ? "" : "s"} you marked as added: {[...new Set(out.links.map((l) => l.song))].join(", ")}.</p>}
           {out.preview && out.copied?.length > 0 && <p className="hint">Would also give {out.copied.length === 1 ? "a co-writer's copy" : `${out.copied.length} co-writers' copies`} the Luminate id the same song already has on another page, so {out.copied.length === 1 ? "that share counts" : "those shares count"} in the sheet: {[...new Set(out.copied.map((l) => l.song))].join(", ")}.</p>}
@@ -4449,13 +4488,17 @@ function ExportDrop({ onDone }) {
               {out.summary?.weekTotal != null && out.summary.gainers?.length ? ` · ${signed(out.summary.weekTotal)} streams this week` : ""}.
             </p>
           )}
+          {out.applied && !out.updated && out.kept > 0 && !out.error && (
+            <p className="hint lm-result-sum">Kept {out.kept === 1 ? "the A&R export" : `${out.kept} A&R exports`} for the A&amp;R tab. Nothing else changed.</p>
+          )}
           {out.applied && out.summary?.copied?.length > 0 && (
             <p className="hint">Gave {out.summary.copied.length === 1 ? "a co-writer's copy" : `${out.summary.copied.length} co-writers' copies`} the Luminate id their song already had: {[...new Set(out.summary.copied)].join(", ")}.</p>
           )}
           {out.applied && out.error && <p className="hint err-text">{out.error} The exports are saved: press "Update the sheet again" up top.</p>}
           {out.preview && (
             <div className="lm-result-acts">
-              {ready.length > 0 && <button className="btn sm" disabled={!!busy} onClick={() => apply(false)}><Check size={14} /> {busy === "applying" ? "Applying…" : `Apply this update${blocked.length ? ` (${ready.length} file${ready.length === 1 ? "" : "s"})` : ""}`}</button>}
+              {ready.length > 0 && <button className="btn sm" disabled={!!busy || unanswered.length > 0} onClick={() => apply(false)}><Check size={14} /> {busy === "applying" ? "Applying…" : `Apply this update${blocked.length ? ` (${ready.length} file${ready.length === 1 ? "" : "s"})` : ""}`}</button>}
+              {unanswered.length > 0 && <span className="hint">Pick what {unanswered.length === 1 ? "the new portfolio holds" : `the ${unanswered.length} new portfolios hold`} first.</span>}
               {blocked.length > 0 && <button className="btn ghost sm" disabled={!!busy} onClick={() => {
                 if (window.confirm("Use the blocked file anyway? Its lower numbers will replace the current ones for every song in that portfolio.")) apply(true);
               }}>Use the blocked file anyway</button>}
@@ -4520,6 +4563,11 @@ function LuminateAdmin({ db, lum, reloadLum, reloadDb }) {
   if (!lum) return <p className="muted">Loading…</p>;
   const roster = lum.portfolios.filter((p) => p.kind === "roster");
   const waiting = groups.filter((g) => g.status === "waiting");
+  const missing = groups.filter((g) => g.status === "missing");
+  const portOf = (id) => lum.portfolios.find((p) => p.id === id);
+  // what a portfolio's latest export holds, by type: "33 songs + 2 releases"
+  const held = (p) => [`${p.songCount} song${p.songCount === 1 ? "" : "s"}`, p.artistCount && `${p.artistCount} artist${p.artistCount === 1 ? "" : "s"}`,
+    p.releaseCount && `${p.releaseCount} release${p.releaseCount === 1 ? "" : "s"}`, p.otherTypes && `${p.otherTypes} other`].filter(Boolean).join(" + ");
   const last = lum.lastUpload;
   const pName = (id) => lum.portfolios.find((p) => p.id === id)?.name || "a portfolio";
   const candidates = groups.filter((g) => !g.luminateId && !g.skip);
@@ -4572,9 +4620,9 @@ function LuminateAdmin({ db, lum, reloadLum, reloadDb }) {
             const used = (p.usedCount ?? p.songCount) + p.pendingCount, pct = Math.min(100, (used / p.capacity) * 100);
             return (
               <button key={p.id} className="lm-port" onClick={() => setEditing({ ...p })} title="Edit name, link or size">
-                <span className="lm-port-top"><strong>{p.name}</strong>{p.kind === "watchlist" && <span className="tag">A&amp;R</span>}</span>
+                <span className="lm-port-top"><strong>{p.name}</strong></span>
                 <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity ? " · full" : ""}</span>
-                <span className="lm-port-meta">{p.songCount} song{p.songCount === 1 ? "" : "s"}{p.otherCount ? ` + ${p.otherCount} release${p.otherCount === 1 ? "" : "s"}` : ""}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
+                <span className="lm-port-meta">{held(p)}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
                 <span className={`lm-bar${pct >= 95 ? " full" : pct >= 80 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
                 <span className="lm-port-meta">{p.exportedAt ? `Exported ${shortDay(p.exportedAt)} · ${fmt(p.totalStreams)} streams` : "No export yet"}</span>
               </button>
@@ -4687,6 +4735,31 @@ function LuminateAdmin({ db, lum, reloadLum, reloadDb }) {
         </>
       )}
 
+      {missing.length > 0 && (
+        <>
+          <h3 className="lm-h3">Marked as added, but not in the latest export</h3>
+          <p className="hint lm-h3-sub">Luminate didn't keep {missing.length === 1 ? "this song" : "these songs"}, or {missing.length === 1 ? "it was" : "they were"} added to another portfolio. {missing.length === 1 ? "It doesn't" : "They don't"} take up a slot until {missing.length === 1 ? "it's" : "they're"} added again.</p>
+          <div className="lm-list">
+            {missing.map((g) => {
+              const p = portOf(g.portfolioId);
+              return (
+                <div key={g.key} className="lm-song lm-missing">
+                  <span className="lm-cover">{g.cover ? <Photo src={g.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
+                  <span className="lm-song-main">
+                    <strong>{g.song || "Untitled"}</strong>
+                    <span>{p ? `Marked as added to ${p.name} on ${shortDay(g.addedAt)}, but not in the ${shortDay(p.exportedAt || p.uploadedAt)} export. Add it again?` : "Marked as added to a portfolio that isn't on this page any more."}{g.isrc ? ` · ${g.isrc}` : ""}</span>
+                  </span>
+                  <span className="lm-unl-acts">
+                    {p && <button className="btn sm" disabled={!!busy} onClick={() => run(`re:${g.key}`, () => lumPost({ action: "markAdded", portfolioId: p.id, placementIds: g.ids }))}><Check size={13} /> I added it again</button>}
+                    <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`un:${g.key}`, () => lumPost({ action: "unmark", placementIds: g.ids }))}>Put it back on the to-add list</button>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
       {editing && <PortfolioForm initial={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reloadLum(); }} />}
     </div>
   );
@@ -4699,6 +4772,7 @@ function NeedsAttention({ db, lum, onSelectClient, onOpenLuminate }) {
   const toAdd = groups.filter((g) => g.status === "toAdd").length;
   const unplaced = groups.filter((g) => g.status === "unplaced").length;
   const noIsrc = groups.filter((g) => (g.status === "toAdd" || g.status === "unplaced") && !g.isrc && g.checked).length;
+  const missing = groups.filter((g) => g.status === "missing").length;
   const badSplits = db.placements.filter((p) => splitTotal(p.splits) !== 100);
   const stale = lum.lastUpload?.at ? (Date.now() - new Date(lum.lastUpload.at).getTime()) / 86400000 : null;
   const noTab = lum.missingTabs || [];
@@ -4708,6 +4782,7 @@ function NeedsAttention({ db, lum, onSelectClient, onOpenLuminate }) {
     toAdd && { k: "add", t: `${toAdd} song${toAdd === 1 ? " isn't" : "s aren't"} in a Luminate portfolio yet.`, go: onOpenLuminate, cta: "See the list" },
     unplaced && { k: "unplaced", t: `${unplaced} song${unplaced === 1 ? " has" : "s have"} a Luminate id but ${unplaced === 1 ? "isn't" : "aren't"} in any portfolio, so ${unplaced === 1 ? "its" : "their"} numbers don't move.`, go: onOpenLuminate, cta: "See the list" },
     lum.unlinked.length && { k: "unlinked", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here.`, go: onOpenLuminate, cta: "Match them" },
+    missing && { k: "missing", t: `${missing} song${missing === 1 ? " was" : "s were"} marked as added in Luminate but ${missing === 1 ? "isn't" : "aren't"} in the latest export.`, go: onOpenLuminate, cta: "See the list" },
     noIsrc && { k: "isrc", t: `${noIsrc} song${noIsrc === 1 ? "'s" : "s'"} ISRC couldn't be found automatically.`, go: onOpenLuminate, cta: "Type them in" },
     badSplits.length && { k: "splits", t: `${badSplits.length} song${badSplits.length === 1 ? "'s splits don't" : "s' splits don't"} add up to 100%: ${badSplits.slice(0, 3).map((p) => `${p.song || "Untitled"} (${splitTotal(p.splits)}%)`).join(", ")}${badSplits.length > 3 ? "…" : ""}`, go: () => onSelectClient(badSplits[0].clientId), cta: "Open the first" },
     noTab.length && { k: "tabs", t: `No sheet tab found for ${noTab.join(", ")}, so their numbers can't sync. Set "Sheet tab name" on their client profile if their tab has another name.` },
@@ -6758,6 +6833,13 @@ function StyleTag() {
       .app:not(.pub) .attn-row{flex-direction:column;align-items:flex-start}
       .app:not(.pub) .lm-pick{max-width:100%}
     }
+    /* the drop preview's "What's in it?" for a portfolio never seen before */
+    .app:not(.pub) .lm-area{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:6px}
+    .app:not(.pub) .lm-area label{display:inline-flex;align-items:center;gap:8px;font-weight:600;color:var(--d-ink)}
+    .app:not(.pub) .lm-result-row.needsArea{color:var(--d-ban-warn-ink)} .app:not(.pub) .lm-result-row.needsArea svg{color:var(--d-warn)}
+    .app:not(.pub) .lm-result-acts .hint{align-self:center;margin:0}
+    /* "Marked as added … Add it again?" is the point of the row: it wraps instead of being cut off */
+    .app:not(.pub) .lm-missing .lm-song-main span{white-space:normal}
     `}</style>
   );
 }

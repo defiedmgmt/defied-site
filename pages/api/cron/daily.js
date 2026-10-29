@@ -53,15 +53,19 @@ export default async function handler(req, res) {
     }
   } catch (err) { report.isrcError = err.message; }
 
-  // nothing new from Luminate in over a week: say so once a day until it comes in
+  // nothing new from Luminate in over a week: say so once a day until it comes in. lastUpload is the
+  // clients' exports only (A&R files don't count), and the day only counts once ClickUp took the
+  // message, so an outage doesn't swallow it.
   const last = await getState("lastUpload");
   const age = last?.at ? (Date.now() - new Date(last.at).getTime()) / DAY : null;
   const alerted = await getState("staleAlert");
   if ((age === null || age > STALE_DAYS) && (!alerted?.at || Date.now() - new Date(alerted.at).getTime() > DAY - 3600000)) {
     const when = age === null ? "No Luminate update has come in yet." : `The last Luminate update was ${Math.floor(age)} days ago.`;
-    await notifyClickUp(`**Streams are getting stale**: ${when}\nDownload the portfolio exports and drop them on the dashboard's Luminate page. [Open dashboard](https://www.defiedmgmt.com/dashboard)`);
-    await setState("staleAlert", { at: new Date().toISOString() });
-    report.staleAlert = true;
+    const sent = await notifyClickUp(`**Streams are getting stale**: ${when}\nDownload the portfolio exports and drop them on the dashboard's Luminate page. [Open dashboard](https://www.defiedmgmt.com/dashboard)`);
+    if (sent) {
+      await setState("staleAlert", { at: new Date().toISOString() });
+      report.staleAlert = true;
+    } else report.staleAlertFailed = true; // tried again at the next run
   }
   await setState("cron", report);
   return res.status(200).json(report);
