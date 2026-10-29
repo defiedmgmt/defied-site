@@ -3,13 +3,13 @@
 // songs (?summary=1: the counts for the sidebar badge and the Dashboard's tasks; ?events=<id>: one
 // prospect's History for the panel, newest first). GET also carries the Watchlist: tracked artists and
 // songs (ar_tracked), each A&R portfolio's newest export (arLists, streams only) and who matches which
-// row (watch). POST takes one {action} that never touches the sheet. Pub-sheet changes go through
+// row (watch, sorted by week-on-week %, with Summary's top lists) and who you added that no A&R list
+// has yet (toLuminate; ?summary=1 carries it too, for the Dashboard). POST takes one {action} that never touches the sheet. Pub-sheet changes go through
 // /api/ar-write; tracked artists and songs are saved here alone, so they can never reach the sheet.
 import { sql } from "../../lib/db";
 import { requireStaff, requireSameOrigin } from "../../lib/session";
-import { arState, arSummary, mergeProspect, arListsOf, arWatchOf, trackedOut, checkTracked, ArError } from "../../lib/ar";
+import { arSummary, arWatchNow, mergeProspect, trackedOut, checkTracked, ArError } from "../../lib/ar";
 import { uid } from "../../lib/id";
-import { arHeldLatest } from "../../lib/luminate";
 
 // the panel's History: plain sentences only (the cells stay server-side); pending ones are left out
 // until the next load settles them
@@ -92,10 +92,8 @@ export default async function handler(req, res) {
     if (req.method === "GET" && req.query.events) return res.status(200).json({ events: await eventsOf(String(req.query.events)) });
     if (req.method === "GET" && req.query.summary) return res.status(200).json(await arSummary());
     if (req.method === "GET") {
-      const [state, held, rows] = await Promise.all([arState(), arHeldLatest(),
-        sql`SELECT *, last_contact::text AS last_contact_day, follow_up::text AS follow_up_day FROM ar_tracked WHERE removed_at IS NULL ORDER BY created_at`]);
-      const arLists = arListsOf(held), tracked = rows.map(trackedOut);
-      return res.status(200).json({ ...state, tracked, arLists, watch: arWatchOf({ prospects: state.prospects, tracked, lists: arLists }) });
+      const { state, tracked, arLists, watch, toLuminate } = await arWatchNow();
+      return res.status(200).json({ ...state, tracked, arLists, watch, toLuminate });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;

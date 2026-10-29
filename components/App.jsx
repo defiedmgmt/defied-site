@@ -3214,11 +3214,13 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const { cu, retry: retryCu } = useArClickUp();
   const watch = pg?.watch;
   const { cards } = arCards(data, pg);
-  const ranked = (list) => list.filter((r) => r.current != null).slice(0, 5);
-  const people = ranked(watch?.people || []), songs = ranked(watch?.songs || []);
-  const to = watch?.period?.to, from = watch?.period?.from;
+  const [showToLum, setShowToLum] = useState(false);
+  // ranked on the server by week-on-week % (watch.top: keys, ranked = shown with its %)
+  const ranked = (list, keys) => (keys || []).map((k) => { const r = list.find((x) => x.key === k.key); return r && { ...r, ranked: k.ranked }; }).filter(Boolean);
+  const people = ranked(watch?.people || [], watch?.top?.people), songs = ranked(watch?.songs || [], watch?.top?.songs);
+  const to = watch?.period?.to;
   const old = to && daysSince(to) > 8;
-  const title = !to || !old ? "Top gainers this week" : `Top gainers · ${dayRange(from, to)}`;
+  const title = "Top gainers";
   const today = new Date().toLocaleDateString("en-CA");
   // most urgent first: late follow-ups, then due today, then quiet offers, then what can't get numbers
   const tasks = [];
@@ -3228,11 +3230,9 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   for (const c of cards.filter((x) => x.stage === "offer" && (!x.lastContact || daysSince(x.lastContact) >= 7))) {
     tasks.push({ k: `offer:${c.key}`, t: `The offer to ${c.name} has had no contact ${c.lastContact ? `since ${shortDay(c.lastContact)}` : "logged"}.`, cta: "Open", go: () => goBoard() });
   }
-  const noNums = [...(watch?.people || []), ...(watch?.songs || [])].filter(needsLumRow);
-  if (noNums.length) {
-    const n = noNums.length, pplOnly = noNums.every((r) => r.role);
-    tasks.push({ k: "noNumbers", t: `${n} ${pplOnly ? (n === 1 ? "person isn't" : "people aren't") : n === 1 ? "one you added isn't" : "you added aren't"} in your Luminate A&R list yet, so ${n === 1 ? "their" : "their"} numbers can't come in.`, cta: "See who", go: () => goWatch({ pill: noNums.every((r) => !r.role) ? "songs" : "people", noNumbers: true }) });
-  }
+  // the same task and wording as the Dashboard's (lib/ar.js arToLuminateOf)
+  const toLum = pg?.toLuminate;
+  if (toLum?.count) tasks.push({ k: "noNumbers", t: toLum.text, cta: "See the list", go: () => setShowToLum(true) });
   if (old) tasks.push({ k: "stale", t: `A&R numbers are from ${shortDay(to)}.`, cta: "Drop new exports", go: () => onGo("luminate", "drop") });
   // ClickUp's A&R Tasks, merged by urgency: urgent ones above the late follow-ups, high ones right
   // after them, the rest only while the list is short. Each opens the task in ClickUp.
@@ -3247,16 +3247,18 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const value = data?.totals?.totalValue;
   const Gainers = ({ list, kind }) => (
     <div className="gainers ar-gainers" data-list={kind}>
-      <div className="attn-head"><TrendingUp size={15} /> {kind === "people" ? "People" : "Songs"}</div>
+      <div className="attn-head"><TrendingUp size={15} /> {kind === "people" ? "People" : "Songs"}{watch?.periods?.[kind] && <span className="ar-dates"> · {dayRange(watch.periods[kind].from, watch.periods[kind].to)}</span>}</div>
       {!pg ? <p className="gainers-empty">Loading…</p> : !list.length ? (
         <p className="gainers-empty">{kind === "people" ? "Nobody" : "No songs"} with numbers yet. <button className="btn ghost sm" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></p>
       ) : list.map((r, i) => (
         <button key={r.key} className="gainer" onClick={() => goWatch({ pill: kind, open: r.key })}>
           <span className="gainer-n">{i + 1}</span>
           <span className="lm-song-main"><strong>{r.name || r.title}</strong>
-            <span>{kind === "people" ? <span className="tag ar-role">{r.role === "producer" ? "Producer" : "Artist"}</span> : r.artist || (r.fromLuminate ? "From Luminate" : "")}</span>
+            <span>{kind === "people" ? <span className="tag ar-role">{r.role === "producer" ? "Producer" : "Artist"}</span> : <>{r.release && <span className="tag ar-role">Release</span>} {r.artist || (r.fromLuminate ? "From Luminate" : "")}</>}</span>
           </span>
-          <span className="gainer-num"><b className="ar-week">{bigNum(r.current)} {old ? "that week" : "this week"}</b>{r.changePct != null && <em className={`ar-ch ${r.changePct >= 0 ? "up" : "down"}`}>{pctText(r.changePct)}</em>}</span>
+          {r.ranked && r.wowPct != null
+            ? <span className="gainer-num"><b className={`ar-ch ${r.wowPct >= 0 ? "up" : "down"}`}>{wowText(r.wowPct)} vs last week</b><em className="ar-week">{fmt(r.thisWeek)} {old ? "that week" : "this week"}</em></span>
+            : <span className="gainer-num"><b className="ar-week">{fmt(r.thisWeek)} {old ? "that week" : "this week"}</b></span>}
         </button>
       ))}
     </div>
@@ -3278,6 +3280,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
         ))}
       </div>
       <p className="ar-pipe"><button className="inline-link" onClick={goBoard}>Pipeline: {talking} talking · {offers} offer{offers === 1 ? "" : "s"} out{value != null ? ` · ≈ ${wholeMoney(value)} value` : ""}</button></p>
+      {showToLum && toLum && <ArToLuminateModal t={toLum} onClose={() => setShowToLum(false)} />}
     </div>
   );
 }
@@ -3563,13 +3566,14 @@ function ArList({ rows, onOpen }) {
 
 // Watchlist: everyone and every song tracked (and every row of the A&R Luminate lists), up or down
 const SORTS = { name: (r) => String(r.name ?? r.title ?? "").toLowerCase(), current: (r) => r.current, changePct: (r) => r.changePct, atd: (r) => r.atd, value: (r) => r.value };
+// the Watchlist opens in the server's order: biggest week-on-week % first, no % last (by this week's streams)
 function ArWatch({ ar, onGo, at }) {
   const { data, pg, pgErr, loadPg } = ar;
   const [pill, setPill] = useState(at?.pill || "people");
   const [show, setShow] = useState("everyone");
   const [find, setFind] = useState("");
   const [onlyNone, setOnlyNone] = useState(!!at?.noNumbers);
-  const [sort, setSort] = useState({ k: "current", dir: -1 }); // biggest gain first
+  const [sort, setSort] = useState({ k: "changePct", dir: -1, server: true }); // biggest % first (the server's order) until a column is clicked
   const { open, openPanel, closePanel } = usePanel();
   const { cards, sheetById } = arCards(data, pg);
   const stageBy = Object.fromEntries(cards.map((c) => [c.key, c.stage]));
@@ -3587,7 +3591,7 @@ function ArWatch({ ar, onGo, at }) {
     .filter((r) => !needle || `${r.name} ${r.handle || ""} ${r.artist || ""}`.toLowerCase().includes(needle))
     .filter((r) => !onlyNone || needsLumRow(r));
   const by = SORTS[sort.k];
-  const rows = [...list].sort((a, b) => {
+  const rows = sort.server ? list : [...list].sort((a, b) => {
     const x = by(a), y = by(b);
     if (x == null || y == null) return x == null && y == null ? 0 : x == null ? 1 : -1; // no numbers sink to the bottom
     return (x < y ? -1 : x > y ? 1 : 0) * (sort.k === "name" ? -sort.dir : sort.dir);
@@ -3602,7 +3606,9 @@ function ArWatch({ ar, onGo, at }) {
     if (r) openRow(r);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pg, data]);
-  const to = pg?.watch?.period?.to, old = to && daysSince(to) > 8;
+  // each list's own dates (Artists and Songs are often exported on different days)
+  const period = pg?.watch?.periods?.[pill] || null;
+  const to = period?.to, old = to && daysSince(to) > 8;
   const head = (k, label) => (
     <button className={`ar-sort${sort.k === k ? " on" : ""}`} onClick={() => setSort({ k, dir: sort.k === k ? -sort.dir : -1 })} aria-label={`Sort by ${label}`}>
       {label}{sort.k === k ? (sort.dir < 0 ? " ↓" : " ↑") : ""}
@@ -3616,7 +3622,7 @@ function ArWatch({ ar, onGo, at }) {
       </ArHead>
       {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
       <p className="arb-status ar-period">
-        {to ? <>Numbers for {dayRange(pg.watch.period.from, to)} · from your Luminate A&amp;R lists</> : "No numbers from your Luminate A&R lists yet."}
+        {to ? <>Numbers for {dayRange(period.from, to)}, against the 7 days before · from your Luminate A&amp;R lists</> : "No numbers from your Luminate A&R lists yet."}
         {(old || (pg && !to)) && <> <button className="btn ghost sm" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></>}
       </p>
       <div className="ar-watch-tools">
@@ -3655,6 +3661,7 @@ function ArWatch({ ar, onGo, at }) {
             <button key={r.key} className="admin-row admin-row-link ar-row" data-focus={`w:${r.key}`} data-key={r.key} style={{ "--cols": pill === "people" ? pcols : scols }} onClick={(e) => openRow(r, e)}>
               <span className="cell ar-who"><strong>{r.name}</strong>
                 {r.handle && <span className="arb-contact">{r.handle}</span>}
+                {r.release && <span className="tag ar-role">Release</span>}
                 {r.fromLuminate && <span className="arb-contact">From Luminate · Add details</span>}
                 {r.ref && !r.luminateId && <span className="arb-contact">No numbers yet — add them to your A&amp;R list in Luminate</span>}
               </span>
@@ -4908,7 +4915,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
 
   const links = state.data?.links || {};
   // the task list lives on the Dashboard now: here, only how many of them are this tab's to fix
-  const pubTasks = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "publishing").length, [db, lum]);
+  const pubTasks = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster").length, [db, lum]);
   const rate = state.data?.rate;
   return (
     <div>
@@ -5762,13 +5769,14 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub }) {
 }
 
 // What needs a person, across the whole company: one plain sentence each, with the one place it's
-// fixed ({ tab, sub } for onGo). Pure, so Publishing can count its own share. lum = null while the
-// Luminate page's data loads: only what the db alone shows, until then.
+// fixed ({ tab, sub } for onGo). Pure, so Publishing can count its own share (area "roster"). lum =
+// null while the Luminate page's data loads: only what the db alone shows, until then. Every task has
+// an area for its colour: luminate | roster | money | ar | clickup | site.
 function dashTasks(db, lum) {
   const badSplits = db.placements.filter((p) => splitTotal(p.splits) !== 100);
   // the button names whose page it opens (the first song's client; the others may be someone else's)
   const first = badSplits.length && (db.clients.find((c) => c.id === badSplits[0].clientId)?.name || "their client");
-  const splits = badSplits.length && { k: "splits", area: "publishing", t: `${badSplits.length} song${badSplits.length === 1 ? "'s splits don't" : "s' splits don't"} add up to 100%: ${badSplits.slice(0, 3).map((p) => `${p.song || "Untitled"} (${splitTotal(p.splits)}%)`).join(", ")}${badSplits.length > 3 ? "…" : ""}`, tab: "catalog", sub: `client:${badSplits[0].clientId}`, cta: `Open ${first}` };
+  const splits = badSplits.length && { k: "splits", area: "roster", t: `${badSplits.length} song${badSplits.length === 1 ? "'s splits don't" : "s' splits don't"} add up to 100%: ${badSplits.slice(0, 3).map((p) => `${p.song || "Untitled"} (${splitTotal(p.splits)}%)`).join(", ")}${badSplits.length > 3 ? "…" : ""}`, tab: "catalog", sub: `client:${badSplits[0].clientId}`, cta: `Open ${first}` };
   if (!lum) return [splits].filter(Boolean);
   const groups = lumGroups(db, lum);
   const toAdd = groups.filter((g) => g.status === "toAdd").length;
@@ -5782,9 +5790,14 @@ function dashTasks(db, lum) {
   const stale = byNumbers ? (Date.now() - made) / 86400000 : at !== null ? (Date.now() - at) / 86400000 : null;
   const noTab = lum.missingTabs || [];
   const L = { area: "luminate", tab: "luminate" };
+  // which portfolio is behind, how big it is, and how to fix it (lib/sync-tasks.js says the same)
+  const behind = byNumbers && up.numbersPortfolio ? (lum.portfolios || []).find((p) => p.name === up.numbersPortfolio) : null;
+  const staleText = byNumbers && up.numbersPortfolio
+    ? `${up.numbersPortfolio}${behind?.songCount ? ` (${behind.songCount} song${behind.songCount === 1 ? "" : "s"})` : ""} hasn't had a new export since ${shortDay(up.numbersFrom)}. In Luminate, export it with 1 week and Worldwide, then drop it here.`
+    : byNumbers ? `The newest Luminate numbers are ${Math.floor(stale)} days old (exported ${shortDay(up.numbersFrom)}).` : `The last Luminate update was ${Math.floor(stale)} days ago.`;
   return [
     stale === null ? { ...L, k: "none", t: "No Luminate export has been dropped in yet.", cta: "Open Luminate" }
-      : stale > 8 && { ...L, k: "stale", t: byNumbers ? `The newest Luminate numbers${up.numbersPortfolio ? ` for ${up.numbersPortfolio}` : ""} are ${Math.floor(stale)} days old (exported ${shortDay(up.numbersFrom)}).` : `The last Luminate update was ${Math.floor(stale)} days ago.`, cta: "Drop this week's exports" },
+      : stale > 8 && { ...L, k: "stale", sub: "drop", t: staleText, cta: "Drop this week's exports" },
     toAdd && { ...L, k: "add", t: `${toAdd} song${toAdd === 1 ? " isn't" : "s aren't"} in a Luminate portfolio yet.`, cta: "See the list" },
     unplaced && { ...L, k: "unplaced", t: `${unplaced} song${unplaced === 1 ? " has" : "s have"} a Luminate id but ${unplaced === 1 ? "isn't" : "aren't"} in any portfolio, so ${unplaced === 1 ? "its" : "their"} numbers don't move.`, cta: "See the list" },
     lum.unlinked.length && { ...L, k: "unlinked", sub: "match", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here.`, cta: "Match them" },
@@ -5792,7 +5805,7 @@ function dashTasks(db, lum) {
     noIsrc && { ...L, k: "isrc", t: `${noIsrc} song${noIsrc === 1 ? "'s" : "s'"} ISRC couldn't be found automatically.`, cta: "Type them in" },
     splits,
     // the fix is each one's "Sheet tab name", which lives in Website › Roster
-    noTab.length && { k: "tabs", area: "publishing", t: `No sheet tab found for ${noTab.join(", ")}, so their numbers can't sync. If their tab has another name, set "Sheet tab name" on each one in Website › Roster.`, tab: "website", sub: "roster", cta: "Open the roster" },
+    noTab.length && { k: "tabs", area: "roster", t: `No sheet tab found for ${noTab.join(", ")}, so their numbers can't sync. If their tab has another name, set "Sheet tab name" on each one in Website › Roster.`, tab: "website", sub: "roster", cta: "Open the roster" },
   ].filter(Boolean);
 }
 
@@ -5806,7 +5819,7 @@ function Tasks({ items, loading, failed, onRetry, onGo }) {
           : loading ? <><RefreshCw size={15} className="spin" /> Checking what needs doing…</> : <><CheckCircle2 size={15} /> All caught up</>}
       </div>
       {items.map((it) => (
-        <div key={it.k} className="attn-row" data-task={it.k}>
+        <div key={it.k} className="attn-row" data-task={it.k} data-area={it.area || undefined}>
           <span>{it.t}</span>
           <button className="btn ghost sm" onClick={() => (it.go ? it.go() : onGo(it.tab, it.sub))}>{it.cta}</button>
         </div>
@@ -5822,56 +5835,45 @@ function Tasks({ items, loading, failed, onRetry, onGo }) {
   );
 }
 
-// This week's biggest movers on the roster: its songs (one line per Luminate song) and its artists
-// (each client's songs' gains added up, over the same windows the Songs tab ranks them by). A song
-// whose last two exports aren't about a week apart (a skipped week, two in one week) ranks by its real
-// gain since the earlier one, shown with that date ("since Oct 7"), never scaled to a week. The A&R
-// portfolios' movers live on the A&R tab, not here.
+// This week's biggest movers on the roster: its songs (one line per title and artist) and its artists
+// (each client's songs that have both weeks, added up), ranked on the server by week-on-week %
+// (GET /api/growth?top=1): from 1,000 streams this week, the rest filling in by streams without a %.
+// Each list says the days it covers. The A&R lists' movers live on the A&R tab, not here.
 const GAINER_TABS = [["songs", "Songs"], ["artists", "Artists"]];
-const gainOf = (g) => g.week ?? g.gain;
+// "+157.5%", "−12.0%"
+const wowText = (p) => `${p >= 0 ? "+" : "−"}${Math.abs(p).toFixed(1)}%`;
+function useRosterTop() {
+  const [top, setTop] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const loader = useRef(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => { setFailed(false); return fetch("/api/growth?top=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!alive) return; if (d?.top) setTop(d.top); else setFailed(true); }).catch(() => alive && setFailed(true)); };
+    loader.current = load;
+    load();
+    window.addEventListener(STREAMS_EVENT, load);
+    return () => { alive = false; window.removeEventListener(STREAMS_EVENT, load); };
+  }, []);
+  return { top, failed, retry: () => loader.current?.() };
+}
+function GainNum({ r }) {
+  return r.ranked && r.wowPct != null
+    ? <span className="gainer-num" data-wow={r.wowPct >= 0 ? "up" : "down"}><b>{wowText(r.wowPct)} vs last week</b><em>{fmt(r.thisWeek)} this week</em></span>
+    : <span className="gainer-num" data-wow="none"><b>{fmt(r.thisWeek)} this week</b></span>;
+}
 function TopGainers({ db, lum, onGo }) {
   const [kind, setKind] = useState("songs");
-  const { growth, failed, retry } = useGrowthState();
-  // every song Luminate tracks, once per title and artist (the biggest gain of its copies), with
-  // every client it belongs to
-  const songs = useMemo(() => {
-    if (!growth) return null;
-    const seen = new Map();
-    for (const p of db.placements) {
-      const g = growth[p.id];
-      if (!g || gainOf(g) == null || !p.luminateId) continue;
-      const key = `${normalizeTitle(p.song)}|${normalizeTitle(p.artist)}`;
-      const cur = seen.get(key);
-      if (cur) { if (!cur.clientIds.includes(p.clientId)) cur.clientIds.push(p.clientId); if (gainOf(g) > gainOf(cur.g)) { cur.g = g; cur.p = p; } continue; }
-      seen.set(key, { key, p, g, clientIds: [p.clientId] });
-    }
-    return [...seen.values()].sort((a, b) => gainOf(b.g) - gainOf(a.g));
-  }, [growth, db.placements]);
-  // each client: their songs' gains added up, as a share of where those songs started the window
-  const artists = useMemo(() => {
-    if (!songs) return null;
-    const by = new Map();
-    for (const s of songs) for (const id of s.clientIds) {
-      const a = by.get(id) || { id, gain: 0, base: 0, songs: [] };
-      a.gain += gainOf(s.g); a.base += s.g.latest - gainOf(s.g); a.songs.push(s);
-      by.set(id, a);
-    }
-    return [...by.values()].map((a) => ({ ...a, c: db.clients.find((c) => c.id === a.id) })).filter((a) => a.c)
-      .sort((a, b) => b.gain - a.gain).slice(0, 5);
-  }, [songs, db.clients]);
-  const rows = kind === "artists" ? artists : songs && songs.slice(0, 5);
-  const name = (id) => db.clients.find((c) => c.id === id)?.name || "";
-  // "this week" only while the numbers shown are the last week's (every gain measured from a snapshot
-  // at most 8 days back); else the real dates they cover, from the earliest snapshot to the newest
-  const shown = (kind === "artists" ? (artists || []).flatMap((a) => a.songs) : rows || []).map((s) => s.g);
-  const from = shown.map((g) => (g.week != null ? g.weekFrom : g.gainFrom)).sort()[0];
-  const to = shown.map((g) => g.latestOn).sort().pop();
-  // (and only while the window itself is about a week: a skipped week spans more)
-  const weekLong = from && to && daysSince(from) - daysSince(to) <= 8;
-  const title = !shown.length || (daysSince(from) <= 8 && weekLong) ? "Top gainers this week" : `Top gainers · ${dayRange(from, to)}`;
-  // one line instead of a list until there's something to rank
-  const empty = !growth ? (failed ? "Couldn't load this week's numbers." : "Loading…")
-    : !rows.length && (lum?.lastUpload ? "Shows up after next week's Luminate export." : "Shows up after two weekly Luminate exports.");
+  const { top, failed, retry } = useRosterTop();
+  const placement = (id) => db.placements.find((p) => p.id === id);
+  const client = (id) => db.clients.find((c) => c.id === id);
+  const rows = !top ? null : kind === "artists" ? top.artists.filter((a) => client(a.clientId)) : top.songs.filter((s) => placement(s.placementId));
+  const span = top && (kind === "artists" ? top.artistsWeekOf : top.songsWeekOf);
+  const title = span ? `Top gainers · ${dayRange(span.from, span.to)}` : "Top gainers this week";
+  // a portfolio still exported the old way has no week to rank: one plain line each
+  const noWeekly = (top?.noWeekly || []).map((p) => `${p.name} has no weekly numbers yet. Drop its new export to include its songs.`);
+  const empty = !top ? (failed ? "Couldn't load this week's numbers." : "Loading…")
+    : !rows.length && !noWeekly.length && (lum?.lastUpload ? "Shows up after next week's Luminate export." : "Shows up after two weekly Luminate exports.");
   return (
     <div className="gainers">
       <div className="attn-head">
@@ -5883,24 +5885,29 @@ function TopGainers({ db, lum, onGo }) {
         </span>
       </div>
       {empty ? (
-        <p className="gainers-empty">{empty}{!growth && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
-      ) : kind === "artists" ? rows.map(({ c, gain, base, songs: theirs }, i) => (
-        <button key={c.id} className="gainer" onClick={() => onGo("catalog", `client:${c.id}`)}>
-          <span className="gainer-n">{i + 1}</span>
-          <span className="lm-cover gainer-av">{c.photo ? <Photo src={c.photo} alt="" fill sizes="40px" /> : (c.name || "?")[0].toUpperCase()}</span>
-          <span className="lm-song-main"><strong>{c.name}</strong><span>{theirs[0].p.song}{theirs.length > 1 ? ` + ${theirs.length - 1} more` : ""}</span></span>
-          <span className="gainer-num"><b>{compact(gain)}</b>{base > 0 && <em>{(gain / base * 100).toFixed(1)}%</em>}</span>
-        </button>
-      )) : rows.map(({ p, g, clientIds }, i) => (
-        <button key={p.id} className="gainer" onClick={() => onGo("catalog", `client:${clientIds[0]}`)}>
-          <span className="gainer-n">{i + 1}</span>
-          <span className="lm-cover">{p.cover ? <Photo src={p.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
-          <span className="lm-song-main"><strong>{p.song}</strong><span>{p.artist} · {clientIds.map(name).join(", ")}</span></span>
-          <span className="gainer-num"><b>{compact(gainOf(g))}</b>
-            {g.week != null ? g.weekPct != null && <em>{(g.weekPct * 100).toFixed(1)}%</em> : <em>since {shortDay(g.gainFrom)}</em>}
-          </span>
-        </button>
-      ))}
+        <p className="gainers-empty">{empty}{!top && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
+      ) : kind === "artists" ? rows.map((a, i) => {
+        const c = client(a.clientId);
+        return (
+          <button key={c.id} className="gainer" onClick={() => onGo("catalog", `client:${c.id}`)}>
+            <span className="gainer-n">{i + 1}</span>
+            <span className="lm-cover gainer-av">{c.photo ? <Photo src={c.photo} alt="" fill sizes="40px" /> : (c.name || "?")[0].toUpperCase()}</span>
+            <span className="lm-song-main"><strong>{c.name}</strong><span>{a.topSong}{a.songCount > 1 ? ` + ${a.songCount - 1} more` : ""}</span></span>
+            <GainNum r={a} />
+          </button>
+        );
+      }) : rows.map((s, i) => {
+        const p = placement(s.placementId);
+        return (
+          <button key={s.key} className="gainer" onClick={() => onGo("catalog", `client:${s.clientIds[0]}`)}>
+            <span className="gainer-n">{i + 1}</span>
+            <span className="lm-cover">{p.cover ? <Photo src={p.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
+            <span className="lm-song-main"><strong>{p.song}</strong><span>{p.artist} · {s.clientIds.map((id) => client(id)?.name || "").filter(Boolean).join(", ")}</span></span>
+            <GainNum r={s} />
+          </button>
+        );
+      })}
+      {top && noWeekly.map((t) => <p key={t} className="gainers-empty gainers-noweek">{t}</p>)}
     </div>
   );
 }
@@ -5926,15 +5933,65 @@ function useHome() {
 }
 const monthName = (ym) => (ym ? new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: "long" }) : "This month");
 
+// The A&R part of the Dashboard's tasks (GET /api/ar?summary=1): who you added that the Luminate A&R
+// lists don't have yet. null while loading or when it couldn't load (the task just isn't there).
+function useArToLuminate() {
+  const [t, setT] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/ar?summary=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => alive && setT(d?.toLuminate || null)).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  return t;
+}
+
+// "See the list": the names to add, by the Luminate list they go in, each with Copy name and its
+// Spotify link when one is saved
+function ArToLuminateModal({ t, onClose }) {
+  useEscape(onClose);
+  const [copied, setCopied] = useState(null);
+  const copy = async (k, name) => { if (await copyText(name)) { setCopied(k); setTimeout(() => setCopied((c) => (c === k ? null : c)), 1500); } };
+  const groups = [["artists", `Add to your ${t.lists.artists.name} list in Luminate`, t.artists, t.lists.artists], ["songs", `Add to your ${t.lists.songs.name} list`, t.songs, t.lists.songs]].filter(([, , items]) => items.length);
+  return (
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-card ar-tolum-modal">
+        <div className="modal-head"><h3>Add to Luminate</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-body">
+          <p className="hint">In Luminate, open the list → Add → search the name; it shows up here after your next export.</p>
+          {groups.map(([k, head, items, list]) => (
+            <div key={k} className="ar-tolum-group" data-group={k}>
+              <h4>{head}</h4>
+              {list.full && <p className="hint err-text">That list is full ({list.count} of {list.cap}). Remove someone from it in Luminate first.</p>}
+              {items.map((x) => (
+                <div key={x.id} className="ar-tolum-row">
+                  <span><strong>{x.name}</strong>{x.artist ? <span className="muted"> · {x.artist}</span> : null}</span>
+                  <span className="ar-tolum-acts">
+                    {x.spotify && <ExtLink className="btn ghost sm" href={x.spotify}>Spotify</ExtLink>}
+                    <button className="btn ghost sm" onClick={() => copy(`${k}:${x.id}`, x.name)}>{copied === `${k}:${x.id}` ? "Copied" : "Copy name"}</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="modal-foot"><button className="btn sm" onClick={onClose}>Close</button></div>
+      </div>
+    </div>
+  );
+}
+
 function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo }) {
   const { home, failed, retry } = useHome();
+  const toLum = useArToLuminate();
+  const [showToLum, setShowToLum] = useState(false);
   const unlogged = home?.accounting?.unlogged;
   const tasks = useMemo(() => {
     const list = dashTasks(db, lum);
     // phase 6 logs them in one click; until then the button shows the list on the Accounting card
-    if (unlogged?.length) list.push({ k: "unlogged", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? " isn't" : "s aren't"} in the accounting sheet yet.`, cta: "See them", go: () => document.getElementById("payments")?.scrollIntoView({ behavior: "smooth", block: "start" }) });
+    if (unlogged?.length) list.push({ k: "unlogged", area: "money", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? " isn't" : "s aren't"} in the accounting sheet yet.`, cta: "See them", go: () => document.getElementById("payments")?.scrollIntoView({ behavior: "smooth", block: "start" }) });
+    if (toLum?.count) list.push({ k: "arLuminate", area: "ar", t: toLum.text, cta: "See the list", go: () => setShowToLum(true) });
     return list;
-  }, [db, lum, unlogged]);
+  }, [db, lum, unlogged, toLum]);
   return (
     <div className="home">
       <div className="admin-head"><h2>Dashboard</h2></div>
@@ -5948,6 +6005,7 @@ function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo }) {
         <PaymentsCard payments={home?.payments} failed={failed} retry={retry} />
       </div>
       <AccountingCard acct={home?.accounting} failed={failed} retry={retry} />
+      {showToLum && toLum && <ArToLuminateModal t={toLum} onClose={() => setShowToLum(false)} />}
     </div>
   );
 }
@@ -8145,6 +8203,11 @@ function StyleTag() {
     @media (hover:hover){ .app:not(.pub) :is(.gainer-tabs,.cu-tabs) button:hover{color:var(--d-ink)} }
     .app:not(.pub) :is(.gainer-tabs,.cu-tabs) button.active{background:var(--d-active);color:var(--d-ink)}
     .app:not(.pub) .gainers-empty{margin:0;padding:14px 16px;font-size:13.5px;line-height:1.5;color:var(--d-ink-4)}
+    .app:not(.pub) .gainers-noweek{border-top:1px solid var(--d-line-2)}
+    /* "See the list" (A&R artists and songs to add in Luminate) */
+    .app:not(.pub) .ar-tolum-group{margin-top:14px} .app:not(.pub) .ar-tolum-group h4{margin:0 0 6px;font-size:13.5px}
+    .app:not(.pub) .ar-tolum-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--d-line-2);flex-wrap:wrap}
+    .app:not(.pub) .ar-tolum-acts{display:flex;gap:6px;flex:none}
     @media (max-width:899px){
       .app:not(.pub) .home-pair{grid-template-columns:minmax(0,1fr)}
       /* 7 tabs: each as wide as its label plus an even share of what's left (never under 44px), so the

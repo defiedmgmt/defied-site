@@ -1,9 +1,10 @@
 // Stream growth per song, from the dated Luminate snapshots: { [placementId]:
-// { latest, latestOn, week, weekPct, ytd, series } }. Staff get every song; a
-// client only their own (keyed by song, so Luminate ids stay staff-only).
+// { latest, latestOn, week, weekPct, ytd, series, thisWeek, lastWeek, wowPct, weekOf } }. Staff get
+// every song; a client only their own (keyed by song, so Luminate ids stay staff-only).
+// ?top=1 (staff only): the Dashboard's Top gainers, ranked by week-on-week % (lib/luminate.js rosterTop).
 import { sql } from "../../lib/db";
 import { requireUser } from "../../lib/session";
-import { growthFor } from "../../lib/luminate";
+import { growthFor, rosterTop } from "../../lib/luminate";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
@@ -11,6 +12,10 @@ export default async function handler(req, res) {
   if (!session) return;
   const { role, clientId } = session.user;
   try {
+    if (req.query.top) {
+      if (role !== "staff") return res.status(403).json({ error: "Staff only." });
+      return res.status(200).json({ top: await rosterTop() });
+    }
     const rows = role === "staff"
       ? await sql`SELECT id, luminate_id FROM placements WHERE luminate_id <> ''`
       : await sql`SELECT id, luminate_id FROM placements WHERE luminate_id <> '' AND client_id = ${clientId}`;
