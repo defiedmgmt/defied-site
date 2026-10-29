@@ -10,7 +10,7 @@ import {
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
   Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator, Copy,
   Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
-  LayoutDashboard, ListChecks, Receipt, FileSpreadsheet, CircleDollarSign, Flag,
+  LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight,
 } from "lucide-react";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
@@ -2454,10 +2454,16 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
     fullSiteSync(db, commit).catch((err) => console.error("Background sync failed:", err)).finally(() => { syncing.current = false; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+  // A&R's badge (follow-ups due + people and songs to add to its Luminate lists) and the Dashboard's
+  // A&R task, from one fetch here
+  const arSum = useArSummary(tab);
+  const toLum = arSum?.toLuminate || null;
+  const pubCount = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster").length, [db, lum]);
+  // each tab's area colours its active icon and its badge (Dashboard, Users and Messages stay white)
   const tabs = [
-    ["home", "Dashboard", LayoutDashboard], ["catalog", "Publishing", ListMusic],
-    ["ar", "A&R", Handshake], ["luminate", "Luminate", Radar, lumCount],
-    ["website", "Website", Pencil],
+    ["home", "Dashboard", LayoutDashboard], ["catalog", "Publishing", ListMusic, pubCount, "roster"],
+    ["ar", "A&R", Handshake, (arSum?.followUpsDue || 0) + (toLum?.count || 0), "ar"], ["luminate", "Luminate", Radar, lumCount, "luminate"],
+    ["website", "Website", Pencil, 0, "site"],
     ["users", "Users", UserCog], ["subs", "Messages", Inbox, unreadCount],
   ];
   return (
@@ -2465,8 +2471,8 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
       <aside className="dash-side">
         <div className="dash-brand"><Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link></div>
         <nav>
-          {tabs.map(([id, label, Icon, badge]) => (
-            <button key={id} className={tab === id ? "active" : ""} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+          {tabs.map(([id, label, Icon, badge, area]) => (
+            <button key={id} className={tab === id ? "active" : ""} data-area={area} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
               <Icon size={17} /> <span className="nav-label">{label}</span>
               {!!badge && <span className="nav-badge">{badge}</span>}
             </button>
@@ -2478,7 +2484,7 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         </div>
       </aside>
       <main className="dash-main">
-        {tab === "home" && <HomeDashboard db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} onGo={go} />}
+        {tab === "home" && <HomeDashboard db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} onGo={go} toLum={toLum} />}
         {tab === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} />}
         {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} />}
         {tab === "luminate" && <LuminateAdmin db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} />}
@@ -3029,6 +3035,8 @@ const wholeMoney = (n) => `$${fmt(Math.round(Number(n) || 0))}`;
 const centsMoney = (n) => (Math.round(n * 100) % 100 ? money(n) : wholeMoney(n)); // $36,125 · $3,759.26
 const bigNum = (n) => (Math.abs(n) >= 1e6 ? `${Number((n / 1e6).toFixed(2))}M` : fmt(Math.round(n))); // 28.9M · 14.45M
 const pctText = (p) => `${p >= 0 ? "▲" : "▼"} ${Math.abs(p).toFixed(1)}%`;
+// the week-on-week % as one pill everywhere: ▲ green up, ▼ red down; nothing when there's no last week
+const WowPill = ({ pct, big }) => (pct == null ? null : <span className={big ? "wow-pill big" : "wow-pill"} data-dir={pct >= 0 ? "up" : "down"}>{pctText(pct)}</span>);
 // someone we track by hand with no row in the Luminate A&R list yet (producers from OUTREACH
 // rarely have one, and Passed is done, so neither counts)
 const needsLumRow = (r) => r.ref?.type === "tracked" && !r.luminateId && r.stage !== "passed";
@@ -5768,19 +5776,23 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub }) {
   );
 }
 
-// What needs a person, across the whole company: one plain sentence each, with the one place it's
-// fixed ({ tab, sub } for onGo). Pure, so Publishing can count its own share (area "roster"). lum =
-// null while the Luminate page's data loads: only what the db alone shows, until then. Every task has
-// an area for its colour: luminate | roster | money | ar | clickup | site.
+// What needs a person, across the whole company: a short headline each (t), an optional detail line
+// under it (d), and the one place it's fixed ({ tab, sub } for onGo). Pure, so Publishing can count
+// its own share (area "roster"). lum = null while the Luminate page's data loads: only what the db
+// alone shows, until then. Every task has an area for its colour: luminate | roster | money | ar |
+// clickup | site.
 function dashTasks(db, lum) {
   const badSplits = db.placements.filter((p) => splitTotal(p.splits) !== 100);
-  // the button names whose page it opens (the first song's client; the others may be someone else's)
-  const first = badSplits.length && (db.clients.find((c) => c.id === badSplits[0].clientId)?.name || "their client");
-  const splits = badSplits.length && { k: "splits", area: "roster", t: `${badSplits.length} song${badSplits.length === 1 ? "'s splits don't" : "s' splits don't"} add up to 100%: ${badSplits.slice(0, 3).map((p) => `${p.song || "Untitled"} (${splitTotal(p.splits)}%)`).join(", ")}${badSplits.length > 3 ? "…" : ""}`, tab: "catalog", sub: `client:${badSplits[0].clientId}`, cta: `Open ${first}` };
+  // the button opens the first song's client, so it never names a client (the others may be someone else's)
+  const splits = badSplits.length && {
+    k: "splits", area: "roster", t: `${badSplits.length} song${badSplits.length === 1 ? "'s splits don't" : "s' splits don't"} add up to 100%`,
+    d: `${badSplits.slice(0, 2).map((p) => `${p.song || "Untitled"} ${Math.round(splitTotal(p.splits) * 10) / 10}%`).join(" · ")}${badSplits.length > 2 ? ` · +${badSplits.length - 2} more` : ""}`,
+    tab: "catalog", sub: `client:${badSplits[0].clientId}`, cta: "Fix splits",
+  };
   if (!lum) return [splits].filter(Boolean);
   const groups = lumGroups(db, lum);
-  const toAdd = groups.filter((g) => g.status === "toAdd").length;
-  const unplaced = groups.filter((g) => g.status === "unplaced").length;
+  // one row for every song that still has to go into a portfolio (the Luminate badge counts the same)
+  const toAdd = groups.filter((g) => g.status === "toAdd" || g.status === "unplaced").length;
   const noIsrc = groups.filter((g) => (g.status === "toAdd" || g.status === "unplaced") && !g.isrc && g.checked).length;
   const missing = groups.filter((g) => g.status === "missing").length;
   // how old the numbers are: from when Luminate made them (the oldest portfolio's newest export), not
@@ -5794,56 +5806,64 @@ function dashTasks(db, lum) {
   const ports = lum.portfolios || [];
   const behind = byNumbers ? ports.find((p) => up.numbersPortfolioId && p.luminateId === up.numbersPortfolioId) || ports.find((p) => p.name === up.numbersPortfolio) || null : null;
   const behindName = behind?.name || up?.numbersPortfolio;
-  const staleText = byNumbers && behindName
-    ? `${behindName}${behind?.songCount ? ` (${behind.songCount} song${behind.songCount === 1 ? "" : "s"})` : ""} hasn't had a new export since ${shortDay(up.numbersFrom)}. In Luminate, export it with 1 week and Worldwide, then drop it here.`
-    : byNumbers ? `The newest Luminate numbers are ${Math.floor(stale)} days old (exported ${shortDay(up.numbersFrom)}).` : `The last Luminate update was ${Math.floor(stale)} days ago.`;
+  const staleT = byNumbers && behindName
+    ? `${behindName}${behind?.songCount ? ` (${behind.songCount} song${behind.songCount === 1 ? "" : "s"})` : ""} hasn't had a new export since ${shortDay(up.numbersFrom)}`
+    : byNumbers ? `The newest Luminate numbers are ${Math.floor(stale)} days old` : `The last Luminate update was ${Math.floor(stale)} days ago`;
+  const staleD = byNumbers && behindName ? "In Luminate, export it with 1 week · Worldwide, then drop it here." : "In Luminate, export each portfolio with 1 week · Worldwide, then drop them here.";
+  const tabNames = noTab.length > 1 ? `${noTab.slice(0, -1).join(", ")} or ${noTab[noTab.length - 1]}` : noTab[0];
   return [
-    stale === null ? { ...L, k: "none", t: "No Luminate export has been dropped in yet.", cta: "Open Luminate" }
-      : stale > 8 && { ...L, k: "stale", sub: "drop", t: staleText, cta: "Drop this week's exports" },
-    toAdd && { ...L, k: "add", t: `${toAdd} song${toAdd === 1 ? " isn't" : "s aren't"} in a Luminate portfolio yet.`, cta: "See the list" },
-    unplaced && { ...L, k: "unplaced", t: `${unplaced} song${unplaced === 1 ? " has" : "s have"} a Luminate id but ${unplaced === 1 ? "isn't" : "aren't"} in any portfolio, so ${unplaced === 1 ? "its" : "their"} numbers don't move.`, cta: "See the list" },
-    lum.unlinked.length && { ...L, k: "unlinked", sub: "match", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here.`, cta: "Match them" },
-    missing && { ...L, k: "missing", sub: "missing", t: `${missing} song${missing === 1 ? " was" : "s were"} marked as added in Luminate but ${missing === 1 ? "isn't" : "aren't"} in the latest export.`, cta: "See the list" },
-    noIsrc && { ...L, k: "isrc", t: `${noIsrc} song${noIsrc === 1 ? "'s" : "s'"} ISRC couldn't be found automatically.`, cta: "Type them in" },
+    stale === null ? { ...L, k: "none", t: "No Luminate export has been dropped in yet", cta: "Open Luminate" }
+      : stale > 8 && { ...L, k: "stale", sub: "drop", t: staleT, d: staleD, cta: "Drop new exports" },
+    toAdd && { ...L, k: "add", t: `${toAdd} song${toAdd === 1 ? " needs" : "s need"} adding to Luminate`, d: noIsrc ? (toAdd === 1 ? "It still needs its ISRC typed in" : `${noIsrc} of them still need${noIsrc === 1 ? "s its" : " their"} ISRC typed in`) : undefined, cta: "See the list" },
+    lum.unlinked.length && { ...L, k: "unlinked", sub: "match", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here`, cta: "Match them" },
+    missing && { ...L, k: "missing", sub: "missing", t: `${missing} song${missing === 1 ? "" : "s"} marked as added ${missing === 1 ? "isn't" : "aren't"} in the latest export`, d: "Check them in Luminate, then add them again or unmark them.", cta: "See the list" },
     splits,
     // the fix is each one's "Sheet tab name", which lives in Website › Roster
-    noTab.length && { k: "tabs", area: "roster", t: `No sheet tab found for ${noTab.join(", ")}, so their numbers can't sync. If their tab has another name, set "Sheet tab name" on each one in Website › Roster.`, tab: "website", sub: "roster", cta: "Open the roster" },
+    noTab.length && {
+      k: "tabs", area: "roster", t: noTab.length === 1 ? `${noTab[0]}'s numbers can't sync` : `${noTab.length} clients' numbers can't sync`,
+      d: `The pub sheet has no tab called ${tabNames}. If ${noTab.length === 1 ? "it has another name, type it" : "theirs have other names, type them"} under Website › Roster › Sheet tab name.`,
+      tab: "website", sub: "roster", cta: "Open the roster",
+    },
   ].filter(Boolean);
 }
 
-// The Dashboard's task list (it was "Needs attention" on the Clients overview). failed = the Luminate
-// data couldn't load: a plain line to try again, never "All caught up" or a spinner that never stops.
-function Tasks({ items, loading, failed, onRetry, onGo }) {
-  return (
-    <div className={items.length || failed ? "attn" : loading ? "attn clear wait" : "attn clear"}>
-      <div className="attn-head">
-        {items.length || failed ? <><ListChecks size={15} /> Tasks {items.length > 0 && <span className="attn-n">{items.length}</span>}</>
-          : loading ? <><RefreshCw size={15} className="spin" /> Checking what needs doing…</> : <><CheckCircle2 size={15} /> All caught up</>}
-      </div>
-      {items.map((it) => (
-        <div key={it.k} className="attn-row" data-task={it.k} data-area={it.area || undefined}>
-          <span>{it.t}</span>
-          <button className="btn ghost sm" onClick={() => (it.go ? it.go() : onGo(it.tab, it.sub))}>{it.cta}</button>
-        </div>
-      ))}
-      {loading && items.length > 0 && <div className="attn-row attn-wait"><span>Checking Luminate…</span></div>}
-      {failed && (
-        <div className="attn-row attn-wait attn-failed">
-          <span>Couldn't load the Luminate tasks.</span>
-          <button className="btn ghost sm" onClick={onRetry}>Try again</button>
-        </div>
-      )}
-    </div>
-  );
+// true while a media query matches (false on the first paint, like the server's)
+function useMedia(q) {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const m = window.matchMedia(q), f = () => setOn(m.matches);
+    f(); m.addEventListener("change", f);
+    return () => m.removeEventListener("change", f);
+  }, [q]);
+  return on;
 }
+
+// A Dashboard card's body that scrolls inside the card (900px and up): data-more while there's more
+// below, for the fade at its foot. Checked after every render (rows arriving) and on resize.
+function useScrollMore(ref) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => { if (el.scrollTop + el.clientHeight < el.scrollHeight - 4) el.setAttribute("data-more", ""); else el.removeAttribute("data-more"); };
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(check);
+    ro?.observe(el);
+    return () => { el.removeEventListener("scroll", check); ro?.disconnect(); };
+  });
+}
+// phones get no scroll box inside the page: each list shows this many rows, then "Show N more"
+const HOME_ROWS = 4;
+const HomeMore = ({ n, open, onToggle }) => (n > 0 ? <button className="btn ghost sm home-more" onClick={onToggle}>{open ? "Show less" : `Show ${n} more`}</button> : null);
 
 // This week's biggest movers on the roster: its songs (one line per title and artist) and its artists
 // (each client's songs that have both weeks, added up), ranked on the server by week-on-week %
 // (GET /api/growth?top=1): from 1,000 streams this week, the rest filling in by streams without a %.
-// Each list says the days it covers. The A&R lists' movers live on the A&R tab, not here.
+// Each list says the days it covers ("This week" on the Dashboard). The A&R lists' movers live on
+// the A&R tab, not here.
 const GAINER_TABS = [["songs", "Songs"], ["artists", "Artists"]];
-// "+157.5%", "−12.0%"
-const wowText = (p) => `${p >= 0 ? "+" : "−"}${Math.abs(p).toFixed(1)}%`;
+// "▲ 157.5%", "▼ 12.0%": the same as the A&R tab's
+const wowText = pctText;
 function useRosterTop() {
   const [top, setTop] = useState(null);
   const [failed, setFailed] = useState(false);
@@ -5859,64 +5879,77 @@ function useRosterTop() {
   }, []);
   return { top, failed, retry: () => loader.current?.() };
 }
+// the pill over this week's streams; a row with no % (too few streams) shows its streams alone, in grey
 function GainNum({ r }) {
   return r.ranked && r.wowPct != null
-    ? <span className="gainer-num" data-wow={r.wowPct >= 0 ? "up" : "down"}><b>{wowText(r.wowPct)} vs last week</b><em>{fmt(r.thisWeek)} this week</em></span>
-    : <span className="gainer-num" data-wow="none"><b>{fmt(r.thisWeek)} this week</b></span>;
+    ? <span className="gainer-num" data-wow={r.wowPct >= 0 ? "up" : "down"}><WowPill pct={r.wowPct} /><em>{fmt(r.thisWeek)} this week</em></span>
+    : <span className="gainer-num" data-wow="none"><em>{fmt(r.thisWeek)} this week</em></span>;
 }
 function TopGainers({ db, lum, onGo }) {
   const [kind, setKind] = useState("songs");
   const { top, failed, retry } = useRosterTop();
+  const body = useRef(null);
+  useScrollMore(body);
   const placement = (id) => db.placements.find((p) => p.id === id);
   const client = (id) => db.clients.find((c) => c.id === id);
   const rows = !top ? null : kind === "artists" ? top.artists.filter((a) => client(a.clientId)) : top.songs.filter((s) => placement(s.placementId));
+  // each tab says its own days (a portfolio exported later can move the songs' week)
   const span = top && (kind === "artists" ? top.artistsWeekOf : top.songsWeekOf);
-  const title = span ? `Top gainers · ${dayRange(span.from, span.to)}` : "Top gainers this week";
-  // a portfolio still exported the old way has no week to rank: one plain line each
-  const noWeekly = (top?.noWeekly || []).map((p) => `${p.name} has no weekly numbers yet. Drop its new export to include its songs.`);
   const empty = !top ? (failed ? "Couldn't load this week's numbers." : "Loading…")
-    : !rows.length && !noWeekly.length && (lum?.lastUpload ? "Shows up after next week's Luminate export." : "Shows up after two weekly Luminate exports.");
+    : !rows.length && !top.noWeekly?.length && (lum?.lastUpload ? "Shows up after next week's Luminate export." : "Shows up after two weekly Luminate exports.");
+  const firstOff = rows ? rows.findIndex((r) => !(r.ranked && r.wowPct != null)) : -1;
+  // the rows without a % sit under one caption, after the ranked ones
+  const split = (i) => i === firstOff && <div key="split" className="gainer-split">Not enough streams for a % yet</div>;
+  const rank = (r, i) => <span className="gainer-n">{r.ranked && r.wowPct != null ? i + 1 : "·"}</span>;
   return (
-    <div className="gainers">
+    <div className="gainers home-card">
       <div className="attn-head">
-        <TrendingUp size={15} /> {title}
-        <span className="gainer-tabs" role="tablist" aria-label="Top gainers">
+        <TrendingUp size={15} /> This week
+        <span className="gainer-tabs" role="tablist" aria-label="This week">
           {GAINER_TABS.map(([id, label]) => (
             <button key={id} role="tab" aria-selected={kind === id} className={kind === id ? "active" : ""} onClick={() => setKind(id)}>{label}</button>
           ))}
         </span>
       </div>
-      {empty ? (
-        <p className="gainers-empty">{empty}{!top && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
-      ) : kind === "artists" ? rows.map((a, i) => {
-        const c = client(a.clientId);
-        return (
-          <button key={c.id} className="gainer" onClick={() => onGo("catalog", `client:${c.id}`)}>
-            <span className="gainer-n">{i + 1}</span>
-            <span className="lm-cover gainer-av">{c.photo ? <Photo src={c.photo} alt="" fill sizes="40px" /> : (c.name || "?")[0].toUpperCase()}</span>
-            <span className="lm-song-main"><strong>{c.name}</strong><span>{a.topSong}{a.songCount > 1 ? ` + ${a.songCount - 1} more` : ""}</span></span>
-            <GainNum r={a} />
-          </button>
-        );
-      }) : rows.map((s, i) => {
-        const p = placement(s.placementId);
-        return (
-          <button key={s.key} className="gainer" onClick={() => onGo("catalog", `client:${s.clientIds[0]}`)}>
-            <span className="gainer-n">{i + 1}</span>
-            <span className="lm-cover">{p.cover ? <Photo src={p.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
-            <span className="lm-song-main"><strong>{p.song}</strong><span>{p.artist} · {s.clientIds.map((id) => client(id)?.name || "").filter(Boolean).join(", ")}</span></span>
-            <GainNum r={s} />
-          </button>
-        );
-      })}
-      {top && noWeekly.map((t) => <p key={t} className="gainers-empty gainers-noweek">{t}</p>)}
+      <div className="home-scroll" ref={body}>
+        {span && <p className="gainer-sub">{dayRange(span.from, span.to)} · vs the week before</p>}
+        {empty ? (
+          <p className="gainers-empty">{empty}{!top && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
+        ) : kind === "artists" ? rows.map((a, i) => {
+          const c = client(a.clientId);
+          return [split(i), (
+            <button key={c.id} className="gainer" data-ranked={a.ranked && a.wowPct != null ? "" : undefined} onClick={() => onGo("catalog", `client:${c.id}`)}>
+              {rank(a, i)}
+              <span className="lm-cover gainer-av">{c.photo ? <Photo src={c.photo} alt="" fill sizes="40px" /> : (c.name || "?")[0].toUpperCase()}</span>
+              <span className="lm-song-main"><strong>{c.name}</strong><span>{a.topSong}{a.songCount > 1 ? ` + ${a.songCount - 1} more` : ""}</span></span>
+              <GainNum r={a} />
+            </button>
+          )];
+        }) : rows.map((s, i) => {
+          const p = placement(s.placementId);
+          return [split(i), (
+            <button key={s.key} className="gainer" data-ranked={s.ranked && s.wowPct != null ? "" : undefined} onClick={() => onGo("catalog", `client:${s.clientIds[0]}`)}>
+              {rank(s, i)}
+              <span className="lm-cover">{p.cover ? <Photo src={p.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
+              <span className="lm-song-main"><strong>{p.song}</strong><span>{p.artist} · {s.clientIds.map((id) => client(id)?.name || "").filter(Boolean).join(", ")}</span></span>
+              <GainNum r={s} />
+            </button>
+          )];
+        })}
+        {/* a portfolio still exported the old way has no week to rank: one plain line each */}
+        {top && (top.noWeekly || []).map((p) => (
+          <p key={p.name} className="gainers-noweek">
+            <i aria-hidden="true" /><span><span className="gainers-noweek-t">{p.name} has no weekly numbers yet. Drop its new export to include its songs.</span> <button className="inline-link" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></span>
+          </p>
+        ))}
+      </div>
     </div>
   );
 }
 
-// The landing tab: the company at a glance. Money first (Defied's commission, from Stripe), then
-// what needs doing (the Dashboard's own tasks beside ClickUp's), what's growing beside what came in,
-// then the accounting sheet. Publishing's own detail (MASTER, the clients, their splits) stays on
+// The landing tab: the company at a glance, in four blocks. Money first (Defied's commission, from
+// Stripe), then To do (the Dashboard's own tasks and ClickUp's) beside This week (what's growing),
+// then one Money card (payments, the accounting sheet, what the sheet doesn't have yet). Publishing's own detail (MASTER, the clients, their splits) stays on
 // Publishing. The money, accounting and ClickUp parts come from /api/home; each says on its own
 // when it can't load, so the rest of the page never waits on it.
 function useHome() {
@@ -5935,15 +5968,17 @@ function useHome() {
 }
 const monthName = (ym) => (ym ? new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: "long" }) : "This month");
 
-// The A&R part of the Dashboard's tasks (GET /api/ar?summary=1): who you added that the Luminate A&R
-// lists don't have yet. null while loading or when it couldn't load (the task just isn't there).
-function useArToLuminate() {
+// A&R's counts (GET /api/ar?summary=1): follow-ups due, and who you added that the Luminate A&R lists
+// don't have yet (toLuminate). Loaded once by StaffDashboard for the A&R badge and the Dashboard's task,
+// again when the Dashboard opens. null while loading or when it couldn't load (no badge, no task).
+function useArSummary(tab) {
   const [t, setT] = useState(null);
   useEffect(() => {
+    if (tab !== "home" && t) return;
     let alive = true;
-    fetch("/api/ar?summary=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => alive && setT(d?.toLuminate || null)).catch(() => {});
+    fetch("/api/ar?summary=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => alive && d && setT(d)).catch(() => {});
     return () => { alive = false; };
-  }, []);
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   return t;
 }
 
@@ -5982,31 +6017,30 @@ function ArToLuminateModal({ t, onClose }) {
   );
 }
 
-function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo }) {
+function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum }) {
   const { home, failed, retry } = useHome();
-  const toLum = useArToLuminate();
   const [showToLum, setShowToLum] = useState(false);
+  // the Money card's tab lives here, so the "not in the sheet" task can open it on that list
+  const [moneyTab, setMoneyTab] = useState("payments");
   const unlogged = home?.accounting?.unlogged;
   const tasks = useMemo(() => {
     const list = dashTasks(db, lum);
-    // phase 6 logs them in one click; until then the button shows the list on the Accounting card
-    if (unlogged?.length) list.push({ k: "unlogged", area: "money", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? " isn't" : "s aren't"} in the accounting sheet yet.`, cta: "See them", go: () => document.getElementById("payments")?.scrollIntoView({ behavior: "smooth", block: "start" }) });
-    if (toLum?.count) list.push({ k: "arLuminate", area: "ar", t: toLum.text, cta: "See the list", go: () => setShowToLum(true) });
+    // phase 6 logs them in one click; until then the button shows the list on the Money card
+    if (unlogged?.length) list.push({ k: "unlogged", area: "money", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? "" : "s"} (${money(home.accounting.unloggedTotal)}) ${unlogged.length === 1 ? "isn't" : "aren't"} in the accounting sheet yet`, cta: "See them",
+      go: () => { setMoneyTab("unlogged"); requestAnimationFrame(() => document.getElementById("money")?.scrollIntoView({ behavior: "smooth", block: "start" })); } });
+    if (toLum?.count) list.push({ k: "arLuminate", area: "ar", t: toLum.text.replace(/\.$/, ""), cta: "See the list", go: () => setShowToLum(true) });
     return list;
-  }, [db, lum, unlogged, toLum]);
+  }, [db, lum, unlogged, toLum]); // eslint-disable-line react-hooks/exhaustive-deps
+  const m = home?.money;
   return (
     <div className="home">
-      <div className="admin-head"><h2>Dashboard</h2></div>
-      <MoneyRow money={home?.money} failed={failed} retry={retry} />
-      <div className="home-pair">
-        <Tasks items={tasks} loading={!lum && !lumErr} failed={!lum && lumErr} onRetry={reloadLum} onGo={onGo} />
-        <ClickUpCard first={home?.clickup} failed={failed} retry={retry} />
-      </div>
-      <div className="home-pair">
+      <div className="admin-head"><h2>Dashboard</h2>{m?.connected && !m.error && <span className="home-src">From Stripe · updated {clock(m.updatedAt)}</span>}</div>
+      <MoneyRow money={m} failed={failed} retry={retry} />
+      <div className="home-row">
+        <ToDoCard items={tasks} loading={!lum && !lumErr} failed={!lum && lumErr} onRetry={reloadLum} onGo={onGo} cuFirst={home?.clickup} homeFailed={failed} homeRetry={retry} />
         <TopGainers db={db} lum={lum} onGo={onGo} />
-        <PaymentsCard payments={home?.payments} failed={failed} retry={retry} />
       </div>
-      <AccountingCard acct={home?.accounting} failed={failed} retry={retry} />
+      <MoneyCard home={home} failed={failed} retry={retry} tab={moneyTab} setTab={setMoneyTab} />
       {showToLum && toLum && <ArToLuminateModal t={toLum} onClose={() => setShowToLum(false)} />}
     </div>
   );
@@ -6019,6 +6053,8 @@ function HomeWait({ failed, retry, what }) {
     : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>;
 }
 
+// "October", "September": this month and the one before, in words
+const monthWord = (offset) => { const d = new Date(); d.setDate(15); d.setMonth(d.getMonth() + offset); return d.toLocaleDateString(undefined, { month: "long" }); };
 function MoneyRow({ money: m, failed, retry }) {
   if (!m || !m.connected || m.error) {
     return (
@@ -6030,40 +6066,25 @@ function MoneyRow({ money: m, failed, retry }) {
       </div>
     );
   }
-  const stats = [["thisMonth", "Commission this month"], ["lastMonth", "Last month"], ["thisYear", "This year"]];
+  const stats = [["thisMonth", `Commission · ${m.month ? monthName(m.month) : monthWord(0)}`], ["lastMonth", monthWord(-1)], ["thisYear", "This year"]];
   return (
     <div className="cat-summary home-money-row">
       <div className="cat-summary-grid">
         {stats.map(([k, label]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(m[k])}</span></div>)}
       </div>
-      <p className="hint home-src">From Stripe · updated {clock(m.updatedAt)}</p>
     </div>
   );
 }
 
 // "via Devin's link", or straight to Defied's own account (tests and deposits so far)
 const viaText = (p) => (p.direct ? "paid to Defied directly" : p.via ? `via ${p.via}'s link` : "via a payment link");
-function PayRow({ p }) {
+// green = Defied's share; what they paid in all sits under it only when it's different
+function PayRow({ p, over }) {
   return (
-    <div className="pay-row" data-pay={p.id}>
-      <span className="pay-main"><strong>{p.client || p.payer || "Unknown payer"}</strong><span>{shortDay(p.at)} · {viaText(p)}</span></span>
-      <span className="pay-amt"><b>{money(p.fee)}</b><em>Defied's cut of {money(p.amount)}</em></span>
-    </div>
-  );
-}
-
-function PaymentsCard({ payments: P, failed, retry }) {
-  const [all, setAll] = useState(false);
-  return (
-    <div className="home-card pay-card">
-      <div className="attn-head"><Receipt size={15} /> Recent payments
-        {P?.items?.length > 0 && <button className="inline-link pay-all" onClick={() => setAll(true)}>View all</button>}</div>
-      {!P ? <HomeWait failed={failed} retry={retry} what="the payments" />
-        : !P.connected ? <p className="home-muted">Connect Stripe to see recent payments here.</p>
-        : P.error ? <p className="home-muted"><AlertTriangle size={15} /> {P.error}</p>
-        : !P.items.length ? <p className="home-muted">No payments yet.</p>
-        : P.items.map((p) => <PayRow key={p.id} p={p} />)}
-      {all && <PaymentsModal onClose={() => setAll(false)} />}
+    <div className={over ? "pay-row over" : "pay-row"} data-pay={p.id}>
+      <span className="pay-main"><strong>{p.client || p.payer || "Unknown payer"}</strong>
+        <span>{shortDay(p.at)} · {viaText(p)}{p.logged === false && <> · <span className="pay-flag">Not in the sheet yet</span></>}</span></span>
+      <span className="pay-amt"><b>{money(p.fee)}</b>{p.fee !== p.amount && <em>{money(p.amount)} paid</em>}</span>
     </div>
   );
 }
@@ -6078,14 +6099,15 @@ function PaymentsModal({ onClose }) {
       .then((d) => { if (!alive) return; if (d?.payments?.items) setP(d.payments); else setErr(d?.payments?.error || true); }).catch(() => alive && setErr(true));
     return () => { alive = false; };
   }, []);
+  const title = !P ? "All payments" : P.total > P.items.length ? `Newest ${P.items.length} of ${fmt(P.total)} payments` : `All payments (${P.items.length})`;
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-card pay-modal">
-        <div className="modal-head"><h3>Payments{P ? ` (last ${P.items.length})` : ""}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-head"><h3>{title}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
         <div className="modal-body">
           {err ? <p className="home-muted"><AlertTriangle size={15} /> {typeof err === "string" ? err : "Couldn't load the payments. Close this and try again."}</p>
             : !P ? <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>
-            : P.items.map((p) => <PayRow key={p.id} p={p} />)}
+            : <><p className="pay-legend">Green = Defied's share of each payment</p>{P.items.map((p) => <PayRow key={p.id} p={p} />)}</>}
         </div>
         <div className="modal-foot"><button className="btn sm" onClick={onClose}>Close</button></div>
       </div>
@@ -6093,64 +6115,91 @@ function PaymentsModal({ onClose }) {
   );
 }
 
-function AccountingCard({ acct: A, failed, retry }) {
+// One Money card: Stripe's payments, the accounting sheet's numbers, and the payments the sheet
+// doesn't have yet (its count in amber on the tab: the one thing here that needs doing)
+function MoneyCard({ home, failed, retry, tab, setTab }) {
+  const [all, setAll] = useState(false);
+  const [open, setOpen] = useState(false);
+  const body = useRef(null);
+  useScrollMore(body);
+  const P = home?.payments, A = home?.accounting;
+  const U = A?.connected && !A.error ? A.unlogged : null;
+  const tabs = [["payments", "Payments"], ["accounting", "Accounting"], ["unlogged", "Not in the sheet"]];
   const month = monthName(A?.month);
-  const stats = A && !A.error && A.connected ? [
-    ["monthRevenue", `Revenue · ${month}`], ["monthExpenses", `Expenses · ${month}`], ["monthNet", `Net · ${month}`],
-    ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (quarter)"],
-  ] : [];
-  const U = A?.unlogged;
+  const more = (n) => <HomeMore n={n - HOME_ROWS} open={open} onToggle={() => setOpen((o) => !o)} />;
+  let content;
+  if (!home) content = <HomeWait failed={failed} retry={retry} what={tab === "payments" ? "the payments" : "the accounting sheet"} />;
+  else if (tab === "payments") {
+    content = !P.connected ? <p className="home-muted">Connect Stripe to see recent payments here.</p>
+      : P.error ? <p className="home-muted"><AlertTriangle size={15} /> {P.error}</p>
+      : !P.items.length ? <p className="home-muted">No payments yet.</p>
+      : <><p className="pay-legend">Green = Defied's share of each payment</p>{P.items.map((p, i) => <PayRow key={p.id} p={p} over={i >= HOME_ROWS} />)}{more(P.items.length)}</>;
+  } else if (!A.connected) content = <p className="home-muted">Accounting sheet: not connected yet. Once it's shared, live numbers and one-click logging of payments show up here.</p>;
+  else if (A.error) content = <p className="home-muted"><AlertTriangle size={15} /> {A.error}</p>;
+  else if (tab === "accounting") {
+    const stats = [["monthNet", `Net · ${month}`, `${money(A.monthRevenue)} in · ${money(A.monthExpenses)} out`], ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]];
+    content = (
+      <div className="cat-summary-grid acct-grid">
+        {stats.map(([k, label, note]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(A[k])}</span>{note && <span className="acct-note">{note}</span>}</div>)}
+      </div>
+    );
+  } else {
+    content = U === null ? <p className="home-muted">Stripe couldn't be read just now, so the payments missing from the sheet can't be checked.</p>
+      : !U.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every Stripe payment is in the accounting sheet.</p>
+      : (
+        <div className="acct-unlogged">
+          <p className="acct-unlogged-head">Add {U.length === 1 ? "this one" : `these ${U.length}`} to the accounting sheet · {money(A.unloggedTotal)} paid in total</p>
+          <div className="acct-row acct-row-hd" aria-hidden="true"><span>Date</span><span>Who</span><span className="acct-amt">Paid</span></div>
+          {U.map((p, i) => (
+            <div key={p.id} className={i >= HOME_ROWS ? "acct-row over" : "acct-row"} data-pay={p.id}><span>{shortDay(p.at)}</span><span className="acct-who">{p.client || p.payer || "Unknown payer"}</span><span className="acct-amt">{money(p.amount)}</span></div>
+          ))}
+          {more(U.length)}
+          <p className="hint">Add each one as a new row in the sheet with the full amount paid. They leave this list once the sheet has them.</p>
+        </div>
+      );
+  }
   return (
-    <div className="home-card acct-card" id="payments">
-      <div className="attn-head"><FileSpreadsheet size={15} /> Accounting</div>
-      {!A ? <HomeWait failed={failed} retry={retry} what="the accounting sheet" />
-        : !A.connected ? <p className="home-muted">Accounting sheet: not connected yet. Once it's shared, live numbers and one-click logging of payments show up here.</p>
-        : A.error ? <p className="home-muted"><AlertTriangle size={15} /> {A.error}</p>
-        : (
-          <>
-            <div className="cat-summary-grid acct-grid">
-              {stats.map(([k, label]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(A[k])}</span></div>)}
-            </div>
-            {U === null ? <p className="home-muted">Stripe couldn't be read just now, so the payments missing from the sheet can't be checked.</p>
-              : !U.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every Stripe payment is in the accounting sheet.</p>
-              : (
-                <div className="acct-unlogged">
-                  <p className="acct-unlogged-head"><strong>{U.length} payment{U.length === 1 ? " isn't" : "s aren't"} in the accounting sheet yet</strong> ({money(A.unloggedTotal)})</p>
-                  {U.map((p) => (
-                    <div key={p.id} className="acct-row" data-pay={p.id}><span>{shortDay(p.at)}</span><span className="acct-who">{p.client || p.payer || "Unknown payer"}</span><span className="acct-amt">{money(p.amount)}</span></div>
-                  ))}
-                  <p className="hint">One-click logging comes next; for now add them in the sheet.</p>
-                </div>
-              )}
-          </>
-        )}
+    <div className="home-card home-money-card" id="money">
+      <div className="attn-head">
+        <Receipt size={15} /> Money
+        <span className="gainer-tabs money-tabs" role="tablist" aria-label="Money">
+          {tabs.map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} data-tab={id} onClick={() => { setTab(id); setOpen(false); }}>
+              {label}{id === "unlogged" && U?.length > 0 && <span className="attn-n">{U.length}</span>}
+            </button>
+          ))}
+        </span>
+        {P?.items?.length > 0 && <button className="inline-link pay-all" onClick={() => setAll(true)}>All payments ({fmt(P.total ?? P.items.length)}) ›</button>}
+      </div>
+      <div className={open ? "home-scroll open" : "home-scroll"} ref={body}>{content}</div>
+      {all && <PaymentsModal onClose={() => setAll(false)} />}
     </div>
   );
 }
 
-// ClickUp's open tasks, read-only: Internal Tasks first, with Pub and A&R a click away. Each row
-// opens the task in ClickUp in a new tab.
-const CU_TABS = [["internal", "Internal"], ["pub", "Pub"], ["ar", "A&R"]];
+// ClickUp's open tasks, read-only, as the To do card's last group: all three lists at once. Each
+// row opens the task in ClickUp in a new tab.
+const CU_LISTS = [["internal", "Internal Tasks"], ["pub", "Pub Tasks"], ["ar", "A&R Tasks"]];
+// the two tasks the dashboard writes into ClickUp itself: the rows above already say the same
+const OWN_CU = /^(Weekly dashboard sync:|Log new payments:)/;
 const PRIORITY = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
 const dueLate = (iso) => !!iso && new Date(iso).getTime() < new Date().setHours(0, 0, 0, 0);
-function useClickUpList(key, first) {
+function useClickUpLists(first) {
   const [lists, setLists] = useState({});
-  const [busy, setBusy] = useState(false);
-  const have = lists[key] || (key === "internal" ? first : null);
-  const load = (k = key) => {
-    setBusy(true);
+  const failed = (k) => ({ key: k, error: "Couldn't reach ClickUp." });
+  const load = (k) => {
+    setLists((x) => ({ ...x, [k]: null }));
     return fetch(`/api/home?list=${k}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => setLists((x) => ({ ...x, [k]: d?.clickup || { key: k, error: "Couldn't reach ClickUp." } })))
-      .catch(() => setLists((x) => ({ ...x, [k]: { key: k, error: "Couldn't reach ClickUp." } }))).finally(() => setBusy(false));
+      .then((d) => setLists((x) => ({ ...x, [k]: d?.clickup || failed(k) }))).catch(() => setLists((x) => ({ ...x, [k]: failed(k) })));
   };
-  // Internal Tasks comes with the Dashboard's own load; the other two when first opened
-  useEffect(() => { if (key !== "internal" && !lists[key]) load(key); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  return { list: have, busy, reload: () => load(key) };
+  // Internal Tasks comes with the Dashboard's own load; Pub and A&R right away beside it
+  useEffect(() => { load("pub"); load("ar"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return { lists: CU_LISTS.map(([k]) => (k in lists ? lists[k] : k === "internal" ? first || null : null)), load };
 }
-function CuTask({ t }) {
+function CuTask({ t, over }) {
   const late = dueLate(t.due);
   return (
-    <ExtLink href={t.url} className="cu-row" title="Open in ClickUp">
+    <ExtLink href={t.url} className={over ? "cu-row over" : "cu-row"} title="Open in ClickUp">
       <span className="cu-main"><strong>{t.name}</strong>
         <span className="cu-meta">
           <span className="cu-status" style={t.statusColor ? { "--cu": t.statusColor } : undefined}>{t.status}</span>
@@ -6162,21 +6211,78 @@ function CuTask({ t }) {
     </ExtLink>
   );
 }
-function ClickUpCard({ first, failed, retry }) {
-  const [key, setKey] = useState("internal");
-  const { list, busy, reload } = useClickUpList(key, first);
+
+// To do: the Dashboard's own tasks under coloured area labels (Luminate, Publishing, Money, A&R,
+// Website), then ClickUp's three lists. On phones a whole row is the button (with a ›), and the list
+// stops at 4 rows with "Show N more". failed = the Luminate data couldn't load: a plain line to try
+// again, never "All caught up" or a spinner that never stops.
+const TODO_GROUPS = [["luminate", "Luminate"], ["roster", "Publishing"], ["money", "Money"], ["ar", "A&R"], ["site", "Website"]];
+function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, homeRetry }) {
+  const phone = useMedia("(max-width: 599px)");
+  const [open, setOpen] = useState(false);
+  const body = useRef(null);
+  useScrollMore(body);
+  const { lists, load } = useClickUpLists(cuFirst);
+  const cu = lists.map((l, i) => (l?.tasks ? { ...l, tasks: l.tasks.filter((t) => !OWN_CU.test(t.name)) } : l ? { ...l, name: l.name || CU_LISTS[i][1] } : l));
+  const cuOpen = cu.reduce((n, l) => n + (l?.tasks?.length || 0), 0);
+  // ClickUp is still on its way only while the Dashboard's own load is (Internal) or Pub/A&R are
+  const cuWait = cu.some((l, i) => !l && !(i === 0 && homeFailed));
+  const cuErr = cu.map((l, i) => (l?.error ? CU_LISTS[i][0] : null)).filter(Boolean);
+  const total = items.length + cuOpen;
+  if (!total && !loading && !failed && !cuWait && !cuErr.length && !homeFailed) {
+    return <div className="attn clear todo"><div className="attn-head"><ListChecks size={15} /> To do <span className="todo-done">· <CheckCircle2 size={14} /> All caught up</span></div></div>;
+  }
+  if (!total && loading && cuWait) {
+    return <div className="attn clear wait todo"><div className="attn-head"><RefreshCw size={15} className="spin" /> Checking what needs doing…</div></div>;
+  }
+  // rows past the 4th fold away on phones; a label or line goes with the row under it
+  let n = 0;
+  const over = (isRow) => { const o = n >= HOME_ROWS; if (isRow) n += 1; return o; };
+  const out = [];
+  const act = (it) => (it.go ? it.go() : onGo(it.tab, it.sub));
+  for (const [area, label] of TODO_GROUPS) {
+    const mine = items.filter((it) => (it.area || "site") === area);
+    if (!mine.length) continue;
+    out.push(<div key={`g:${area}`} className={over(false) ? "todo-group over" : "todo-group"} data-area={area}>{label}</div>);
+    for (const it of mine) {
+      const tap = phone ? { role: "button", tabIndex: 0, onClick: () => act(it), onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(it); } } } : {};
+      out.push(
+        <div key={it.k} className={over(true) ? "attn-row over" : "attn-row"} data-task={it.k} data-area={area} {...tap}>
+          <span className="attn-main" title={it.d ? `${it.t}. ${it.d}` : it.t}><b>{it.t}</b>{it.d && <em>{it.d}</em>}</span>
+          <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); act(it); }}>{it.cta}</button>
+          <ChevronRight size={16} className="attn-chev" aria-hidden="true" />
+        </div>,
+      );
+    }
+  }
+  if (loading && items.length > 0) out.push(<div key="lwait" className={over(true) ? "attn-row attn-wait over" : "attn-row attn-wait"}><span>Checking Luminate…</span></div>);
+  if (failed) {
+    out.push(
+      <div key="lfail" className={over(true) ? "attn-row attn-wait attn-failed over" : "attn-row attn-wait attn-failed"}>
+        <span>Couldn't load the Luminate tasks.</span>
+        <button className="btn ghost sm" onClick={onRetry}>Try again</button>
+      </div>,
+    );
+  }
+  // ClickUp: each list with open tasks under its own subhead; the empty ones share one quiet line
+  out.push(<div key="g:clickup" className={over(false) ? "todo-group over" : "todo-group"} data-area="clickup">ClickUp</div>);
+  cu.forEach((l, i) => {
+    if (!l?.tasks?.length) return;
+    out.push(<div key={`s:${l.key}`} className={over(false) ? "todo-sub over" : "todo-sub"} data-list={CU_LISTS[i][0]}>{l.name} · {l.tasks.length} · <ExtLink href={l.url} className="inline-link">Open in ClickUp ↗</ExtLink></div>);
+    for (const t of l.tasks) out.push(<CuTask key={t.id} t={t} over={over(true)} />);
+  });
+  const empty = cu.filter((l) => l?.tasks && !l.tasks.length).map((l) => `${l.name}: nothing open`);
+  if (empty.length) out.push(<p key="cuempty" className={over(true) ? "todo-line over" : "todo-line"}>{empty.join(" · ")}</p>);
+  if (homeFailed && !cu[0]) out.push(<p key="cuhome" className={over(true) ? "todo-line over" : "todo-line"}>Couldn't load ClickUp. <button className="inline-link" onClick={homeRetry}>Try again</button></p>);
+  if (cuErr.length) out.push(<p key="cuerr" className={over(true) ? "todo-line over" : "todo-line"}><AlertTriangle size={14} /> Couldn't reach ClickUp. <button className="inline-link" onClick={() => cuErr.forEach(load)}>Try again</button></p>);
+  if (cuWait) out.push(<p key="cuwait" className={over(true) ? "todo-line over" : "todo-line"}><RefreshCw size={14} className="spin" /> Loading ClickUp…</p>);
   return (
-    <div className="home-card cu-card">
-      <div className="attn-head"><ListChecks size={15} /> ClickUp
-        <div className="cu-tabs" role="tablist">
-          {CU_TABS.map(([k, label]) => <button key={k} role="tab" aria-selected={key === k} className={key === k ? "active" : ""} onClick={() => setKey(k)}>{label}</button>)}
-        </div>
+    <div className="attn home-card todo">
+      <div className="attn-head"><ListChecks size={15} /> To do {total > 0 && <span className="attn-n">{total}</span>}</div>
+      <div className={open ? "home-scroll open" : "home-scroll"} ref={body}>
+        {out}
+        <HomeMore n={n - HOME_ROWS} open={open} onToggle={() => setOpen((o) => !o)} />
       </div>
-      {!list ? (key === "internal" && !first ? <HomeWait failed={failed} retry={retry} what="ClickUp" /> : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>)
-        : list.error ? <p className="home-muted"><AlertTriangle size={15} /> <span>{list.error} <button className="inline-link" onClick={reload} disabled={busy}>Try again</button></span></p>
-        : !list.tasks.length ? <p className="home-muted"><CheckCircle2 size={15} /> Nothing open in {list.name}.</p>
-        : list.tasks.map((t) => <CuTask key={t.id} t={t} />)}
-      {list?.url && <div className="cu-foot"><ExtLink href={list.url} className="inline-link">Open in ClickUp <ExternalLink size={12} /></ExtLink></div>}
     </div>
   );
 }
@@ -6635,6 +6741,8 @@ function StyleTag() {
       --d-info:#8ab4ff;--d-info-bg:rgba(138,180,255,.08);--d-info-line:rgba(138,180,255,.24);
       --d-ban-neg-bg:#231111;--d-ban-neg-line:#552727;--d-ban-neg-ink:#f2c9c9;
       --d-ban-warn-bg:#1c150e;--d-ban-warn-line:#4a3820;--d-ban-warn-ink:#ecd3b8;
+      /* area colours: which part of the business a task, nav item or badge belongs to (never on numbers) */
+      --d-a-lum:var(--d-info);--d-a-pub:#6fd6c4;--d-a-ar:#c4a7ff;--d-a-cu:#f29bc8;--d-a-money:var(--d-pos);--d-a-site:var(--d-ink-3);
       --d-display:'Suntage','Inter',sans-serif;
       --d-body:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
       --d-r-xs:6px;--d-r-sm:8px;--d-r-md:10px;--d-r-field:12px;--d-r-card:14px;--d-r-modal:16px;
@@ -8143,7 +8251,6 @@ function StyleTag() {
     .app:not(.pub) .lm-unl-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:none;max-width:60%}
     .app:not(.pub) .lm-pick{height:var(--d-ctl-sm);max-width:260px;padding:0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:400 13.5px/1 var(--d-body)}
     .app:not(.pub) .attn,.app:not(.pub) .gainers{display:flex;flex-direction:column;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden;align-self:start}
-    .app:not(.pub) .attn{border-color:var(--d-warn-line)} .app:not(.pub) .attn.clear{border-color:var(--d-line-2)}
     .app:not(.pub) .attn-head{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--d-line);font:600 13px/1.2 var(--d-body);color:var(--d-ink)}
     .app:not(.pub) .attn .attn-head svg{color:var(--d-warn)} .app:not(.pub) .attn.clear .attn-head{border-bottom:0} .app:not(.pub) .attn.clear .attn-head svg{color:var(--d-pos)}
     .app:not(.pub) .gainers .attn-head svg{color:var(--d-pos)}
@@ -8427,6 +8534,105 @@ function StyleTag() {
       .app:not(.pub) .ar-watch-list[data-pill=songs] .admin-row > :nth-child(3){display:none}
       .app:not(.pub) .ar-watch-list[data-pill=songs] .admin-row > :nth-child(4),.app:not(.pub) .ar-watch-list[data-pill=songs] .admin-row > :nth-child(5){display:block}
       .app:not(.pub) .ar-sum-head{flex-wrap:wrap}
+    }
+    /* ---- polish: one colour system. Area colours say which part of the business (To do labels and
+       bars, the active nav icon, nav badges); they never go on numbers */
+    .app:not(.pub) [data-area=luminate]{--area:var(--d-a-lum)} .app:not(.pub) [data-area=roster]{--area:var(--d-a-pub)}
+    .app:not(.pub) [data-area=money]{--area:var(--d-a-money)} .app:not(.pub) [data-area=ar]{--area:var(--d-a-ar)}
+    .app:not(.pub) [data-area=clickup]{--area:var(--d-a-cu)} .app:not(.pub) [data-area=site]{--area:var(--d-a-site)}
+    .app:not(.pub) .dash-side nav button.active[data-area] svg{color:var(--area)}
+    .app:not(.pub) .dash-side nav button[data-area] .nav-badge{background:var(--area);color:#000;-webkit-text-fill-color:#000}
+    /* the week pill: the same on every page */
+    .app:not(.pub) .wow-pill{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:100px;font:600 13px/1 var(--d-body);font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--d-pos);background:var(--d-pos-bg);border:1px solid var(--d-pos-line)}
+    .app:not(.pub) .wow-pill[data-dir=down]{color:var(--d-neg);background:var(--d-neg-bg);border-color:var(--d-neg-line)}
+    .app:not(.pub) .wow-pill.big{height:28px;font-size:15px}
+    /* Dashboard: the money strip, To do beside This week, then Money. From 900px each card stops
+       growing and its body scrolls (fading at the foot while there's more); under 900 nothing scrolls
+       inside the page: lists stop at 4 rows with "Show N more" */
+    .app:not(.pub) .home .admin-head{align-items:baseline}
+    .app:not(.pub) .home-src{flex:none;font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .home-money-row .cat-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .app:not(.pub) .home-row{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;margin:0 0 12px;align-items:stretch}
+    .app:not(.pub) .home-row > .home-card{align-self:stretch}
+    .app:not(.pub) .home-money-card{margin:0 0 12px}
+    .app:not(.pub) .home-more{display:flex;margin:10px auto 12px}
+    @media (min-width:900px){
+      .app:not(.pub) .home-row > .home-card{max-height:452px}   /* the taller card sets the row, never past 452 */
+      .app:not(.pub) .home-money-card{max-height:380px}
+      .app:not(.pub) .home-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#3a3a3c transparent}
+      .app:not(.pub) .home-scroll[data-more]{-webkit-mask-image:linear-gradient(#000 calc(100% - 24px),transparent);mask-image:linear-gradient(#000 calc(100% - 24px),transparent)}
+      .app:not(.pub) .home-more{display:none}
+      .app:not(.pub) .home-money-card .acct-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+    }
+    @media (max-width:899px){
+      .app:not(.pub) .home-row{grid-template-columns:minmax(0,1fr)}
+      .app:not(.pub) .home-scroll:not(.open) .over{display:none}   /* a scroll box inside a scrolling page traps the thumb */
+      .app:not(.pub) .home-money-card .acct-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    }
+    /* To do: caps labels in each area's colour, a 3px bar on each row */
+    .app:not(.pub) .todo .attn-head svg{color:var(--d-warn)}
+    .app:not(.pub) .todo.clear .attn-head svg{color:var(--d-pos)}
+    .app:not(.pub) .todo-done{display:inline-flex;align-items:center;gap:6px;color:var(--d-pos);font-weight:500}
+    .app:not(.pub) .todo-group{padding:14px 16px 6px;font:600 11px/1.2 var(--d-body);letter-spacing:.08em;text-transform:uppercase;color:var(--area)}
+    .app:not(.pub) .todo .attn-row,.app:not(.pub) .todo .cu-row{box-shadow:inset 3px 0 0 var(--area,var(--d-a-cu));border-bottom:0;border-top:1px solid var(--d-line)}
+    .app:not(.pub) .todo :is(.todo-group,.todo-sub) + :is(.attn-row,.cu-row){border-top-color:transparent}
+    .app:not(.pub) .todo .attn-row{min-height:56px;padding:9px 12px 9px 16px}
+    .app:not(.pub) .todo .cu-row{min-height:52px}
+    .app:not(.pub) .attn-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+    .app:not(.pub) .attn-main b{font-size:14px;font-weight:500;line-height:1.35;color:var(--d-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app:not(.pub) .attn-main em{font-style:normal;font-size:12.5px;line-height:1.35;color:var(--d-ink-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app:not(.pub) .attn-chev{display:none}
+    .app:not(.pub) .todo-sub{display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;padding:8px 16px 6px;font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .todo-sub .inline-link{font-size:12px;color:var(--d-ink-3)}
+    .app:not(.pub) .todo-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0;padding:10px 16px 12px;font-size:12.5px;line-height:1.45;color:var(--d-ink-4)}
+    .app:not(.pub) .todo-line svg{flex:none}
+    .app:not(.pub) .todo-line .inline-link{font-size:12.5px}
+    @media (max-width:599px){
+      /* phones: a whole task row is the button, with a › instead of the pill */
+      .app:not(.pub) .home .attn-row{flex-direction:row;align-items:center}
+      .app:not(.pub) .home .attn-row[data-task]{cursor:pointer}
+      .app:not(.pub) .home .attn-row[data-task] .btn{display:none}
+      .app:not(.pub) .home .attn-row[data-task] .attn-chev{display:block;flex:none;color:var(--d-ink-4)}
+      .app:not(.pub) .home-money-row .cat-stat-val{font-size:16px}
+      .app:not(.pub) .home-money-row .cat-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+      .app:not(.pub) .home-money-row .cat-stat:last-child:nth-child(odd){grid-column:auto}
+      .app:not(.pub) .home-money-row .cat-stat{padding:12px}
+      .app:not(.pub) .home-money-row .cat-stat-label{white-space:normal}
+      .app:not(.pub) .home-src{flex-basis:100%}
+    }
+    @media (hover:hover){ .app:not(.pub) .home .attn-row[role=button]:hover{background:var(--d-hover)} }
+    /* This week: the subtitle with its dates, the pill over this week's streams, the no-% rows under a caption */
+    .app:not(.pub) .gainer-sub{margin:0;padding:10px 16px 6px;font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .gainer-num b{color:inherit}
+    .app:not(.pub) .gainer-num em{font-size:12px}
+    .app:not(.pub) .gainer-num[data-wow=none] em{font-size:12.5px}
+    .app:not(.pub) .gainer-split{margin:4px 0 0;padding:10px 16px 6px;border-top:1px solid var(--d-line-2);font-size:11px;color:var(--d-ink-4)}
+    .app:not(.pub) .gainer-split + .gainer{border-top:0}
+    .app:not(.pub) .gainers .gainer:last-of-type{border-bottom:0}
+    .app:not(.pub) .gainers-noweek{display:flex;align-items:flex-start;gap:8px;margin:0;padding:12px 16px;border-top:1px solid var(--d-line-2);font-size:12.5px;line-height:1.5;color:var(--d-ink-3)}
+    .app:not(.pub) .gainers-noweek > i{flex:none;width:7px;height:7px;margin-top:6px;border-radius:50%;background:var(--d-warn)}
+    .app:not(.pub) .gainers-noweek .inline-link{font-size:12.5px}
+    /* Money: Payments · Accounting · Not in the sheet */
+    .app:not(.pub) .home-money-card .attn-head{flex-wrap:wrap;row-gap:10px}
+    .app:not(.pub) .money-tabs{margin-left:8px}
+    .app:not(.pub) .money-tabs button{display:inline-flex;align-items:center;gap:6px}
+    .app:not(.pub) .money-tabs .attn-n{height:16px;min-width:16px;padding:0 5px;font-size:10.5px}
+    .app:not(.pub) .pay-legend{margin:0;padding:10px 16px 4px;font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .pay-flag{color:var(--d-warn)}
+    .app:not(.pub) .pay-amt b{font-variant-numeric:tabular-nums}
+    .app:not(.pub) .home-money-card .acct-grid{margin:14px 16px}
+    .app:not(.pub) .acct-note{font-size:12px;line-height:1.35;color:var(--d-ink-4)}
+    .app:not(.pub) .home-money-card .acct-unlogged{margin:0;border:0;border-radius:0;background:none}
+    .app:not(.pub) .home-money-card .acct-unlogged-head{padding:12px 16px 8px;border-bottom:0;font-size:13.5px;font-weight:500;color:var(--d-ink)}
+    .app:not(.pub) .home-money-card .acct-row{padding:8px 16px}
+    .app:not(.pub) .acct-row-hd{padding-block:4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-ink-4)}
+    .app:not(.pub) .acct-amt{text-align:right}
+    .app:not(.pub) .home-money-card .acct-unlogged .hint{padding:10px 16px 14px}
+    .app:not(.pub) .home-money-card > .home-scroll > .home-muted{padding:14px 16px}
+    @media (max-width:599px){
+      .app:not(.pub) .money-tabs{order:3;margin-left:0;width:100%;overflow-x:auto;scrollbar-width:none}
+      .app:not(.pub) .money-tabs button{flex:1 0 auto}
+      .app:not(.pub) .home-money-card .pay-main > span{white-space:normal}   /* "Not in the sheet yet" wraps instead of being cut off */
     }
     `}</style>
   );
