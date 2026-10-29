@@ -5791,9 +5791,11 @@ function dashTasks(db, lum) {
   const noTab = lum.missingTabs || [];
   const L = { area: "luminate", tab: "luminate" };
   // which portfolio is behind, how big it is, and how to fix it (lib/sync-tasks.js says the same)
-  const behind = byNumbers && up.numbersPortfolio ? (lum.portfolios || []).find((p) => p.name === up.numbersPortfolio) : null;
-  const staleText = byNumbers && up.numbersPortfolio
-    ? `${up.numbersPortfolio}${behind?.songCount ? ` (${behind.songCount} song${behind.songCount === 1 ? "" : "s"})` : ""} hasn't had a new export since ${shortDay(up.numbersFrom)}. In Luminate, export it with 1 week and Worldwide, then drop it here.`
+  const ports = lum.portfolios || [];
+  const behind = byNumbers ? ports.find((p) => up.numbersPortfolioId && p.luminateId === up.numbersPortfolioId) || ports.find((p) => p.name === up.numbersPortfolio) || null : null;
+  const behindName = behind?.name || up?.numbersPortfolio;
+  const staleText = byNumbers && behindName
+    ? `${behindName}${behind?.songCount ? ` (${behind.songCount} song${behind.songCount === 1 ? "" : "s"})` : ""} hasn't had a new export since ${shortDay(up.numbersFrom)}. In Luminate, export it with 1 week and Worldwide, then drop it here.`
     : byNumbers ? `The newest Luminate numbers are ${Math.floor(stale)} days old (exported ${shortDay(up.numbersFrom)}).` : `The last Luminate update was ${Math.floor(stale)} days ago.`;
   return [
     stale === null ? { ...L, k: "none", t: "No Luminate export has been dropped in yet.", cta: "Open Luminate" }
