@@ -12,7 +12,13 @@ import { arState, arSummary, mergeProspect, ArError } from "../../lib/ar";
 const UNDOABLE = ["edit", "status", "contact", "song", "given", "undo"];
 async function eventsOf(prospectId) {
   const rows = await sql`SELECT id, at, by, kind, text, status FROM ar_events WHERE prospect_id = ${prospectId} AND status <> 'pending' ORDER BY at DESC LIMIT 40`;
-  return rows.map((e) => ({ id: e.id, at: e.at, by: e.by, kind: e.kind, text: e.text, status: e.status, undoable: e.status === "done" && UNDOABLE.includes(e.kind) }));
+  // nothing from before a merge offers Undo: those cells may be the other record's (the server refuses it too)
+  let merged = false;
+  return rows.map((e) => {
+    const out = { id: e.id, at: e.at, by: e.by, kind: e.kind, text: e.text, status: e.status, undoable: !merged && e.status === "done" && UNDOABLE.includes(e.kind) };
+    if (e.kind === "merge") merged = true;
+    return out;
+  });
 }
 
 async function act(body, by) {
