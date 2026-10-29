@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import dynamic from "next/dynamic";
 import {
-  Instagram, Mail, X, LogOut, Plus, Trash2, Pencil, Users, Disc3,
+  Instagram, Mail, X, LogOut, Plus, Trash2, Pencil, Disc3,
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
   Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator, Copy,
   Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
@@ -2414,7 +2414,7 @@ async function saveRow(commit, next, key, id, thing) {
 const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d, users: d.users.map(({ password, ...u }) => u) } : d);
 
 function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
-  const [tab, setTab] = useState("website");
+  const [tab, setTab] = useState("catalog");
   const unreadCount = db.submissions.filter((s) => !s.read).length;
   // the Luminate page's data (portfolios, ISRCs, songs to link): loaded once, refreshed by its actions
   const [lum, setLum] = useState(null);
@@ -2425,8 +2425,8 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
     return lumGroups(db, lum).filter((g) => g.status === "toAdd" || g.status === "unplaced").length + lum.unlinked.length;
   }, [db, lum]);
   const tabs = [
-    ["website", "Website", Pencil], ["catalog", "Clients", Users],
-    ["luminate", "Luminate", Radar, lumCount],
+    ["catalog", "Dashboard", LayoutGrid], ["luminate", "Luminate", Radar, lumCount],
+    ["website", "Website", Pencil],
     ["ar", "A&R", Handshake],
     ["users", "Users", UserCog], ["subs", "Messages", Inbox, unreadCount],
   ];
@@ -3242,7 +3242,7 @@ function AdvanceCalcPanel({ data, reload }) {
         {selectedProspect || selectedClient ? (
           <p className="hint">
             Net Streams ({fmt(netStreams)}) comes from {scenario.name}'s {selectedClient ? "catalog" : "songs in Outreach"} —
-            edit {selectedClient ? "their songs on the Clients tab" : "those there"} to change this.
+            edit {selectedClient ? "their songs on the Dashboard tab" : "those there"} to change this.
           </p>
         ) : (
           <>
@@ -4127,7 +4127,7 @@ function CatalogAdmin({ db, commit, lum, onOpenLuminate }) {
   return (
     <div>
       <div className="admin-head">
-        <h2>Clients &amp; Catalog</h2>
+        <h2>Dashboard</h2>
       </div>
       <div className="catalog-wrap">
         <div className="catalog-clients" ref={chips}>
@@ -4227,7 +4227,7 @@ function lumGroups(db, lum) {
 function lumPlan(groups, lum) {
   const todo = groups.filter((g) => g.status === "toAdd" || g.status === "unplaced");
   const slots = (lum?.portfolios || []).filter((p) => p.kind === "roster")
-    .map((p) => ({ p, room: Math.max(0, p.capacity - p.songCount - p.pendingCount), songs: [] }));
+    .map((p) => ({ p, room: Math.max(0, p.capacity - (p.usedCount ?? p.songCount) - p.pendingCount), songs: [] }));
   const left = [];
   for (const g of todo) {
     const s = slots.find((x) => x.songs.length < x.room);
@@ -4345,36 +4345,61 @@ function PortfolioForm({ initial, onClose, onSaved }) {
   );
 }
 
-// Dropped CSVs go up together; the answer says what happened to each file, and blocked ones can be
-// sent again on purpose ("use it anyway") after a warning
+// one line per portfolio in an upload's answer: its newest file, with the older ones of the same drop
+// folded in (kept as growth history, or skipped as duplicates)
+function lumByPortfolio(results) {
+  const by = new Map();
+  for (const r of results) by.set(r.portfolioId, [...(by.get(r.portfolioId) || []), r]);
+  return [...by.values()].map((list) => {
+    const used = list.filter((r) => r.status === "ready" || r.status === "taken").sort((a, b) => String(a.exportedAt).localeCompare(String(b.exportedAt)));
+    const r = used[used.length - 1] || list.find((x) => x.status === "blocked") || list[list.length - 1];
+    return { r, history: used.filter((x) => x !== r), dupes: list.filter((x) => x.status === "older").length };
+  });
+}
+
+// Dropped CSVs are checked first and nothing changes yet: the preview says what each file would do
+// (songs and slots, growth since the last export, new songs, songs that would link), then Apply
+// takes them in. A blocked file can be applied on purpose ("use it anyway") after a warning.
 function ExportDrop({ onDone }) {
   const [over, setOver] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(null); // "checking" | "applying"
   const [out, setOut] = useState(null);
-  const lastFiles = useRef(null);
-  const send = async (files, force = false) => {
-    setBusy(true); setOut(null);
+  const files = useRef(null);
+  const post = async (body) => {
+    const res = await fetch("/api/luminate-upload", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+      body: JSON.stringify(body),
+    }).catch(() => null);
+    const data = res && await res.json().catch(() => null);
+    if (!data) throw new Error("That didn't go through — check your connection and try again.");
+    return { ok: res.ok, data };
+  };
+  const check = async (list) => {
+    setBusy("checking"); setOut(null);
+    try { const { data } = await post({ files: list, dryRun: true }); setOut(data.error && !data.results ? { fatal: data.error } : data); }
+    catch (e) { setOut({ fatal: e.message }); }
+    finally { setBusy(null); }
+  };
+  const apply = async (force = false) => {
+    const pick = (out?.results || []).filter((r) => r.status === "ready" || (force && r.status === "blocked")).map((r) => r.fileName);
+    setBusy("applying");
     try {
-      const res = await fetch("/api/luminate-upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-        body: JSON.stringify({ files, force }),
-      }).catch(() => null);
-      const data = res && await res.json().catch(() => null);
-      if (!data) throw new Error("The upload didn't go through — check your connection and try again.");
-      setOut(data);
+      const { data } = await post({ files: files.current.filter((f) => pick.includes(f.name)), force });
+      setOut({ ...data, applied: true, fatal: data.updated ? null : data.error || null });
       if (data.updated) { window.dispatchEvent(new Event(STREAMS_EVENT)); onDone(); }
-      else if (!res.ok && data.error) setOut({ ...data, fatal: data.error });
-    } catch (e) { setOut({ fatal: e.message }); }
-    finally { setBusy(false); }
+    } catch (e) { setOut({ ...out, fatal: e.message }); }
+    finally { setBusy(null); }
   };
   const take = async (list) => {
-    const files = await Promise.all([...list].filter((f) => /\.csv$/i.test(f.name) || f.type === "text/csv").map(async (f) => ({ name: f.name, text: await f.text() })));
-    if (!files.length) return setOut({ fatal: "Those weren't CSV files. Drop the portfolio exports (portfolio-export-POR….csv)." });
-    lastFiles.current = files;
-    send(files);
+    const read = await Promise.all([...list].filter((f) => /\.csv$/i.test(f.name) || f.type === "text/csv").map(async (f) => ({ name: f.name, text: await f.text() })));
+    if (!read.length) return setOut({ fatal: "Those weren't CSV files. Drop the portfolio exports (portfolio-export-POR….csv)." });
+    files.current = read;
+    check(read);
   };
-  const blocked = out?.results?.filter((r) => r.status === "blocked") || [];
+  const results = out?.results || [];
+  const ready = results.filter((r) => r.status === "ready"), blocked = results.filter((r) => r.status === "blocked");
+  const slots = (r) => `${r.songs} song${r.songs === 1 ? "" : "s"}${r.others ? ` + ${r.others} release${r.others === 1 ? "" : "s"}` : ""}`;
   return (
     <div className="lm-drop-wrap">
       <label
@@ -4383,40 +4408,58 @@ function ExportDrop({ onDone }) {
         onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); if (!busy) take(e.dataTransfer.files); }}
       >
-        <input type="file" accept=".csv,text/csv" multiple disabled={busy} onChange={(e) => { take(e.target.files); e.target.value = ""; }} />
+        <input type="file" accept=".csv,text/csv" multiple disabled={!!busy} onChange={(e) => { take(e.target.files); e.target.value = ""; }} />
         {busy ? <RefreshCw size={22} className="spin" /> : <UploadCloud size={22} />}
-        <strong>{busy ? "Updating the sheet and every client's numbers…" : "Drop this week's portfolio exports here"}</strong>
-        <span>{busy ? "This takes a few seconds." : "or click to choose them. All of them at once is fine."}</span>
+        <strong>{busy === "checking" ? "Checking the files…" : busy === "applying" ? "Updating the sheet and every client's numbers…" : "Drop this week's portfolio exports here"}</strong>
+        <span>{busy ? "This takes a few seconds." : "or click to choose them. All of them at once is fine. Nothing changes until you press Apply."}</span>
       </label>
       {out && (
-        <div className="lm-result" role="status">
+        <div className={`lm-result${out.preview ? " lm-preview" : ""}`} role="status">
+          {out.preview && <p className="lm-result-title">{ready.length ? "Here's what this update would do. Nothing has changed yet." : "Nothing in these files can be used."}</p>}
           {out.fatal && <p className="hint err-text">{out.fatal}</p>}
-          {(out.results || []).map((r) => (
+          {lumByPortfolio(results).map(({ r, history, dupes }) => (
             <div key={r.fileName} className={`lm-result-row ${r.status}`}>
-              {r.status === "taken" ? <CheckCircle2 size={15} /> : r.status === "blocked" ? <AlertTriangle size={15} /> : <Clock size={15} />}
-              <span><strong>{r.portfolioName || r.portfolioId}</strong>{r.status === "taken" ? ` · ${r.songs} songs taken in` : ` · ${r.message}`}
-                {(r.notes || []).map((n) => <em key={n}> {n}</em>)}</span>
+              {r.status === "taken" || r.status === "ready" ? <CheckCircle2 size={15} /> : r.status === "blocked" ? <AlertTriangle size={15} /> : <Clock size={15} />}
+              <span>
+                <strong>{r.portfolioName || `New portfolio …${String(r.portfolioId).slice(-4)}`}</strong>
+                {r.status === "ready" && <>
+                  {` · ${slots(r)} (${r.entities} of 100 slots)`}
+                  {r.preview?.first ? ` · first export of this portfolio · ${fmt(r.preview.totalStreams)} all-time streams`
+                    : ` · ${signed(r.preview?.gain || 0)} streams since its last export`}
+                  {r.preview?.newCount && !r.preview.first ? <em> {r.preview.newCount} new: {r.preview.newSongs.slice(0, 6).join(", ")}{r.preview.newCount > 6 ? "…" : ""}.</em> : null}
+                  {r.preview?.goneCount ? <em> {r.preview.goneCount} no longer in it: {r.preview.goneSongs.slice(0, 4).join(", ")}{r.preview.goneCount > 4 ? "…" : ""}.</em> : null}
+                </>}
+                {r.status === "taken" && ` · ${slots(r)} taken in`}
+                {r.status !== "ready" && r.status !== "taken" && ` · ${r.message}`}
+                {(r.notes || []).map((n) => <em key={n}> {n}</em>)}
+                {history.length > 0 && <em> Plus {history.length} earlier export{history.length === 1 ? "" : "s"} ({shortDay(history[0].exportedAt)} – {shortDay(history[history.length - 1].exportedAt)}) {r.status === "ready" ? "to keep" : "kept"} as growth history.</em>}
+                {dupes > 0 && <em> {dupes} duplicate{dupes === 1 ? "" : "s"} or older file{dupes === 1 ? "" : "s"} skipped.</em>}
+              </span>
             </div>
           ))}
           {(out.errors || []).map((e) => (
             <div key={e.fileName} className="lm-result-row blocked"><AlertTriangle size={15} /><span>{e.message}</span></div>
           ))}
-          {out.updated && (
+          {out.preview && out.links?.length > 0 && <p className="hint">Would link {out.links.length} song{out.links.length === 1 ? "" : "s"} you marked as added: {[...new Set(out.links.map((l) => l.song))].join(", ")}.</p>}
+          {out.preview && out.copied?.length > 0 && <p className="hint">Would also give {out.copied.length === 1 ? "a co-writer's copy" : `${out.copied.length} co-writers' copies`} the Luminate id the same song already has on another page, so {out.copied.length === 1 ? "that share counts" : "those shares count"} in the sheet: {[...new Set(out.copied.map((l) => l.song))].join(", ")}.</p>}
+          {out.applied && out.updated && (
             <p className="hint lm-result-sum">
-              Sheet and site updated{out.summary?.linked ? ` · ${out.summary.linked} new song${out.summary.linked === 1 ? "" : "s"} linked automatically` : ""}
+              Done: sheet and site updated{out.summary?.linked ? ` · ${out.summary.linked} new song${out.summary.linked === 1 ? "" : "s"} linked` : ""}
               {out.summary?.weekTotal != null && out.summary.gainers?.length ? ` · ${signed(out.summary.weekTotal)} streams this week` : ""}.
             </p>
           )}
-          {out.summary?.copied?.length > 0 && (
-            <p className="hint">Also gave {out.summary.copied.length === 1 ? "a co-writer's copy" : `${out.summary.copied.length} co-writers' copies`} the Luminate id the same song already had on another page, so {out.summary.copied.length === 1 ? "that share counts" : "those shares count"} in the sheet now: {[...new Set(out.summary.copied)].join(", ")}.</p>
+          {out.applied && out.summary?.copied?.length > 0 && (
+            <p className="hint">Gave {out.summary.copied.length === 1 ? "a co-writer's copy" : `${out.summary.copied.length} co-writers' copies`} the Luminate id their song already had: {[...new Set(out.summary.copied)].join(", ")}.</p>
           )}
-          {out.error && <p className="hint err-text">{out.error} The exports are saved: press "Update the sheet again" up top.</p>}
-          {blocked.length > 0 && lastFiles.current && (
-            <button className="btn ghost sm" onClick={() => {
-              if (window.confirm("Use the blocked file anyway? Its lower numbers will replace the current ones for every song in that portfolio.")) {
-                send(lastFiles.current.filter((f) => blocked.some((b) => b.fileName === f.name)), true);
-              }
-            }}>Use it anyway</button>
+          {out.applied && out.error && <p className="hint err-text">{out.error} The exports are saved: press "Update the sheet again" up top.</p>}
+          {out.preview && (
+            <div className="lm-result-acts">
+              {ready.length > 0 && <button className="btn sm" disabled={!!busy} onClick={() => apply(false)}><Check size={14} /> {busy === "applying" ? "Applying…" : `Apply this update${blocked.length ? ` (${ready.length} file${ready.length === 1 ? "" : "s"})` : ""}`}</button>}
+              {blocked.length > 0 && <button className="btn ghost sm" disabled={!!busy} onClick={() => {
+                if (window.confirm("Use the blocked file anyway? Its lower numbers will replace the current ones for every song in that portfolio.")) apply(true);
+              }}>Use the blocked file anyway</button>}
+              <button className="btn ghost sm" disabled={!!busy} onClick={() => setOut(null)}>Cancel</button>
+            </div>
           )}
         </div>
       )}
@@ -4496,6 +4539,7 @@ function LuminateAdmin({ db, lum, reloadLum, reloadDb }) {
         {last?.weekTotal != null && last.gainers?.length ? ` That week: ${signed(last.weekTotal)} streams.` : ""}
       </p>
       {err && <p className="hint err-text overview-subhint" role="alert">{err}</p>}
+      {lum.alertsConnected === false && <p className="hint overview-subhint">ClickUp alerts aren't connected yet: they start once the Dashboard Alerts channel is set up.</p>}
 
       <ol className="lm-steps">
         <li className={plan.slots.length || plan.left.length ? "todo" : "done"}>
@@ -4524,11 +4568,12 @@ function LuminateAdmin({ db, lum, reloadLum, reloadDb }) {
       {lum.portfolios.length > 0 && (
         <div className="lm-ports">
           {lum.portfolios.map((p) => {
-            const used = p.songCount + p.pendingCount, pct = Math.min(100, (used / p.capacity) * 100);
+            const used = (p.usedCount ?? p.songCount) + p.pendingCount, pct = Math.min(100, (used / p.capacity) * 100);
             return (
               <button key={p.id} className="lm-port" onClick={() => setEditing({ ...p })} title="Edit name, link or size">
                 <span className="lm-port-top"><strong>{p.name}</strong>{p.kind === "watchlist" && <span className="tag">A&amp;R</span>}</span>
-                <span className="lm-port-count"><b>{used}</b> / {p.capacity} songs{p.pendingCount ? ` · ${p.pendingCount} just added` : ""}</span>
+                <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity ? " · full" : ""}</span>
+                <span className="lm-port-meta">{p.songCount} song{p.songCount === 1 ? "" : "s"}{p.otherCount ? ` + ${p.otherCount} release${p.otherCount === 1 ? "" : "s"}` : ""}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
                 <span className={`lm-bar${pct >= 95 ? " full" : pct >= 80 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
                 <span className="lm-port-meta">{p.exportedAt ? `Exported ${shortDay(p.exportedAt)} · ${fmt(p.totalStreams)} streams` : "No export yet"}</span>
               </button>
@@ -6612,6 +6657,10 @@ function StyleTag() {
     .app:not(.pub) .lm-drop.busy{cursor:progress;border-style:solid}
     .app:not(.pub) .lm-result{display:flex;flex-direction:column;gap:8px;margin-top:10px;padding:14px 16px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1)}
     .app:not(.pub) .lm-result .btn{align-self:flex-start}
+    .app:not(.pub) .lm-result.lm-preview{border-color:var(--d-info-line)}
+    .app:not(.pub) .lm-result-title{margin:0 0 2px;font-size:14px;font-weight:600;color:var(--d-ink)}
+    .app:not(.pub) .lm-result-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+    .app:not(.pub) .lm-result-row.ready svg{color:var(--d-info)}
     .app:not(.pub) .lm-result-row{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.5;color:var(--d-ink-2)}
     .app:not(.pub) .lm-result-row svg{flex:none;margin-top:2px}
     .app:not(.pub) .lm-result-row.taken svg{color:var(--d-pos)}
@@ -6639,7 +6688,7 @@ function StyleTag() {
     .app:not(.pub) .lm-block-head .hint{display:block;margin-top:4px;max-width:60ch}
     .app:not(.pub) .lm-block-acts{display:flex;flex-wrap:wrap;gap:6px}
     .app:not(.pub) .lm-block.lm-full{display:flex;align-items:center;gap:12px;padding:14px 16px;border-color:var(--d-warn-line);background:var(--d-ban-warn-bg);color:var(--d-ban-warn-ink)}
-    .app:not(.pub) .lm-block.lm-full > div{flex:1;min-width:0} .app:not(.pub) .lm-block.lm-full svg{flex:none;color:var(--d-warn)}
+    .app:not(.pub) .lm-block.lm-full > div{flex:1;min-width:0} .app:not(.pub) .lm-block.lm-full > svg{flex:none;color:var(--d-warn)}
     .app:not(.pub) .lm-block.lm-full .hint{display:block;margin-top:2px}
     .app:not(.pub) .lm-list{display:flex;flex-direction:column}
     .app:not(.pub) .lm-block > .lm-list{border:0}
