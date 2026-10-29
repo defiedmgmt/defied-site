@@ -9,6 +9,7 @@ import {
   Instagram, Mail, X, LogOut, Plus, Trash2, Pencil, Users, Disc3,
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
   Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator, Copy,
+  Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
 } from "lucide-react";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
@@ -717,6 +718,20 @@ export default function App() {
     return run;
   };
 
+  // after the server changed data itself (a Luminate update, a link): swap in its copy once the
+  // saves queued in this tab have landed. A save started meanwhile brings its own fresh copy.
+  const reloadDb = async () => {
+    const s = saves.current, gen = s.gen;
+    await s.chain;
+    if (gen !== s.gen || s.pending) return;
+    const calls = s.calls;
+    const res = await fetch("/api/dashboard-data", { cache: "no-store" }).catch(() => null);
+    const fresh = res?.ok ? await res.json().catch(() => null) : null;
+    if (!fresh?.role || gen !== s.gen || s.pending || calls !== s.calls || accountChanged(fresh, s.server || fresh)) return;
+    s.server = inTabOrder(fresh, s.server); s.freshAt = Date.now();
+    setDb(s.server);
+  };
+
   // an open dashboard shows new contact messages when staff come back to the tab (at most every
   // 30 s, never mid-save). Only the Messages list is swapped in, so nothing being edited is touched.
   useEffect(() => {
@@ -856,7 +871,7 @@ export default function App() {
 
         {/* session undefined = /api/auth/me hasn't answered: the same "Loading…" as the data load after it */}
         {route === "staff" && (session === undefined || session?.role === "staff") && (
-          db ? <StaffDashboard db={db} commit={commit} logout={logout} signingOut={signingOut} /> : <p className="muted page">Loading…</p>
+          db ? <StaffDashboard db={db} commit={commit} reloadDb={reloadDb} logout={logout} signingOut={signingOut} /> : <p className="muted page">Loading…</p>
         )}
         {route === "client" && (session === undefined || session?.role === "client") && (
           db ? <ClientPortal db={db} commit={commit} session={session} logout={logout} signingOut={signingOut} /> : <p className="muted page">Loading…</p>
@@ -2398,11 +2413,20 @@ async function saveRow(commit, next, key, id, thing) {
 // one the user has since chosen themselves
 const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d, users: d.users.map(({ password, ...u }) => u) } : d);
 
-function StaffDashboard({ db, commit, logout, signingOut }) {
+function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const [tab, setTab] = useState("website");
   const unreadCount = db.submissions.filter((s) => !s.read).length;
+  // the Luminate page's data (portfolios, ISRCs, songs to link): loaded once, refreshed by its actions
+  const [lum, setLum] = useState(null);
+  const reloadLum = () => fetch("/api/luminate", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.portfolios) setLum(d); }).catch(() => {});
+  useEffect(() => { reloadLum(); }, []);
+  const lumCount = useMemo(() => {
+    if (!lum) return 0;
+    return lumGroups(db, lum).filter((g) => g.status === "toAdd" || g.status === "unplaced").length + lum.unlinked.length;
+  }, [db, lum]);
   const tabs = [
     ["website", "Website", Pencil], ["catalog", "Clients", Users],
+    ["luminate", "Luminate", Radar, lumCount],
     ["ar", "A&R", Handshake],
     ["users", "Users", UserCog], ["subs", "Messages", Inbox, unreadCount],
   ];
@@ -2425,7 +2449,8 @@ function StaffDashboard({ db, commit, logout, signingOut }) {
       </aside>
       <main className="dash-main">
         {tab === "website" && <WebsiteAdmin db={db} commit={commit} />}
-        {tab === "catalog" && <CatalogAdmin db={db} commit={commit} />}
+        {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} onOpenLuminate={() => setTab("luminate")} />}
+        {tab === "luminate" && <LuminateAdmin db={db} lum={lum} reloadLum={reloadLum} reloadDb={reloadDb} />}
         {tab === "ar" && <ARAdmin />}
         {tab === "users" && <UsersAdmin db={db} commit={commit} />}
         {tab === "subs" && <SubsAdmin db={db} commit={commit} />}
@@ -3314,6 +3339,12 @@ function SongManager({ db, commit, clientId, isStaff }) {
     }
     return { gross, net, revenue, adminFee };
   }, [songs, client?.name]);
+  const growth = useGrowth();
+  const weekGain = useMemo(() => {
+    if (!growth) return null;
+    const known = songs.map((p) => growth[p.id]).filter((g) => g?.week != null);
+    return known.length ? known.reduce((a, g) => a + g.week, 0) : null;
+  }, [growth, songs]);
   const [openId, setOpenId] = useState(null);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -3464,9 +3495,16 @@ function SongManager({ db, commit, clientId, isStaff }) {
                 <div className="cat-stat"><span className="cat-stat-label">Admin Money</span><span className="cat-stat-val">{money(summary.adminFee)}</span></div>
               </>
             ) : (
-              <div className="cat-stat"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
+              <>
+                <div className="cat-stat"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
+                {weekGain != null && <div className="cat-stat"><span className="cat-stat-label">This Week</span><span className="cat-stat-val grow-val">{signed(weekGain)}</span></div>}
+              </>
             )}
           </div>
+          <p className="hint cat-asof">
+            Streams as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+            {isStaff && weekGain != null && ` · ${signed(weekGain)} this week`}
+          </p>
         </div>
       )}
 
@@ -3483,6 +3521,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
                 <strong>{p.song || "Untitled"}</strong>
                 <span>{p.artist}</span>
                 <em>{(p.splits || []).length} {(p.splits || []).length === 1 ? "split" : "splits"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitTotal(p.splits)}%</span>{p.notable ? " · Featured" : ""}</em>
+                <GrowthChip g={growth?.[p.id]} />
               </div>
             </button>
           ))}
@@ -3516,6 +3555,16 @@ function SongManager({ db, commit, clientId, isStaff }) {
                   <span>Total</span><span className={splitTotal(active.splits) === 100 ? "split-ok" : "split-warn"}>{splitTotal(active.splits)}%</span>
                 </div>
               </div>
+              {growth?.[active.id]?.series?.length > 1 && (
+                <div className="song-growth">
+                  <div className="song-growth-nums">
+                    {growth[active.id].week != null && <span><b className="grow-val">{signed(growth[active.id].week)}</b> since {shortDay(growth[active.id].weekFrom)}</span>}
+                    {growth[active.id].ytd != null && <span><b>{fmt(growth[active.id].ytd)}</b> this year</span>}
+                  </div>
+                  <Sparkline series={growth[active.id].series} />
+                  <p className="hint">All-time streams, from {shortDay(growth[active.id].series[0][0])} to {shortDay(growth[active.id].latestOn)}</p>
+                </div>
+              )}
               {db.sheetSync?.lastSyncedAt && (
                 <div className="split-list">
                   <div className="split-list-row"><span className="split-name">Streams</span><span className="split-pct">{fmt(active.streams)}</span></div>
@@ -3848,7 +3897,7 @@ async function fullSiteSync(tabDb, commit) {
 // per-writer totals directly (rather than re-deriving them from placements)
 // so the numbers always match the sheet exactly, including the 3-year
 // forecast columns the site doesn't otherwise track anywhere.
-function CatalogOverview({ db, commit, onSelectClient }) {
+function CatalogOverview({ db, commit, lum, onSelectClient, onOpenLuminate }) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [streamSync, setStreamSync] = useState({ syncing: false, error: null });
   const dbNow = useRef(db); // the sheet pull below starts from the db as it is then, not at the click
@@ -3929,6 +3978,11 @@ function CatalogOverview({ db, commit, onSelectClient }) {
       </p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
 
+      <div className="overview-top">
+        <NeedsAttention db={db} lum={lum} onSelectClient={onSelectClient} onOpenLuminate={onOpenLuminate} />
+        <TopGainers db={db} onSelectClient={onSelectClient} />
+      </div>
+
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
 
@@ -4006,7 +4060,7 @@ function CatalogOverview({ db, commit, onSelectClient }) {
   );
 }
 
-function CatalogAdmin({ db, commit }) {
+function CatalogAdmin({ db, commit, lum, onOpenLuminate }) {
   // null clientId = the read-only Overview landing page, not "no selection"
   const [clientId, setClientId] = useState(null);
   const client = db.clients.find((c) => c.id === clientId);
@@ -4096,7 +4150,7 @@ function CatalogAdmin({ db, commit }) {
         </div>
         <div className="catalog-main">
           {clientId === null
-            ? <CatalogOverview db={db} commit={commit} onSelectClient={setClientId} />
+            ? <CatalogOverview db={db} commit={commit} lum={lum} onSelectClient={setClientId} onOpenLuminate={onOpenLuminate} />
             : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff />
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
@@ -4124,6 +4178,536 @@ function CatalogAdmin({ db, commit }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* staff: Luminate — the songs to add to its portfolios, and this week's exports ------------- */
+// One entry per real-world song: the same song on two co-writers' pages is one thing to add to a
+// Luminate portfolio and one Luminate id. Status: tracked (its Luminate song is in a portfolio's
+// latest export), unplaced (has a Luminate id no export holds), waiting (added in Luminate, no
+// numbers yet), toAdd, or skipped ("don't track").
+function lumGroups(db, lum) {
+  const t = lum?.tracking || {}, inPortfolio = lum?.inPortfolio || {};
+  const hasExports = (lum?.portfolios || []).some((p) => p.exportedAt);
+  // a song is its Luminate id once it has one; a copy with no id joins the only linked copy of the
+  // same title and artist (the next update gives it that id too)
+  const title = (p) => `${normalizeTitle(p.song)}|${normalizeTitle(p.artist)}`;
+  const idsOf = new Map();
+  for (const p of db.placements) if (p.luminateId) idsOf.set(title(p), new Set([...(idsOf.get(title(p)) || []), p.luminateId]));
+  const byKey = new Map();
+  for (const p of db.placements) {
+    const only = !p.luminateId && idsOf.get(title(p))?.size === 1 ? [...idsOf.get(title(p))][0] : null;
+    const key = p.luminateId || only ? `lum:${p.luminateId || only}` : `t:${title(p)}`;
+    const g = byKey.get(key) || { key, song: p.song, artist: p.artist, cover: "", ids: [], clientIds: [], isrc: "", checked: false, portfolioId: null, addedAt: null, skip: true, luminateId: "" };
+    const tr = t[p.id] || {};
+    g.ids.push(p.id);
+    if (!g.clientIds.includes(p.clientId)) g.clientIds.push(p.clientId);
+    g.cover ||= p.cover;
+    g.isrc ||= tr.isrc || "";
+    g.checked ||= !!tr.isrcCheckedAt;
+    g.portfolioId ||= tr.portfolioId || null;
+    g.addedAt ||= tr.addedAt || null;
+    g.skip &&= !!tr.skip;
+    g.luminateId ||= p.luminateId || only || "";
+    byKey.set(key, g);
+  }
+  // a song Luminate already has under a matching title (offered in "which song is this?") is matched
+  // there, never added a second time
+  const offered = new Set((lum?.unlinked || []).flatMap((u) => u.suggestions));
+  for (const g of byKey.values()) {
+    g.inPortfolio = g.luminateId ? inPortfolio[g.luminateId] || null : null;
+    g.status = g.skip ? "skipped" : g.inPortfolio || (g.luminateId && !hasExports) ? "tracked" : g.portfolioId ? "waiting" : g.luminateId ? "unplaced"
+      : g.ids.some((id) => offered.has(id)) ? "match" : "toAdd";
+  }
+  return [...byKey.values()];
+}
+
+// the songs to add, split over the roster portfolios that still have room (in their order)
+function lumPlan(groups, lum) {
+  const todo = groups.filter((g) => g.status === "toAdd" || g.status === "unplaced");
+  const slots = (lum?.portfolios || []).filter((p) => p.kind === "roster")
+    .map((p) => ({ p, room: Math.max(0, p.capacity - p.songCount - p.pendingCount), songs: [] }));
+  const left = [];
+  for (const g of todo) {
+    const s = slots.find((x) => x.songs.length < x.room);
+    if (s) s.songs.push(g); else left.push(g);
+  }
+  return { slots: slots.filter((s) => s.songs.length), left };
+}
+
+const ago = (iso) => {
+  if (!iso) return "";
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`;
+};
+// a bare date ("2026-10-14", a snapshot's day) is that day wherever this is read, not UTC midnight
+const shortDay = (iso) => (iso ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00` : iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+const signed = (n) => `${n >= 0 ? "+" : "−"}${fmt(Math.abs(Math.round(n)))}`;
+const compact = (n) => {
+  const a = Math.abs(n), s = n < 0 ? "−" : "+";
+  return a >= 1e6 ? `${s}${(a / 1e6).toFixed(a >= 1e7 ? 0 : 1)}M` : a >= 1e3 ? `${s}${(a / 1e3).toFixed(a >= 1e4 ? 0 : 1)}K` : `${s}${a}`;
+};
+
+async function lumPost(body) {
+  const res = await fetch("/api/luminate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+    body: JSON.stringify(body),
+  }).catch(() => null);
+  const data = res && await res.json().catch(() => null);
+  if (!res?.ok) throw new Error(data?.error || "That didn't go through — check your connection and try again.");
+  return data;
+}
+
+// stream history for the songs this session can see ({ [placementId]: growth }); refetched after a
+// Luminate update lands anywhere on the page
+const STREAMS_EVENT = "dm-streams";
+function useGrowth() {
+  const [growth, setGrowth] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetch("/api/growth", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d?.growth) setGrowth(d.growth); }).catch(() => {});
+    load();
+    window.addEventListener(STREAMS_EVENT, load);
+    return () => { alive = false; window.removeEventListener(STREAMS_EVENT, load); };
+  }, []);
+  return growth;
+}
+
+// a song's all-time streams over time, as a small line (no axes: the numbers sit beside it)
+function Sparkline({ series, height = 56 }) {
+  if (!series || series.length < 2) return null;
+  const w = 300, h = height, pad = 3;
+  const xs = series.map(([d]) => new Date(`${d}T00:00:00Z`).getTime()), ys = series.map(([, s]) => s);
+  const [x0, x1] = [Math.min(...xs), Math.max(...xs)], [y0, y1] = [Math.min(...ys), Math.max(...ys)];
+  const px = (x) => pad + ((x - x0) / (x1 - x0 || 1)) * (w - pad * 2);
+  const py = (y) => h - pad - ((y - y0) / (y1 - y0 || 1)) * (h - pad * 2);
+  const line = series.map((_, i) => `${i ? "L" : "M"}${px(xs[i]).toFixed(1)},${py(ys[i]).toFixed(1)}`).join("");
+  return (
+    <svg className="spark" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" role="img" aria-label={`Streams from ${fmt(ys[0])} to ${fmt(ys[ys.length - 1])}`}>
+      <path d={`${line}L${px(x1).toFixed(1)},${h}L${px(x0).toFixed(1)},${h}Z`} className="spark-fill" />
+      <path d={line} className="spark-line" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+function GrowthChip({ g }) {
+  if (!g || g.week == null || g.week <= 0) return null;
+  return <span className="grow-chip" title={`${signed(g.week)} streams since ${shortDay(g.weekFrom)}`}>{compact(g.week)} this week</span>;
+}
+
+function CopyButton({ text, label = "Copy", onCopied }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button className={done ? "btn ghost sm lm-copy done" : "btn ghost sm lm-copy"} onClick={async () => {
+      await copyText(text); setDone(true); onCopied?.(); setTimeout(() => setDone(false), 1600);
+    }}>
+      {done ? <><Check size={13} /> Copied</> : <><Copy size={13} /> {label}</>}
+    </button>
+  );
+}
+
+function PortfolioForm({ initial, onClose, onSaved }) {
+  const [f, setF] = useState(initial);
+  const [busy, setBusy] = useState(false), [err, setErr] = useState(null);
+  useEscape(onClose, !busy);
+  const save = async (action) => {
+    setBusy(true); setErr(null);
+    try { await lumPost(action === "remove" ? { action: "removePortfolio", id: f.id } : { action: "savePortfolio", ...f }); onSaved(); }
+    catch (e) { setErr(e.message); setBusy(false); }
+  };
+  return (
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
+      <div className="modal-card">
+        <div className="modal-head"><h3>{f.id ? "Edit portfolio" : "Add a portfolio"}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-body">
+          <Field label="Name" value={f.name} placeholder="Portfolio C" onChange={(e) => setF({ ...f, name: e.target.value })} />
+          <Field label="Link to it in Luminate" value={f.url} placeholder="https://…" onChange={(e) => setF({ ...f, url: e.target.value })}
+            hint="Open the portfolio in Luminate and copy the address bar. Used for the Open buttons, and to recognize its exports." />
+          <label className="fld"><span>What it holds</span>
+            <select value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value })}>
+              <option value="roster">Our clients' songs</option>
+              <option value="watchlist">A&amp;R watchlist (prospects' songs)</option>
+            </select>
+          </label>
+          <Field label="Songs it can hold" type="number" min={1} max={1000} value={f.capacity} onChange={(e) => setF({ ...f, capacity: e.target.value })} />
+          {err && <p className="hint err-text" role="alert">{err}</p>}
+        </div>
+        <div className="modal-foot">
+          {f.id && <button className="btn ghost sm" onClick={() => save("remove")} disabled={busy}>Remove</button>}
+          <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn sm" onClick={() => save()} disabled={busy || !String(f.name).trim()}>{busy ? "Saving…" : "Save"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Dropped CSVs go up together; the answer says what happened to each file, and blocked ones can be
+// sent again on purpose ("use it anyway") after a warning
+function ExportDrop({ onDone }) {
+  const [over, setOver] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [out, setOut] = useState(null);
+  const lastFiles = useRef(null);
+  const send = async (files, force = false) => {
+    setBusy(true); setOut(null);
+    try {
+      const res = await fetch("/api/luminate-upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+        body: JSON.stringify({ files, force }),
+      }).catch(() => null);
+      const data = res && await res.json().catch(() => null);
+      if (!data) throw new Error("The upload didn't go through — check your connection and try again.");
+      setOut(data);
+      if (data.updated) { window.dispatchEvent(new Event(STREAMS_EVENT)); onDone(); }
+      else if (!res.ok && data.error) setOut({ ...data, fatal: data.error });
+    } catch (e) { setOut({ fatal: e.message }); }
+    finally { setBusy(false); }
+  };
+  const take = async (list) => {
+    const files = await Promise.all([...list].filter((f) => /\.csv$/i.test(f.name) || f.type === "text/csv").map(async (f) => ({ name: f.name, text: await f.text() })));
+    if (!files.length) return setOut({ fatal: "Those weren't CSV files. Drop the portfolio exports (portfolio-export-POR….csv)." });
+    lastFiles.current = files;
+    send(files);
+  };
+  const blocked = out?.results?.filter((r) => r.status === "blocked") || [];
+  return (
+    <div className="lm-drop-wrap">
+      <label
+        className={`lm-drop${over ? " over" : ""}${busy ? " busy" : ""}`}
+        onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => { e.preventDefault(); setOver(false); if (!busy) take(e.dataTransfer.files); }}
+      >
+        <input type="file" accept=".csv,text/csv" multiple disabled={busy} onChange={(e) => { take(e.target.files); e.target.value = ""; }} />
+        {busy ? <RefreshCw size={22} className="spin" /> : <UploadCloud size={22} />}
+        <strong>{busy ? "Updating the sheet and every client's numbers…" : "Drop this week's portfolio exports here"}</strong>
+        <span>{busy ? "This takes a few seconds." : "or click to choose them. All of them at once is fine."}</span>
+      </label>
+      {out && (
+        <div className="lm-result" role="status">
+          {out.fatal && <p className="hint err-text">{out.fatal}</p>}
+          {(out.results || []).map((r) => (
+            <div key={r.fileName} className={`lm-result-row ${r.status}`}>
+              {r.status === "taken" ? <CheckCircle2 size={15} /> : r.status === "blocked" ? <AlertTriangle size={15} /> : <Clock size={15} />}
+              <span><strong>{r.portfolioName || r.portfolioId}</strong>{r.status === "taken" ? ` · ${r.songs} songs taken in` : ` · ${r.message}`}
+                {(r.notes || []).map((n) => <em key={n}> {n}</em>)}</span>
+            </div>
+          ))}
+          {(out.errors || []).map((e) => (
+            <div key={e.fileName} className="lm-result-row blocked"><AlertTriangle size={15} /><span>{e.message}</span></div>
+          ))}
+          {out.updated && (
+            <p className="hint lm-result-sum">
+              Sheet and site updated{out.summary?.linked ? ` · ${out.summary.linked} new song${out.summary.linked === 1 ? "" : "s"} linked automatically` : ""}
+              {out.summary?.weekTotal != null && out.summary.gainers?.length ? ` · ${signed(out.summary.weekTotal)} streams this week` : ""}.
+            </p>
+          )}
+          {out.summary?.copied?.length > 0 && (
+            <p className="hint">Also gave {out.summary.copied.length === 1 ? "a co-writer's copy" : `${out.summary.copied.length} co-writers' copies`} the Luminate id the same song already had on another page, so {out.summary.copied.length === 1 ? "that share counts" : "those shares count"} in the sheet now: {[...new Set(out.summary.copied)].join(", ")}.</p>
+          )}
+          {out.error && <p className="hint err-text">{out.error} The exports are saved: press "Update the sheet again" up top.</p>}
+          {blocked.length > 0 && lastFiles.current && (
+            <button className="btn ghost sm" onClick={() => {
+              if (window.confirm("Use the blocked file anyway? Its lower numbers will replace the current ones for every song in that portfolio.")) {
+                send(lastFiles.current.filter((f) => blocked.some((b) => b.fileName === f.name)), true);
+              }
+            }}>Use it anyway</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LuminateAdmin({ db, lum, reloadLum, reloadDb }) {
+  const groups = useMemo(() => lumGroups(db, lum), [db, lum]);
+  const plan = useMemo(() => lumPlan(groups, lum), [groups, lum]);
+  const clientName = (id) => db.clients.find((c) => c.id === id)?.name || "";
+  const [editing, setEditing] = useState(null); // a portfolio form
+  const [checked, setChecked] = useState(() => new Set()); // group keys ticked as added
+  const [copied, setCopied] = useState(() => new Set());
+  const [finding, setFinding] = useState(() => new Set());
+  const [typed, setTyped] = useState({}); // group key -> ISRC being typed
+  const [busy, setBusy] = useState(null), [err, setErr] = useState(null);
+  const refresh = async () => { await reloadLum(); await reloadDb(); };
+  const run = async (what, fn) => {
+    setBusy(what); setErr(null);
+    try { await fn(); await refresh(); } catch (e) { setErr(e.message); } finally { setBusy(null); }
+  };
+
+  // songs still needing an ISRC are looked up in the background, a few at a time: one run at a
+  // time, picking up whatever still needs one after each batch (the list moves as it goes)
+  const looked = useRef(new Set()), looking = useRef(false), latest = useRef(groups);
+  latest.current = groups;
+  useEffect(() => {
+    const next = () => latest.current.filter((g) => (g.status === "toAdd" || g.status === "unplaced") && !g.isrc && !g.checked && !looked.current.has(g.key)).slice(0, 4);
+    if (!lum || looking.current || !next().length) return;
+    looking.current = true;
+    (async () => {
+      try {
+        for (let batch = next(); batch.length; batch = next()) {
+          batch.forEach((g) => looked.current.add(g.key));
+          setFinding((s) => new Set([...s, ...batch.map((g) => g.key)]));
+          try { await lumPost({ action: "findIsrcs", groups: batch.map((g) => g.ids) }); } catch { /* Deezer down: a box to type it in, until the next visit */ }
+          setFinding((s) => { const n = new Set(s); batch.forEach((g) => n.delete(g.key)); return n; });
+          await reloadLum();
+        }
+      } finally { looking.current = false; }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lum, groups]);
+
+  const saveIsrc = (g) => run(`isrc:${g.key}`, () => lumPost({ action: "setIsrc", placementIds: g.ids, isrc: typed[g.key] || "" }).then(() => setTyped((t) => ({ ...t, [g.key]: undefined }))));
+  const markAdded = (slot) => {
+    const chosen = slot.songs.filter((g) => checked.has(g.key));
+    if (!chosen.length) return;
+    run(`mark:${slot.p.id}`, async () => {
+      await lumPost({ action: "markAdded", portfolioId: slot.p.id, placementIds: chosen.flatMap((g) => g.ids) });
+      setChecked((s) => { const n = new Set(s); chosen.forEach((g) => n.delete(g.key)); return n; });
+    });
+  };
+  const toggle = (k) => setChecked((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+
+  if (!lum) return <p className="muted">Loading…</p>;
+  const roster = lum.portfolios.filter((p) => p.kind === "roster");
+  const waiting = groups.filter((g) => g.status === "waiting");
+  const last = lum.lastUpload;
+  const pName = (id) => lum.portfolios.find((p) => p.id === id)?.name || "a portfolio";
+  const candidates = groups.filter((g) => !g.luminateId && !g.skip);
+
+  return (
+    <div className="lm">
+      <div className="admin-head">
+        <h2>Luminate</h2>
+        <div className="overview-links">
+          <button className="btn ghost sm" disabled={!!busy} onClick={() => run("resync", () => lumPost({ action: "resync" }).then(() => window.dispatchEvent(new Event(STREAMS_EVENT))))} title="Rebuild STREAM DATA from the newest exports and pull every client's numbers again">
+            <RefreshCw size={14} className={busy === "resync" ? "spin" : ""} /> {busy === "resync" ? "Updating…" : "Update the sheet again"}
+          </button>
+          <button className="btn ghost sm" onClick={() => setEditing({ name: "", url: "", kind: "roster", capacity: lum.cap })}><Plus size={14} /> Add portfolio</button>
+        </div>
+      </div>
+      <p className="hint overview-subhint">
+        {last ? <>Last update {shortDay(last.at)} ({ago(last.at)}){last.by ? ` by ${last.by}` : ""}.</> : "No exports taken in yet. Drop the portfolio exports below to start."}
+        {last?.weekTotal != null && last.gainers?.length ? ` That week: ${signed(last.weekTotal)} streams.` : ""}
+      </p>
+      {err && <p className="hint err-text overview-subhint" role="alert">{err}</p>}
+
+      <ol className="lm-steps">
+        <li className={plan.slots.length || plan.left.length ? "todo" : "done"}>
+          <span className="lm-step-n">1</span>
+          <div><strong>Add new songs to Luminate</strong><span>{plan.slots.length || plan.left.length ? `${plan.slots.reduce((a, s) => a + s.songs.length, 0) + plan.left.length} to add, listed below with their ISRCs` : "Nothing new to add"}</span></div>
+        </li>
+        <li>
+          <span className="lm-step-n">2</span>
+          <div><strong>Export each portfolio</strong><span>All time · Worldwide, then Export CSV</span>
+            <div className="lm-step-links">
+              {lum.portfolios.length === 0 && <span className="hint">Your portfolios appear here after the first drop.</span>}
+              {lum.portfolios.map((p) => (p.url
+                ? <ExtLink key={p.id} href={p.url} className="btn ghost sm"><ExternalLink size={13} /> {p.name}</ExtLink>
+                : <button key={p.id} className="btn ghost sm" onClick={() => setEditing({ ...p })}><Link2 size={13} /> Add {p.name}'s link</button>))}
+            </div>
+          </div>
+        </li>
+        <li>
+          <span className="lm-step-n">3</span>
+          <div><strong>Drop the files here</strong><span>The sheet, every client's numbers and this week's growth update by themselves.</span></div>
+        </li>
+      </ol>
+
+      <ExportDrop onDone={refresh} />
+
+      {lum.portfolios.length > 0 && (
+        <div className="lm-ports">
+          {lum.portfolios.map((p) => {
+            const used = p.songCount + p.pendingCount, pct = Math.min(100, (used / p.capacity) * 100);
+            return (
+              <button key={p.id} className="lm-port" onClick={() => setEditing({ ...p })} title="Edit name, link or size">
+                <span className="lm-port-top"><strong>{p.name}</strong>{p.kind === "watchlist" && <span className="tag">A&amp;R</span>}</span>
+                <span className="lm-port-count"><b>{used}</b> / {p.capacity} songs{p.pendingCount ? ` · ${p.pendingCount} just added` : ""}</span>
+                <span className={`lm-bar${pct >= 95 ? " full" : pct >= 80 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
+                <span className="lm-port-meta">{p.exportedAt ? `Exported ${shortDay(p.exportedAt)} · ${fmt(p.totalStreams)} streams` : "No export yet"}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {(plan.slots.length > 0 || plan.left.length > 0) && <h3 className="lm-h3">Add to Luminate</h3>}
+      {plan.slots.map((slot) => (
+        <div key={slot.p.id} className="lm-block">
+          <div className="lm-block-head">
+            <div>
+              <strong>Add {slot.songs.length === 1 ? "this song" : `these ${slot.songs.length}`} to {slot.p.name}</strong>
+              <span className="hint"> In Luminate: open {slot.p.name} → Add songs → paste each ISRC, select the song, repeat. Then tick them here.</span>
+            </div>
+            <div className="lm-block-acts">
+              {slot.p.url && <ExtLink href={slot.p.url} className="btn ghost sm"><ExternalLink size={13} /> Open {slot.p.name}</ExtLink>}
+              <button className="btn sm" disabled={!slot.songs.some((g) => checked.has(g.key)) || !!busy} onClick={() => markAdded(slot)}>
+                <Check size={14} /> {busy === `mark:${slot.p.id}` ? "Saving…" : `Mark ${slot.songs.filter((g) => checked.has(g.key)).length || ""} as added`}
+              </button>
+            </div>
+          </div>
+          <div className="lm-list">
+            {slot.songs.map((g) => (
+              <div key={g.key} className={`lm-song${checked.has(g.key) ? " on" : ""}${copied.has(g.key) ? " copied" : ""}`}>
+                <label className="lm-tick"><input type="checkbox" checked={checked.has(g.key)} onChange={() => toggle(g.key)} aria-label={`Added ${g.song}`} /></label>
+                <span className="lm-cover">{g.cover ? <Photo src={g.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
+                <span className="lm-song-main">
+                  <strong>{g.song || "Untitled"}</strong>
+                  <span>{g.artist}{g.clientIds.length ? ` · ${g.clientIds.map(clientName).filter(Boolean).join(", ")}` : ""}{g.status === "unplaced" ? " · has a Luminate id but isn't in a portfolio" : ""}</span>
+                </span>
+                <span className="lm-isrc">
+                  {g.isrc ? (
+                    <><code>{g.isrc}</code><CopyButton text={g.isrc} onCopied={() => setCopied((s) => new Set([...s, g.key]))} /></>
+                  ) : finding.has(g.key) ? (
+                    <span className="hint"><RefreshCw size={12} className="spin" /> Finding ISRC…</span>
+                  ) : (
+                    <span className="lm-isrc-in">
+                      <input value={typed[g.key] ?? ""} placeholder="Type the ISRC" aria-label={`ISRC for ${g.song}`}
+                        onChange={(e) => setTyped((t) => ({ ...t, [g.key]: e.target.value }))}
+                        onKeyDown={(e) => e.key === "Enter" && saveIsrc(g)} />
+                      <button className="btn ghost sm" disabled={!typed[g.key] || !!busy} onClick={() => saveIsrc(g)}>Save</button>
+                      <ExtLink href="https://isrcsearch.ifpi.org/" className="inline-link lm-find" title="IFPI's free ISRC search">Find it ↗</ExtLink>
+                    </span>
+                  )}
+                </span>
+                <button className="lm-skip" title="Don't track this song in Luminate (unreleased, not ours to track…)" onClick={() => run(`skip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: true }))}><X size={14} /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {plan.left.length > 0 && (
+        <div className="lm-block lm-full">
+          <AlertTriangle size={16} />
+          <div>
+            <strong>{roster.length ? `Every portfolio is full: ${plan.left.length} more song${plan.left.length === 1 ? " needs" : "s need"} a new one.` : `${plan.left.length} songs to add, and no portfolio yet.`}</strong>
+            <span className="hint"> {roster.length ? "Make a new portfolio in Luminate, then add it here with its link." : "Drop your current exports above and your portfolios appear by themselves, or add one by hand."}</span>
+          </div>
+          <button className="btn sm" onClick={() => setEditing({ name: `Portfolio ${String.fromCharCode(65 + lum.portfolios.length)}`, url: "", kind: "roster", capacity: lum.cap })}><Plus size={14} /> Add portfolio</button>
+        </div>
+      )}
+
+      {lum.unlinked.length > 0 && (
+        <>
+          <h3 className="lm-h3">New in Luminate: which song is this?</h3>
+          <div className="lm-list">
+            {lum.unlinked.map((u) => {
+              const sugg = groups.filter((g) => g.ids.some((id) => u.suggestions.includes(id)));
+              return (
+                <div key={u.luminateId} className="lm-song lm-unl">
+                  <span className="lm-cover"><Radar size={16} /></span>
+                  <span className="lm-song-main"><strong>{u.name}</strong><span>{pName(u.portfolioId)} · {fmt(u.streams)} streams</span></span>
+                  <span className="lm-unl-acts">
+                    {sugg.map((g) => (
+                      <button key={g.key} className="btn sm" disabled={!!busy} onClick={() => run(`link:${u.luminateId}`, () => lumPost({ action: "link", luminateId: u.luminateId, placementIds: g.ids }).then(() => window.dispatchEvent(new Event(STREAMS_EVENT))))}>
+                        <Link2 size={13} /> It's {g.song} · {g.clientIds.map(clientName).join(", ")}
+                      </button>
+                    ))}
+                    {!sugg.length && (
+                      <select className="lm-pick" value="" aria-label={`Link ${u.name} to a song`} disabled={!!busy}
+                        onChange={(e) => { const g = candidates.find((x) => x.key === e.target.value); if (g) run(`link:${u.luminateId}`, () => lumPost({ action: "link", luminateId: u.luminateId, placementIds: g.ids })); }}>
+                        <option value="">Link to a song…</option>
+                        {candidates.map((g) => <option key={g.key} value={g.key}>{g.song} · {g.clientIds.map(clientName).join(", ")}</option>)}
+                      </select>
+                    )}
+                    <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`ign:${u.luminateId}`, () => lumPost({ action: "ignore", luminateId: u.luminateId }))}>Not ours</button>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {waiting.length > 0 && (
+        <>
+          <h3 className="lm-h3">Added, waiting for their first numbers</h3>
+          <p className="hint lm-h3-sub">They link up by themselves when the next export of their portfolio is dropped here.</p>
+          <div className="lm-list">
+            {waiting.map((g) => (
+              <div key={g.key} className="lm-song lm-wait">
+                <span className="lm-cover">{g.cover ? <Photo src={g.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
+                <span className="lm-song-main"><strong>{g.song}</strong><span>{pName(g.portfolioId)} · added {shortDay(g.addedAt)}{g.isrc ? ` · ${g.isrc}` : ""}</span></span>
+                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`un:${g.key}`, () => lumPost({ action: "unmark", placementIds: g.ids }))}>Not added after all</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {editing && <PortfolioForm initial={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reloadLum(); }} />}
+    </div>
+  );
+}
+
+// What needs a person, across the whole catalog — the top of the Clients overview
+function NeedsAttention({ db, lum, onSelectClient, onOpenLuminate }) {
+  const groups = useMemo(() => lumGroups(db, lum), [db, lum]);
+  if (!lum) return null;
+  const toAdd = groups.filter((g) => g.status === "toAdd").length;
+  const unplaced = groups.filter((g) => g.status === "unplaced").length;
+  const noIsrc = groups.filter((g) => (g.status === "toAdd" || g.status === "unplaced") && !g.isrc && g.checked).length;
+  const badSplits = db.placements.filter((p) => splitTotal(p.splits) !== 100);
+  const stale = lum.lastUpload?.at ? (Date.now() - new Date(lum.lastUpload.at).getTime()) / 86400000 : null;
+  const noTab = lum.missingTabs || [];
+  const items = [
+    stale === null ? { k: "none", t: "No Luminate export has been dropped in yet.", go: onOpenLuminate, cta: "Open Luminate" }
+      : stale > 8 && { k: "stale", t: `The last Luminate update was ${Math.floor(stale)} days ago.`, go: onOpenLuminate, cta: "Drop this week's exports" },
+    toAdd && { k: "add", t: `${toAdd} song${toAdd === 1 ? " isn't" : "s aren't"} in a Luminate portfolio yet.`, go: onOpenLuminate, cta: "See the list" },
+    unplaced && { k: "unplaced", t: `${unplaced} song${unplaced === 1 ? " has" : "s have"} a Luminate id but ${unplaced === 1 ? "isn't" : "aren't"} in any portfolio, so ${unplaced === 1 ? "its" : "their"} numbers don't move.`, go: onOpenLuminate, cta: "See the list" },
+    lum.unlinked.length && { k: "unlinked", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here.`, go: onOpenLuminate, cta: "Match them" },
+    noIsrc && { k: "isrc", t: `${noIsrc} song${noIsrc === 1 ? "'s" : "s'"} ISRC couldn't be found automatically.`, go: onOpenLuminate, cta: "Type them in" },
+    badSplits.length && { k: "splits", t: `${badSplits.length} song${badSplits.length === 1 ? "'s splits don't" : "s' splits don't"} add up to 100%: ${badSplits.slice(0, 3).map((p) => `${p.song || "Untitled"} (${splitTotal(p.splits)}%)`).join(", ")}${badSplits.length > 3 ? "…" : ""}`, go: () => onSelectClient(badSplits[0].clientId), cta: "Open the first" },
+    noTab.length && { k: "tabs", t: `No sheet tab found for ${noTab.join(", ")}, so their numbers can't sync. Set "Sheet tab name" on their client profile if their tab has another name.` },
+  ].filter(Boolean);
+  return (
+    <div className={items.length ? "attn" : "attn clear"}>
+      <div className="attn-head">{items.length ? <><AlertTriangle size={15} /> Needs attention</> : <><CheckCircle2 size={15} /> All caught up</>}</div>
+      {items.map((it) => (
+        <div key={it.k} className="attn-row">
+          <span>{it.t}</span>
+          {it.go && <button className="btn ghost sm" onClick={it.go}>{it.cta}</button>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// This week's biggest movers among songs on the site, one line per Luminate song
+function TopGainers({ db, onSelectClient }) {
+  const growth = useGrowth();
+  const rows = useMemo(() => {
+    if (!growth) return null;
+    const seen = new Map();
+    for (const p of db.placements) {
+      const g = growth[p.id];
+      if (!g || g.week == null || !p.luminateId) continue;
+      const key = `${normalizeTitle(p.song)}|${normalizeTitle(p.artist)}`;
+      const cur = seen.get(key);
+      if (cur) { if (!cur.clientIds.includes(p.clientId)) cur.clientIds.push(p.clientId); if (g.week > cur.g.week) { cur.g = g; cur.p = p; } continue; }
+      seen.set(key, { key, p, g, clientIds: [p.clientId] });
+    }
+    return [...seen.values()].sort((a, b) => b.g.week - a.g.week).slice(0, 5);
+  }, [growth, db.placements]);
+  if (!rows?.length) return null;
+  const name = (id) => db.clients.find((c) => c.id === id)?.name || "";
+  return (
+    <div className="gainers">
+      <div className="attn-head"><TrendingUp size={15} /> Top gainers this week</div>
+      {rows.map(({ p, g, clientIds }, i) => (
+        <button key={p.id} className="gainer" onClick={() => onSelectClient(clientIds[0])}>
+          <span className="gainer-n">{i + 1}</span>
+          <span className="lm-cover">{p.cover ? <Photo src={p.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
+          <span className="lm-song-main"><strong>{p.song}</strong><span>{p.artist} · {clientIds.map(name).join(", ")}</span></span>
+          <span className="gainer-num"><b>{compact(g.week)}</b>{g.weekPct != null && <em>{(g.weekPct * 100).toFixed(1)}%</em>}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -5137,7 +5721,7 @@ function StyleTag() {
       .app:not(.pub) .dash-role{display:none}
       .app:not(.pub) .dash-out{width:auto;height:var(--d-ctl-sm);padding:0 14px;gap:8px;border:1px solid var(--d-line-3);border-radius:100px;color:var(--d-ink);font-size:13.5px}
       /* bottom tab bar = the existing nav, fixed. No transform/filter/backdrop-filter may sit on ANY ancestor (.dash-side, .dash, .view, .app) */
-      .app:not(.pub) .dash-side nav{position:fixed;left:0;right:0;bottom:0;z-index:40;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;
+      .app:not(.pub) .dash-side nav{position:fixed;left:0;right:0;bottom:0;z-index:40;display:grid;grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;
         height:calc(var(--d-tab-h) + env(safe-area-inset-bottom));padding:0 4px env(safe-area-inset-bottom);overflow:visible;
         background:rgba(0,0,0,.88);-webkit-backdrop-filter:blur(20px) saturate(1.3);backdrop-filter:blur(20px) saturate(1.3);border-top:1px solid rgba(255,255,255,.07)}
       .app:not(.pub) .dash-side nav button{position:relative;flex-direction:column;justify-content:center;gap:4px;height:var(--d-tab-h);padding:0 2px;border-radius:0;background:none;color:var(--d-ink-4)}
@@ -6005,6 +6589,124 @@ function StyleTag() {
     /* phones read left-aligned: the still credits band too, one credit under the next like a tracklist */
     @media (prefers-reduced-motion:reduce) and (max-width:599px){
       .about2-band .mq-track{justify-content:flex-start;gap:16px 28px}
+    }
+    /* ---- Luminate page, needs-attention, top gainers, stream growth (dashboard v2, batch 1) ---- */
+    .app:not(.pub) .lm-steps{list-style:none;margin:0 0 16px;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--d-line-2);border:1px solid var(--d-line-2);border-radius:var(--d-r-card);overflow:hidden}
+    .app:not(.pub) .lm-steps li{display:flex;gap:12px;padding:16px 18px;background:var(--d-s1);min-width:0}
+    .app:not(.pub) .lm-steps li > div{display:flex;flex-direction:column;gap:4px;min-width:0}
+    .app:not(.pub) .lm-steps strong{font-size:14px;font-weight:600;color:var(--d-ink)}
+    .app:not(.pub) .lm-steps li > div > span{font-size:12.5px;line-height:1.45;color:var(--d-ink-4)}
+    .app:not(.pub) .lm-step-n{flex:none;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--d-line-3);font:600 12px/1 var(--d-body);color:var(--d-ink-3)}
+    .app:not(.pub) .lm-steps li.todo .lm-step-n{border-color:var(--d-warn-line);color:var(--d-warn);background:var(--d-warn-bg)}
+    .app:not(.pub) .lm-steps li.done .lm-step-n{border-color:var(--d-pos-line);color:var(--d-pos);background:var(--d-pos-bg)}
+    .app:not(.pub) .lm-step-links{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+    .app:not(.pub) .lm-drop-wrap{margin:0 0 24px}
+    .app:not(.pub) .lm-drop{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:132px;padding:22px;text-align:center;
+      border:1px dashed var(--d-line-3);border-radius:var(--d-r-card);background:var(--d-s1);color:var(--d-ink-3);cursor:pointer;
+      transition:border-color var(--d-t-fast) ease,background-color var(--d-t-fast) ease}
+    .app:not(.pub) .lm-drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+    .app:not(.pub) .lm-drop strong{font-size:15px;font-weight:600;color:var(--d-ink)}
+    .app:not(.pub) .lm-drop span{font-size:12.5px;color:var(--d-ink-4)}
+    .app:not(.pub) .lm-drop:hover,.app:not(.pub) .lm-drop.over{border-color:#f5f5f5;background:var(--d-s2)}
+    .app:not(.pub) .lm-drop:focus-within{outline:1px solid #f5f5f5;outline-offset:2px}
+    .app:not(.pub) .lm-drop.busy{cursor:progress;border-style:solid}
+    .app:not(.pub) .lm-result{display:flex;flex-direction:column;gap:8px;margin-top:10px;padding:14px 16px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1)}
+    .app:not(.pub) .lm-result .btn{align-self:flex-start}
+    .app:not(.pub) .lm-result-row{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.5;color:var(--d-ink-2)}
+    .app:not(.pub) .lm-result-row svg{flex:none;margin-top:2px}
+    .app:not(.pub) .lm-result-row.taken svg{color:var(--d-pos)}
+    .app:not(.pub) .lm-result-row.blocked{color:var(--d-ban-warn-ink)} .app:not(.pub) .lm-result-row.blocked svg{color:var(--d-warn)}
+    .app:not(.pub) .lm-result-row.older{color:var(--d-ink-4)}
+    .app:not(.pub) .lm-result-row em{font-style:normal;color:var(--d-ink-4)}
+    .app:not(.pub) .lm-result-sum{margin:2px 0 0;color:var(--d-pos)}
+    .app:not(.pub) .lm-ports{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:0 0 28px}
+    .app:not(.pub) .lm-port{font:inherit;display:flex;flex-direction:column;gap:8px;padding:16px;text-align:left;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);color:var(--d-ink-3);cursor:pointer;
+      transition:border-color var(--d-t-fast) ease,background-color var(--d-t-fast) ease}
+    .app:not(.pub) .lm-port:hover{border-color:var(--d-line-3);background:var(--d-s2)}
+    .app:not(.pub) .lm-port:focus-visible{outline:1px solid #f5f5f5;outline-offset:2px}
+    .app:not(.pub) .lm-port-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .app:not(.pub) .lm-port-top strong{font-size:14.5px;font-weight:600;color:var(--d-ink)}
+    .app:not(.pub) .lm-port-count{font-size:13px} .app:not(.pub) .lm-port-count b{font-size:20px;font-weight:600;color:var(--d-ink);letter-spacing:-.01em}
+    .app:not(.pub) .lm-port-meta{font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .lm-bar{display:block;height:6px;border-radius:100px;background:var(--d-s3);overflow:hidden}
+    .app:not(.pub) .lm-bar i{display:block;height:100%;border-radius:inherit;background:var(--d-ink-3);transition:width .5s cubic-bezier(.2,.8,.2,1)}
+    .app:not(.pub) .lm-bar.near i{background:var(--d-warn)} .app:not(.pub) .lm-bar.full i{background:var(--d-neg)}
+    .app:not(.pub) .lm-h3{margin:28px 0 12px;font:600 15px/1.3 var(--d-body);color:var(--d-ink);letter-spacing:0;text-transform:none}
+    .app:not(.pub) .lm-h3-sub{margin:-6px 0 12px}
+    .app:not(.pub) .lm-block{margin:0 0 16px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden}
+    .app:not(.pub) .lm-block-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 16px;padding:14px 16px;border-bottom:1px solid var(--d-line)}
+    .app:not(.pub) .lm-block-head strong{font-size:14px;color:var(--d-ink)}
+    .app:not(.pub) .lm-block-head .hint{display:block;margin-top:4px;max-width:60ch}
+    .app:not(.pub) .lm-block-acts{display:flex;flex-wrap:wrap;gap:6px}
+    .app:not(.pub) .lm-block.lm-full{display:flex;align-items:center;gap:12px;padding:14px 16px;border-color:var(--d-warn-line);background:var(--d-ban-warn-bg);color:var(--d-ban-warn-ink)}
+    .app:not(.pub) .lm-block.lm-full > div{flex:1;min-width:0} .app:not(.pub) .lm-block.lm-full svg{flex:none;color:var(--d-warn)}
+    .app:not(.pub) .lm-block.lm-full .hint{display:block;margin-top:2px}
+    .app:not(.pub) .lm-list{display:flex;flex-direction:column}
+    .app:not(.pub) .lm-block > .lm-list{border:0}
+    .app:not(.pub) .lm > .lm-list{border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden}
+    .app:not(.pub) .lm-song{display:flex;align-items:center;gap:12px;min-height:60px;padding:10px 12px 10px 14px;border-bottom:1px solid var(--d-line);transition:background-color var(--d-t-fast) ease}
+    .app:not(.pub) .lm-song:last-child{border-bottom:0}
+    .app:not(.pub) .lm-song.on{background:var(--d-pos-bg)}
+    .app:not(.pub) .lm-song.copied:not(.on) .lm-isrc code{color:var(--d-ink-4);text-decoration:line-through;text-decoration-color:var(--d-line-3)}
+    .app:not(.pub) .lm-tick{display:grid;place-items:center;width:28px;height:28px;flex:none;cursor:pointer}
+    .app:not(.pub) .lm-tick input{width:18px;height:18px;accent-color:#8fce8f;cursor:pointer}
+    .app:not(.pub) .lm-cover{position:relative;flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:var(--d-r-xs);overflow:hidden;background:var(--d-s3);color:var(--d-ink-off)}
+    .app:not(.pub) .lm-cover img{width:100%;height:100%;object-fit:cover}
+    .app:not(.pub) .lm-song-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+    .app:not(.pub) .lm-song-main strong{font-size:14px;font-weight:500;color:var(--d-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app:not(.pub) .lm-song-main span{font-size:12.5px;color:var(--d-ink-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app:not(.pub) .lm-isrc{display:flex;align-items:center;gap:8px;flex:none}
+    .app:not(.pub) .lm-isrc code{font:500 13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;color:var(--d-ink-2)}
+    .app:not(.pub) .lm-isrc .hint{display:inline-flex;align-items:center;gap:6px;margin:0}
+    .app:not(.pub) .lm-copy{min-width:86px} .app:not(.pub) .lm-copy.done{color:var(--d-pos);border-color:var(--d-pos-line)}
+    .app:not(.pub) .lm-isrc-in{display:flex;align-items:center;gap:6px}
+    .app:not(.pub) .lm-isrc-in input{width:150px;height:var(--d-ctl-sm);padding:0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:500 13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase}
+    .app:not(.pub) .lm-isrc-in input::placeholder{color:var(--d-ph);text-transform:none;font-family:var(--d-body)}
+    .app:not(.pub) .lm-isrc-in input:focus{outline:none;border-color:#f5f5f5}
+    .app:not(.pub) .lm-find{font-size:12.5px;white-space:nowrap}
+    .app:not(.pub) .lm-skip{border:0;background:none;padding:0;cursor:pointer;flex:none;display:grid;place-items:center;width:var(--d-icon);height:var(--d-icon);border-radius:var(--d-r-sm);color:var(--d-ink-off);transition:color var(--d-t-fast) ease,background-color var(--d-t-fast) ease}
+    .app:not(.pub) .lm-skip:hover{color:var(--d-ink);background:var(--d-hover)}
+    .app:not(.pub) .lm-unl-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:none;max-width:60%}
+    .app:not(.pub) .lm-pick{height:var(--d-ctl-sm);max-width:260px;padding:0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:400 13.5px/1 var(--d-body)}
+    .app:not(.pub) .overview-top{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;margin:0 0 24px}
+    .app:not(.pub) .overview-top:not(:has(.gainers)){grid-template-columns:minmax(0,1fr)}
+    .app:not(.pub) .attn,.app:not(.pub) .gainers{display:flex;flex-direction:column;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden;align-self:start}
+    .app:not(.pub) .attn{border-color:var(--d-warn-line)} .app:not(.pub) .attn.clear{border-color:var(--d-line-2)}
+    .app:not(.pub) .attn-head{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--d-line);font:600 13px/1.2 var(--d-body);color:var(--d-ink)}
+    .app:not(.pub) .attn .attn-head svg{color:var(--d-warn)} .app:not(.pub) .attn.clear .attn-head{border-bottom:0} .app:not(.pub) .attn.clear .attn-head svg{color:var(--d-pos)}
+    .app:not(.pub) .gainers .attn-head svg{color:var(--d-pos)}
+    .app:not(.pub) .attn-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px 10px 16px;border-bottom:1px solid var(--d-line);font-size:13.5px;line-height:1.45;color:var(--d-ink-2)}
+    .app:not(.pub) .attn-row:last-child{border-bottom:0} .app:not(.pub) .attn-row .btn{flex:none}
+    .app:not(.pub) .gainer{width:100%;border:0;border-radius:0;background:none;cursor:pointer;font:inherit;display:flex;align-items:center;gap:12px;padding:8px 14px 8px 12px;border-bottom:1px solid var(--d-line);text-align:left;color:inherit;transition:background-color var(--d-t-fast) ease}
+    .app:not(.pub) .gainer:last-child{border-bottom:0} .app:not(.pub) .gainer:hover{background:var(--d-hover)}
+    .app:not(.pub) .gainer:focus-visible{outline:1px solid #f5f5f5;outline-offset:-1px}
+    .app:not(.pub) .gainer-n{flex:none;width:16px;font:600 12px/1 var(--d-body);color:var(--d-ink-off);text-align:center}
+    .app:not(.pub) .gainer-num{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+    .app:not(.pub) .gainer-num b{font-size:15px;font-weight:600;color:var(--d-pos)} .app:not(.pub) .gainer-num em{font-style:normal;font-size:11.5px;color:var(--d-ink-4)}
+    .app:not(.pub) .grow-chip{display:inline-flex;align-self:flex-start;margin-top:6px;padding:3px 8px;border:1px solid var(--d-pos-line);border-radius:100px;background:var(--d-pos-bg);font:500 11.5px/1.2 var(--d-body);color:var(--d-pos)}
+    .app:not(.pub) .grow-val{color:var(--d-pos)}
+    .app:not(.pub) .cat-asof{margin:8px 2px 0}
+    .app:not(.pub) .song-growth{display:flex;flex-direction:column;gap:8px;margin:18px 0 6px;padding:14px 16px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s2)}
+    .app:not(.pub) .song-growth-nums{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--d-ink-4)}
+    .app:not(.pub) .song-growth-nums b{font-size:15px;font-weight:600;color:var(--d-ink)} .app:not(.pub) .song-growth-nums b.grow-val{color:var(--d-pos)}
+    .app:not(.pub) .song-growth .hint{margin:0}
+    .app:not(.pub) .spark{display:block;width:100%;height:56px;overflow:visible}
+    .app:not(.pub) .spark-line{fill:none;stroke:#8fce8f;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+    .app:not(.pub) .spark-fill{fill:rgba(143,206,143,.10)}
+    @media (max-width:899px){
+      .app:not(.pub) .lm-steps{grid-template-columns:minmax(0,1fr)}
+      .app:not(.pub) .overview-top{grid-template-columns:minmax(0,1fr)}
+    }
+    @media (max-width:599px){
+      .app:not(.pub) .lm-song{flex-wrap:wrap;row-gap:8px;position:relative;padding-right:44px}
+      .app:not(.pub) .lm-skip{position:absolute;top:12px;right:6px}
+      .app:not(.pub) .lm-song-main{flex-basis:calc(100% - 140px)}
+      .app:not(.pub) .lm-isrc,.app:not(.pub) .lm-unl-acts{flex-basis:100%;max-width:none;justify-content:flex-start;padding-left:40px}
+      .app:not(.pub) .lm-tick + .lm-cover + .lm-song-main + .lm-isrc{padding-left:80px}
+      .app:not(.pub) .lm-isrc-in input{width:132px}
+      .app:not(.pub) .lm-block-acts{width:100%} .app:not(.pub) .lm-block-acts .btn{flex:1}
+      .app:not(.pub) .attn-row{flex-direction:column;align-items:flex-start}
+      .app:not(.pub) .lm-pick{max-width:100%}
     }
     `}</style>
   );
