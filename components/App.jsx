@@ -5363,16 +5363,19 @@ function Tasks({ items, loading, failed, onRetry, onGo }) {
   );
 }
 
-// This week's biggest movers: the clients' songs (one line per Luminate song), and the A&R
-// portfolios' artists and songs once the A&R tab takes their exports in. A song whose last two
-// exports aren't about a week apart (a skipped week, two in one week) ranks by its real gain since
-// the earlier one, shown with that date ("since Oct 7"), never scaled to a week.
-const GAINER_TABS = [["songs", "Songs"], ["artists", "A&R artists"], ["arSongs", "A&R songs"]];
+// This week's biggest movers on the roster: its songs (one line per Luminate song) and its artists
+// (each client's songs' gains added up, over the same windows the Songs tab ranks them by). A song
+// whose last two exports aren't about a week apart (a skipped week, two in one week) ranks by its real
+// gain since the earlier one, shown with that date ("since Oct 7"), never scaled to a week. The A&R
+// portfolios' movers live on the A&R tab, not here.
+const GAINER_TABS = [["songs", "Songs"], ["artists", "Artists"]];
 const gainOf = (g) => g.week ?? g.gain;
 function TopGainers({ db, lum, onGo }) {
   const [kind, setKind] = useState("songs");
   const { growth, failed, retry } = useGrowthState();
-  const rows = useMemo(() => {
+  // every song Luminate tracks, once per title and artist (the biggest gain of its copies), with
+  // every client it belongs to
+  const songs = useMemo(() => {
     if (!growth) return null;
     const seen = new Map();
     for (const p of db.placements) {
@@ -5383,17 +5386,29 @@ function TopGainers({ db, lum, onGo }) {
       if (cur) { if (!cur.clientIds.includes(p.clientId)) cur.clientIds.push(p.clientId); if (gainOf(g) > gainOf(cur.g)) { cur.g = g; cur.p = p; } continue; }
       seen.set(key, { key, p, g, clientIds: [p.clientId] });
     }
-    return [...seen.values()].sort((a, b) => gainOf(b.g) - gainOf(a.g)).slice(0, 5);
+    return [...seen.values()].sort((a, b) => gainOf(b.g) - gainOf(a.g));
   }, [growth, db.placements]);
+  // each client: their songs' gains added up, as a share of where those songs started the window
+  const artists = useMemo(() => {
+    if (!songs) return null;
+    const by = new Map();
+    for (const s of songs) for (const id of s.clientIds) {
+      const a = by.get(id) || { id, gain: 0, base: 0, songs: [] };
+      a.gain += gainOf(s.g); a.base += s.g.latest - gainOf(s.g); a.songs.push(s);
+      by.set(id, a);
+    }
+    return [...by.values()].map((a) => ({ ...a, c: db.clients.find((c) => c.id === a.id) })).filter((a) => a.c)
+      .sort((a, b) => b.gain - a.gain).slice(0, 5);
+  }, [songs, db.clients]);
+  const rows = kind === "artists" ? artists : songs && songs.slice(0, 5);
   const name = (id) => db.clients.find((c) => c.id === id)?.name || "";
   // "this week" only when every number shown is a week's; else the real dates
-  const froms = [...new Set((rows || []).filter((r) => r.g.week == null).map((r) => r.g.gainFrom))];
-  const title = kind !== "songs" || !rows?.length || !froms.length ? "Top gainers this week"
-    : rows.every((r) => r.g.week == null) && froms.length === 1 ? `Top gainers since ${shortDay(froms[0])}` : "Top gainers";
+  const shown = (kind === "artists" ? (artists || []).flatMap((a) => a.songs) : rows || []).map((s) => s.g);
+  const froms = [...new Set(shown.filter((g) => g.week == null).map((g) => g.gainFrom))];
+  const title = !shown.length || !froms.length ? "Top gainers this week"
+    : shown.every((g) => g.week == null) && froms.length === 1 ? `Top gainers since ${shortDay(froms[0])}` : "Top gainers";
   // one line instead of a list until there's something to rank
-  const empty = kind !== "songs"
-    ? (lum?.arLastUpload ? "A&R exports are in. Their top gainers show up here soon." : "Shows up after the first A&R export.")
-    : !growth ? (failed ? "Couldn't load this week's numbers." : "Loading…")
+  const empty = !growth ? (failed ? "Couldn't load this week's numbers." : "Loading…")
     : !rows.length && (lum?.lastUpload ? "Shows up after next week's Luminate export." : "Shows up after two weekly Luminate exports.");
   return (
     <div className="gainers">
@@ -5406,8 +5421,15 @@ function TopGainers({ db, lum, onGo }) {
         </span>
       </div>
       {empty ? (
-        <p className="gainers-empty">{empty}{kind === "songs" && !growth && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
-      ) : rows.map(({ p, g, clientIds }, i) => (
+        <p className="gainers-empty">{empty}{!growth && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
+      ) : kind === "artists" ? rows.map(({ c, gain, base, songs: theirs }, i) => (
+        <button key={c.id} className="gainer" onClick={() => onGo("catalog", `client:${c.id}`)}>
+          <span className="gainer-n">{i + 1}</span>
+          <span className="lm-cover gainer-av">{c.photo ? <Photo src={c.photo} alt="" fill sizes="40px" /> : (c.name || "?")[0].toUpperCase()}</span>
+          <span className="lm-song-main"><strong>{c.name}</strong><span>{theirs[0].p.song}{theirs.length > 1 ? ` + ${theirs.length - 1} more` : ""}</span></span>
+          <span className="gainer-num"><b>{compact(gain)}</b>{base > 0 && <em>{(gain / base * 100).toFixed(1)}%</em>}</span>
+        </button>
+      )) : rows.map(({ p, g, clientIds }, i) => (
         <button key={p.id} className="gainer" onClick={() => onGo("catalog", `client:${clientIds[0]}`)}>
           <span className="gainer-n">{i + 1}</span>
           <span className="lm-cover">{p.cover ? <Photo src={p.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
@@ -5424,7 +5446,7 @@ function TopGainers({ db, lum, onGo }) {
 // The landing tab: the company at a glance. Money first (Defied's commission, from Stripe), then
 // what needs doing beside what's growing, then payments and the accounting sheet. Publishing's own
 // detail (MASTER, the clients, their splits) stays on Publishing. pay (Stripe) arrives with a later
-// batch, like the A&R gainers: until then their cards say what will show up there.
+// batch: until then its cards say what will show up there.
 function HomeDashboard({ db, lum, lumErr = false, reloadLum, pay = null, onGo }) {
   const tasks = useMemo(() => dashTasks(db, lum), [db, lum]);
   return (
@@ -7428,6 +7450,7 @@ function StyleTag() {
     .app:not(.pub) .gainer-n{flex:none;width:16px;font:600 12px/1 var(--d-body);color:var(--d-ink-off);text-align:center}
     .app:not(.pub) .gainer-num{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:2px}
     .app:not(.pub) .gainer-num b{font-size:15px;font-weight:600;color:var(--d-pos)} .app:not(.pub) .gainer-num em{font-style:normal;font-size:11.5px;color:var(--d-ink-4)}
+    .app:not(.pub) .gainer-av{border-radius:50%;font:600 15px/1 var(--d-body);color:var(--d-ink-3)}   /* an artist: their photo in a circle, a song's cover stays square */
     .app:not(.pub) .grow-chip{display:inline-flex;align-self:flex-start;margin-top:6px;padding:3px 8px;border:1px solid var(--d-pos-line);border-radius:100px;background:var(--d-pos-bg);font:500 11.5px/1.2 var(--d-body);color:var(--d-pos)}
     .app:not(.pub) .grow-val{color:var(--d-pos)}
     .app:not(.pub) .cat-asof{margin:8px 2px 0}
