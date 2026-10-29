@@ -3021,12 +3021,17 @@ const stageOfStatus = (s) => STAGE_OF_STATUS[String(s ?? "").trim()] || "other";
 const stageLabel = (id) => AR_STAGES.find((s) => s.id === id)?.label || (id === "passed" ? "Passed" : id === "other" ? "Other" : "Not on the board");
 // the status a move saves: "To reach out" keeps Researching when that's what it was
 const statusForStage = (id, current) => (id === "passed" ? "Passed" : id === "reach" && String(current ?? "").trim() === "Researching" ? "Researching" : AR_STAGES.find((s) => s.id === id)?.status);
+// a card can only be moved onto a real stage: "Other" is whatever was typed by hand, never a target
+const canMoveTo = (id) => id === "passed" || AR_STAGES.some((s) => s.id === id);
 // one step forward or back (Other and Passed step back into "To reach out")
 const stepFrom = (id, d) => { const i = AR_STAGES.findIndex((s) => s.id === id); return i < 0 ? (d < 0 ? AR_STAGES[0] : null) : AR_STAGES[i + d] || null; };
 const wholeMoney = (n) => `$${fmt(Math.round(Number(n) || 0))}`;
 const centsMoney = (n) => (Math.round(n * 100) % 100 ? money(n) : wholeMoney(n)); // $36,125 · $3,759.26
 const bigNum = (n) => (Math.abs(n) >= 1e6 ? `${Number((n / 1e6).toFixed(2))}M` : fmt(Math.round(n))); // 28.9M · 14.45M
 const pctText = (p) => `${p >= 0 ? "▲" : "▼"} ${Math.abs(p).toFixed(1)}%`;
+// someone we track by hand with no row in the Luminate A&R list yet (producers from OUTREACH
+// rarely have one, and Passed is done, so neither counts)
+const needsLumRow = (r) => r.ref?.type === "tracked" && !r.luminateId && r.stage !== "passed";
 const UpDown = ({ r }) => (r.current == null ? <span className="muted">No numbers yet</span>
   : r.changePct == null ? <span className="muted">—</span>
   : <span className={`ar-ch ${r.changePct >= 0 ? "up" : "down"}`}>{pctText(r.changePct)}</span>);
@@ -3223,7 +3228,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   for (const c of cards.filter((x) => x.stage === "offer" && (!x.lastContact || daysSince(x.lastContact) >= 7))) {
     tasks.push({ k: `offer:${c.key}`, t: `The offer to ${c.name} has had no contact ${c.lastContact ? `since ${shortDay(c.lastContact)}` : "logged"}.`, cta: "Open", go: () => goBoard() });
   }
-  const noNums = [...(watch?.people || []), ...(watch?.songs || [])].filter((r) => r.ref && !r.luminateId);
+  const noNums = [...(watch?.people || []), ...(watch?.songs || [])].filter(needsLumRow);
   if (noNums.length) {
     const n = noNums.length, pplOnly = noNums.every((r) => r.role);
     tasks.push({ k: "noNumbers", t: `${n} ${pplOnly ? (n === 1 ? "person isn't" : "people aren't") : n === 1 ? "one you added isn't" : "you added aren't"} in your Luminate A&R list yet, so ${n === 1 ? "their" : "their"} numbers can't come in.`, cta: "See who", go: () => goWatch({ pill: noNums.every((r) => !r.role) ? "songs" : "people", noNumbers: true }) });
@@ -3251,7 +3256,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
           <span className="lm-song-main"><strong>{r.name || r.title}</strong>
             <span>{kind === "people" ? <span className="tag ar-role">{r.role === "producer" ? "Producer" : "Artist"}</span> : r.artist || (r.fromLuminate ? "From Luminate" : "")}</span>
           </span>
-          <span className="gainer-num"><b>{compact(r.current)}</b>{r.changePct != null && <em className={`ar-ch ${r.changePct >= 0 ? "up" : "down"}`}>{pctText(r.changePct)}</em>}</span>
+          <span className="gainer-num"><b className="ar-week">{bigNum(r.current)} {old ? "that week" : "this week"}</b>{r.changePct != null && <em className={`ar-ch ${r.changePct >= 0 ? "up" : "down"}`}>{pctText(r.changePct)}</em>}</span>
         </button>
       ))}
     </div>
@@ -3342,10 +3347,10 @@ function ArBoard({ ar, onGo }) {
   // one move, from the button, the ⋯ menu or a drop: a producer's saves its sheet status (and is
   // refused, card back where it was, when the sheet says no); an artist's saves in the database only
   const moveTo = async (c, stageId) => {
-    if (!stageId || stageId === c.stage) return;
+    if (!stageId || stageId === c.stage || !canMoveTo(stageId)) return;
     const producer = c.role === "producer", s = producer ? sheetById[c.id] : null;
     const status = producer ? statusForStage(stageId, s?.status) : null;
-    if (producer && (!s || !canSave || status === s.status)) return;
+    if (producer && (!s || !canSave || !status || status === s.status)) return;
     setMoving((m) => ({ ...m, [c.key]: stageId })); setFlash(null);
     try {
       if (producer) {
@@ -3445,13 +3450,13 @@ function ArBoard({ ar, onGo }) {
       {pg && view === "board" && (
         <div className={`arb-board${drag ? " dragging" : ""}`}>
           {cols.map((c) => {
-            const opened = isOpen(c.id);
+            const opened = isOpen(c.id), drop = drag && canMoveTo(c.id);
             const dropOk = (e) => { e.preventDefault(); if (over !== c.id) setOver(c.id); };
             return (
               <section key={c.id} className={`arb-col${opened ? "" : " folded"}${over === c.id ? " over" : ""}`} data-col={c.id}
-                onDragOver={drag ? dropOk : undefined} onDragEnter={drag ? dropOk : undefined}
-                onDragLeave={drag ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver((o) => (o === c.id ? null : o)); } : undefined}
-                onDrop={drag ? (e) => { e.preventDefault(); const card = shown.find((x) => x.key === drag); setDrag(null); setOver(null); if (card) moveTo(card, c.id); } : undefined}>
+                onDragOver={drop ? dropOk : undefined} onDragEnter={drop ? dropOk : undefined}
+                onDragLeave={drop ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver((o) => (o === c.id ? null : o)); } : undefined}
+                onDrop={drop ? (e) => { e.preventDefault(); const card = shown.find((x) => x.key === drag); setDrag(null); setOver(null); if (card) moveTo(card, c.id); } : undefined}>
                 <button className="arb-col-head" onClick={() => setFolds({ ...folds, [c.id]: !opened })} aria-expanded={opened}>
                   <span className="arb-col-title">{c.label} <span className="arb-n">· {c.cards.length}</span></span>
                   <span className="arb-hint">{c.hint}</span>
@@ -3580,7 +3585,7 @@ function ArWatch({ ar, onGo, at }) {
   const needle = find.trim().toLowerCase();
   const list = (pill === "people" ? people.filter((r) => show === "everyone" || (show === "artists" ? r.role === "artist" : r.role === "producer")) : songs)
     .filter((r) => !needle || `${r.name} ${r.handle || ""} ${r.artist || ""}`.toLowerCase().includes(needle))
-    .filter((r) => !onlyNone || (r.ref && !r.luminateId));
+    .filter((r) => !onlyNone || needsLumRow(r));
   const by = SORTS[sort.k];
   const rows = [...list].sort((a, b) => {
     const x = by(a), y = by(b);
@@ -8294,6 +8299,7 @@ function StyleTag() {
     .app:not(.pub) .ar-gainer-pair{align-items:start}
     .app:not(.pub) .ar-ch{font-style:normal;font-variant-numeric:tabular-nums;white-space:nowrap}
     .app:not(.pub) .ar-ch.up{color:var(--d-pos)} .app:not(.pub) .ar-ch.down{color:var(--d-neg)}
+    .app:not(.pub) .gainer-num b.ar-week{color:var(--d-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
     .app:not(.pub) .ar-role{font-size:10.5px;padding:2px 7px}
     .app:not(.pub) .ar-pipe{margin:18px 0 0;font-size:13px;color:var(--d-ink-3)}
     .app:not(.pub) .inline-link{padding:0;border:0;background:none;font:inherit;color:var(--d-ink-2);cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--d-line-3)}

@@ -13,6 +13,9 @@ import { normalizeTitle } from "../../../lib/sheets";
 import { notifyClickUp } from "../../../lib/clickup";
 import { checkClickUpTasks } from "../../../lib/money";
 
+// the sheet pull plus the Stripe read behind the ClickUp tasks (see pages/api/home.js)
+export const config = { maxDuration: 60 };
+
 const STALE_DAYS = 8;
 const DAY = 86400000;
 

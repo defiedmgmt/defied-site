@@ -8,6 +8,9 @@ import { requireStaff } from "../../lib/session";
 import { moneyState, payerNamer, paymentRow, checkClickUpTasks } from "../../lib/money";
 import { listTasks, LISTS, clearTaskCache } from "../../lib/clickup-tasks";
 
+// a first Stripe fill reads ~3 things a payment (saved as it goes, lib/stripe.js)
+export const config = { maxDuration: 60 };
+
 const WORKSPACE = "90141502305";
 const listUrl = (id) => `https://app.clickup.com/${WORKSPACE}/v/li/${id}`;
 
