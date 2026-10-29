@@ -55,12 +55,17 @@ export default async function handler(req, res) {
 
   // nothing new from Luminate in over a week: say so once a day until it comes in. lastUpload is the
   // clients' exports only (A&R files don't count), and the day only counts once ClickUp took the
-  // message, so an outage doesn't swallow it.
+  // message, so an outage doesn't swallow it. The age is the numbers' own (numbersFrom: when
+  // Luminate made the oldest portfolio's newest export), so dropping month-old files doesn't reset it.
   const last = await getState("lastUpload");
-  const age = last?.at ? (Date.now() - new Date(last.at).getTime()) / DAY : null;
+  const at = last?.at ? new Date(last.at).getTime() : null, made = last?.numbersFrom ? new Date(last.numbersFrom).getTime() : null;
+  const byNumbers = made !== null && (at === null || made < at);
+  const age = byNumbers ? (Date.now() - made) / DAY : at !== null ? (Date.now() - at) / DAY : null;
   const alerted = await getState("staleAlert");
   if ((age === null || age > STALE_DAYS) && (!alerted?.at || Date.now() - new Date(alerted.at).getTime() > DAY - 3600000)) {
-    const when = age === null ? "No Luminate update has come in yet." : `The last Luminate update was ${Math.floor(age)} days ago.`;
+    const when = age === null ? "No Luminate update has come in yet."
+      : byNumbers ? `The newest Luminate numbers${last.numbersPortfolio ? ` for ${last.numbersPortfolio}` : ""} are ${Math.floor(age)} days old.`
+      : `The last Luminate update was ${Math.floor(age)} days ago.`;
     const sent = await notifyClickUp(`**Streams are getting stale**: ${when}\nDownload the portfolio exports and drop them on the dashboard's Luminate page. [Open dashboard](https://www.defiedmgmt.com/dashboard)`);
     if (sent) {
       await setState("staleAlert", { at: new Date().toISOString() });

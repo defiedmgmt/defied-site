@@ -3,7 +3,7 @@
 // takes one { action, ... } at a time.
 import { sql } from "../../lib/db";
 import { requireStaff, requireSameOrigin } from "../../lib/session";
-import { lumState, portfolioIdOf, writeLuminateIds, knownAreas, isAR, isRoster } from "../../lib/luminate";
+import { lumState, portfolioIdOf, writeLuminateIds, knownAreas, isAR, isRoster, moveHeldToClients } from "../../lib/luminate";
 import { afterExports } from "../../lib/luminate-run";
 import { syncSiteFromSheet } from "../../lib/site-sync";
 import { findIsrc, cleanIsrc, ISRC_RE } from "../../lib/isrc";
@@ -35,9 +35,19 @@ async function act(body, session) {
     if (!name) return [400, { error: "Give the portfolio a name." }];
     if (url && !/^https:\/\//i.test(url)) return [400, { error: "The link should start with https://" }];
     const lumId = portfolioIdOf(url) || (body.luminateId ? portfolioIdOf(body.luminateId) : null);
+    let move = false;
     if (lumId) {
       const known = (await knownAreas()).get(lumId);
-      if (isAR(known?.area)) return [400, { error: `That's the ${known.name || "A&R"} portfolio. Its exports are kept for the A&R tab, so it can't be added here.` }];
+      // one taken in as A&R only because "What's in it?" was answered that way can be taken back, on
+      // purpose (canMove: the form asks first); the user's own A&R portfolios can't
+      if (isAR(known?.area) && known.from === "held" && body.fromAR === true) move = true;
+      else if (isAR(known?.area)) {
+        const [{ n }] = known.from === "held" ? await sql`SELECT count(*)::int AS n FROM luminate_ar_held WHERE portfolio_id = ${lumId}` : [{ n: 0 }];
+        return [400, {
+          error: `That's the ${known.name || "A&R"} portfolio. Its exports are kept for the A&R tab, so it can't be added here.${n ? ` If it really holds your clients' songs, press "It's a clients' portfolio".` : ""}`,
+          ...(n && { canMove: true, heldFiles: n }),
+        }];
+      }
       const [other] = await sql`SELECT id, name FROM luminate_portfolios WHERE luminate_id = ${lumId} AND id <> ${body.id || ""}`;
       if (other) return [400, { error: `That's the same Luminate portfolio as "${other.name}".` }];
     }
@@ -49,7 +59,11 @@ async function act(body, session) {
       const [{ n }] = await sql`SELECT count(*)::int AS n FROM luminate_portfolios`;
       await sql`INSERT INTO luminate_portfolios (id, luminate_id, name, url, kind, capacity, sort) VALUES (${newId()}, ${lumId}, ${name}, ${url}, ${kind}, ${capacity}, ${n})`;
     }
-    return [200, { ok: true }];
+    const moved = move ? await moveHeldToClients(lumId) : 0;
+    if (!moved) return [200, { ok: true }];
+    // its files are clients' exports now: put their numbers in the sheet and on the site, as a drop does
+    const run = await afterExports({ by: session.user.name || session.user.email || "staff" });
+    return [run.error ? 502 : 200, { ok: !run.error, moved, error: run.error ? `Moved ${moved} export${moved === 1 ? "" : "s"}, but the sheet didn't update: ${run.error} Press "Update the sheet again".` : undefined }];
   }
   if (action === "removePortfolio") {
     const [p] = await sql`SELECT * FROM luminate_portfolios WHERE id = ${body.id || ""}`;
