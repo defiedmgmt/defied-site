@@ -2984,6 +2984,9 @@ function ARAdmin({ onGo }) {
   const [watchAt, setWatchAt] = useState(null); // where Summary sends the Watchlist: {pill, open}
   const setSec = (id, at = null) => { setSecState(id); setWatchAt(at); try { sessionStorage.setItem(AR_SEC_KEY, id); } catch { /* private mode */ } };
   const ar = useArAll();
+  // each page opens on the latest from Postgres (another page may have added someone)
+  const opened = useRef(false);
+  useEffect(() => { if (opened.current) ar.loadPg(); opened.current = true; }, [sec]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="ar">
       <div className="subnav">
