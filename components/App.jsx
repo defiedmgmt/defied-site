@@ -8064,9 +8064,11 @@ function StyleTag() {
     .app:not(.pub) .arb-card.moving{opacity:.6}
     .app:not(.pub) .arb-sub{font-size:12px;color:var(--d-ink-4)}
     .app:not(.pub) .arb-card-acts{display:flex;align-items:center;gap:6px}
-    .app:not(.pub) .arb-next{flex:1;justify-content:center}
+    .app:not(.pub) .arb-next{flex:1 1 0;min-width:0;justify-content:center;padding-inline:10px}
+    .app:not(.pub) .arb-card .arb-card-top{flex-wrap:wrap}   /* the Artist/Producer tag drops under a long name instead of squeezing it */
+    .app:not(.pub) .arb-dots{flex:none}
     .app:not(.pub) .arb-more{position:relative;display:inline-flex}
-    .app:not(.pub) .arb-dots{min-width:34px;justify-content:center}
+    .app:not(.pub) .arb-dots{min-width:34px;padding-inline:8px;justify-content:center}
     .app:not(.pub) .arb-menu{position:absolute;top:calc(100% + 4px);left:0;z-index:5;display:flex;flex-direction:column;min-width:190px;padding:4px;background:var(--d-s2);border:1px solid var(--d-line-3);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
     .app:not(.pub) .arb-card .arb-menu{left:auto;right:0}
     .app:not(.pub) .arb-menu.right{left:auto;right:0}
@@ -8089,9 +8091,13 @@ function StyleTag() {
     .app:not(.pub) .ar-budget{margin:8px 0 0}
     .app:not(.pub) .ar-panel-extra{margin:16px 0 0} .app:not(.pub) .ar-nums{margin:0 0 10px;font-size:13px}
     .app:not(.pub) .ar-kind{margin:0 0 14px}
-    @media (max-width:1100px){ .app:not(.pub) .ar-totals-grid{grid-template-columns:repeat(3,minmax(0,1fr))} }
+    @media (max-width:1100px){
+      .app:not(.pub) .ar-totals-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+      .app:not(.pub) .arb-board,.app:not(.pub) .arb-board:has(.arb-col[data-col=other]){grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+    }
     @media (max-width:699px){
-      /* phones: stacked sections that fold ("Talking · 2"), the first non-empty one open; no dragging */
+      /* phones: stacked full-width sections that fold ("Talking · 2"), the first non-empty one open; no dragging */
+      .app:not(.pub) .arb-board,.app:not(.pub) .arb-board:has(.arb-col[data-col=other]){grid-template-columns:minmax(0,1fr)}
       .app:not(.pub) .arb-col-head{cursor:pointer}
       .app:not(.pub) .arb-col.folded .arb-cards{display:none}
       .app:not(.pub) .arb-col.folded .arb-col-head{border-bottom:0}
