@@ -4925,6 +4925,33 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
   // the task list lives on the Dashboard now: here, only how many of them are this tab's to fix
   const pubTasks = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster").length, [db, lum]);
   const rate = state.data?.rate;
+  // the writers' table: This week first (each writer's songs that have both weeks, added up, as
+  // lib/weekly.js sumWeeks), biggest % first; any column head re-sorts. The 6 forecast columns wait
+  // behind a toggle
+  const { growth } = useGrowthState();
+  const [sort, setSort] = useState({ col: "week", dir: -1 });
+  const [forecast, setForecast] = useState(false);
+  const weekOf = (client) => {
+    const ws = client && growth ? db.placements.filter((p) => p.clientId === client.id).map((p) => growth[p.id]).filter((w) => w && w.thisWeek != null && w.lastWeek != null) : [];
+    if (!ws.length) return null;
+    const t = ws.reduce((a, w) => a + w.thisWeek, 0), l = ws.reduce((a, w) => a + w.lastWeek, 0);
+    return { thisWeek: t, wowPct: l > 0 ? (t / l - 1) * 100 : null };
+  };
+  const cols = [["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Gross streams"], ["net", "Net streams"], ["earn", "Est. earnings"], ["fee", "Est. admin fee"],
+    ...(forecast ? [["y1", "Yr 1 fee"], ["y2", "Yr 2 fee"], ["y3", "Yr 3 fee"], ["fc", "3-yr fee forecast"], ["tot", "Total est. fee"], ["share", "% of roster fee"]] : [])];
+  const val = { songs: (x) => x.r.songs, gross: (x) => x.r.grossStreams, net: (x) => x.r.netStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, y1: (x) => x.r.year1, y2: (x) => x.r.year2, y3: (x) => x.r.year3, fc: (x) => x.r.forecastTotal, tot: (x) => x.r.totalEstAdminFee, share: (x) => Number(x.r.pctOfRoster) };
+  const rows = (state.data?.rows || []).map((r) => { const client = findClient(r); return { r, client, wk: weekOf(client) }; });
+  const name = (x) => (x.client ? x.client.name : x.r.writer).toLowerCase();
+  rows.sort((a, b) => {
+    if (sort.col === "writer") return sort.dir * name(a).localeCompare(name(b));
+    if (sort.col === "week") {
+      // no % goes last either way, by this week's streams (none at all at the very end)
+      const pa = a.wk?.wowPct ?? null, pb = b.wk?.wowPct ?? null;
+      if (pa == null || pb == null) return pa == null && pb == null ? (b.wk?.thisWeek ?? -1) - (a.wk?.thisWeek ?? -1) : pa == null ? 1 : -1;
+      return sort.dir * (pa - pb) || name(a).localeCompare(name(b));
+    }
+    return sort.dir * ((Number(val[sort.col](a)) || 0) - (Number(val[sort.col](b)) || 0)) || name(a).localeCompare(name(b));
+  });
   return (
     <div>
       <div className="admin-head">
@@ -4934,13 +4961,12 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
             <RefreshCw size={14} className={streamSync.syncing ? "spin" : ""} /> {streamSync.syncing ? "Refreshing numbers…" : "Refresh numbers"}
           </button>
           {links.folder && <ExtLink href={links.folder} className="btn ghost sm" title="Open the pub sheet's Drive folder"><Folder size={14} /> Folder</ExtLink>}
-          {links.portfolioA && <ExtLink href={links.portfolioA} className="btn ghost sm" title="Open Luminate portfolio A"><ExternalLink size={14} /> Portfolio A</ExtLink>}
-          {links.portfolioB && <ExtLink href={links.portfolioB} className="btn ghost sm" title="Open Luminate portfolio B"><ExternalLink size={14} /> Portfolio B</ExtLink>}
+          {links.portfolioA && <ExtLink href={links.portfolioA} className="btn ghost sm" title="Open Luminate Portfolio 1"><ExternalLink size={14} /> Portfolio 1</ExtLink>}
+          {links.portfolioB && <ExtLink href={links.portfolioB} className="btn ghost sm" title="Open Luminate Portfolio 2"><ExternalLink size={14} /> Portfolio 2</ExtLink>}
         </div>
       </div>
       <p className="hint overview-subhint">
-        Read-only — pulled live from the MASTER tab.
-        {db.sheetSync?.lastSyncedAt && ` Streams as of ${new Date(db.sheetSync.lastSyncedAt).toLocaleString()}.`}
+        From the pub sheet{db.sheetSync?.lastSyncedAt && ` · streams as of ${new Date(db.sheetSync.lastSyncedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
       </p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
       {pubTasks > 0 && (
@@ -4969,57 +4995,64 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
             </p>
           </div>
 
+          <div className="master-tools">
+            <button className="btn ghost sm" aria-pressed={forecast} onClick={() => { setForecast((f) => !f); if (forecast && ["y1", "y2", "y3", "fc", "tot", "share"].includes(sort.col)) setSort({ col: "week", dir: -1 }); }}>{forecast ? "Hide forecast columns" : "Show forecast columns"}</button>
+          </div>
           <div className="master-table-wrap">
             <table className="master-table">
               <thead>
                 <tr>
-                  <th>Writer</th><th>Songs</th><th>Gross streams</th><th>Net streams</th>
-                  {/* MASTER's own columns: "Year 1/2/3 Admin Cut" is each year's forecast fee, "% of Roster Admin Fee" a share of the fee */}
-                  <th>Est. earnings</th><th>Est. admin fee</th><th>Yr 1 fee</th><th>Yr 2 fee</th><th>Yr 3 fee</th>
-                  <th>3-yr fee forecast</th><th>Total est. fee</th><th>% of roster fee</th>
+                  {cols.map(([id, label]) => (
+                    <th key={id} data-col={id} aria-sort={sort.col === id ? (sort.dir < 0 ? "descending" : "ascending") : undefined}>
+                      <button className={sort.col === id ? "ar-sort on" : "ar-sort"} onClick={() => setSort((o) => ({ col: id, dir: o.col === id ? -o.dir : id === "writer" ? 1 : -1 }))}>{label}{sort.col === id ? (sort.dir < 0 ? " ▼" : " ▲") : ""}</button>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {state.data.rows.map((r) => {
-                  const client = findClient(r);
-                  return (
-                    <tr
-                      key={r.writer}
-                      className={client ? "master-row-link" : ""}
-                      onClick={client ? () => onSelectClient(client.id) : undefined}
-                      title={client ? `Open ${client.name}` : "Not linked to a client on the site"}
-                    >
-                      <td>{client ? client.name : r.writer}</td>
-                      <td>{r.songs}</td>
-                      <td>{fmt(r.grossStreams)}</td>
-                      <td>{fmt(r.netStreams)}</td>
-                      <td>{money(r.grossRevenue)}</td>
-                      <td>{money(r.adminFee)}</td>
+                {rows.map(({ r, client, wk }) => (
+                  <tr
+                    key={r.writer}
+                    className={client ? "master-row-link" : ""}
+                    onClick={client ? () => onSelectClient(client.id) : undefined}
+                    title={client ? `Open ${client.name}` : "Not linked to a client on the site"}
+                  >
+                    <td>{client ? client.name : r.writer}</td>
+                    <td>{r.songs}</td>
+                    <td className="master-week">{wk ? <><WowPill pct={wk.wowPct} /><em>{fmt(wk.thisWeek)} streams</em></> : <span className="muted-dash" title="No last week to compare">—</span>}</td>
+                    <td>{fmt(r.grossStreams)}</td>
+                    <td>{fmt(r.netStreams)}</td>
+                    <td>{money(r.grossRevenue)}</td>
+                    <td>{money(r.adminFee)}</td>
+                    {forecast && <>
                       <td>{money(r.year1)}</td>
                       <td>{money(r.year2)}</td>
                       <td>{money(r.year3)}</td>
                       <td>{money(r.forecastTotal)}</td>
                       <td>{money(r.totalEstAdminFee)}</td>
                       <td>{r.pctOfRoster}%</td>
-                    </tr>
-                  );
-                })}
+                    </>}
+                  </tr>
+                ))}
               </tbody>
               {state.data.rosterTotal && (
                 <tfoot>
                   <tr className="master-total-row">
                     <td>Roster total</td>
                     <td>{state.data.rosterTotal.songs}</td>
+                    <td />
                     <td>{fmt(state.data.rosterTotal.grossStreams)}</td>
                     <td>{fmt(state.data.rosterTotal.netStreams)}</td>
                     <td>{money(state.data.rosterTotal.grossRevenue)}</td>
                     <td>{money(state.data.rosterTotal.adminFee)}</td>
-                    <td>{money(state.data.rosterTotal.year1)}</td>
-                    <td>{money(state.data.rosterTotal.year2)}</td>
-                    <td>{money(state.data.rosterTotal.year3)}</td>
-                    <td>{money(state.data.rosterTotal.forecastTotal)}</td>
-                    <td>{money(state.data.rosterTotal.totalEstAdminFee)}</td>
-                    <td>{state.data.rosterTotal.pctOfRoster}%</td>
+                    {forecast && <>
+                      <td>{money(state.data.rosterTotal.year1)}</td>
+                      <td>{money(state.data.rosterTotal.year2)}</td>
+                      <td>{money(state.data.rosterTotal.year3)}</td>
+                      <td>{money(state.data.rosterTotal.forecastTotal)}</td>
+                      <td>{money(state.data.rosterTotal.totalEstAdminFee)}</td>
+                      <td>{state.data.rosterTotal.pctOfRoster}%</td>
+                    </>}
                   </tr>
                 </tfoot>
               )}
@@ -5608,7 +5641,7 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub }) {
         </li>
         <li>
           <span className="lm-step-n">2</span>
-          <div><strong>Export each portfolio</strong><span>All time · Worldwide, then Export CSV</span>
+          <div><strong>Export each portfolio</strong><span>Set the period to 1 week · Worldwide, then Export CSV</span>
             <div className="lm-step-links">
               {lum.portfolios.length === 0 && <span className="hint">Your portfolios appear here after the first drop.</span>}
               {lum.portfolios.map((p) => (p.url
@@ -5629,13 +5662,16 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub }) {
         <div className="lm-ports">
           {lum.portfolios.map((p) => {
             const used = (p.usedCount ?? p.songCount) + p.pendingCount, pct = Math.min(100, (used / p.capacity) * 100);
+            // a full one says where new songs go; an export over 8 days old breaks the weekly %, so it's amber
+            const room = used >= p.capacity && lum.portfolios.find((q) => q.id !== p.id && q.area === p.area && (q.usedCount ?? q.songCount) + q.pendingCount < q.capacity);
+            const age = p.exportedAt ? Math.floor((Date.now() - new Date(p.exportedAt).getTime()) / 86400000) : null;
             return (
               <button key={p.id} className="lm-port" onClick={() => setEditing({ ...p })} title="Edit name, link or size">
                 <span className="lm-port-top"><strong>{p.name}</strong></span>
-                <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity ? " · full" : ""}</span>
+                <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity ? ` · Full${room ? ` · new songs go in ${room.name}` : ""}` : ""}</span>
                 <span className="lm-port-meta">{held(p)}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
                 <span className={`lm-bar${pct >= 95 ? " full" : pct >= 80 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
-                <span className="lm-port-meta">{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}${p.songCount ? ` · ${fmt(p.totalStreams)} streams` : ""}` : "No export yet"}</span>
+                <span className={age > 8 ? "lm-port-meta lm-port-old" : "lm-port-meta"}>{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}${age > 8 ? ` (${age} days ago)` : ""}${p.songCount ? ` · ${fmt(p.totalStreams)} streams` : ""}` : "No export yet"}</span>
               </button>
             );
           })}
@@ -6293,7 +6329,8 @@ function WebsiteAdmin({ db, commit, sub }) {
   const secs = WEBSITE_SECS;
   const [sec, setSec] = useState(secs.some(([id]) => id === sub) ? sub : "about"); // a Dashboard task can open Roster
   return (
-    <div>
+    <div className="website-main">
+      <div className="admin-head website-head"><h2>Website</h2></div>
       <div className="subnav">
         {secs.map(([id, label]) => (
           <button key={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { setSec(id); revealChip(e.currentTarget); }}>{label}</button>
@@ -8212,7 +8249,7 @@ function StyleTag() {
     .app:not(.pub) .lm-port-meta{font-size:12px;color:var(--d-ink-4)}
     .app:not(.pub) .lm-bar{display:block;height:6px;border-radius:100px;background:var(--d-s3);overflow:hidden}
     .app:not(.pub) .lm-bar i{display:block;height:100%;border-radius:inherit;background:var(--d-ink-3);transition:width .5s cubic-bezier(.2,.8,.2,1)}
-    .app:not(.pub) .lm-bar.near i{background:var(--d-warn)} .app:not(.pub) .lm-bar.full i{background:var(--d-neg)}
+    .app:not(.pub) .lm-bar.near i{background:var(--d-warn)} .app:not(.pub) .lm-bar.full i{background:var(--d-warn)}
     .app:not(.pub) .lm-h3{margin:28px 0 12px;font:600 15px/1.3 var(--d-body);color:var(--d-ink);letter-spacing:0;text-transform:none}
     .app:not(.pub) .lm-h3-sub{margin:-6px 0 12px}
     .app:not(.pub) .lm-block{margin:0 0 16px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden}
@@ -8634,6 +8671,15 @@ function StyleTag() {
       .app:not(.pub) .money-tabs button{flex:1 0 auto}
       .app:not(.pub) .home-money-card .pay-main > span{white-space:normal}   /* "Not in the sheet yet" wraps instead of being cut off */
     }
+    /* Luminate: an old export's line is amber; Website's sections are second level under its title */
+    .app:not(.pub) .lm-port-old{color:var(--d-warn)}
+    .app:not(.pub) .website-main .admin-head:not(.website-head) h2{margin:0;padding:0;font:400 14px/1.2 var(--d-display);font-synthesis:none;letter-spacing:.08em;text-transform:uppercase;color:var(--d-ink);background:none;-webkit-text-fill-color:currentColor}
+    /* Publishing overview: the This week column (pill over streams) and sortable heads */
+    .app:not(.pub) .master-tools{display:flex;justify-content:flex-end;margin:0 0 8px}
+    .app:not(.pub) .master-table th .ar-sort{text-align:inherit;white-space:nowrap}
+    .app:not(.pub) .master-table td.master-week{height:auto;padding-block:8px;white-space:nowrap}
+    .app:not(.pub) .master-week em{display:block;margin-top:3px;font-style:normal;font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .muted-dash{color:var(--d-ink-off)}
     `}</style>
   );
 }
