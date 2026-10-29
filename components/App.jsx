@@ -10,6 +10,7 @@ import {
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
   Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator, Copy,
   Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
+  LayoutDashboard, ListChecks, Receipt, FileSpreadsheet, CircleDollarSign,
 } from "lucide-react";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
@@ -2414,7 +2415,11 @@ async function saveRow(commit, next, key, id, thing) {
 const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d, users: d.users.map(({ password, ...u }) => u) } : d);
 
 function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
-  const [tab, setTab] = useState("catalog");
+  // sub = where a Dashboard task or gainer points inside the tab it opens ("advance", "client:<id>",
+  // "roster"): read once as the tab mounts, so the sidebar always opens a tab on its usual start
+  const [{ tab, sub }, setAt] = useState({ tab: "home", sub: null });
+  const setTab = (t) => setAt({ tab: t, sub: null });
+  const go = (t, s = null) => { setAt({ tab: t, sub: s }); window.scrollTo(0, 0); };
   const unreadCount = db.submissions.filter((s) => !s.read).length;
   // the Luminate page's data (portfolios, ISRCs, songs to link): loaded once, refreshed by its actions
   const [lum, setLum] = useState(null);
@@ -2424,10 +2429,25 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
     if (!lum) return 0;
     return lumGroups(db, lum).filter((g) => g.status === "toAdd" || g.status === "unplaced" || g.status === "missing").length + lum.unlinked.length;
   }, [db, lum]);
+  // db.sheetSync lives in this browser's localStorage, not on a server — a
+  // device whose local copy is stale (never synced, or synced a while ago,
+  // including before some bug fix here) would otherwise sit stale until
+  // someone remembers to press a button. There's exactly one manual sync
+  // action (Publishing's "Refresh numbers") — this silently keeps every
+  // other view current in the background instead, whenever the Dashboard or
+  // Publishing opens on a stale copy. One run at a time: a quick hop from
+  // one to the other doesn't start a second.
+  const syncing = useRef(false);
+  useEffect(() => {
+    if ((tab !== "home" && tab !== "catalog") || syncing.current || !isSheetSyncStale(db)) return;
+    syncing.current = true;
+    fullSiteSync(db, commit).catch((err) => console.error("Background sync failed:", err)).finally(() => { syncing.current = false; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
   const tabs = [
-    ["catalog", "Dashboard", LayoutGrid], ["luminate", "Luminate", Radar, lumCount],
+    ["home", "Dashboard", LayoutDashboard], ["catalog", "Publishing", ListMusic],
+    ["ar", "A&R", Handshake], ["luminate", "Luminate", Radar, lumCount],
     ["website", "Website", Pencil],
-    ["ar", "A&R", Handshake],
     ["users", "Users", UserCog], ["subs", "Messages", Inbox, unreadCount],
   ];
   return (
@@ -2448,8 +2468,9 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         </div>
       </aside>
       <main className="dash-main">
-        {tab === "website" && <WebsiteAdmin db={db} commit={commit} />}
-        {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} onOpenLuminate={() => setTab("luminate")} />}
+        {tab === "home" && <HomeDashboard db={db} lum={lum} onGo={go} />}
+        {tab === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} />}
+        {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} sub={sub} onGo={go} />}
         {tab === "luminate" && <LuminateAdmin db={db} lum={lum} reloadLum={reloadLum} reloadDb={reloadDb} />}
         {tab === "ar" && <ARAdmin />}
         {tab === "users" && <UsersAdmin db={db} commit={commit} />}
@@ -2912,30 +2933,29 @@ async function arWrite(body) {
   return data;
 }
 
-function ARAdmin() {
-  const [sec, setSec] = useState("outreach");
+// the OUTREACH / ADVANCE CALCULATOR / ASSUMPTIONS read behind A&R's Outreach and Publishing's
+// Advance calculator: loaded when either one opens, reloaded after each of their saves
+function useArData() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
-
   const load = () => fetch("/api/ar-data")
     .then((r) => r.json())
     .then((d) => { if (d.error) throw new Error(d.error); setData(d); setErr(null); })
     .catch((e) => setErr(e.message || "Couldn't load A&R data."));
   const retry = () => { setErr(null); load(); }; // shows "Loading…" again until it answers
-
   useEffect(() => { load(); }, []);
+  return { data, err, load, retry };
+}
+const ArDataError = ({ err, retry }) => <p className="hint err-text mb"><span>{err}</span> <button className="btn ghost sm" onClick={retry}>Try again</button></p>;
 
-  const pick = (id) => (e) => { setSec(id); revealChip(e.currentTarget); };
+// (the Advance calculator moved to Publishing: A&R is the prospects, Publishing the money side)
+function ARAdmin() {
+  const { data, err, load, retry } = useArData();
   return (
     <div>
-      <div className="subnav">
-        <button className={sec === "outreach" ? "subpill active" : "subpill"} onClick={pick("outreach")}>Outreach</button>
-        <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={pick("advance")}>Advance Calculator</button>
-      </div>
-      {err && <p className="hint err-text mb"><span>{err}</span> <button className="btn ghost sm" onClick={retry}>Try again</button></p>}
-      {!data && !err && <p className="muted">Loading…</p>}
-      {data && sec === "outreach" && <OutreachPanel data={data} reload={load} />}
-      {data && sec === "advance" && <AdvanceCalcPanel data={data} reload={load} />}
+      {err && <ArDataError err={err} retry={retry} />}
+      {!data && !err && <p className="muted dash-wait">Loading…</p>}
+      {data && <OutreachPanel data={data} reload={load} />}
     </div>
   );
 }
@@ -2964,7 +2984,7 @@ function OutreachPanel({ data, reload }) {
       </div>
       <p className="muted mb">
         Up to 5 songs per prospect — fill out their name, contact, and each song's Gross Streams and Writer %,
-        then hit Save once. Gross Streams, Net Streams, and Est. Revenue all sum/compute automatically — Net
+        then hit Save once. Gross Streams, Net Streams, and Est. publishing earnings all sum/compute automatically — Net
         Streams is the sum of each song's own streams × its own split, never an average. Never touches MASTER or
         roster totals.
       </p>
@@ -2973,7 +2993,7 @@ function OutreachPanel({ data, reload }) {
       ) : (
         <div className="admin-table">
           <div className="admin-row admin-hd" style={{ "--cols": cols }}>
-            <span>Prospect</span><span>Contact</span><span>Gross Streams</span><span>Net Streams</span><span>Est. Revenue</span><span>Songs</span><span>Status</span>
+            <span>Prospect</span><span>Contact</span><span>Gross Streams</span><span>Net Streams</span><span title="Est. publishing earnings">Est. earnings</span><span>Songs</span><span>Status</span>
           </div>
           {data.prospects.map((p) => (
             <button key={p.row} className="admin-row admin-row-link" style={{ "--cols": cols }} onClick={() => setActiveRow(p.row)}>
@@ -3066,7 +3086,7 @@ function ProspectForm({ prospect, blendedRate, statuses, onClose, onChanged }) {
             <div className="cat-summary-grid">
               <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(grossStreams)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(Math.round(netStreams))}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Est. Revenue</span><span className="cat-stat-val">{money(estRevenue)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Est. publishing earnings</span><span className="cat-stat-val">{money(estRevenue)}</span></div>
             </div>
           </div>
 
@@ -3242,7 +3262,7 @@ function AdvanceCalcPanel({ data, reload }) {
         {selectedProspect || selectedClient ? (
           <p className="hint">
             Net Streams ({fmt(netStreams)}) comes from {scenario.name}'s {selectedClient ? "catalog" : "songs in Outreach"} —
-            edit {selectedClient ? "their songs on the Dashboard tab" : "those there"} to change this.
+            edit {selectedClient ? "their songs on Overview & clients" : "those on the A&R tab"} to change this.
           </p>
         ) : (
           <>
@@ -3250,7 +3270,7 @@ function AdvanceCalcPanel({ data, reload }) {
             <Field label="Contact or Handle" value={scenario.contact} onChange={(e) => setField({ contact: e.target.value })} />
             <Field label="Gross Streams" type="number" value={scenario.grossStreams} onChange={(e) => setField({ grossStreams: e.target.value })} />
             <Field label="Writer %" type="number" value={scenario.writerShare} onChange={(e) => setField({ writerShare: e.target.value })} />
-            <p className="hint">Net Streams: {fmt(netStreams)} · Est. Revenue: {money(estRevenue)}</p>
+            <p className="hint">Net Streams: {fmt(netStreams)} · Est. publishing earnings: {money(estRevenue)}</p>
           </>
         )}
         <Field
@@ -3303,6 +3323,18 @@ function AdvanceCalcPanel({ data, reload }) {
         <div className="split-list-row split-list-total"><span>Your Admin 3-Yr</span><span>{money(result.admin3yr)}</span></div>
       </div>
     </div>
+  );
+}
+
+// Publishing › Advance calculator: the sheet read happens only once this sub-tab opens
+function AdvanceTab() {
+  const { data, err, load, retry } = useArData();
+  return (
+    <>
+      {err && <ArDataError err={err} retry={retry} />}
+      {!data && !err && <p className="muted">Loading…</p>}
+      {data && <div className="pub-sec"><AdvanceCalcPanel data={data} reload={load} /></div>}
+    </>
   );
 }
 
@@ -3491,8 +3523,9 @@ function SongManager({ db, commit, clientId, isStaff }) {
             <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(Math.round(summary.net))}</span></div>
             {isStaff ? (
               <>
-                <div className="cat-stat"><span className="cat-stat-label">Pub Money</span><span className="cat-stat-val">{money(summary.revenue)}</span></div>
-                <div className="cat-stat"><span className="cat-stat-label">Admin Money</span><span className="cat-stat-val">{money(summary.adminFee)}</span></div>
+                {/* estimates, not cash we hold: clients are paid their publishing directly, our commission is billed through Stripe */}
+                <div className="cat-stat"><span className="cat-stat-label">Est. publishing earnings <span className="cat-stat-note">(paid to the client directly)</span></span><span className="cat-stat-val">{money(summary.revenue)}</span></div>
+                <div className="cat-stat"><span className="cat-stat-label">Est. admin fee <span className="cat-stat-note">(our commission)</span></span><span className="cat-stat-val">{money(summary.adminFee)}</span></div>
               </>
             ) : (
               <>
@@ -3571,8 +3604,8 @@ function SongManager({ db, commit, clientId, isStaff }) {
                   <div className="split-list-row"><span className="split-name">Streams</span><span className="split-pct">{fmt(active.streams)}</span></div>
                   {isStaff && (
                     <>
-                      <div className="split-list-row"><span className="split-name">Gross revenue</span><span className="split-pct">{money(active.revenue)}</span></div>
-                      <div className="split-list-row"><span className="split-name">Admin fee</span><span className="split-pct">{money(active.adminFee)}</span></div>
+                      <div className="split-list-row"><span className="split-name">Est. publishing earnings <em>(paid to the client directly)</em></span><span className="split-pct">{money(active.revenue)}</span></div>
+                      <div className="split-list-row"><span className="split-name">Est. admin fee <em>(our commission)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
                     </>
                   )}
                   <p className="hint">as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</p>
@@ -3893,12 +3926,12 @@ async function fullSiteSync(tabDb, commit) {
   return { missing };
 }
 
-// Read-only roster-wide rollup — the landing view of the Clients tab, before
+// Read-only roster-wide rollup — the landing view of Publishing, before
 // staff pick an individual client. Pulls the MASTER tab's own precomputed
 // per-writer totals directly (rather than re-deriving them from placements)
 // so the numbers always match the sheet exactly, including the 3-year
 // forecast columns the site doesn't otherwise track anywhere.
-function CatalogOverview({ db, commit, lum, onSelectClient, onOpenLuminate }) {
+function CatalogOverview({ db, commit, lum, onSelectClient, onGo }) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [streamSync, setStreamSync] = useState({ syncing: false, error: null });
   const dbNow = useRef(db); // the sheet pull below starts from the db as it is then, not at the click
@@ -3960,10 +3993,13 @@ function CatalogOverview({ db, commit, lum, onSelectClient, onOpenLuminate }) {
   };
 
   const links = state.data?.links || {};
+  // the task list lives on the Dashboard now: here, only how many of them are this tab's to fix
+  const pubTasks = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "publishing").length, [db, lum]);
+  const rate = state.data?.rate;
   return (
     <div>
       <div className="admin-head">
-        <h2>Publishing Overview</h2>
+        <h2>Overview</h2>
         <div className="overview-links">
           <button className="btn ghost sm" onClick={runStreamSync} disabled={streamSync.syncing} title="Rebuild STREAM DATA from the newest exports dropped on the Luminate page and pull every client's numbers again">
             <RefreshCw size={14} className={streamSync.syncing ? "spin" : ""} /> {streamSync.syncing ? "Refreshing numbers…" : "Refresh numbers"}
@@ -3978,11 +4014,9 @@ function CatalogOverview({ db, commit, lum, onSelectClient, onOpenLuminate }) {
         {db.sheetSync?.lastSyncedAt && ` Streams as of ${new Date(db.sheetSync.lastSyncedAt).toLocaleString()}.`}
       </p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
-
-      <div className="overview-top">
-        <NeedsAttention db={db} lum={lum} onSelectClient={onSelectClient} onOpenLuminate={onOpenLuminate} />
-        <TopGainers db={db} onSelectClient={onSelectClient} />
-      </div>
+      {pubTasks > 0 && (
+        <p className="pub-tasks"><AlertTriangle size={14} /> {pubTasks} publishing task{pubTasks === 1 ? "" : "s"} · <button className="inline-link" onClick={() => onGo("home")}>see the Dashboard</button></p>
+      )}
 
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
@@ -3993,11 +4027,15 @@ function CatalogOverview({ db, commit, lum, onSelectClient, onOpenLuminate }) {
             <div className="cat-summary-grid">
               <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterNetStreams)}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Revenue Pool</span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Est. publishing earnings</span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Catalog To Date</span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">3-Year Forecast</span><span className="cat-stat-val">{money(state.data.totals.threeYearForecast)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Est. Admin Fee</span><span className="cat-stat-val">{money(state.data.totals.totalEstAdminFee)}</span></div>
             </div>
+            {/* the one place the money's explained: everything below (and each client's page) is the same estimate */}
+            <p className="hint cat-asof money-hint">
+              Estimates from the pub sheet: all-time streams × the writer's share × {rate ? `$${+rate.toFixed(6)} a stream` : "the sheet's blended rate"} (ASSUMPTIONS!B7). Real payments come from statements.
+            </p>
           </div>
 
           <div className="master-table-wrap">
@@ -4005,7 +4043,7 @@ function CatalogOverview({ db, commit, lum, onSelectClient, onOpenLuminate }) {
               <thead>
                 <tr>
                   <th>Writer</th><th>Songs</th><th>Gross streams</th><th>Net streams</th>
-                  <th>Gross revenue</th><th>Admin fee</th><th>Yr 1</th><th>Yr 2</th><th>Yr 3</th>
+                  <th>Est. earnings</th><th>Admin fee</th><th>Yr 1</th><th>Yr 2</th><th>Yr 3</th>
                   <th>3-yr forecast</th><th>Total est. fee</th><th>% of roster</th>
                 </tr>
               </thead>
@@ -4061,9 +4099,12 @@ function CatalogOverview({ db, commit, lum, onSelectClient, onOpenLuminate }) {
   );
 }
 
-function CatalogAdmin({ db, commit, lum, onOpenLuminate }) {
+// Publishing: the clients, their songs and splits, the MASTER totals, and the Advance calculator.
+// A Dashboard task can open it on a client ("client:<id>") or on the calculator ("advance").
+function CatalogAdmin({ db, commit, lum, sub, onGo }) {
+  const [sec, setSec] = useState(sub === "advance" ? "advance" : "overview");
   // null clientId = the read-only Overview landing page, not "no selection"
-  const [clientId, setClientId] = useState(null);
+  const [clientId, setClientId] = useState(sub?.startsWith("client:") ? sub.slice(7) : null);
   const client = db.clients.find((c) => c.id === clientId);
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;
   const [addingClient, setAddingClient] = useState(false);
@@ -4073,8 +4114,8 @@ function CatalogAdmin({ db, commit, lum, onOpenLuminate }) {
   useEscape(() => setAddingClient(false), addingClient && !adding);
   const newNameTaken = nameTaken(db.clients, null, newClientForm.name);
   // the chip row scrolls sideways under 1200px: whichever way a client gets picked (a chip, a MASTER
-  // row, a new client) its chip comes into view. Not on arriving at the tab, which starts on Overview
-  const chips = useRef(null), picked = useRef(false);
+  // row, a new client, a Dashboard task) its chip comes into view. Not on arriving at the tab on Overview
+  const chips = useRef(null), picked = useRef(clientId !== null);
   useEffect(() => {
     if (picked.current) {
       // picked from deep in the taller Overview: start the client's page at its header, not cut above it
@@ -4112,25 +4153,19 @@ function CatalogAdmin({ db, commit, lum, onOpenLuminate }) {
     if (warn) setDeleteWarn(warn);
   };
 
-  // db.sheetSync lives in this browser's localStorage, not on a server — a
-  // device whose local copy is stale (never synced, or synced a while ago,
-  // including before some bug fix here) would otherwise sit stale until
-  // someone remembers to press a button. There's now exactly one manual
-  // sync action (the Overview page's "Sync Streams" button, which chains a
-  // full site sync after refreshing Luminate data) — this silently keeps
-  // every other view current in the background instead of asking staff to
-  // think about it, refreshing automatically whenever it's gone stale.
-  useEffect(() => {
-    if (isSheetSyncStale(db)) fullSiteSync(db, commit).catch((err) => console.error("Background sync failed:", err));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  // (a stale copy of the numbers catches up in the background: StaffDashboard starts it)
+  const pick = (id) => (e) => { setSec(id); revealChip(e.currentTarget); };
   return (
     <div>
       <div className="admin-head">
-        <h2>Dashboard</h2>
+        <h2>Publishing</h2>
       </div>
-      <div className="catalog-wrap">
+      <div className="subnav">
+        <button className={sec === "overview" ? "subpill active" : "subpill"} onClick={pick("overview")}>Overview &amp; clients</button>
+        <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={pick("advance")}>Advance calculator</button>
+      </div>
+      {sec === "advance" && <AdvanceTab />}
+      {sec === "overview" && <div className="catalog-wrap">
         <div className="catalog-clients" ref={chips}>
           <button className={clientId === null ? "cc active" : "cc"} onClick={() => setClientId(null)}>
             <span className="cc-overview-ic"><LayoutGrid size={16} /></span>
@@ -4151,12 +4186,12 @@ function CatalogAdmin({ db, commit, lum, onOpenLuminate }) {
         </div>
         <div className="catalog-main">
           {clientId === null
-            ? <CatalogOverview db={db} commit={commit} lum={lum} onSelectClient={setClientId} onOpenLuminate={onOpenLuminate} />
+            ? <CatalogOverview db={db} commit={commit} lum={lum} onSelectClient={setClientId} onGo={onGo} />
             : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff />
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
         </div>
-      </div>
+      </div>}
 
       {addingClient && (
         <div className="modal" onClick={(e) => e.target === e.currentTarget && setAddingClient(false)}>
@@ -4765,43 +4800,59 @@ function LuminateAdmin({ db, lum, reloadLum, reloadDb }) {
   );
 }
 
-// What needs a person, across the whole catalog — the top of the Clients overview
-function NeedsAttention({ db, lum, onSelectClient, onOpenLuminate }) {
-  const groups = useMemo(() => lumGroups(db, lum), [db, lum]);
-  if (!lum) return null;
+// What needs a person, across the whole company: one plain sentence each, with the one place it's
+// fixed ({ tab, sub } for onGo). Pure, so Publishing can count its own share. lum = null while the
+// Luminate page's data loads: only what the db alone shows, until then.
+function dashTasks(db, lum) {
+  const badSplits = db.placements.filter((p) => splitTotal(p.splits) !== 100);
+  const splits = badSplits.length && { k: "splits", area: "publishing", t: `${badSplits.length} song${badSplits.length === 1 ? "'s splits don't" : "s' splits don't"} add up to 100%: ${badSplits.slice(0, 3).map((p) => `${p.song || "Untitled"} (${splitTotal(p.splits)}%)`).join(", ")}${badSplits.length > 3 ? "…" : ""}`, tab: "catalog", sub: `client:${badSplits[0].clientId}`, cta: "Open the first" };
+  if (!lum) return [splits].filter(Boolean);
+  const groups = lumGroups(db, lum);
   const toAdd = groups.filter((g) => g.status === "toAdd").length;
   const unplaced = groups.filter((g) => g.status === "unplaced").length;
   const noIsrc = groups.filter((g) => (g.status === "toAdd" || g.status === "unplaced") && !g.isrc && g.checked).length;
   const missing = groups.filter((g) => g.status === "missing").length;
-  const badSplits = db.placements.filter((p) => splitTotal(p.splits) !== 100);
   const stale = lum.lastUpload?.at ? (Date.now() - new Date(lum.lastUpload.at).getTime()) / 86400000 : null;
   const noTab = lum.missingTabs || [];
-  const items = [
-    stale === null ? { k: "none", t: "No Luminate export has been dropped in yet.", go: onOpenLuminate, cta: "Open Luminate" }
-      : stale > 8 && { k: "stale", t: `The last Luminate update was ${Math.floor(stale)} days ago.`, go: onOpenLuminate, cta: "Drop this week's exports" },
-    toAdd && { k: "add", t: `${toAdd} song${toAdd === 1 ? " isn't" : "s aren't"} in a Luminate portfolio yet.`, go: onOpenLuminate, cta: "See the list" },
-    unplaced && { k: "unplaced", t: `${unplaced} song${unplaced === 1 ? " has" : "s have"} a Luminate id but ${unplaced === 1 ? "isn't" : "aren't"} in any portfolio, so ${unplaced === 1 ? "its" : "their"} numbers don't move.`, go: onOpenLuminate, cta: "See the list" },
-    lum.unlinked.length && { k: "unlinked", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here.`, go: onOpenLuminate, cta: "Match them" },
-    missing && { k: "missing", t: `${missing} song${missing === 1 ? " was" : "s were"} marked as added in Luminate but ${missing === 1 ? "isn't" : "aren't"} in the latest export.`, go: onOpenLuminate, cta: "See the list" },
-    noIsrc && { k: "isrc", t: `${noIsrc} song${noIsrc === 1 ? "'s" : "s'"} ISRC couldn't be found automatically.`, go: onOpenLuminate, cta: "Type them in" },
-    badSplits.length && { k: "splits", t: `${badSplits.length} song${badSplits.length === 1 ? "'s splits don't" : "s' splits don't"} add up to 100%: ${badSplits.slice(0, 3).map((p) => `${p.song || "Untitled"} (${splitTotal(p.splits)}%)`).join(", ")}${badSplits.length > 3 ? "…" : ""}`, go: () => onSelectClient(badSplits[0].clientId), cta: "Open the first" },
-    noTab.length && { k: "tabs", t: `No sheet tab found for ${noTab.join(", ")}, so their numbers can't sync. Set "Sheet tab name" on their client profile if their tab has another name.` },
+  const L = { area: "luminate", tab: "luminate" };
+  return [
+    stale === null ? { ...L, k: "none", t: "No Luminate export has been dropped in yet.", cta: "Open Luminate" }
+      : stale > 8 && { ...L, k: "stale", t: `The last Luminate update was ${Math.floor(stale)} days ago.`, cta: "Drop this week's exports" },
+    toAdd && { ...L, k: "add", t: `${toAdd} song${toAdd === 1 ? " isn't" : "s aren't"} in a Luminate portfolio yet.`, cta: "See the list" },
+    unplaced && { ...L, k: "unplaced", t: `${unplaced} song${unplaced === 1 ? " has" : "s have"} a Luminate id but ${unplaced === 1 ? "isn't" : "aren't"} in any portfolio, so ${unplaced === 1 ? "its" : "their"} numbers don't move.`, cta: "See the list" },
+    lum.unlinked.length && { ...L, k: "unlinked", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here.`, cta: "Match them" },
+    missing && { ...L, k: "missing", t: `${missing} song${missing === 1 ? " was" : "s were"} marked as added in Luminate but ${missing === 1 ? "isn't" : "aren't"} in the latest export.`, cta: "See the list" },
+    noIsrc && { ...L, k: "isrc", t: `${noIsrc} song${noIsrc === 1 ? "'s" : "s'"} ISRC couldn't be found automatically.`, cta: "Type them in" },
+    splits,
+    // the fix is the "Sheet tab name" on their client profile, which lives in Website › Roster
+    noTab.length && { k: "tabs", area: "publishing", t: `No sheet tab found for ${noTab.join(", ")}, so their numbers can't sync. Set "Sheet tab name" on their client profile if their tab has another name.`, tab: "website", sub: "roster", cta: "Open the roster" },
   ].filter(Boolean);
+}
+
+// The Dashboard's task list (it was "Needs attention" on the Clients overview)
+function Tasks({ items, loading, onGo }) {
   return (
-    <div className={items.length ? "attn" : "attn clear"}>
-      <div className="attn-head">{items.length ? <><AlertTriangle size={15} /> Needs attention</> : <><CheckCircle2 size={15} /> All caught up</>}</div>
+    <div className={items.length ? "attn" : loading ? "attn clear wait" : "attn clear"}>
+      <div className="attn-head">
+        {items.length ? <><ListChecks size={15} /> Tasks <span className="attn-n">{items.length}</span></>
+          : loading ? <><RefreshCw size={15} className="spin" /> Checking what needs doing…</> : <><CheckCircle2 size={15} /> All caught up</>}
+      </div>
       {items.map((it) => (
-        <div key={it.k} className="attn-row">
+        <div key={it.k} className="attn-row" data-task={it.k}>
           <span>{it.t}</span>
-          {it.go && <button className="btn ghost sm" onClick={it.go}>{it.cta}</button>}
+          <button className="btn ghost sm" onClick={() => onGo(it.tab, it.sub)}>{it.cta}</button>
         </div>
       ))}
+      {loading && items.length > 0 && <div className="attn-row attn-wait"><span>Checking Luminate…</span></div>}
     </div>
   );
 }
 
-// This week's biggest movers among songs on the site, one line per Luminate song
-function TopGainers({ db, onSelectClient }) {
+// This week's biggest movers: the clients' songs (one line per Luminate song), and the A&R
+// portfolios' artists and songs once the A&R tab takes their exports in
+const GAINER_TABS = [["songs", "Songs"], ["artists", "A&R artists"], ["arSongs", "A&R songs"]];
+function TopGainers({ db, lum, onGo }) {
+  const [kind, setKind] = useState("songs");
   const growth = useGrowth();
   const rows = useMemo(() => {
     if (!growth) return null;
@@ -4816,13 +4867,24 @@ function TopGainers({ db, onSelectClient }) {
     }
     return [...seen.values()].sort((a, b) => b.g.week - a.g.week).slice(0, 5);
   }, [growth, db.placements]);
-  if (!rows?.length) return null;
   const name = (id) => db.clients.find((c) => c.id === id)?.name || "";
+  // one line instead of a list until there's something to rank
+  const empty = kind !== "songs"
+    ? (lum?.arLastUpload ? "The A&R exports are in: their top gainers show up here once the A&R tab is ready (coming next)." : "Shows up after the first A&R export.")
+    : !growth ? "Loading…"
+    : !rows.length && (lum?.lastUpload ? "Shows up after next week's Luminate export." : "Shows up after two weekly Luminate exports.");
   return (
     <div className="gainers">
-      <div className="attn-head"><TrendingUp size={15} /> Top gainers this week</div>
-      {rows.map(({ p, g, clientIds }, i) => (
-        <button key={p.id} className="gainer" onClick={() => onSelectClient(clientIds[0])}>
+      <div className="attn-head">
+        <TrendingUp size={15} /> Top gainers this week
+        <span className="gainer-tabs" role="tablist" aria-label="Top gainers">
+          {GAINER_TABS.map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={kind === id} className={kind === id ? "active" : ""} onClick={() => setKind(id)}>{label}</button>
+          ))}
+        </span>
+      </div>
+      {empty ? <p className="gainers-empty">{empty}</p> : rows.map(({ p, g, clientIds }, i) => (
+        <button key={p.id} className="gainer" onClick={() => onGo("catalog", `client:${clientIds[0]}`)}>
           <span className="gainer-n">{i + 1}</span>
           <span className="lm-cover">{p.cover ? <Photo src={p.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
           <span className="lm-song-main"><strong>{p.song}</strong><span>{p.artist} · {clientIds.map(name).join(", ")}</span></span>
@@ -4833,10 +4895,44 @@ function TopGainers({ db, onSelectClient }) {
   );
 }
 
+// The landing tab: the company at a glance. Money first (Defied's commission, from Stripe), then
+// what needs doing beside what's growing, then payments and the accounting sheet. Publishing's own
+// detail (MASTER, the clients, their splits) stays on Publishing. pay (Stripe) arrives with a later
+// batch, like the A&R gainers: until then their cards say what will show up there.
+function HomeDashboard({ db, lum, pay = null, onGo }) {
+  const tasks = useMemo(() => dashTasks(db, lum), [db, lum]);
+  return (
+    <div className="home">
+      <div className="admin-head"><h2>Dashboard</h2></div>
+      {!pay && (
+        <div className="home-money">
+          <span className="cat-stat-label">Commission</span>
+          <p className="home-muted"><CircleDollarSign size={15} /> Connect Stripe to see your commission here.</p>
+        </div>
+      )}
+      <div className="home-pair">
+        <Tasks items={tasks} loading={!lum} onGo={onGo} />
+        <TopGainers db={db} lum={lum} onGo={onGo} />
+      </div>
+      <div className="home-pair">
+        <div className="home-card">
+          <div className="attn-head"><Receipt size={15} /> Recent payments</div>
+          {!pay && <p className="home-muted">Connect Stripe to see recent payments here.</p>}
+        </div>
+        <div className="home-card">
+          <div className="attn-head"><FileSpreadsheet size={15} /> Accounting</div>
+          <p className="home-muted">Accounting sheet: not connected yet. Once it's shared, live numbers and one-click logging of payments show up here.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* staff: website content (about, roster, staff, notable) -------------- */
-function WebsiteAdmin({ db, commit }) {
-  const [sec, setSec] = useState("about");
-  const secs = [["about", "About page"], ["roster", "Roster"], ["staff", "Team"], ["notable", "Notable releases"]];
+const WEBSITE_SECS = [["about", "About page"], ["roster", "Roster"], ["staff", "Team"], ["notable", "Notable releases"]];
+function WebsiteAdmin({ db, commit, sub }) {
+  const secs = WEBSITE_SECS;
+  const [sec, setSec] = useState(secs.some(([id]) => id === sub) ? sub : "about"); // a Dashboard task can open Roster
   return (
     <div>
       <div className="subnav">
@@ -5783,16 +5879,16 @@ function StyleTag() {
       font:400 10.5px/1 var(--d-display);font-synthesis:none;letter-spacing:.18em;text-transform:uppercase;color:var(--d-ink-4);animation:fadeIn .2s .3s both}
     .app:not(.pub) .view > p.muted.page::before{content:"";width:20px;height:20px;border:2px solid var(--d-line-3);border-top-color:#f5f5f5;border-radius:50%;animation:spin 1s linear infinite}
     .app:not(.pub) > .storage-warn ~ .view > p.muted.page{display:none}   /* load failed: the banner says so, nothing is still coming */
-    /* in-tab loading lines: A&R "Loading…" and Overview "Loading master sheet data…" */
-    .app:not(.pub) :is(.subnav,.overview-subhint) ~ p.muted{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 16px;font-size:13.5px;color:var(--d-ink-4);animation:fadeIn .2s .3s both}
-    .app:not(.pub) :is(.subnav,.overview-subhint) ~ p.muted::before{content:"";flex:none;width:14px;height:14px;border:2px solid var(--d-line-3);border-top-color:#f5f5f5;border-radius:50%;animation:spin 1s linear infinite}
-    .app:not(.pub) :is(.subnav,.overview-subhint) ~ p.muted::after{content:"";flex:0 0 100%;height:240px;margin-top:6px;border-radius:var(--d-r-card);
+    /* in-tab loading lines: A&R "Loading…" (.dash-wait: it has no sub-nav above it now), Advance and Overview "Loading master sheet data…" */
+    .app:not(.pub) :is(:is(.subnav,.overview-subhint) ~ p.muted,p.muted.dash-wait){display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 16px;font-size:13.5px;color:var(--d-ink-4);animation:fadeIn .2s .3s both}
+    .app:not(.pub) :is(:is(.subnav,.overview-subhint) ~ p.muted,p.muted.dash-wait)::before{content:"";flex:none;width:14px;height:14px;border:2px solid var(--d-line-3);border-top-color:#f5f5f5;border-radius:50%;animation:spin 1s linear infinite}
+    .app:not(.pub) :is(:is(.subnav,.overview-subhint) ~ p.muted,p.muted.dash-wait)::after{content:"";flex:0 0 100%;height:240px;margin-top:6px;border-radius:var(--d-r-card);
       background:linear-gradient(100deg,#0c0c0d 40%,#18181a 50%,#0c0c0d 60%) 0 0/200% 100%;animation:shimmer 1.4s linear infinite}
     /* motion: dashboard/portal had no reduced-motion handling at all */
     @keyframes d-sheet-in{from{opacity:0;transform:translateY(24px)}}
     @media (prefers-reduced-motion:reduce){
       .app:not(.pub) *,.app:not(.pub) *::before,.app:not(.pub) *::after{animation-duration:.01ms!important;animation-delay:0s!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
-      .app:not(.pub) :is(.subnav,.overview-subhint) ~ p.muted::after{background:var(--d-s2)}
+      .app:not(.pub) :is(:is(.subnav,.overview-subhint) ~ p.muted,p.muted.dash-wait)::after{background:var(--d-s2)}
     }
 
     .app:not(.pub) .portal{min-height:100vh;min-height:100dvh}
@@ -6793,8 +6889,6 @@ function StyleTag() {
     .app:not(.pub) .lm-skip:hover{color:var(--d-ink);background:var(--d-hover)}
     .app:not(.pub) .lm-unl-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:none;max-width:60%}
     .app:not(.pub) .lm-pick{height:var(--d-ctl-sm);max-width:260px;padding:0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:400 13.5px/1 var(--d-body)}
-    .app:not(.pub) .overview-top{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;margin:0 0 24px}
-    .app:not(.pub) .overview-top:not(:has(.gainers)){grid-template-columns:minmax(0,1fr)}
     .app:not(.pub) .attn,.app:not(.pub) .gainers{display:flex;flex-direction:column;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden;align-self:start}
     .app:not(.pub) .attn{border-color:var(--d-warn-line)} .app:not(.pub) .attn.clear{border-color:var(--d-line-2)}
     .app:not(.pub) .attn-head{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--d-line);font:600 13px/1.2 var(--d-body);color:var(--d-ink)}
@@ -6820,7 +6914,6 @@ function StyleTag() {
     .app:not(.pub) .spark-fill{fill:rgba(143,206,143,.10)}
     @media (max-width:899px){
       .app:not(.pub) .lm-steps{grid-template-columns:minmax(0,1fr)}
-      .app:not(.pub) .overview-top{grid-template-columns:minmax(0,1fr)}
     }
     @media (max-width:599px){
       .app:not(.pub) .lm-song{flex-wrap:wrap;row-gap:8px;position:relative;padding-right:44px}
@@ -6840,6 +6933,41 @@ function StyleTag() {
     .app:not(.pub) .lm-result-acts .hint{align-self:center;margin:0}
     /* "Marked as added … Add it again?" is the point of the row: it wraps instead of being cut off */
     .app:not(.pub) .lm-missing .lm-song-main span{white-space:normal}
+    /* Dashboard (home): the money line, then tasks beside gainers, then payments beside accounting */
+    .app:not(.pub) .home-money{display:flex;flex-direction:column;gap:8px;margin:0 0 12px;padding:16px 18px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1)}
+    .app:not(.pub) .home-muted{display:flex;align-items:flex-start;gap:8px;margin:0;font-size:13.5px;line-height:1.5;color:var(--d-ink-4)}
+    .app:not(.pub) .home-muted svg{flex:none;margin-top:2px}
+    .app:not(.pub) .home-pair{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;margin:0 0 12px}
+    .app:not(.pub) .home-pair > *{align-self:stretch}   /* the two cards of a row end on one line */
+    .app:not(.pub) .home-card{display:flex;flex-direction:column;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden}
+    .app:not(.pub) .home-card .home-muted{padding:14px 16px}
+    .app:not(.pub) .home .attn-head{min-height:52px;padding-top:8px;padding-bottom:8px}   /* side-by-side heads line up, gainer tabs or not */
+    .app:not(.pub) .attn-n{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 6px;border-radius:100px;background:var(--d-warn-bg);border:1px solid var(--d-warn-line);font:600 11px/1 var(--d-body);color:var(--d-warn)}
+    .app:not(.pub) .attn.wait .attn-head svg{color:var(--d-ink-4)}
+    .app:not(.pub) .attn-wait span{color:var(--d-ink-4)}
+    .app:not(.pub) .gainers .attn-head{flex-wrap:wrap;row-gap:10px}
+    .app:not(.pub) .gainer-tabs{margin-left:auto;display:inline-flex;gap:2px;padding:2px;border:1px solid var(--d-line-2);border-radius:100px}
+    .app:not(.pub) .gainer-tabs button{height:26px;padding:0 10px;border:0;border-radius:100px;background:none;color:var(--d-ink-4);font:500 12px/1 var(--d-body);white-space:nowrap;cursor:pointer;transition:background-color var(--d-t-fast) ease,color var(--d-t-fast) ease}
+    @media (hover:hover){ .app:not(.pub) .gainer-tabs button:hover{color:var(--d-ink)} }
+    .app:not(.pub) .gainer-tabs button.active{background:var(--d-active);color:var(--d-ink)}
+    .app:not(.pub) .gainers-empty{margin:0;padding:14px 16px;font-size:13.5px;line-height:1.5;color:var(--d-ink-4)}
+    @media (max-width:899px){
+      .app:not(.pub) .home-pair{grid-template-columns:minmax(0,1fr)}
+      /* 7 tabs: iOS-size labels (10px) and no side padding, so "Dashboard" and "Publishing" fit whole from 375px up */
+      .app:not(.pub) .dash-side nav{padding-left:2px;padding-right:2px}
+      .app:not(.pub) .dash-side nav button{padding:0}
+      .app:not(.pub) .dash-side nav button .nav-label{font-size:10px}
+    }
+    @media (max-width:599px){ .app:not(.pub) .gainer-tabs{margin-left:0;width:100%} .app:not(.pub) .gainer-tabs button{flex:1} }
+    /* Publishing: "2 publishing tasks · see the Dashboard", the calculator's title one level down, money notes */
+    .app:not(.pub) .pub-tasks{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:-8px 0 20px;font-size:13px;line-height:1.45;color:var(--d-ink-3)}
+    .app:not(.pub) .pub-tasks svg{flex:none;color:var(--d-warn)}
+    .app:not(.pub) .pub-tasks .inline-link{padding:0;border:0;background:none;font:inherit;color:var(--d-ink);cursor:pointer}
+    .app:not(.pub) .pub-sec .admin-head h2{margin:0;font:400 14px/1.2 var(--d-display);font-synthesis:none;letter-spacing:.08em;text-transform:uppercase;
+      color:var(--d-ink);background:none;-webkit-text-fill-color:currentColor}
+    .app:not(.pub) .cat-stat-label:has(.cat-stat-note){white-space:normal}
+    .app:not(.pub) .cat-stat-note{display:block;margin-top:2px;font:400 11px/1.35 var(--d-body);letter-spacing:0;text-transform:none;color:var(--d-ink-4)}
+    .app:not(.pub) .money-hint{max-width:80ch}
     `}</style>
   );
 }
