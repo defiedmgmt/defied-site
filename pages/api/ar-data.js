@@ -78,7 +78,7 @@ export default async function handler(req, res) {
           links: { outreach: ids[OUTREACH_TAB] != null ? tabLink(id, ids[OUTREACH_TAB]) : null, advanceCalculator: ids[ADVANCE_TAB] != null ? tabLink(id, ids[ADVANCE_TAB]) : null },
           layout: null, problems: [],
         },
-        firstRun: await firstRun(), assumptions: null, recoupTargetMonths: null, budget: null,
+        firstRun: await firstRun(), assumptions: null, recoupTargetMonths: null, budget: null, totals: null,
         statuses, statusSource: meta?.statusSource || "built-in",
         prospects: recs.map((r) => seenProspect(r, statuses)), offBoard: await offBoard(), givenMismatch: [], changesToCheck: [], signedClients,
       });
@@ -90,6 +90,7 @@ export default async function handler(req, res) {
       sheet: { ok: true, readAt: read.readAt, stale: false, links: read.links, layout: read.layout, problems: [...read.problems, ...rec.problems] },
       firstRun: await firstRun(),
       assumptions: read.assumptions, recoupTargetMonths: read.recoupTargetMonths, budget: read.budget,
+      totals: read.totals, // OUTREACH's row 1-2: the pipeline's totals as the sheet works them out
       statuses: read.statuses, statusSource: read.statusSource,
       prospects: read.rows.map((r) => sheetProspect(rec.byRow.get(r.row) ?? null, r, read.statuses)),
       offBoard: await offBoard(), givenMismatch: rec.givenMismatch, changesToCheck, signedClients,
