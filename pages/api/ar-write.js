@@ -1,22 +1,22 @@
-// Staff-only writes to the OUTREACH sheet tab — add/edit/delete a prospect,
-// add/edit/delete one of their up-to-5 song slots. Unlike the client
-// catalog, prospects have no Postgres row at all (they aren't signed
-// clients yet); the sheet is the only source of truth, so this writes
-// straight to it. Still fully isolated from MASTER/roster totals.
+// Staff-only A&R changes that touch the pub sheet's OUTREACH / ADVANCE CALCULATOR tabs. Every one
+// is aimed at a prospect's permanent id (never a row number from the browser) and goes through the
+// write recipe in lib/ar-sheet.js: the lease lock, a fresh read, the same-person check, the
+// browser's `expect` per field, only the changed cells, RAW, logged before/after. Success is
+// {ok, prospect, eventId} (+ unchanged when nothing differed). AR_SHEET_WRITES switches the sheet
+// writes off (503); Postgres-only actions keep working. Still walled off from MASTER/roster totals.
 import { requireStaff, requireSameOrigin } from "../../lib/session";
 import {
-  getSheetsClient, getSheetId, firstEmptyOutreachRow,
-  writeOutreachProspect, clearOutreachProspect, writeOutreachSong, clearOutreachSong,
-  writeOutreachProspectFull, writeAdvanceGiven,
-} from "../../lib/sheets";
+  arWritesOn, createProspect, updateProspect, setStatus, setSlot, clearSlot, logContact,
+  setGiven, fixGiven, removeProspect, restoreProspect, undoEvent,
+} from "../../lib/ar-sheet";
+import { ArError, mergeProspect } from "../../lib/ar";
 
-// a call to Google that failed (it carries its request config) is logged and answered in plain words;
-// this route's own messages (a full OUTREACH tab, a bad slot) still go through as they are
-const failure = (err) => {
-  if (!err?.config) return err?.message || "Failed to save.";
-  console.error("ar-write failed:", err);
-  return "Couldn't save to the pub sheet just now — try again in a minute.";
+const SHEET_ACTIONS = {
+  createProspect, updateProspect, setStatus, setSlot, clearSlot, logContact,
+  setGiven, fixGiven, removeProspect, restoreProspect, undo: undoEvent,
 };
+// the old row-number actions: an A&R tab opened before this version can't write by row anymore
+const LEGACY = ["saveProspectFull", "deleteProspect", "setAdvanceGiven", "saveProspect", "saveSong", "deleteSong"];
 
 export default async function handler(req, res) {
   const session = await requireStaff(req, res);
@@ -24,51 +24,21 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   if (!requireSameOrigin(req, res)) return;
 
-  const { action } = req.body || {};
-  const sheets = getSheetsClient();
-  const spreadsheetId = getSheetId();
-
+  const body = req.body || {};
+  const { action } = body;
+  const by = session.user.name || session.user.email || "staff";
+  if (LEGACY.includes(action)) return res.status(400).json({ error: "This page is out of date. Reload it and try again.", reload: true });
   try {
-    if (action === "saveProspectFull") {
-      const { row, name, contact, status, songs } = req.body;
-      if (!name || !String(name).trim()) return res.status(400).json({ error: "Name is required." });
-      const targetRow = row || (await firstEmptyOutreachRow(sheets, spreadsheetId));
-      await writeOutreachProspectFull(sheets, spreadsheetId, targetRow, { name: String(name).trim(), contact: contact || "", status: status || "", songs: songs || [] });
-      return res.status(200).json({ ok: true, row: targetRow });
-    }
-    if (action === "setAdvanceGiven") {
-      const { row, given } = req.body;
-      if (!row) return res.status(400).json({ error: "row is required." });
-      await writeAdvanceGiven(sheets, spreadsheetId, row, !!given);
-      return res.status(200).json({ ok: true });
-    }
-    if (action === "saveProspect") {
-      const { row, name, contact } = req.body;
-      if (!name || !String(name).trim()) return res.status(400).json({ error: "Name is required." });
-      const targetRow = row || (await firstEmptyOutreachRow(sheets, spreadsheetId));
-      await writeOutreachProspect(sheets, spreadsheetId, targetRow, { name: String(name).trim(), contact: contact || "" });
-      return res.status(200).json({ ok: true, row: targetRow });
-    }
-    if (action === "deleteProspect") {
-      const { row } = req.body;
-      if (!row) return res.status(400).json({ error: "row is required." });
-      await clearOutreachProspect(sheets, spreadsheetId, row);
-      return res.status(200).json({ ok: true });
-    }
-    if (action === "saveSong") {
-      const { row, slot, streams, writerShare } = req.body;
-      if (!row || !(slot >= 1 && slot <= 5)) return res.status(400).json({ error: "row and slot (1-5) are required." });
-      await writeOutreachSong(sheets, spreadsheetId, row, slot, { streams: Number(streams) || 0, writerShare: Number(writerShare) || 0 });
-      return res.status(200).json({ ok: true });
-    }
-    if (action === "deleteSong") {
-      const { row, slot } = req.body;
-      if (!row || !(slot >= 1 && slot <= 5)) return res.status(400).json({ error: "row and slot (1-5) are required." });
-      await clearOutreachSong(sheets, spreadsheetId, row, slot);
-      return res.status(200).json({ ok: true });
-    }
-    return res.status(400).json({ error: "Unknown action." });
+    // Postgres only: "same person as…", and keeping the sheet's own "Advance given?" answers
+    if (action === "mergeProspect") return res.status(200).json(await mergeProspect(String(body.fromId || ""), String(body.intoId || ""), by));
+    if (action === "fixGiven" && body.use === "sheet") return res.status(200).json(await fixGiven(body, by));
+    const run = SHEET_ACTIONS[action];
+    if (!run) return res.status(400).json({ error: "Unknown action." });
+    if (!arWritesOn()) return res.status(503).json({ error: "Saving A&R changes to the pub sheet is switched off right now." });
+    return res.status(200).json(action === "setSlot" ? await setSlot(body, by, body) : await run(body, by));
   } catch (err) {
-    return res.status(502).json({ error: failure(err) });
+    if (err instanceof ArError) return res.status(err.status).json({ error: err.message, ...err.extra });
+    console.error("ar-write failed:", err);
+    return res.status(502).json({ error: "Couldn't save just now — try again in a minute." });
   }
 }

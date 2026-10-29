@@ -2929,9 +2929,10 @@ function SubsAdmin({ db, commit }) {
 
 /* staff: A&R — outreach pipeline + advance calculator, both backed by the
    OUTREACH / ADVANCE CALCULATOR sheet tabs. Deliberately isolated from
-   MASTER/roster totals and from db/commit() — prospects have no Postgres
-   row at all (they aren't signed clients yet), so this reads and writes
-   straight to the sheet via /api/ar-data and /api/ar-write. */
+   MASTER/roster totals and from db/commit(). Each prospect has a permanent
+   id (ar_prospects); /api/ar-write aims every save at that id, sends the
+   values this page showed as `expect`, and refuses with a plain reason when
+   the sheet changed meanwhile, so a save can never land on the wrong row. */
 async function arWrite(body) {
   const res = await fetch("/api/ar-write", {
     method: "POST",
@@ -2976,22 +2977,24 @@ const statusTone = (s = "") => /signed/i.test(s) ? "pos" : /offer/i.test(s) ? "w
 function OutreachPanel({ data, reload }) {
   const cols = "1.2fr 1fr 1fr 1fr 1fr 0.6fr 1fr";
   const [adding, setAdding] = useState(false);
-  const [activeRow, setActiveRow] = useState(null); // the prospect row currently open for editing
+  const [activeId, setActiveId] = useState(null); // the prospect currently open for editing (its permanent id)
   // look up fresh each render (not a stale snapshot) so the modal reflects
   // updated sums immediately if reload() ever fires while it's open
-  const active = data.prospects.find((p) => p.row === activeRow) || null;
+  const active = data.prospects.find((p) => p.id && p.id === activeId) || null;
+  const canSave = data.sheet?.ok !== false;
 
   return (
     <div>
       <div className="admin-head">
         <h2>Outreach pipeline</h2>
         <div style={{ display: "flex", gap: 8 }}>
-          {data.links.outreach && (
-            <ExtLink href={data.links.outreach} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
+          {data.sheet?.links?.outreach && (
+            <ExtLink href={data.sheet.links.outreach} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
           )}
-          <button className="btn sm" onClick={() => setAdding(true)}><Plus size={15} /> Add prospect</button>
+          <button className="btn sm" onClick={() => setAdding(true)} disabled={!canSave} title={canSave ? undefined : "Saving is paused until the pub sheet can be read again."}><Plus size={15} /> Add prospect</button>
         </div>
       </div>
+      {!canSave && <p className="hint err-text mb">Couldn't read the pub sheet just now. Showing what it said last time. Saving is paused until it's back.</p>}
       <p className="muted mb">
         Up to 5 songs per prospect — fill out their name, contact, and each song's Gross Streams and Writer %,
         then hit Save once. Gross Streams, Net Streams, and Est. publishing earnings all sum/compute automatically — Net
@@ -3006,12 +3009,12 @@ function OutreachPanel({ data, reload }) {
             <span>Prospect</span><span>Contact</span><span>Gross Streams</span><span>Net Streams</span><span title="Est. publishing earnings">Est. earnings</span><span>Songs</span><span>Status</span>
           </div>
           {data.prospects.map((p) => (
-            <button key={p.row} className="admin-row admin-row-link" style={{ "--cols": cols }} onClick={() => setActiveRow(p.row)}>
+            <button key={p.id || `row-${p.row}`} className="admin-row admin-row-link" style={{ "--cols": cols }} onClick={() => p.id && canSave && setActiveId(p.id)}>
               <span className="cell">{p.name}</span>
               <span className="cell">{p.contact || "—"}</span>
-              <span className="cell">{fmt(p.grossStreams)}</span>
-              <span className="cell">{fmt(p.netStreams)}</span>
-              <span className="cell">{money(p.grossRevenue)}</span>
+              <span className="cell">{fmt(p.money.grossStreams)}</span>
+              <span className="cell">{fmt(Math.round(p.money.netStreams))}</span>
+              <span className="cell">{money(p.money.grossRevenue)}</span>
               <span className="cell">{p.songs.filter((s) => s.streams > 0).length || "—"}</span>
               <span className="cell">{p.status ? <span className="tag" data-tone={statusTone(p.status)}>{p.status}</span> : "—"}</span>
             </button>
@@ -3032,8 +3035,8 @@ function OutreachPanel({ data, reload }) {
           prospect={active}
           blendedRate={data.assumptions.blendedRate}
           statuses={data.statuses}
-          onClose={() => setActiveRow(null)}
-          onChanged={async () => { await reload(); setActiveRow(null); }}
+          onClose={() => setActiveId(null)}
+          onChanged={async () => { await reload(); setActiveId(null); }}
         />
       )}
     </div>
@@ -3043,8 +3046,9 @@ function OutreachPanel({ data, reload }) {
 const BLANK_SONGS = [1, 2, 3, 4, 5].map((slot) => ({ slot, streams: "", writerShare: "" }));
 
 // One form for both adding and editing a prospect — name, contact, and all
-// 5 song slots are filled out together and saved in a single click via
-// saveProspectFull, instead of a separate save per field/song. The preview
+// 5 song slots are filled out together and saved in a single click (one
+// createProspect, or one updateProspect carrying only what was changed), instead
+// of a separate save per field/song. The preview
 // totals are computed the same way the sheet computes them: Gross Streams
 // is a straight sum of the streams typed in each slot, and Net Streams is
 // the sum of each individual slot's own streams × its own writer % — never
@@ -3056,9 +3060,8 @@ function ProspectForm({ prospect, blendedRate, statuses, onClose, onChanged }) {
   const [name, setName] = useState(prospect?.name || "");
   const [contact, setContact] = useState(prospect?.contact || "");
   const [status, setStatus] = useState(prospect?.status || "");
-  const [songs, setSongs] = useState(
-    prospect ? prospect.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })) : BLANK_SONGS
-  );
+  const startSongs = prospect ? prospect.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })) : BLANK_SONGS;
+  const [songs, setSongs] = useState(startSongs);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   useEscape(onClose, !busy); // as Cancel, which is off while saving
@@ -3068,19 +3071,39 @@ function ProspectForm({ prospect, blendedRate, statuses, onClose, onChanged }) {
   const netStreams = songs.reduce((sum, s) => sum + (Number(s.streams) || 0) * ((Number(s.writerShare) || 0) / 100), 0);
   const estRevenue = netStreams * blendedRate;
 
+  // a slot as the sheet holds it: streams, and the writer % as a 0-1 fraction (blank = cleared)
+  const slotOf = (s) => ({ slot: s.slot, streams: s.streams === "" ? null : Number(s.streams), share: s.writerShare === "" ? null : Number(s.writerShare) / 100 });
   const save = async () => {
     if (!name.trim()) return;
     setBusy(true); setErr(null);
     try {
-      await arWrite({ action: "saveProspectFull", row: prospect?.row, name: name.trim(), contact: contact.trim(), status, songs });
+      if (isNew) {
+        await arWrite({ action: "createProspect", name: name.trim(), contact: contact.trim(), status, slots: songs.filter((s) => s.streams !== "" || s.writerShare !== "").map(slotOf) });
+      } else {
+        // only what changed is sent, each with the value this form started from, so a hand edit in the
+        // sheet meanwhile (to any field) is never overwritten
+        const changes = {}, expect = {};
+        if (name.trim() !== prospect.name) { changes.name = name.trim(); expect.name = prospect.cells.A; }
+        if (contact.trim() !== prospect.contact.trim()) { changes.contact = contact.trim(); expect.contact = prospect.cells.B; }
+        if (status !== prospect.status) { changes.status = status; expect.status = prospect.cells.O; }
+        // per cell, so a writer % shown rounded (33.3333) is never written back unless it was changed
+        const slots = songs.map((s, i) => {
+          const was = startSongs[i], out = { slot: s.slot }, cell = slotOf(s);
+          if (String(s.streams) !== String(was.streams)) out.streams = cell.streams;
+          if (String(s.writerShare) !== String(was.writerShare)) out.share = cell.share;
+          return out;
+        }).filter((x) => "streams" in x || "share" in x);
+        if (slots.length) { changes.slots = slots; expect.slots = slots.map((s) => prospect.cells.slots[s.slot - 1]); }
+        if (Object.keys(changes).length) await arWrite({ action: "updateProspect", prospectId: prospect.id, changes, expect });
+      }
       await onChanged();
     } catch (e) { setErr(e.message); setBusy(false); }
   };
   const deleteProspect = async () => {
-    if (!window.confirm(`Remove ${prospect.name} from the outreach pipeline? This can't be undone.`)) return;
+    if (!window.confirm(`Take ${prospect.name} off the board? Their row in the OUTREACH tab is cleared, including 'Advance given?'. Their songs, notes and history stay here, and 'Put back' returns them to the sheet.`)) return;
     setBusy(true); setErr(null);
     try {
-      await arWrite({ action: "deleteProspect", row: prospect.row });
+      await arWrite({ action: "removeProspect", prospectId: prospect.id, expect: { A: prospect.cells.A } });
       await onChanged();
     } catch (e) { setErr(e.message); setBusy(false); }
   };
@@ -3119,7 +3142,7 @@ function ProspectForm({ prospect, blendedRate, statuses, onClose, onChanged }) {
           ))}
         </div>
         <div className="modal-foot">
-          {!isNew && <button className="btn ghost sm err-text" onClick={deleteProspect} disabled={busy}>Delete prospect</button>}
+          {!isNew && <button className="btn ghost sm err-text" onClick={deleteProspect} disabled={busy}>Remove from board</button>}
           <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn sm" onClick={save} disabled={busy || !name.trim()}>{busy ? "Saving…" : "Save"}</button>
         </div>
@@ -3170,21 +3193,22 @@ function calcAdvance({ netStreams, blendedRate, runRate, decay, adminFeeRate, re
 const BLANK_SCENARIO = { kind: "new", key: "", name: "", contact: "", grossStreams: "", writerShare: "" };
 
 function AdvanceCalcPanel({ data, reload }) {
-  const { assumptions, recoupTargetMonths, budget, prospects, signedClients, links } = data;
+  const { assumptions, recoupTargetMonths, budget, prospects, signedClients } = data;
+  const links = data.sheet?.links || {};
   const [scenario, setScenario] = useState(BLANK_SCENARIO);
   const [recoupMonths, setRecoupMonths] = useState(recoupTargetMonths);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [saved, setSaved] = useState(false);
 
-  const selectedProspect = scenario.kind === "outreach" ? prospects.find((p) => String(p.row) === String(scenario.key)) : null;
+  const selectedProspect = scenario.kind === "outreach" ? prospects.find((p) => p.id && p.id === scenario.key) : null;
   const selectedClient = scenario.kind === "client" ? signedClients.find((c) => c.id === scenario.key) : null;
   // an existing prospect/client's Net Streams comes straight from the sheet
   // or catalog's own sum across everything they have (could be more than
   // one song) — a from-scratch scenario only ever has the one Gross
   // Streams/Writer % pair being typed, computed the same way the sheet
   // computes each song slot.
-  const netStreams = selectedProspect ? selectedProspect.netStreams
+  const netStreams = selectedProspect ? selectedProspect.money.netStreams
     : selectedClient ? selectedClient.netStreams
     : (Number(scenario.grossStreams) || 0) * ((Number(scenario.writerShare) || 0) / 100);
 
@@ -3193,7 +3217,7 @@ function AdvanceCalcPanel({ data, reload }) {
     if (!value) { setScenario(BLANK_SCENARIO); return; }
     const [kind, key] = value.split(":");
     if (kind === "outreach") {
-      const p = prospects.find((x) => String(x.row) === key);
+      const p = prospects.find((x) => x.id === key);
       setScenario({ kind, key, name: p?.name || "", contact: p?.contact || "", grossStreams: "", writerShare: "" });
     } else if (kind === "client") {
       const c = signedClients.find((x) => x.id === key);
@@ -3216,12 +3240,12 @@ function AdvanceCalcPanel({ data, reload }) {
     if (!scenario.name.trim() || !netStreams) return;
     setBusy(true); setErr(null);
     try {
-      const { row } = await arWrite({
-        action: "saveProspectFull", name: scenario.name.trim(), contact: scenario.contact.trim(),
-        songs: [{ slot: 1, streams: Number(scenario.grossStreams) || 0, writerShare: Number(scenario.writerShare) || 0 }],
+      const { prospect } = await arWrite({
+        action: "createProspect", name: scenario.name.trim(), contact: scenario.contact.trim(),
+        slots: [{ slot: 1, streams: Number(scenario.grossStreams) || 0, share: (Number(scenario.writerShare) || 0) / 100 }],
       });
       await reload();
-      setScenario({ kind: "outreach", key: String(row), name: scenario.name, contact: scenario.contact, grossStreams: "", writerShare: "" });
+      setScenario({ kind: "outreach", key: prospect.id, name: scenario.name, contact: scenario.contact, grossStreams: "", writerShare: "" });
       setSaved(true);
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
@@ -3230,7 +3254,7 @@ function AdvanceCalcPanel({ data, reload }) {
     if (!selectedProspect) return;
     setBusy(true); setErr(null);
     try {
-      await arWrite({ action: "setAdvanceGiven", row: selectedProspect.row, given });
+      await arWrite({ action: "setGiven", prospectId: selectedProspect.id, given, expect: { given: selectedProspect.advance.given } });
       await reload();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
@@ -3259,7 +3283,7 @@ function AdvanceCalcPanel({ data, reload }) {
             <option value="">— new prospect —</option>
             {prospects.length > 0 && (
               <optgroup label="Outreach prospects">
-                {prospects.map((p) => <option key={p.row} value={`outreach:${p.row}`}>{p.name} ({fmt(p.netStreams)} net streams)</option>)}
+                {prospects.filter((p) => p.id).map((p) => <option key={p.id} value={`outreach:${p.id}`}>{p.name} ({fmt(Math.round(p.money.netStreams))} net streams)</option>)}
               </optgroup>
             )}
             {signedClients.length > 0 && (
@@ -3271,7 +3295,7 @@ function AdvanceCalcPanel({ data, reload }) {
         </label>
         {selectedProspect || selectedClient ? (
           <p className="hint">
-            Net Streams ({fmt(netStreams)}) comes from {scenario.name}'s {selectedClient ? "catalog" : "songs in Outreach"} —
+            Net Streams ({fmt(Math.round(netStreams))}) comes from {scenario.name}'s {selectedClient ? "catalog" : "songs in Outreach"} —
             edit {selectedClient ? "their songs on Overview & clients" : "those on the A&R tab"} to change this.
           </p>
         ) : (
@@ -3280,7 +3304,7 @@ function AdvanceCalcPanel({ data, reload }) {
             <Field label="Contact or Handle" value={scenario.contact} onChange={(e) => setField({ contact: e.target.value })} />
             <Field label="Gross Streams" type="number" value={scenario.grossStreams} onChange={(e) => setField({ grossStreams: e.target.value })} />
             <Field label="Writer %" type="number" value={scenario.writerShare} onChange={(e) => setField({ writerShare: e.target.value })} />
-            <p className="hint">Net Streams: {fmt(netStreams)} · Est. publishing earnings: {money(estRevenue)}</p>
+            <p className="hint">Net Streams: {fmt(Math.round(netStreams))} · Est. publishing earnings: {money(estRevenue)}</p>
           </>
         )}
         <Field
@@ -3302,10 +3326,11 @@ function AdvanceCalcPanel({ data, reload }) {
         {selectedProspect && (
           <div className="ar-given-row">
             <span className="fld-label">Advance given?</span>
-            <button className={selectedProspect.advanceGiven === "Yes" ? "btn sm" : "btn ghost sm"} onClick={() => setGiven(true)} disabled={busy}>Yes</button>
-            <button className={selectedProspect.advanceGiven === "No" || !selectedProspect.advanceGiven ? "btn sm" : "btn ghost sm"} onClick={() => setGiven(false)} disabled={busy}>No</button>
+            <button className={selectedProspect.advance.given === "Yes" ? "btn sm" : "btn ghost sm"} onClick={() => setGiven(true)} disabled={busy || !selectedProspect.advance.editable}>Yes</button>
+            <button className={selectedProspect.advance.given === "No" || !selectedProspect.advance.given ? "btn sm" : "btn ghost sm"} onClick={() => setGiven(false)} disabled={busy || !selectedProspect.advance.editable}>No</button>
           </div>
         )}
+        {selectedProspect && !selectedProspect.advance.editable && selectedProspect.advance.why && <p className="hint">{selectedProspect.advance.why}</p>}
         {selectedClient && (
           <p className="hint">Signed clients aren't tracked in the Given/budget total above — this is for planning an additional advance only.</p>
         )}
@@ -3339,11 +3364,14 @@ function AdvanceCalcPanel({ data, reload }) {
 // Publishing › Advance calculator: the sheet read happens only once this sub-tab opens
 function AdvanceTab() {
   const { data, err, load, retry } = useArData();
+  // the calculator's levers and budget come from the sheet itself: nothing to work out without it
+  const down = data && data.sheet?.ok === false;
   return (
     <>
       {err && <ArDataError err={err} retry={retry} />}
+      {down && <ArDataError err="Couldn't read the pub sheet just now, so the Advance calculator can't work out its numbers." retry={retry} />}
       {!data && !err && <p className="muted">Loading…</p>}
-      {data && <div className="pub-sec"><AdvanceCalcPanel data={data} reload={load} /></div>}
+      {data && !down && <div className="pub-sec"><AdvanceCalcPanel data={data} reload={load} /></div>}
     </>
   );
 }
