@@ -15,8 +15,9 @@ export default async function handler(req, res) {
     const links = await readMasterLinks(sheets, spreadsheetId);
     // the $ a stream every estimate uses (ASSUMPTIONS!B7), for the overview's one line explaining
     // the money; without it the line just says "the sheet's blended rate"
-    const rate = await readAssumptions(sheets, spreadsheetId).then((a) => a.blendedRate || null, () => null);
-    return res.status(200).json({ ...rollup, links, rate });
+    const a = await readAssumptions(sheets, spreadsheetId).catch(() => ({}));
+    // runRate (B9): the share of all-time earnings the forecast takes as next year's, said on its tile
+    return res.status(200).json({ ...rollup, links, rate: a.blendedRate || null, runRate: a.runRate || null });
   } catch (err) {
     return res.status(502).json({ error: err.message || "Failed to read the MASTER tab." });
   }

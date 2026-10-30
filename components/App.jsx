@@ -3038,9 +3038,11 @@ const stepFrom = (id, d) => { const i = AR_STAGES.findIndex((s) => s.id === id);
 const wholeMoney = (n) => `$${fmt(Math.round(Number(n) || 0))}`;
 const centsMoney = (n) => (Math.round(n * 100) % 100 ? money(n) : wholeMoney(n)); // $36,125 · $3,759.26
 const bigNum = (n) => (Math.abs(n) >= 1e6 ? `${Number((n / 1e6).toFixed(2))}M` : fmt(Math.round(n))); // 28.9M · 14.45M
-const pctText = (p) => `${p >= 0 ? "▲" : "▼"} ${Math.abs(p).toFixed(1)}%`;
-// the week-on-week % as one pill everywhere: ▲ green up, ▼ red down; nothing when there's no last week
-const WowPill = ({ pct, big }) => (pct == null ? null : <span className={big ? "wow-pill big" : "wow-pill"} data-dir={pct >= 0 ? "up" : "down"}>{pctText(pct)}</span>);
+// a flat week (rounds to 0.0%) has no arrow: it went neither up nor down
+const flatPct = (p) => Math.abs(p) < 0.05;
+const pctText = (p) => (flatPct(p) ? "0.0%" : `${p >= 0 ? "▲" : "▼"} ${Math.abs(p).toFixed(1)}%`);
+// the week-on-week % as one pill everywhere: ▲ green up, ▼ red down, grey when flat; nothing when there's no last week
+const WowPill = ({ pct, big }) => (pct == null ? null : <span className={big ? "wow-pill big" : "wow-pill"} data-dir={flatPct(pct) ? "flat" : pct >= 0 ? "up" : "down"}>{pctText(pct)}</span>);
 // someone we track by hand with no row in the Luminate A&R list yet (producers from OUTREACH
 // rarely have one, and Passed is done, so neither counts)
 const needsLumRow = (r) => r.ref?.type === "tracked" && !r.luminateId && r.stage !== "passed";
@@ -3096,7 +3098,7 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
   const addTitle = open.prefill?.name ? `Add ${open.prefill.name}` : kind === "artist" ? "Add an artist" : kind === "song" ? "Add a song" : "Add a producer";
   if (open.type === "add" && kind === "producer") {
     return (
-      <ProspectForm title={addTitle} picker={picker} blendedRate={data?.assumptions?.blendedRate ?? 0} canSave={canSave}
+      <ProspectForm title={addTitle} picker={picker} blendedRate={data?.assumptions?.blendedRate ?? 0} assume={data?.assumptions} canSave={canSave}
         onClose={closePanel} onChanged={async (r) => { await load(); if (r?.prospect?.id) openPanel({ type: "prospect", id: r.prospect.id }); else closePanel(); }} />
     );
   }
@@ -3113,7 +3115,7 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
   const link = (p?.tracked || []).find((x) => x.kind === "artist" && x.luminateId)?.luminateId || "";
   const mine = (pg?.watch?.people || []).find((r) => r.ref?.id === open.id);
   return (
-    <ProspectForm key={s.id} prospect={s} pg={p} blendedRate={data.assumptions.blendedRate} canSave={canSave} reload={load}
+    <ProspectForm key={s.id} prospect={s} pg={p} blendedRate={data.assumptions.blendedRate} assume={data.assumptions} canSave={canSave} reload={load}
       onClose={closePanel} onChanged={async () => { await load(); closePanel(); }}
       extra={(
         <div className="ar-panel-extra">
@@ -3296,7 +3298,8 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
       {/* the pipeline at a glance: one coloured pill per stage, and the sheet's total value; opens the Board */}
       <button className="ar-strip" onClick={goBoard} aria-label="Open the Board">
         {AR_STAGES.map((st) => <StagePill key={st.id} id={st.id} n={stageN(st.id)} />)}
-        <span className="ar-strip-val">{value != null ? `≈ ${wholeMoney(value)} in play` : "Open the Board"} →</span>
+        {/* the sheet's total value: mostly the would-be cut of past earnings, so not "in play" money */}
+        <span className="ar-strip-val">{value != null ? `≈ ${wholeMoney(value)} est. value` : "Open the Board"} →</span>
       </button>
       <div className="ar-sum-head">
         <h3 className="ar-h3">{old ? "Latest week" : "This week"} <span className="ar-h3-sub">· biggest % rise first</span></h3>
@@ -3779,7 +3782,10 @@ function ArTotals({ data }) {
   const t = data.totals, a = data.assumptions, b = data.budget;
   if (!t) return null;
   const cut = a?.adminFeeRate != null ? `${Math.round(a.adminFeeRate * 100)}%` : "cut";
-  const tiles = [["totalValue", "Total est. value", t.totalValue], ["adminFee", `Our ${cut} so far`, t.adminFee], ...(b ? [["budgetLeft", "Advance budget left", b.remaining]] : [])];
+  // the adminFee total is OUTREACH's own cut of their earnings so far, so its % comes from those two numbers;
+  // nobody has paid it: it's what we'd have earned had they been signed
+  const feeCut = t.grossRevenue > 0 && t.adminFee != null ? `${Math.round((t.adminFee / t.grossRevenue) * 100)}%` : cut;
+  const tiles = [["totalValue", "Total est. value", t.totalValue], ["adminFee", `Our ${feeCut} of their earnings to date (if signed)`, t.adminFee], ...(b ? [["budgetLeft", "Advance budget left", b.remaining]] : [])];
   const rest = [["grossStreams", "Their streams", bigNum], ["netStreams", "Their share of streams", bigNum], ["grossRevenue", "Est. earnings pool", wholeMoney], ["threeYear", "Next 3 years (our cut)", wholeMoney]];
   return (
     <div className="ar-totals">
@@ -3791,7 +3797,7 @@ function ArTotals({ data }) {
       <details className="ar-how">
         <summary>How we estimate</summary>
         <p className="ar-how-nums">{rest.map(([k, label, f]) => <span key={k} data-total={k} data-value={t[k] ?? ""}>{label} <b>{t[k] == null ? "—" : f(t[k])}</b></span>)}</p>
-        <p>Streams × their share × ${a?.blendedRate ?? "—"} a stream = their earnings; we keep {cut}; the next 3 years shrink {a?.decayRate != null ? `${Math.round(a.decayRate * 100)}%` : "a set amount"} a year. These come from the ASSUMPTIONS tab.</p>
+        <p>Streams × their share × ${a?.blendedRate ?? "—"} a stream = their earnings so far; we keep {cut}. Year 1 = {a?.runRate != null ? `${Math.round(a.runRate * 100)}%` : "a set share"} of those earnings, then {a?.decayRate != null ? `${Math.round(a.decayRate * 100)}%` : "a set amount"} less each year. These come from the ASSUMPTIONS tab.</p>
         {b && <p className="ar-budget">Advance budget {wholeMoney(b.starting)} · given {wholeMoney(b.committed)} · left {wholeMoney(b.remaining)}</p>}
       </details>
     </div>
@@ -3800,7 +3806,8 @@ function ArTotals({ data }) {
 
 // short numbers and times for the cards and status lines
 const statusTone = (s = "") => /signed/i.test(s) ? "pos" : /offer/i.test(s) ? "warn" : /talk|negotiat/i.test(s) ? "info" : /not contacted|pass|declin/i.test(s) ? "muted" : undefined;
-const shortNum = (n) => { const a = Math.abs(Number(n) || 0); return a >= 1e6 ? `${(a / 1e6).toFixed(a >= 1e7 ? 1 : 2)}M` : a >= 1e3 ? `${Math.round(a / 1e3)}K` : fmt(Math.round(a)); };
+// (rounded half up: toFixed alone reads 14,450,000 as "14.4M", binary floats)
+const shortNum = (n) => { const a = Math.abs(Number(n) || 0); return a >= 1e7 ? `${(Math.round(a / 1e5) / 10).toFixed(1)}M` : a >= 1e6 ? `${(Math.round(a / 1e4) / 100).toFixed(2)}M` : a >= 1e3 ? `${Math.round(a / 1e3)}K` : fmt(Math.round(a)); };
 const roundMoney = (n) => { const a = Number(n) || 0; return `$${fmt(a >= 1000 ? Math.round(a / 100) * 100 : Math.round(a / 10) * 10)}`; };
 const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "");
 const weekday = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" });
@@ -3900,7 +3907,7 @@ const showVal = (f, v) => (v === "" || v == null ? "blank" : /\.share$/.test(f) 
 // updateProspect carrying only what was changed, each with the value this panel opened with as
 // `expect`); the status and "Advance given?" save at once. The preview totals are computed the way
 // the sheet computes them: Net Streams is the sum of each slot's own streams × its own writer %.
-function ProspectForm({ prospect, pg, blendedRate, canSave = true, reload, onClose, onChanged, title, picker, extra }) {
+function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reload, onClose, onChanged, title, picker, extra }) {
   const isNew = !prospect;
   const [base] = useState(prospect); // what this panel opened with: the `expect` of every Save
   const [name, setName] = useState(prospect?.name || "");
@@ -4055,10 +4062,11 @@ function ProspectForm({ prospect, pg, blendedRate, canSave = true, reload, onClo
                   {!isNew && <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Total est. value</span><span className="cat-stat-val">≈ {wholeMoney(prospect.money.totalEstValue)}</span></div>}
                   <div className="cat-stat"><span className="cat-stat-label">Gross streams</span><span className="cat-stat-val">{bigNum(grossStreams)}</span></div>
                   <div className="cat-stat"><span className="cat-stat-label">Net streams (their share)</span><span className="cat-stat-val">{bigNum(netStreams)}</span></div>
-                  <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Est. publishing earnings</span><span className="cat-stat-val">{wholeMoney(estRevenue)}</span></div>
+                  {/* the writer's own all-time earnings, not ours: our cut of it is said beside it */}
+                  <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Their est. publishing earnings (all-time){assume?.adminFeeRate != null ? ` · our ${Math.round(assume.adminFeeRate * 100)}% ≈ ${wholeMoney(estRevenue * assume.adminFeeRate)}` : ""}</span><span className="cat-stat-val">{wholeMoney(estRevenue)}</span></div>
                 </div>
               </div>
-              <p className="hint arb-money-tip">Estimates, not payouts: all-time streams × their writer share × ${blendedRate} a stream (the rate in ASSUMPTIONS), from the OUTREACH tab's own formulas. The sheet counts all-time streams as one year of earnings, so an older catalog can look bigger than it is. Real income depends on platform, country and deal.</p>
+              <p className="hint arb-money-tip">Estimates, not payouts: all-time streams × their writer share × ${blendedRate} a stream (the rate in ASSUMPTIONS), from the OUTREACH tab's own formulas. Year 1 = {assume?.runRate != null ? `${Math.round(assume.runRate * 100)}%` : "a set share"} of their all-time earnings, then {assume?.decayRate != null ? `${Math.round(assume.decayRate * 100)}%` : "a set amount"} less each year; we keep {assume?.adminFeeRate != null ? `${Math.round(assume.adminFeeRate * 100)}%` : "our cut"}. Real income depends on platform, country and deal.</p>
               {!isNew && (
                 <label className="fld"><span>Advance given?</span>
                   <select value={adv?.given || ""} onChange={(e) => saveGiven(e.target.value)} disabled={busy || !canSave || !adv?.editable} title={adv?.editable ? paused : adv?.why || undefined}>
@@ -4162,7 +4170,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
   const { assumptions, recoupTargetMonths, budget, prospects, signedClients } = data;
   const links = data.sheet?.links || {};
   // the Watchlist's "Work out an advance" opens it with that prospect picked
-  const [scenario, setScenario] = useState(() => (pick && prospects.some((p) => p.id === pick) ? { ...BLANK_SCENARIO, kind: "outreach", key: pick } : BLANK_SCENARIO));
+  const [scenario, setScenario] = useState(() => (pick && prospects.some((p) => p.id === pick) ? { ...BLANK_SCENARIO, kind: "outreach", key: pick, name: prospects.find((p) => p.id === pick)?.name || "" } : BLANK_SCENARIO));
   const [recoupMonths, setRecoupMonths] = useState(recoupTargetMonths);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -4378,11 +4386,19 @@ function SongManager({ db, commit, clientId, isStaff }) {
     return { gross, net, revenue, adminFee };
   }, [songs, client?.name]);
   const growth = useGrowth();
+  // this week = Luminate's own This Period from the export, as the Publishing table says (the songs
+  // whose week ends last); an older all-time export's songs fall back to the gain between snapshots
   const weekGain = useMemo(() => {
     if (!growth) return null;
-    const known = songs.map((p) => growth[p.id]).filter((g) => g?.week != null);
+    const gs = songs.map((p) => growth[p.id]).filter(Boolean);
+    const end = gs.map((g) => g.thisWeek != null && g.weekOf?.to).filter(Boolean).sort().pop();
+    const wk = gs.filter((g) => g.thisWeek != null && (!end || !g.weekOf || g.weekOf.to === end));
+    if (wk.length) return wk.reduce((a, g) => a + g.thisWeek, 0);
+    const known = gs.filter((g) => g.week != null);
     return known.length ? known.reduce((a, g) => a + g.week, 0) : null;
   }, [growth, songs]);
+  // when Luminate made these numbers (the newest export's day), not when the site last pulled the sheet
+  const numbersOn = useMemo(() => songs.map((p) => growth?.[p.id]?.latestOn).filter(Boolean).sort().pop() || null, [growth, songs]);
   const [openId, setOpenId] = useState(null);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -4541,7 +4557,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
             )}
           </div>
           <p className="hint cat-asof">
-            Streams as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+            Streams as of {new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
             {isStaff && weekGain != null && ` · ${signed(weekGain)} this week`}
           </p>
         </div>
@@ -4597,7 +4613,8 @@ function SongManager({ db, commit, clientId, isStaff }) {
               {growth?.[active.id]?.series?.length > 1 && (
                 <div className="song-growth">
                   <div className="song-growth-nums">
-                    {growth[active.id].week != null ? <span><b className="grow-val">{signed(growth[active.id].week)}</b> since {shortDay(growth[active.id].weekFrom)}</span>
+                    {growth[active.id].thisWeek != null ? <span><b className="grow-val">{signed(growth[active.id].thisWeek)}</b> this week{growth[active.id].weekOf ? ` (${dayRange(growth[active.id].weekOf.from, growth[active.id].weekOf.to)})` : ""}</span>
+                      : growth[active.id].week != null ? <span><b className="grow-val">{signed(growth[active.id].week)}</b> since {shortDay(growth[active.id].weekFrom)}</span>
                       : growth[active.id].gain != null && <span><b className="grow-val">{signed(growth[active.id].gain)}</b> since {shortDay(growth[active.id].gainFrom)}</span>}
                     {growth[active.id].ytd != null && <span><b>{fmt(growth[active.id].ytd)}</b> this year</span>}
                   </div>
@@ -4614,7 +4631,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
                       <div className="split-list-row"><span className="split-name">Est. admin fee <em>(our commission)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
                     </>
                   )}
-                  <p className="hint">as of {new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</p>
+                  <p className="hint">as of {new Date(growth?.[active.id]?.latestOn ? `${growth[active.id].latestOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</p>
                 </div>
               )}
             </div>
@@ -4902,7 +4919,8 @@ async function fullSiteSync(tabDb, commit) {
         id, clientId: c.id, song: row.song, artist: row.artist || c.name,
         releaseDate: "", link: "", cover: "", notable: false,
         luminateId: row.luminateId || "",
-        splits: [{ id: uid(), name: c.name, role: c.role || "", percent: row.writerShare || 100 }],
+        // a blank Writer Share on the sheet comes in as 0%, never an invented 100%: the splits task flags it
+        splits: [{ id: uid(), name: c.name, role: c.role || "", percent: row.writerShare || 0 }],
         streams: row.grossStreams, revenue: row.grossRevenue, adminFee: row.adminFee,
       });
       const tabName = c.sheetTabName || c.name;
@@ -5016,7 +5034,8 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
     if (end) ws = ws.filter((w) => !w.weekOf || w.weekOf.to === end);
     if (!ws.length) return null;
     const t = ws.reduce((a, w) => a + w.thisWeek, 0), l = ws.reduce((a, w) => a + w.lastWeek, 0);
-    return { thisWeek: t, wowPct: l > 0 ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null };
+    // under 1,000 streams this week a % says little (1 → 2 is "▲ 100%"): streams only, as on the Dashboard
+    return { thisWeek: t, wowPct: l > 0 && t >= WEEK_PCT_MIN ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null };
   };
   const cols = [["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Gross streams"], ["net", "Net streams"], ["earn", "Est. earnings"], ["fee", "Est. admin fee"],
     ...(forecast ? [["y1", "Yr 1 fee"], ["y2", "Yr 2 fee"], ["y3", "Yr 3 fee"], ["fc", "3-yr fee forecast"], ["tot", "Total est. fee"], ["share", "% of roster fee"]] : [])];
@@ -5065,13 +5084,15 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
         <>
           <div className="cat-summary">
             <div className="cat-summary-grid">
-              <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
+              {/* MASTER adds each writer's gross up: a song two roster writers share is in it twice */}
+              <div className="cat-stat"><span className="cat-stat-label">Gross Streams <span className="cat-stat-note">(added up by writer: a shared song counts once per writer)</span></span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterNetStreams)}</span></div>
               {/* the same words as each client's page; the fee figures are the sheet's own: the fee so far
                   (MASTER's "CATALOG TO DATE", the table's "Est. admin fee"), its 3-year forecast, and the two together */}
               <div className="cat-stat"><span className="cat-stat-label">Est. publishing earnings <span className="cat-stat-note">(paid to the client directly)</span></span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Est. admin fee so far <span className="cat-stat-note">(our commission)</span></span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">3-yr fee forecast</span><span className="cat-stat-val">{money(state.data.totals.threeYearForecast)}</span></div>
+              {/* the sheet's forecast takes a set share of all-time earnings (ASSUMPTIONS B9) as next year's: a guess, said so */}
+              <div className="cat-stat"><span className="cat-stat-label">3-yr fee forecast <span className="cat-stat-note">(rough guess{state.data.runRate ? `: ${Math.round(state.data.runRate * 100)}% of all-time earnings a year` : ""})</span></span><span className="cat-stat-val">{money(state.data.totals.threeYearForecast)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Total est. fee <span className="cat-stat-note">(so far + 3 years)</span></span><span className="cat-stat-val">{money(state.data.totals.totalEstAdminFee)}</span></div>
             </div>
             {/* the one place the money's explained: everything below (and each client's page) is the same estimate */}
@@ -5090,6 +5111,8 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
                   {cols.map(([id, label]) => (
                     <th key={id} data-col={id} aria-sort={sort.col === id ? (sort.dir < 0 ? "descending" : "ascending") : undefined}>
                       <button className={sort.col === id ? "ar-sort on" : "ar-sort"} onClick={() => setSort((o) => ({ col: id, dir: o.col === id ? -o.dir : id === "writer" ? 1 : -1 }))}>{label}{sort.col === id ? (sort.dir < 0 ? " ▼" : " ▲") : ""}</button>
+                      {/* which week it is, right on the column */}
+                      {id === "week" && span && <span className="master-week-of">{dayRange(span.from, span.to)} vs the week before</span>}
                     </th>
                   ))}
                 </tr>
@@ -5340,6 +5363,9 @@ const ago = (iso) => {
 };
 // a bare date ("2026-10-14", a snapshot's day) is that day wherever this is read, not UTC midnight
 const shortDay = (iso) => (iso ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00` : iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+// a payment's day, with its year when it isn't this year's ("Dec 19, 2025" in a list of 2026 rows)
+const payDay = (iso) => (iso && new Date(iso).getFullYear() !== new Date().getFullYear()
+  ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : shortDay(iso));
 // a run of days, as short as it reads: "Sep 17 – 23", "Aug 27 – Sep 8" (with the year when it isn't this one)
 const dayRange = (from, to) => {
   const day = (iso) => new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00` : iso);
@@ -5410,6 +5436,8 @@ function Sparkline({ series, height = 56 }) {
 // date ("+30K since Oct 16"), never stretched or squeezed into a week
 function GrowthChip({ g }) {
   if (!g) return null;
+  // the export's own week first (Luminate's This Period), the same number the Publishing table shows
+  if (g.thisWeek != null) return g.thisWeek > 0 ? <span className="grow-chip" title={`${fmt(g.thisWeek)} streams${g.weekOf ? `, ${dayRange(g.weekOf.from, g.weekOf.to)}` : " this week"}`}>{compact(g.thisWeek)} this week</span> : null;
   if (g.week != null) return g.week > 0 ? <span className="grow-chip" title={`${signed(g.week)} streams since ${shortDay(g.weekFrom)}`}>{compact(g.week)} this week</span> : null;
   if (!(g.gain > 0)) return null;
   return <span className="grow-chip" title={`${signed(g.gain)} streams since ${shortDay(g.gainFrom)}`}>{compact(g.gain)} since {shortDay(g.gainFrom)}</span>;
@@ -5474,6 +5502,17 @@ function lumByPortfolio(results) {
 }
 
 const AR_AREAS = ["ar_artists", "ar_songs"];
+// An A&R file's growth line: the all-time growth of the rows both files hold, since when, leaving out
+// any whose all-time went down (each has its own line), and how many rows are new. "+6,612,612
+// all-time streams since Aug 27 (9 weeks) across the 2 artists in both files (5 artists are new to the list)"
+function lumGainText(r) {
+  const p = r.preview || {}, what = r.area === "ar_artists" || r.artists === r.entities ? "artist" : "song";
+  const n = (k, w) => `${k} ${w}${k === 1 ? "" : "s"}`;
+  const days = p.gainFrom && r.exportedAt ? Math.round((new Date(r.exportedAt) - new Date(p.gainFrom)) / 864e5) : null;
+  const since = p.gainFrom ? `since ${shortDay(p.gainFrom)}${days >= 14 ? ` (${Math.round(days / 7)} weeks)` : ""}` : "since its last export";
+  const fresh = p.newCount ? ` (${n(p.newCount, what)} ${p.newCount === 1 ? "is" : "are"} new to the list)` : "";
+  return `${signed(p.gain || 0)} all-time streams ${since} across the ${n(p.gainRows ?? 0, what)} in both files${fresh}`;
+}
 // what one drop can carry: the upload route's 60 files and its 4 MB request (a long-uncleaned Downloads
 // folder holds more), kept with room to spare for the request's own wrapping
 const DROP_MAX_FILES = 60, DROP_MAX_CHARS = 3_500_000;
@@ -5571,6 +5610,7 @@ function ExportDrop({ onDone }) {
                 {r.status === "ready" && <>
                   {AR_AREAS.includes(areaOf(r)) ? ` · ${slots(r)}` : ` · ${slots(r)} (${r.entities} of ${r.capacity || 100} slots)`}
                   {r.preview?.first ? ` · first export of this portfolio · ${fmt(r.preview.totalStreams)} all-time streams`
+                    : AR_AREAS.includes(areaOf(r)) ? ` · ${lumGainText(r)}`
                     : ` · ${signed(r.preview?.gain || 0)} streams since its last export`}
                   {r.preview?.newCount && !r.preview.first ? <em> {r.preview.newCount} new: {r.preview.newSongs.slice(0, 6).join(", ")}{r.preview.newCount > 6 ? "…" : ""}.</em> : null}
                   {r.preview?.goneCount ? <em> {r.preview.goneCount} no longer in it: {r.preview.goneSongs.slice(0, 4).join(", ")}{r.preview.goneCount > 4 ? "…" : ""}.</em> : null}
@@ -5591,7 +5631,8 @@ function ExportDrop({ onDone }) {
                     {r.needsArea && <em> {r.entities && r.artists === r.entities ? "It only holds artists" : "It has weekly numbers"}, so it looks like an A&amp;R portfolio.{areas[r.portfolioId] ? "" : " Pick what it holds before you apply."}</em>}
                   </span>
                 )}
-                {(r.notes || []).map((n) => <em key={n}> {n}</em>)}
+                {/* each note on its own line (one per artist whose all-time went down) */}
+                {(r.notes || []).map((n) => <em key={n} className="lm-note"> {n}</em>)}
                 {history.length > 0 && <em> Plus {history.length} earlier export{history.length === 1 ? "" : "s"} ({shortDay(history[0].exportedAt)} – {shortDay(history[history.length - 1].exportedAt)}) {r.status === "ready" ? "to keep" : "kept"} as growth history.</em>}
                 {dupes > 0 && <em> {dupes} duplicate{dupes === 1 ? "" : "s"} or older file{dupes === 1 ? "" : "s"} skipped.</em>}
               </span>
@@ -5716,6 +5757,7 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo 
       <p className="hint overview-subhint">
         {last ? <>Last update {shortDay(last.at)} ({ago(last.at)}){last.by ? ` by ${last.by}` : ""}.</> : "No exports taken in yet. Drop the portfolio exports below to start."}
         {last?.weekTotal != null && last.gainers?.length ? ` That week: ${signed(last.weekTotal)} streams.` : ""}
+        {(last?.files || []).filter((f) => f.longWeeks).map((f) => ` ${f.portfolio}'s file covered about ${f.longWeeks} weeks, so its weekly numbers weren't used.`).join("")}
       </p>
       {err && <p className="hint err-text overview-subhint" role="alert">{err}</p>}
       {lum.alertsConnected === false && <p className="hint overview-subhint">ClickUp alerts aren't connected yet: they start once the Dashboard Alerts channel is set up.</p>}
@@ -5757,7 +5799,9 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo 
                 <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity ? ` · Full${room ? ` · new songs go in ${room.name}` : ""}` : ""}</span>
                 <span className="lm-port-meta">{held(p)}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
                 <span className={`lm-bar${pct >= 95 ? " full" : pct >= 80 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
-                <span className={age > 8 ? "lm-port-meta lm-port-old" : "lm-port-meta"}>{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}${age > 8 ? ` (${age} days ago)` : ""}${p.songCount ? ` · ${fmt(p.totalStreams)} streams` : ""}` : "No export yet"}</span>
+                <span className={age > 8 ? "lm-port-meta lm-port-old" : "lm-port-meta"}>{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}${age > 8 ? ` (${age} days ago)` : ""}${p.songCount ? ` · ${fmt(p.totalStreams)} all-time streams` : ""}` : "No export yet"}</span>
+                {/* its newest file was made for longer than a week: no weekly numbers from it */}
+                {p.longWeeks && <span className="lm-port-meta lm-port-old">That file covers about {p.longWeeks} weeks, so it gave no weekly numbers. Export it again with 1 week.</span>}
               </button>
             );
           })}
@@ -5974,7 +6018,10 @@ function useMedia(q) {
 // below, for the fade at its foot, and how many rows are out of sight, for ScrollFoot (a fade alone
 // can land on blank padding, and macOS hides the scrollbar). Checked after every render (rows
 // arriving), on scroll and on resize.
-const SCROLL_ROWS = ".attn-row,.cu-row,.gainer,.pay-row,.acct-row:not(.acct-row-hd),.gainers-noweek";
+// (This week's "no weekly numbers yet" note isn't a row: it's never counted as one more)
+// a writer's week-on-week % needs this many streams this week (lib/weekly.js TOP_MIN)
+const WEEK_PCT_MIN = 1000;
+const SCROLL_ROWS = ".attn-row,.cu-row,.gainer,.pay-row,.acct-row:not(.acct-row-hd)";
 function useScrollMore(ref) {
   const [hidden, setHidden] = useState(0);
   useEffect(() => {
@@ -6188,7 +6235,7 @@ function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum }) {
   const tasks = useMemo(() => {
     const list = dashTasks(db, lum);
     // phase 6 logs them in one click; until then the button shows the list on the Money card
-    if (unlogged?.length) list.push({ k: "unlogged", area: "money", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? "" : "s"} (${money(home.accounting.unloggedTotal)}) ${unlogged.length === 1 ? "isn't" : "aren't"} in the accounting sheet yet`, cta: "See them",
+    if (unlogged?.length) list.push({ k: "unlogged", area: "money", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? "" : "s"} (${money(home.accounting.unloggedTotal)} paid) ${unlogged.length === 1 ? "isn't" : "aren't"} in the accounting sheet yet`, cta: "See them",
       go: () => { setMoneyTab("unlogged"); requestAnimationFrame(() => document.getElementById("money")?.scrollIntoView({ behavior: "smooth", block: "start" })); } });
     if (toLum?.count) list.push({ k: "arLuminate", area: "ar", t: toLum.text.replace(/\.$/, ""), cta: "See the list", go: () => setShowToLum(true) });
     return list;
@@ -6234,6 +6281,8 @@ function MoneyRow({ money: m, failed, retry }) {
       <div className="cat-summary-grid">
         {stats.map(([k, label]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(m[k])}</span></div>)}
       </div>
+      {/* the tiles add up Defied's whole cut through Stripe: say so, so nobody reads it as management commission alone */}
+      <p className="hint home-money-note">Everything Defied's cut took in through Stripe, before Stripe's card fees. It also counts test payments and other income paid through Stripe, like studio work.</p>
     </div>
   );
 }
@@ -6245,7 +6294,7 @@ function PayRow({ p, over }) {
   return (
     <div className={over ? "pay-row over" : "pay-row"} data-pay={p.id}>
       <span className="pay-main"><strong>{p.client || p.payer || "Unknown payer"}</strong>
-        <span>{shortDay(p.at)} · {viaText(p)}{p.logged === false && <> · <span className="pay-flag">Not in the sheet yet</span></>}</span></span>
+        <span>{payDay(p.at)} · {viaText(p)}{p.logged === false && <> · <span className="pay-flag">Not in the sheet yet</span></>}</span></span>
       <span className="pay-amt"><b>{money(p.fee)}</b>{p.fee !== p.amount && <em>{money(p.amount)} paid</em>}</span>
     </div>
   );
@@ -8365,6 +8414,7 @@ function StyleTag() {
     .app:not(.pub) .lm-result-row.blocked{color:var(--d-ban-warn-ink)} .app:not(.pub) .lm-result-row.blocked svg{color:var(--d-warn)}
     .app:not(.pub) .lm-result-row.older{color:var(--d-ink-4)}
     .app:not(.pub) .lm-result-row em{font-style:normal;color:var(--d-ink-4)}
+    .app:not(.pub) .lm-result-row em.lm-note{display:block;margin-top:2px}
     .app:not(.pub) .lm-result-sum{margin:2px 0 0;color:var(--d-pos)}
     .app:not(.pub) .lm-ports{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:0 0 28px}
     .app:not(.pub) .lm-port{font:inherit;display:flex;flex-direction:column;gap:8px;padding:16px;text-align:left;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);color:var(--d-ink-3);cursor:pointer;
@@ -8497,6 +8547,7 @@ function StyleTag() {
     @media (max-width:599px){ .app:not(.pub) :is(.gainer-tabs,.cu-tabs){margin-left:0;width:100%} .app:not(.pub) :is(.gainer-tabs,.cu-tabs) button{flex:1} }
     /* Dashboard money (Stripe), payments, the accounting sheet and ClickUp's lists */
     .app:not(.pub) .home-money-row{margin:0 0 12px}
+    .app:not(.pub) .home-money-note{margin:8px 2px 0;font-size:12px;line-height:1.45;color:var(--d-ink-4)}
     .app:not(.pub) .home-money-row .cat-stat-val{font-size:clamp(18px,10cqi,26px)}
     .app:not(.pub) .home-src{margin:8px 2px 0}
     .app:not(.pub) .pay-all{margin-left:auto;font:500 12.5px/1 var(--d-body);color:var(--d-ink-3);background:none;border:0;padding:6px 0}
@@ -8703,6 +8754,7 @@ function StyleTag() {
     /* the week pill: the same on every page */
     .app:not(.pub) .wow-pill{display:inline-flex;align-items:center;height:24px;padding:0 8px;border-radius:100px;font:600 13px/1 var(--d-body);font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--d-pos);background:var(--d-pos-bg);border:1px solid var(--d-pos-line)}
     .app:not(.pub) .wow-pill[data-dir=down]{color:var(--d-neg);background:var(--d-neg-bg);border-color:var(--d-neg-line)}
+    .app:not(.pub) .wow-pill[data-dir=flat]{color:var(--d-ink-3);background:transparent;border-color:var(--d-line-2)}
     .app:not(.pub) .wow-pill.big{height:28px;font-size:15px}
     /* Dashboard: the money strip, To do beside This week, then Money. From 900px each card stops
        growing and its body scrolls (fading at the foot while there's more); under 900 nothing scrolls
@@ -8758,10 +8810,14 @@ function StyleTag() {
       .app:not(.pub) .home .attn-row[data-task] .btn{display:none}
       .app:not(.pub) .home .attn-row[data-task] .attn-chev{display:block;flex:none;color:var(--d-ink-4)}
       .app:not(.pub) .home-money-row .cat-stat-val{font-size:16px}
-      .app:not(.pub) .home-money-row .cat-summary-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+      /* "Commission · September" stays on one line: this month takes the whole first row, the other two share the next */
+      .app:not(.pub) .home-money-row .cat-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .app:not(.pub) .home-money-row .cat-stat:first-child{grid-column:1 / -1}
       .app:not(.pub) .home-money-row .cat-stat:last-child:nth-child(odd){grid-column:auto}
       .app:not(.pub) .home-money-row .cat-stat{padding:12px}
-      .app:not(.pub) .home-money-row .cat-stat-label{white-space:normal}
+      .app:not(.pub) .home-money-row .cat-stat-label{white-space:nowrap}
+      /* To do on phones: every headline and detail line shows whole (wraps, never cut) */
+      .app:not(.pub) .home .attn-main :is(b,em){white-space:normal;overflow:visible;text-overflow:clip;display:block;-webkit-line-clamp:unset}
       .app:not(.pub) .home-src{flex-basis:100%}
     }
     @media (hover:hover){ .app:not(.pub) .home .attn-row[role=button]:hover{background:var(--d-hover)} }
@@ -8807,6 +8863,7 @@ function StyleTag() {
     .app:not(.pub) .master-table th .ar-sort{text-align:inherit;white-space:nowrap}
     .app:not(.pub) .master-table td.master-week{height:auto;padding-block:8px;white-space:nowrap}
     .app:not(.pub) .master-week em{display:block;margin-top:3px;font-style:normal;font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .master-week-of{display:block;margin-top:2px;font-size:11px;font-weight:400;letter-spacing:0;text-transform:none;white-space:nowrap;color:var(--d-ink-4)}
     .app:not(.pub) .muted-dash{color:var(--d-ink-off)}
     /* ---- polish: A&R. Stage colours live here only (they reuse the area hexes on purpose: cool → hot →
        green, never red or amber, which mean "down" and "needs attention"); one pill per stage everywhere ---- */
