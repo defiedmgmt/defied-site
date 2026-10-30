@@ -6448,7 +6448,7 @@ function MoneyCard({ home, failed, retry, tab, setTab }) {
   const hidden = useScrollMore(body);
   const P = home?.payments, A = home?.accounting;
   const U = A?.connected && !A.error ? A.unlogged : null;
-  const tabs = [["payments", "Payments"], ["accounting", "Accounting"], ["unlogged", "Not in the sheet"]];
+  const tabs = [["payments", "Payments"], ["accounting", "Accounting"], ["unlogged", <span>Not in <span className="tab-the">the </span>sheet</span>]];
   const month = monthName(A?.month);
   const more = (n) => <HomeMore n={n - HOME_ROWS} open={open} onToggle={() => setOpen((o) => !o)} />;
   let content;
@@ -8944,6 +8944,11 @@ function StyleTag() {
       .app:not(.pub) .home .home-card > .attn-head{flex:none}   /* the head never gives way to the list */
       .app:not(.pub) .home-money-card{container-type:inline-size}
       @container (max-width:560px){ .app:not(.pub) .pay-all-w{display:none} }
+      @container (max-width:500px){ .app:not(.pub) .money-tabs .tab-the{display:none} }   /* "Not in sheet" keeps the head on one line at 1280 */
+    }
+    /* below 1400 the two columns share evenly, so Money's head (tabs + "All (N) ›") fits on one line */
+    @media (min-width:900px) and (max-width:1399px) and (min-height:640px){
+      .app:not(.pub) .home{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
     }
     /* To do: caps labels in each area's colour, a 3px bar on each row */
     .app:not(.pub) .todo .attn-head svg{color:var(--d-warn)}
