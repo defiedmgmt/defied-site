@@ -8840,7 +8840,7 @@ function StyleTag() {
       .app:not(.pub) .home-money-row .cat-stat-val{font-size:clamp(18px,8cqi,22px)}
       .app:not(.pub) .home-money-info{position:absolute;top:7px;right:8px;z-index:2;display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;color:var(--d-ink-4);cursor:help;outline-offset:2px}
       .app:not(.pub) .home-money-info:is(:hover,:focus-visible){color:var(--d-ink);background:var(--d-active)}
-      .app:not(.pub) .home-money-row .home-money-note{position:absolute;top:38px;right:6px;z-index:40;width:min(380px,calc(100% - 12px));margin:0;padding:10px 12px;
+      .app:not(.pub) .home-money-row .home-money-note{position:absolute;top:calc(100% + 6px);right:0;z-index:40;width:min(380px,calc(100% - 12px));margin:0;padding:10px 12px;
         border:1px solid var(--d-line-2);border-radius:var(--d-r-md);background:var(--d-s2);box-shadow:var(--d-shadow-pop);color:var(--d-ink-2);font-size:13px;line-height:1.45;
         opacity:0;visibility:hidden;pointer-events:none;transition:opacity var(--d-t-fast) ease,visibility var(--d-t-fast)}
       .app:not(.pub) .home-money-info:is(:hover,:focus) + .home-money-note{opacity:1;visibility:visible}
