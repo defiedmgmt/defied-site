@@ -8801,7 +8801,7 @@ function StyleTag() {
     .app:not(.pub) .ar-link:last-child{border-bottom:0}
     @media (hover:hover){ .app:not(.pub) .ar-link:hover{background:var(--d-hover);transition-duration:var(--d-t-fast)} }
     .app:not(.pub) .ar-link:focus-visible{outline:1px solid #f5f5f5;outline-offset:-1px}
-    .app:not(.pub) .ar-link.ar-flash{background:var(--d-active);transition:none}   /* a Summary click lands here; it fades back */
+    .app:not(.pub) .ar-link.ar-flash{background:var(--d-active);box-shadow:inset 3px 0 0 var(--d-a-ar);transition:none}   /* a Summary click lands here; it fades back */
     .app:not(.pub) .ar-table .admin-row{grid-template-columns:var(--cols)}
     .app:not(.pub) .ar-table :is([data-col=pct],[data-col=week],[data-col=atd],[data-col=value]){text-align:right;font-variant-numeric:tabular-nums}
     .app:not(.pub) .ar-sort{font:inherit;text-transform:inherit;letter-spacing:inherit;color:inherit;text-align:inherit}
@@ -8826,7 +8826,7 @@ function StyleTag() {
     .app:not(.pub) .ar-totals .cat-summary-grid.ar-totals-grid:has(> .cat-stat){grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr)}
     @media (max-width:699px){ .app:not(.pub) .ar-totals .cat-summary-grid.ar-totals-grid:has(> .cat-stat){grid-template-columns:repeat(2,minmax(0,1fr))} }
     .app:not(.pub) .ar-how-nums{display:flex;flex-wrap:wrap;gap:4px 18px} .app:not(.pub) .ar-how-nums b{font-weight:600;color:var(--d-ink-2)}
-    .app:not(.pub) .ar-kind{display:inline-flex;margin:0 0 16px} .app:not(.pub) .ar-kind button{height:32px;padding:0 16px;font-size:13px}
+    .app:not(.pub) .ar-kind{display:flex;margin:0 0 16px} .app:not(.pub) .ar-kind button{flex:1;height:32px;padding:0 16px;font-size:13px}
     @media (min-width:700px) and (max-width:899px){
       /* the generic phone list rows start at 899; these tables keep their columns down to 700 */
       .app:not(.pub) .ar-table .admin-hd{display:grid}
@@ -8852,6 +8852,7 @@ function StyleTag() {
       .app:not(.pub) .admin-table.ar-table .ar-link:has(> [data-col=pct] .muted-dash) > .cell[data-col=week]{grid-row:1 / span 2}
       .app:not(.pub) .ar-add-hint{display:none}
       .app:not(.pub) .ar-totals-grid > .cat-stat:first-child{grid-column:1 / -1}
+      .app:not(.pub) .ar-totals-grid > .cat-stat:last-child:nth-child(odd){grid-column:auto}   /* the total spans; the other two share a row */
       .app:not(.pub) .ar-watch-tools .arb-find{flex:1 1 100%}
       /* Summary: the strip fades at the edge while it scrolls; a task row is dot | text, its button under the text */
       .app:not(.pub) .ar-strip{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
@@ -8879,6 +8880,7 @@ function StyleTag() {
     .app:not(.pub) .arb-next[data-stage]{color:var(--st);border-color:color-mix(in srgb,var(--st) 45%,transparent);background:color-mix(in srgb,var(--st) 8%,transparent)}
     @media (hover:hover){ .app:not(.pub) .arb-next[data-stage]:hover:not(:disabled){border-color:var(--st);background:color-mix(in srgb,var(--st) 16%,transparent)} }
     .app:not(.pub) .arb-menu.arb-menu-fixed{position:fixed;top:auto;left:auto;z-index:50}
+    .app:not(.pub) .arb-quick input{text-overflow:ellipsis}   /* a narrow column ends the hint with "…", not mid-word */
     .app:not(.pub) .arb-notes{font-size:inherit;color:var(--d-warn);text-decoration-color:var(--d-warn-line)}
     .app:not(.pub) .arb-note{margin:0 0 12px}
     @media (min-width:700px){
