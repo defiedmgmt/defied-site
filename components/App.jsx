@@ -2487,7 +2487,7 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {tab === "home" && <HomeDashboard db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} onGo={go} toLum={toLum} />}
         {tab === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} />}
         {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} />}
-        {tab === "luminate" && <LuminateAdmin db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} />}
+        {tab === "luminate" && <LuminateAdmin db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} toLum={toLum} onGo={go} />}
         {tab === "ar" && <ARAdmin onGo={go} />}
         {tab === "users" && <UsersAdmin db={db} commit={commit} />}
         {tab === "subs" && <SubsAdmin db={db} commit={commit} />}
@@ -2995,6 +2995,8 @@ function ARAdmin({ onGo }) {
   useEffect(() => { if (opened.current) ar.loadPg(); opened.current = true; }, [sec]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="ar">
+      {/* the page's title first, as on Publishing and Website; each section says only its one line */}
+      <div className="admin-head"><h2>A&amp;R</h2></div>
       <div className="subnav">
         {AR_SECS.map(([id, label]) => (
           <button key={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { setSec(id); revealChip(e.currentTarget); }}>{label}</button>
@@ -3006,9 +3008,9 @@ function ARAdmin({ onGo }) {
     </div>
   );
 }
-const ArHead = ({ title, sub, children }) => (
+const ArHead = ({ sub, children }) => (
   <div className="admin-head ar-head">
-    <div className="ar-head-text"><h2>{title}</h2><p className="ar-sub">{sub}</p></div>
+    <div className="ar-head-text"><p className="ar-sub">{sub}</p></div>
     {children && <div className="arb-head-actions">{children}</div>}
   </div>
 );
@@ -3289,7 +3291,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const tabs = [["people", "People", (watch?.people || []).length], ["songs", "Songs", (watch?.songs || []).length]];
   return (
     <div className="ar-summary">
-      <ArHead title="A&R" sub="Who's up this week and what needs doing." />
+      <ArHead sub="Who's up this week and what needs doing." />
       {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
       {/* the pipeline at a glance: one coloured pill per stage, and the sheet's total value; opens the Board */}
       <button className="ar-strip" onClick={goBoard} aria-label="Open the Board">
@@ -3297,7 +3299,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
         <span className="ar-strip-val">{value != null ? `≈ ${wholeMoney(value)} in play` : "Open the Board"} →</span>
       </button>
       <div className="ar-sum-head">
-        <h3 className="ar-h3">{old ? "Top gainers in the last export" : "Top gainers this week"} <span className="ar-h3-sub">· ranked by % vs last week</span></h3>
+        <h3 className="ar-h3">{old ? "Latest week" : "This week"} <span className="ar-h3-sub">· biggest % rise first</span></h3>
         <button className="inline-link" onClick={() => goWatch(null)}>See everyone →</button>
       </div>
       {phone && (
@@ -3314,10 +3316,13 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
           <h3 className="ar-h3 ar-todo-h">To do <span className="attn-n">{merged.length}</span></h3>
           <div className="attn ar-tasks">
             {merged.map((it) => (
-              <div key={it.k} className="attn-row" data-task={it.k} data-pri={it.pri || undefined}>
+              // phones: the whole row is the button, with a › instead of the pill (as on the Dashboard)
+              <div key={it.k} className="attn-row" data-task={it.k} data-pri={it.pri || undefined}
+                {...(phone ? { role: "button", tabIndex: 0, onClick: it.go, onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); it.go(); } } } : {})}>
                 {it.urg && <i className="ar-dot" data-urg={it.urg} aria-hidden="true" />}
                 <span>{it.pri && <span className="cu-pri" data-pri={it.pri} title={`${PRIORITY[it.pri] || it.pri} priority in ClickUp`}><Flag size={13} /></span>}{it.t}</span>
-                <button className="btn ghost sm" onClick={it.go}>{it.cta}</button>
+                <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); it.go(e); }}>{it.cta}</button>
+                <ChevronRight size={16} className="attn-chev" aria-hidden="true" />
               </div>
             ))}
           </div>
@@ -3436,7 +3441,7 @@ function ArBoard({ ar, onGo }) {
 
   return (
     <div className="arb">
-      <ArHead title="Board" sub="Everyone we're talking to (artists and producers). Drag a card, or press its button when things move.">
+      <ArHead sub="Everyone we're talking to (artists and producers). Drag a card, or press its button when things move.">
         <input className="arb-find" type="search" placeholder="Find someone" value={find} onChange={(e) => setFind(e.target.value)} aria-label="Find someone" />
         <span className="arb-more" onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setMore(false)}>
           <button className="btn ghost sm" aria-expanded={more} aria-haspopup="menu" onClick={() => setMore(!more)}>More ▾</button>
@@ -3683,21 +3688,23 @@ function ArWatch({ ar, onGo, at }) {
   const to = period?.to, old = to && daysSince(to) > 8;
   const head = (k, label, col) => (
     <span data-col={col}>
-      <button className={`ar-sort${sort.k === k && !sort.server ? " on" : ""}`} onClick={() => setSort({ k, dir: sort.k === k ? -sort.dir : -1 })} aria-label={`Sort by ${label}`}>
+      <button className={`ar-sort${sort.k === k && !sort.server ? " on" : ""}`} onClick={() => setSort({ k, dir: sort.k === k && !sort.server ? -sort.dir : -1 })} aria-label={`Sort by ${label}`}>
         {label}{sort.k === k && !sort.server ? (sort.dir < 0 ? " ↓" : " ↑") : ""}
       </button>
     </span>
   );
   const producers = pill === "people" && show === "producers";
+  // 700–1199px: People has no room for All-time as well (its heads were cut off at 1024); a row's panel still has it
+  const tight = useMedia("(min-width: 700px) and (max-width: 1199px)") && pill === "people";
   const cols = pill === "songs" ? "minmax(0,2.2fr) 118px minmax(0,.9fr) minmax(0,.9fr)"
-    : `minmax(0,1.7fr) 118px minmax(0,.8fr) minmax(0,.8fr) minmax(128px,1fr) minmax(0,.8fr)${producers ? " minmax(0,.8fr)" : ""}`;
+    : `minmax(0,1.7fr) 112px minmax(84px,.8fr)${tight ? "" : " minmax(84px,.8fr)"} minmax(112px,1fr) minmax(104px,.8fr)${producers ? " minmax(84px,.8fr)" : ""}`;
   const dash = (title) => <span className="muted-dash" title={title}>—</span>;
   const subOf = (r) => (pill === "people" ? [r.role === "producer" ? "Producer" : "Artist", r.handle]
     : [r.artist || (r.release ? "Release" : ""), r.tiedTo && `tied to ${r.tiedTo}`]).filter(Boolean).join(" · ");
   const rowKey = (e, r) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openRow(r, e); } };
   return (
     <div className="ar-watch">
-      <ArHead title="Watchlist" sub="Everyone and every song we're tracking, and whether they're up or down.">
+      <ArHead sub="Everyone and every song we're tracking, and whether they're up or down.">
         <button className="btn sm" data-focus="add" onClick={(e) => openPanel({ type: "add", kind: pill === "songs" ? "song" : show === "producers" ? "producer" : "artist" }, e)}><Plus size={15} /> Add</button>
       </ArHead>
       {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
@@ -3727,7 +3734,7 @@ function ArWatch({ ar, onGo, at }) {
       {pg && rows.length > 0 && (
         <div className="admin-table ar-watch-list ar-table" data-pill={pill}>
           <div className="admin-row admin-hd" style={{ "--cols": cols }}>
-            {head("name", pill === "people" ? "Name" : "Title", "name")}{head("changePct", "vs last week", "pct")}{head("current", "This week", "week")}{head("atd", "All-time", "atd")}
+            {head("name", pill === "people" ? "Name" : "Title", "name")}{head("changePct", "vs last week", "pct")}{head("current", "This week", "week")}{!tight && head("atd", "All-time", "atd")}
             {pill === "people" && <><span data-col="stage">Stage</span><span data-col="contact">Last contact</span></>}
             {producers && head("value", "≈ Value", "value")}
           </div>
@@ -3748,7 +3755,7 @@ function ArWatch({ ar, onGo, at }) {
                 </span>
                 <span className="cell" data-col="pct">{r.current == null ? dash("No numbers yet") : r.changePct == null ? dash("No last week to compare") : <WowPill pct={r.changePct} />}</span>
                 <span className="cell ar-num" data-col="week">{r.current == null ? <>{dash()}<em>No numbers yet</em></> : <><b>{fmt(r.current)}</b><em> {old ? "that week" : "this week"}</em></>}</span>
-                <span className="cell ar-num" data-col="atd">{r.atd == null ? dash() : fmt(r.atd)}</span>
+                {!tight && <span className="cell ar-num" data-col="atd">{r.atd == null ? dash() : fmt(r.atd)}</span>}
                 {pill === "people" && <>
                   <span className="cell" data-col="stage">{r.stage ? <StagePill id={r.stage} /> : dash()}</span>
                   <span className="cell" data-col="contact">{r.lastContact ? shortDay(r.lastContact) : r.lastText || dash()}</span>
@@ -5003,16 +5010,22 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
   const [sort, setSort] = useState({ col: "week", dir: -1 });
   const [forecast, setForecast] = useState(false);
   const weekOf = (client) => {
-    const ws = client && growth ? db.placements.filter((p) => p.clientId === client.id).map((p) => growth[p.id]).filter((w) => w && w.thisWeek != null && w.lastWeek != null) : [];
+    let ws = client && growth ? db.placements.filter((p) => p.clientId === client.id).map((p) => growth[p.id]).filter((w) => w && w.thisWeek != null && w.lastWeek != null) : [];
+    // one real week, as on the Dashboard (lib/weekly.js sameWeek): the songs whose week ends last
+    const end = ws.map((w) => w.weekOf?.to).filter(Boolean).sort().pop();
+    if (end) ws = ws.filter((w) => !w.weekOf || w.weekOf.to === end);
     if (!ws.length) return null;
     const t = ws.reduce((a, w) => a + w.thisWeek, 0), l = ws.reduce((a, w) => a + w.lastWeek, 0);
-    return { thisWeek: t, wowPct: l > 0 ? (t / l - 1) * 100 : null };
+    return { thisWeek: t, wowPct: l > 0 ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null };
   };
   const cols = [["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Gross streams"], ["net", "Net streams"], ["earn", "Est. earnings"], ["fee", "Est. admin fee"],
     ...(forecast ? [["y1", "Yr 1 fee"], ["y2", "Yr 2 fee"], ["y3", "Yr 3 fee"], ["fc", "3-yr fee forecast"], ["tot", "Total est. fee"], ["share", "% of roster fee"]] : [])];
   const val = { songs: (x) => x.r.songs, gross: (x) => x.r.grossStreams, net: (x) => x.r.netStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, y1: (x) => x.r.year1, y2: (x) => x.r.year2, y3: (x) => x.r.year3, fc: (x) => x.r.forecastTotal, tot: (x) => x.r.totalEstAdminFee, share: (x) => Number(x.r.pctOfRoster) };
   const rows = (state.data?.rows || []).map((r) => { const client = findClient(r); return { r, client, wk: weekOf(client) }; });
   const name = (x) => (x.client ? x.client.name : x.r.writer).toLowerCase();
+  // the days This week covers, said once in the source line (the Dashboard says the same)
+  const weeks = rows.map((x) => x.wk?.weekOf).filter(Boolean);
+  const span = weeks.length ? { from: weeks.map((w) => w.from).sort()[0], to: weeks.map((w) => w.to).sort().pop() } : null;
   rows.sort((a, b) => {
     if (sort.col === "writer") return sort.dir * name(a).localeCompare(name(b));
     if (sort.col === "week") {
@@ -5038,6 +5051,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
       </div>
       <p className="hint overview-subhint">
         From the pub sheet{db.sheetSync?.lastSyncedAt && ` · streams as of ${new Date(db.sheetSync.lastSyncedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+        {span && <span className="overview-week"> · This week = {dayRange(span.from, span.to)} vs the week before</span>}
       </p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
       {pubTasks > 0 && (
@@ -5090,7 +5104,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
                   >
                     <td>{client ? client.name : r.writer}</td>
                     <td>{r.songs}</td>
-                    <td className="master-week">{wk ? <><WowPill pct={wk.wowPct} /><em>{fmt(wk.thisWeek)} streams</em></> : <span className="muted-dash" title="No last week to compare">—</span>}</td>
+                    <td className="master-week">{wk ? <><WowPill pct={wk.wowPct} /><em>{fmt(wk.thisWeek)}</em></> : <span className="muted-dash" title="No last week to compare">—</span>}</td>
                     <td>{fmt(r.grossStreams)}</td>
                     <td>{fmt(r.netStreams)}</td>
                     <td>{money(r.grossRevenue)}</td>
@@ -5617,7 +5631,7 @@ function ExportDrop({ onDone }) {
   );
 }
 
-function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub }) {
+function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo }) {
   const groups = useMemo(() => lumGroups(db, lum), [db, lum]);
   const plan = useMemo(() => lumPlan(groups, lum), [groups, lum]);
   const clientName = (id) => db.clients.find((c) => c.id === id)?.name || "";
@@ -5627,6 +5641,7 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub }) {
   const [finding, setFinding] = useState(() => new Set());
   const [typed, setTyped] = useState({}); // group key -> ISRC being typed
   const [busy, setBusy] = useState(null), [err, setErr] = useState(null);
+  const [arList, setArList] = useState(false); // the A&R names to add (the same list the Dashboard opens)
   const refresh = async () => { await reloadLum(); await reloadDb(); };
   const run = async (what, fn) => {
     setBusy(what); setErr(null);
@@ -5749,7 +5764,7 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub }) {
         </div>
       )}
 
-      {(plan.slots.length > 0 || plan.left.length > 0) && <h3 className="lm-h3">Add to Luminate</h3>}
+      {(plan.slots.length > 0 || plan.left.length > 0 || toLum?.count > 0) && <h3 className="lm-h3">Add to Luminate</h3>}
       {plan.slots.map((slot) => (
         <div key={slot.p.id} className="lm-block">
           <div className="lm-block-head">
@@ -5804,6 +5819,16 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub }) {
           <button className="btn sm" onClick={() => setEditing({ name: `Portfolio ${String.fromCharCode(65 + lum.portfolios.length)}`, url: "", kind: "roster", capacity: lum.cap })}><Plus size={14} /> Add portfolio</button>
         </div>
       )}
+      {/* A&R names added on the site that its Luminate A&R lists don't have yet (they clear by themselves after the next A&R export) */}
+      {toLum?.count > 0 && (
+        <div className="lm-block lm-ar-add" data-sec="ar">
+          <div className="lm-block-head">
+            <div><strong>Add to your A&amp;R lists</strong><span className="hint"> {toLum.text}</span></div>
+            <div className="lm-block-acts"><button className="btn sm" onClick={() => setArList(true)}>See the list</button></div>
+          </div>
+        </div>
+      )}
+      {arList && toLum && <ArToLuminateModal t={toLum} onGo={onGo} onClose={() => setArList(false)} />}
 
       {lum.unlinked.length > 0 && (
         <>
@@ -5946,19 +5971,35 @@ function useMedia(q) {
 }
 
 // A Dashboard card's body that scrolls inside the card (900px and up): data-more while there's more
-// below, for the fade at its foot. Checked after every render (rows arriving) and on resize.
+// below, for the fade at its foot, and how many rows are out of sight, for ScrollFoot (a fade alone
+// can land on blank padding, and macOS hides the scrollbar). Checked after every render (rows
+// arriving), on scroll and on resize.
+const SCROLL_ROWS = ".attn-row,.cu-row,.gainer,.pay-row,.acct-row:not(.acct-row-hd),.gainers-noweek";
 function useScrollMore(ref) {
+  const [hidden, setHidden] = useState(0);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const check = () => { if (el.scrollTop + el.clientHeight < el.scrollHeight - 4) el.setAttribute("data-more", ""); else el.removeAttribute("data-more"); };
+    const check = () => {
+      const more = el.scrollTop + el.clientHeight < el.scrollHeight - 4;
+      if (more) el.setAttribute("data-more", ""); else el.removeAttribute("data-more");
+      const bottom = el.getBoundingClientRect().bottom;
+      setHidden(more ? [...el.querySelectorAll(SCROLL_ROWS)].filter((r) => r.offsetParent && r.getBoundingClientRect().bottom > bottom + 2).length || -1 : 0);
+    };
     check();
     el.addEventListener("scroll", check, { passive: true });
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(check);
     ro?.observe(el);
     return () => { el.removeEventListener("scroll", check); ro?.disconnect(); };
   });
+  return hidden;
 }
+// the foot of a scrolling card while there's more below: "↓ 7 more", and a click scrolls to them
+const ScrollFoot = ({ n, box }) => (n ? (
+  <button type="button" className="home-scroll-foot" onClick={() => box.current?.scrollBy({ top: box.current.clientHeight - 48, behavior: "smooth" })}>
+    <ChevronDown size={14} /> {n > 0 ? `${n} more` : "More below"}
+  </button>
+) : null);
 // phones get no scroll box inside the page: each list shows this many rows, then "Show N more"
 const HOME_ROWS = 4;
 const HomeMore = ({ n, open, onToggle }) => (n > 0 ? <button className="btn ghost sm home-more" onClick={onToggle}>{open ? "Show less" : `Show ${n} more`}</button> : null);
@@ -5996,7 +6037,7 @@ function TopGainers({ db, lum, onGo }) {
   const [kind, setKind] = useState("songs");
   const { top, failed, retry } = useRosterTop();
   const body = useRef(null);
-  useScrollMore(body);
+  const hidden = useScrollMore(body);
   const placement = (id) => db.placements.find((p) => p.id === id);
   const client = (id) => db.clients.find((c) => c.id === id);
   const rows = !top ? null : kind === "artists" ? top.artists.filter((a) => client(a.clientId)) : top.songs.filter((s) => placement(s.placementId));
@@ -6050,6 +6091,7 @@ function TopGainers({ db, lum, onGo }) {
           </p>
         ))}
       </div>
+      <ScrollFoot n={hidden} box={body} />
     </div>
   );
 }
@@ -6241,7 +6283,7 @@ function MoneyCard({ home, failed, retry, tab, setTab }) {
   const [all, setAll] = useState(false);
   const [open, setOpen] = useState(false);
   const body = useRef(null);
-  useScrollMore(body);
+  const hidden = useScrollMore(body);
   const P = home?.payments, A = home?.accounting;
   const U = A?.connected && !A.error ? A.unlogged : null;
   const tabs = [["payments", "Payments"], ["accounting", "Accounting"], ["unlogged", "Not in the sheet"]];
@@ -6292,6 +6334,7 @@ function MoneyCard({ home, failed, retry, tab, setTab }) {
         {P?.items?.length > 0 && <button className="inline-link pay-all" onClick={() => setAll(true)}>All payments ({fmt(P.total ?? P.items.length)}) ›</button>}
       </div>
       <div className={open ? "home-scroll open" : "home-scroll"} ref={body}>{content}</div>
+      <ScrollFoot n={hidden} box={body} />
       {all && <PaymentsModal onClose={() => setAll(false)} />}
     </div>
   );
@@ -6322,7 +6365,7 @@ function CuTask({ t, over }) {
     <ExtLink href={t.url} className={over ? "cu-row over" : "cu-row"} title="Open in ClickUp">
       <span className="cu-main"><strong>{t.name}</strong>
         <span className="cu-meta">
-          <span className="cu-status" style={t.statusColor ? { "--cu": t.statusColor } : undefined}>{t.status}</span>
+          <span className="cu-status">{t.status}</span>
           {t.due && <span className={late ? "cu-due late" : "cu-due"}>{late ? "Late · " : "Due "}{shortDay(t.due)}</span>}
         </span>
       </span>
@@ -6341,7 +6384,7 @@ function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, 
   const phone = useMedia("(max-width: 599px)");
   const [open, setOpen] = useState(false);
   const body = useRef(null);
-  useScrollMore(body);
+  const hidden = useScrollMore(body);
   const { lists, load } = useClickUpLists(cuFirst);
   const cu = lists.map((l, i) => (l?.tasks ? { ...l, tasks: l.tasks.filter((t) => !OWN_CU.test(t.name)) } : l ? { ...l, name: l.name || CU_LISTS[i][1] } : l));
   const cuOpen = cu.reduce((n, l) => n + (l?.tasks?.length || 0), 0);
@@ -6403,6 +6446,7 @@ function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, 
         {out}
         <HomeMore n={n - HOME_ROWS} open={open} onToggle={() => setOpen((o) => !o)} />
       </div>
+      <ScrollFoot n={hidden} box={body} />
     </div>
   );
 }
@@ -8478,10 +8522,10 @@ function StyleTag() {
     @media (hover:hover){ .app:not(.pub) .cu-row:hover{background:var(--d-hover)} }
     .app:not(.pub) .cu-meta{display:flex;align-items:center;gap:8px}
     .app:not(.pub) .cu-status{display:inline-flex;align-items:center;gap:5px;text-transform:uppercase;letter-spacing:.04em;font-size:11px}
-    .app:not(.pub) .cu-status::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--cu,var(--d-ink-4))}
+    .app:not(.pub) .cu-status::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--d-ink-4)}   /* neutral, not ClickUp's own colours */
     .app:not(.pub) .cu-due.late{color:var(--d-neg)}
     .app:not(.pub) .cu-pri{flex:none;display:inline-flex;color:var(--d-ink-4)}
-    .app:not(.pub) .cu-pri[data-pri=urgent]{color:var(--d-neg)} .app:not(.pub) .cu-pri[data-pri=high]{color:var(--d-warn)} .app:not(.pub) .cu-pri[data-pri=normal]{color:var(--d-info)}
+    .app:not(.pub) .cu-pri[data-pri=urgent]{color:var(--d-neg)} .app:not(.pub) .cu-pri[data-pri=high]{color:var(--d-ink)}   /* blue means Luminate and amber needs-attention elsewhere */
     .app:not(.pub) .attn-row .cu-pri{margin-right:6px;vertical-align:-2px}
     .app:not(.pub) .cu-who{flex:none;display:flex;gap:2px}
     .app:not(.pub) .cu-av{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--d-s3);border:1px solid var(--d-line-2);font:600 10px/1 var(--d-body);color:var(--d-ink-3)}
@@ -8583,7 +8627,7 @@ function StyleTag() {
       .app:not(.pub) .arb-history li{flex-wrap:wrap}
     }
     /* A&R rebuild: Summary · Board · Watchlist (one plain sentence under each title) */
-    .app:not(.pub) .ar-head{align-items:flex-start}
+    .app:not(.pub) .ar-head{align-items:center}
     .app:not(.pub) .ar-head-text{display:flex;flex-direction:column;gap:4px;min-width:0}
     .app:not(.pub) .ar-sub{margin:0;font-size:13.5px;line-height:1.45;color:var(--d-ink-3)}
     .app:not(.pub) .ar-h3{margin:0;font:600 15px/1.3 var(--d-body);color:var(--d-ink)}
@@ -8675,11 +8719,15 @@ function StyleTag() {
       .app:not(.pub) .home-money-card{max-height:380px}
       .app:not(.pub) .home-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#3a3a3c transparent}
       .app:not(.pub) .home-scroll[data-more]{-webkit-mask-image:linear-gradient(#000 calc(100% - 24px),transparent);mask-image:linear-gradient(#000 calc(100% - 24px),transparent)}
+      .app:not(.pub) .home-scroll-foot{flex:none;display:flex;align-items:center;justify-content:center;gap:6px;width:100%;height:34px;border:0;border-top:1px solid var(--d-line);border-radius:0 0 var(--d-r-card,12px) var(--d-r-card,12px);
+        background:var(--d-s1);font:500 12.5px/1 var(--d-body);color:var(--d-ink-2);cursor:pointer}
+      @media (hover:hover){ .app:not(.pub) .home-scroll-foot:hover{color:var(--d-ink);background:var(--d-s2)} }
       .app:not(.pub) .home-more{display:none}
       .app:not(.pub) .home-money-card .acct-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
     }
     @media (max-width:899px){
       .app:not(.pub) .home-row{grid-template-columns:minmax(0,1fr)}
+      .app:not(.pub) .home-scroll-foot{display:none}   /* phones list N rows and "Show N more" instead */
       .app:not(.pub) .home-scroll:not(.open) .over{display:none}   /* a scroll box inside a scrolling page traps the thumb */
       .app:not(.pub) .home-money-card .acct-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
     }
@@ -8694,7 +8742,7 @@ function StyleTag() {
     .app:not(.pub) .todo .cu-row{min-height:52px}
     .app:not(.pub) .attn-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
     .app:not(.pub) .attn-main b{font-size:14px;font-weight:500;line-height:1.35;color:var(--d-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .app:not(.pub) .attn-main em{font-style:normal;font-size:12.5px;line-height:1.35;color:var(--d-ink-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app:not(.pub) .attn-main em{font-style:normal;font-size:12.5px;line-height:1.35;color:var(--d-ink-4);white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}   /* two lines: the detail is often the fix */
     .app:not(.pub) .attn-chev{display:none}
     /* a headline with no detail line may take both lines, so a phone shows it whole */
     .app:not(.pub) .attn-main b:only-child{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
@@ -8737,6 +8785,7 @@ function StyleTag() {
     .app:not(.pub) .pay-flag{color:var(--d-warn);white-space:nowrap}
     .app:not(.pub) .pay-amt b{font-variant-numeric:tabular-nums}
     .app:not(.pub) .home-money-card .acct-grid{margin:14px 16px}
+    .app:not(.pub) .home-money-card .acct-grid .cat-stat{justify-content:flex-start}   /* values line up across the row; a note sits under its own */
     .app:not(.pub) .acct-note{font-size:12px;line-height:1.35;color:var(--d-ink-4)}
     .app:not(.pub) .home-money-card .acct-unlogged{margin:0;border:0;border-radius:0;background:none}
     .app:not(.pub) .home-money-card .acct-unlogged-head{padding:12px 16px 8px;border-bottom:0;font-size:13.5px;font-weight:500;color:var(--d-ink)}
@@ -8856,11 +8905,12 @@ function StyleTag() {
       .app:not(.pub) .ar-watch-tools .arb-find{flex:1 1 100%}
       /* Summary: the strip fades at the edge while it scrolls; a task row is dot | text, its button under the text */
       .app:not(.pub) .ar-strip{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
-      .app:not(.pub) .ar-tasks .attn-row{display:grid;grid-template-columns:8px minmax(0,1fr);column-gap:10px;row-gap:8px;align-items:start}
+      .app:not(.pub) .ar-tasks .attn-row{display:grid;grid-template-columns:8px minmax(0,1fr) 16px;column-gap:10px;align-items:center;cursor:pointer}
       .app:not(.pub) .ar-tasks .attn-row > span{grid-column:2}
-      .app:not(.pub) .ar-tasks .attn-row > .btn{grid-column:2;justify-self:start}
-      .app:not(.pub) .ar-tasks .attn-row > .ar-dot{grid-column:1;margin-top:8px}
-      .app:not(.pub) .ar-tasks .attn-row[data-pri] > span{grid-column:1 / -1}
+      .app:not(.pub) .ar-tasks .attn-row .btn{display:none}
+      .app:not(.pub) .ar-tasks .attn-row .attn-chev{display:block;grid-column:3;color:var(--d-ink-4)}
+      .app:not(.pub) .ar-tasks .attn-row > .ar-dot{grid-column:1}
+      .app:not(.pub) .ar-tasks .attn-row[data-pri] > span{grid-column:1 / 3}
       .app:not(.pub) .ar-tasks .attn-row[data-pri] > .btn{grid-column:1 / -1;margin-left:19px}
     }
     /* Board: a coloured top edge, dot and count per column; the next step outlined in the next stage's colour */
