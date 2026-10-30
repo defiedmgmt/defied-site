@@ -3037,7 +3037,12 @@ const canMoveTo = (id) => id === "passed" || AR_STAGES.some((s) => s.id === id);
 const stepFrom = (id, d) => { const i = AR_STAGES.findIndex((s) => s.id === id); return i < 0 ? (d < 0 ? AR_STAGES[0] : null) : AR_STAGES[i + d] || null; };
 const wholeMoney = (n) => `$${fmt(Math.round(Number(n) || 0))}`;
 const centsMoney = (n) => (Math.round(n * 100) % 100 ? money(n) : wholeMoney(n)); // $36,125 · $3,759.26
-const bigNum = (n) => (Math.abs(n) >= 1e6 ? `${Number((n / 1e6).toFixed(2))}M` : fmt(Math.round(n))); // 28.9M · 14.45M
+// stream counts in A&R, one rule everywhere (Board card, Producers tiles, panel, How we estimate): from a
+// million, up to two decimals rounded half-up (28.9M · 14.45M · 1.48M), from a thousand whole K (845K)
+const bigNum = (n) => {
+  const a = Math.abs(Number(n) || 0), s = n < 0 ? "-" : "";
+  return a >= 1e6 ? `${s}${Math.round(a / 1e4) / 100}M` : a >= 1e3 ? `${s}${Math.round(a / 1e3)}K` : `${s}${fmt(Math.round(a))}`;
+};
 // a flat week (rounds to 0.0%) has no arrow: it went neither up nor down
 const flatPct = (p) => Math.abs(p) < 0.05;
 const pctText = (p) => (flatPct(p) ? "0.0%" : `${p >= 0 ? "▲" : "▼"} ${Math.abs(p).toFixed(1)}%`);
@@ -3274,9 +3279,10 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
         <p className="gainers-empty">{kind === "people" ? "Nobody" : "No songs"} with numbers yet. <button className="btn ghost sm" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></p>
       ) : list.map((r, i) => {
         const pct = r.ranked && r.wowPct != null;
+        const rose = pct && r.wowPct > 0;
         return (
-          <button key={r.key} className="gainer" data-ranked={pct ? "" : undefined} onClick={() => openGainer(r, kind)}>
-            <span className="gainer-n">{pct ? i + 1 : "·"}</span>
+          <button key={r.key} className="gainer" data-ranked={rose ? "" : undefined} data-fall={pct && !rose ? "" : undefined} onClick={() => openGainer(r, kind)}>
+            <span className="gainer-n">{rose ? i + 1 : "·"}</span>
             <span className="lm-song-main"><strong>{r.name || r.title}</strong>
               {kind === "people"
                 ? <span className="ar-g-sub">{r.role === "producer" ? "Producer" : "Artist"}{r.stage && <StagePill id={r.stage} />}</span>
@@ -3587,12 +3593,12 @@ function ArCard({ c, canSave, paused, busy, canDrag, onOpen, onMove, onDragStart
     <div className={`arb-card${c.moving ? " moving" : ""}`} data-card={c.key} draggable={canDrag && !off} onDragStart={onDragStart} onDragEnd={onDragEnd}>
       <button className="arb-card-open" data-focus={c.key} onClick={onOpen} disabled={c.role === "producer" && !s} title={c.role === "producer" && !s ? "Waiting for the pub sheet" : undefined}>
         <span className="arb-card-top">
-          <span className="arb-name">{c.name}</span>
+          <span className="arb-name" title={c.name}>{c.name}</span>
           {c.role === "producer" && s && <b className="arb-val">≈ {wholeMoney(s.money.totalEstValue)}</b>}
         </span>
         <span className="arb-contact">{c.role === "artist" ? "Artist" : "Producer"}{c.contact ? ` · ${c.contact}` : ""}{c.clientId && <> <span className="tag" data-tone="pos">Client</span></>}</span>
         {c.status === "Researching" && <span className="arb-sub">Researching</span>}
-        {c.role === "producer" && s && <span className="arb-money">{shortNum(s.money.netStreams)} streams (their share)</span>}
+        {c.role === "producer" && s && <span className="arb-money">{bigNum(s.money.netStreams)} streams (their share)</span>}
         {c.followUp?.on && <span className="arb-tags">{followChip(c.followUp)}</span>}
       </button>
       <div className="arb-card-acts">
@@ -3669,7 +3675,9 @@ function ArWatch({ ar, onGo, at }) {
     if (x == null || y == null) return x == null && y == null ? 0 : x == null ? 1 : -1; // no numbers sink to the bottom
     return (x < y ? -1 : x > y ? 1 : 0) * (sort.k === "name" ? -sort.dir : sort.dir);
   });
-  const openRow = (r, e) => openPanel(r.ref ? { type: r.ref.type, id: r.ref.id } : { type: "add", kind: pill === "songs" ? "song" : "artist", prefill: { name: r.name, luminateId: r.luminateId } }, e);
+  // a signed client's row opens their page on Publishing, not the add form
+  const openRow = (r, e) => (r.clientId && !r.ref ? onGo("catalog", `client:${r.clientId}`)
+    : openPanel(r.ref ? { type: r.ref.type, id: r.ref.id } : { type: "add", kind: pill === "songs" ? "song" : "artist", prefill: { name: r.name, luminateId: r.luminateId } }, e));
   // Summary's row click: open that person's panel once it has drawn, or (a Luminate-only row) light it up
   const jumped = useRef(false);
   useEffect(() => {
@@ -3754,7 +3762,8 @@ function ArWatch({ ar, onGo, at }) {
                       {needsLumRow(r) && <button type="button" className="ar-lum-chip" onClick={(e) => { e.stopPropagation(); setShowToLum(true); }}>Add to Luminate</button>}
                     </span>
                   )}
-                  {r.fromLuminate && <span className="ar-add-hint" aria-hidden="true">+ Add details</span>}
+                  {r.clientId ? <span className="tag ar-client-tag" data-tone="pos" title="One of our signed clients">Client</span>
+                    : r.fromLuminate && <span className="ar-add-hint" aria-hidden="true">+ Add details</span>}
                 </span>
                 <span className="cell" data-col="pct">{r.current == null ? dash("No numbers yet") : r.changePct == null ? dash("No last week to compare") : <WowPill pct={r.changePct} />}</span>
                 <span className="cell ar-num" data-col="week">{r.current == null ? <>{dash()}<em>No numbers yet</em></> : <><b>{fmt(r.current)}</b><em> {old ? "that week" : "this week"}</em></>}</span>
@@ -3779,8 +3788,11 @@ function ArWatch({ ar, onGo, at }) {
 // make 22.5%. Say that share, not B9 alone, or a hand check comes out a third too high. One decimal,
 // so 22.5% never shows as 23%. null when either lever is missing.
 const pct1 = (x) => `${Math.round(x * 1000) / 10}%`;
+// "how" says it in words: "30% of all-time a year, less a quarter of that"
+const FRACTION_WORDS = { 0.5: "half", 0.25: "a quarter", 0.2: "a fifth", 0.1: "a tenth", 0.75: "three quarters" };
+const partWords = (x) => FRACTION_WORDS[Math.round(x * 1e6) / 1e6] || (Math.abs(x - 1 / 3) < 1e-6 ? "a third" : pct1(x));
 const yearOne = (a) => (a?.runRate != null && a?.decayRate != null
-  ? { share: pct1(a.runRate * (1 - a.decayRate)), run: pct1(a.runRate), decay: pct1(a.decayRate) } : null);
+  ? { share: pct1(a.runRate * (1 - a.decayRate)), run: pct1(a.runRate), decay: pct1(a.decayRate), how: `${pct1(a.runRate)} of all-time a year, less ${partWords(a.decayRate)} of that` } : null);
 
 // Show › Producers: three whole-dollar tiles from OUTREACH's row-1 totals exactly as the sheet works
 // them out (never summed here); the rest of that row sits under How we estimate
@@ -3804,7 +3816,7 @@ function ArTotals({ data }) {
       <details className="ar-how">
         <summary>How we estimate</summary>
         <p className="ar-how-nums">{rest.map(([k, label, f]) => <span key={k} data-total={k} data-value={t[k] ?? ""}>{label} <b>{t[k] == null ? "—" : f(t[k])}</b></span>)}</p>
-        <p>Streams × their share × ${a?.blendedRate ?? "—"} a stream = their earnings so far; we keep {cut}. Year 1 = {yearOne(a) ? `${yearOne(a).share} of those earnings (the ${yearOne(a).run} run-rate less ${yearOne(a).decay})` : "a set share of those earnings"}, then {a?.decayRate != null ? pct1(a.decayRate) : "a set amount"} less each year. These come from the ASSUMPTIONS tab.</p>
+        <p>Streams × their share × ${a?.blendedRate ?? "—"} a stream = their earnings so far; we keep {cut}. Year 1 = {yearOne(a) ? `${yearOne(a).share} of those earnings (${yearOne(a).how})` : "a set share of those earnings"}, then {a?.decayRate != null ? pct1(a.decayRate) : "a set amount"} less each year. These come from the ASSUMPTIONS tab.</p>
         {b && <p className="ar-budget">Advance budget {wholeMoney(b.starting)} · given {wholeMoney(b.committed)} · left {wholeMoney(b.remaining)}</p>}
       </details>
     </div>
@@ -3814,7 +3826,6 @@ function ArTotals({ data }) {
 // short numbers and times for the cards and status lines
 const statusTone = (s = "") => /signed/i.test(s) ? "pos" : /offer/i.test(s) ? "warn" : /talk|negotiat/i.test(s) ? "info" : /not contacted|pass|declin/i.test(s) ? "muted" : undefined;
 // (rounded half up: toFixed alone reads 14,450,000 as "14.4M", binary floats)
-const shortNum = (n) => { const a = Math.abs(Number(n) || 0); return a >= 1e7 ? `${(Math.round(a / 1e5) / 10).toFixed(1)}M` : a >= 1e6 ? `${(Math.round(a / 1e4) / 100).toFixed(2)}M` : a >= 1e3 ? `${Math.round(a / 1e3)}K` : fmt(Math.round(a)); };
 const roundMoney = (n) => { const a = Number(n) || 0; return `$${fmt(a >= 1000 ? Math.round(a / 100) * 100 : Math.round(a / 10) * 10)}`; };
 const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "");
 const weekday = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" });
@@ -4073,7 +4084,7 @@ function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reloa
                   <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Their est. publishing earnings (all-time){assume?.adminFeeRate != null ? ` · our ${Math.round(assume.adminFeeRate * 100)}% ≈ ${wholeMoney(estRevenue * assume.adminFeeRate)}` : ""}</span><span className="cat-stat-val">{wholeMoney(estRevenue)}</span></div>
                 </div>
               </div>
-              <p className="hint arb-money-tip">Estimates, not payouts: all-time streams × their writer share × ${blendedRate} a stream (the rate in ASSUMPTIONS), from the OUTREACH tab's own formulas. Year 1 = {yearOne(assume) ? `${yearOne(assume).share} of their all-time earnings (the ${yearOne(assume).run} run-rate less ${yearOne(assume).decay})` : "a set share of their all-time earnings"}, then {assume?.decayRate != null ? pct1(assume.decayRate) : "a set amount"} less each year; we keep {assume?.adminFeeRate != null ? `${Math.round(assume.adminFeeRate * 100)}%` : "our cut"}. Real income depends on platform, country and deal.</p>
+              <p className="hint arb-money-tip">Estimates, not payouts: all-time streams × their writer share × ${blendedRate} a stream (the rate in ASSUMPTIONS), from the OUTREACH tab's own formulas. Year 1 = {yearOne(assume) ? `${yearOne(assume).share} of their all-time earnings (${yearOne(assume).how})` : "a set share of their all-time earnings"}, then {assume?.decayRate != null ? pct1(assume.decayRate) : "a set amount"} less each year; we keep {assume?.adminFeeRate != null ? `${Math.round(assume.adminFeeRate * 100)}%` : "our cut"}. Real income depends on platform, country and deal.</p>
               {!isNew && (
                 <label className="fld"><span>Advance given?</span>
                   <select value={adv?.given || ""} onChange={(e) => saveGiven(e.target.value)} disabled={busy || !canSave || !adv?.editable} title={adv?.editable ? paused : adv?.why || undefined}>
@@ -4250,6 +4261,8 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
         )}
       </div>
       <p className="muted mb">Mirrors the sheet's own math exactly — pick an Outreach prospect or a signed client, or fill out a brand-new scenario and add it as a prospect once you're happy with it.</p>
+      {/* the dollars below use the pub sheet's rate (ASSUMPTIONS!B7), read live: say which */}
+      <p className="hint adv-rate" title="The rate is ASSUMPTIONS!B7 on the pub sheet">{assumptions.blendedRate != null ? `At $${+Number(assumptions.blendedRate).toFixed(6)} a stream (your pub sheet's rate).` : "At your pub sheet's rate a stream."}</p>
 
       <div className="cat-summary" style={{ marginBottom: 20, maxWidth: 560 }}>
         <div className="cat-summary-grid">
@@ -4309,8 +4322,10 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
         {selectedProspect && (
           <div className="ar-given-row">
             <span className="fld-label">Advance given?</span>
-            <button className={selectedProspect.advance.given === "Yes" ? "btn sm" : "btn ghost sm"} onClick={() => setGiven(true)} disabled={busy || !selectedProspect.advance.editable}>Yes</button>
-            <button className={selectedProspect.advance.given === "No" || !selectedProspect.advance.given ? "btn sm" : "btn ghost sm"} onClick={() => setGiven(false)} disabled={busy || !selectedProspect.advance.editable}>No</button>
+            {/* a blank cell is "Not answered" (as on the panel), never a lit No */}
+            <button className={selectedProspect.advance.given === "Yes" ? "btn sm" : "btn ghost sm"} aria-pressed={selectedProspect.advance.given === "Yes"} onClick={() => setGiven(true)} disabled={busy || !selectedProspect.advance.editable}>Yes</button>
+            <button className={selectedProspect.advance.given === "No" ? "btn sm" : "btn ghost sm"} aria-pressed={selectedProspect.advance.given === "No"} onClick={() => setGiven(false)} disabled={busy || !selectedProspect.advance.editable}>No</button>
+            {!selectedProspect.advance.given && <span className="hint ar-given-none">Not answered</span>}
           </div>
         )}
         {selectedProspect && !selectedProspect.advance.editable && selectedProspect.advance.why && <p className="hint">{selectedProspect.advance.why}</p>}
@@ -6110,7 +6125,10 @@ function TopGainers({ db, lum, onGo }) {
   const firstOff = rows ? rows.findIndex((r) => !(r.ranked && r.wowPct != null)) : -1;
   // the rows without a % sit under one caption, after the ranked ones
   const split = (i) => i === firstOff && <div key="split" className="gainer-split">Not enough streams for a % yet</div>;
-  const rank = (r, i) => <span className="gainer-n">{r.ranked && r.wowPct != null ? i + 1 : "·"}</span>;
+  // only a rise gets a rank number; a fall (ranked after every rise) shows its pill, unnumbered and muted
+  const rose = (r) => r.ranked && r.wowPct != null && r.wowPct > 0;
+  const rank = (r, i) => <span className="gainer-n">{rose(r) ? i + 1 : "·"}</span>;
+  const fall = (r) => (r.ranked && r.wowPct != null && !rose(r) ? "" : undefined);
   return (
     <div className="gainers home-card">
       <div className="attn-head">
@@ -6128,7 +6146,7 @@ function TopGainers({ db, lum, onGo }) {
         ) : kind === "artists" ? rows.map((a, i) => {
           const c = client(a.clientId);
           return [split(i), (
-            <button key={c.id} className="gainer" data-ranked={a.ranked && a.wowPct != null ? "" : undefined} onClick={() => onGo("catalog", `client:${c.id}`)}>
+            <button key={c.id} className="gainer" data-ranked={a.ranked && a.wowPct != null ? "" : undefined} data-fall={fall(a)} onClick={() => onGo("catalog", `client:${c.id}`)}>
               {rank(a, i)}
               <span className="lm-cover gainer-av">{c.photo ? <Photo src={c.photo} alt="" fill sizes="40px" /> : (c.name || "?")[0].toUpperCase()}</span>
               <span className="lm-song-main"><strong>{c.name}</strong><span>{a.topSong}{a.songCount > 1 ? ` + ${a.songCount - 1} more` : ""}</span></span>
@@ -6138,7 +6156,7 @@ function TopGainers({ db, lum, onGo }) {
         }) : rows.map((s, i) => {
           const p = placement(s.placementId);
           return [split(i), (
-            <button key={s.key} className="gainer" data-ranked={s.ranked && s.wowPct != null ? "" : undefined} onClick={() => onGo("catalog", `client:${s.clientIds[0]}`)}>
+            <button key={s.key} className="gainer" data-ranked={s.ranked && s.wowPct != null ? "" : undefined} data-fall={fall(s)} onClick={() => onGo("catalog", `client:${s.clientIds[0]}`)}>
               {rank(s, i)}
               <span className="lm-cover">{p.cover ? <Photo src={p.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
               <span className="lm-song-main"><strong>{p.song}</strong><span>{p.artist} · {s.clientIds.map((id) => client(id)?.name || "").filter(Boolean).join(", ")}</span></span>
@@ -8644,6 +8662,9 @@ function StyleTag() {
     .app:not(.pub) .arb-card-open:disabled{cursor:default}
     .app:not(.pub) .arb-card-top{display:flex;align-items:center;gap:6px;max-width:100%}
     .app:not(.pub) .arb-name{font:600 14px/1.3 var(--d-body);color:var(--d-ink);overflow-wrap:anywhere}
+    /* a Board card's name: one line, cut with … (the whole name on hover), never broken mid-word */
+    .app:not(.pub) .arb-card-top .arb-name{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+    .app:not(.pub) .arb-card-top .arb-val{flex:none}
     .app:not(.pub) .arb-contact{font-size:12.5px;line-height:1.35;color:var(--d-ink-4);overflow-wrap:anywhere}
     .app:not(.pub) .arb-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:2px}
     .app:not(.pub) .arb-money{font:500 12.5px/1.35 var(--d-body);color:var(--d-ink-2);font-variant-numeric:tabular-nums}
@@ -8662,7 +8683,11 @@ function StyleTag() {
     .app:not(.pub) .arb-panel .cat-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
     .app:not(.pub) .arb-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 16px}
     .app:not(.pub) .arb-follow{font-size:13px;color:var(--d-ink-3)}
-    .app:not(.pub) .arb-money-tip{margin:0 0 16px}
+    .app:not(.pub) .arb-money-tip{margin:0 0 16px;color:var(--d-ink-3)}   /* readable on the dark panel */
+    .app:not(.pub) .adv-rate{margin:-8px 0 16px}
+    .app:not(.pub) .ar-given-none{margin:0 0 0 4px}
+    .app:not(.pub) .ar-client-tag{margin-left:6px;vertical-align:1px}
+    .app:not(.pub) .gainer[data-fall]{opacity:.62}   /* a fall under a "rise first" list: listed, not ranked */
     .app:not(.pub) .arb-err{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
     .app:not(.pub) .arb-history{list-style:none;margin:0;padding:0;border:1px solid var(--d-line-2);border-radius:10px;overflow:hidden}
     .app:not(.pub) .arb-history li{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;border-bottom:1px solid var(--d-line);font-size:13px;line-height:1.45;color:var(--d-ink-2)}
