@@ -5117,7 +5117,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
                 <tr>
                   {cols.map(([id, label]) => (
                     <th key={id} data-col={id} aria-sort={sort.col === id ? (sort.dir < 0 ? "descending" : "ascending") : undefined}>
-                      <button className={sort.col === id ? "ar-sort on" : "ar-sort"} onClick={() => setSort((o) => ({ col: id, dir: o.col === id ? -o.dir : id === "writer" ? 1 : -1 }))}>{label}{sort.col === id ? (sort.dir < 0 ? " ▼" : " ▲") : ""}</button>
+                      <button className={sort.col === id ? "ar-sort on" : "ar-sort"} onClick={() => setSort((o) => ({ col: id, dir: o.col === id ? -o.dir : id === "writer" ? 1 : -1 }))}>{label}{sort.col === id ? (sort.dir < 0 ? "\u00a0▼" : "\u00a0▲") : ""}</button>
                       {/* which week it is, right on the column */}
                       {id === "week" && span && <span className="master-week-of">{dayRange(span.from, span.to)} vs the week before</span>}
                     </th>
@@ -8917,6 +8917,16 @@ function StyleTag() {
     .app:not(.pub) .master-table td.master-week{height:auto;padding-block:8px;white-space:nowrap}
     .app:not(.pub) .master-week em{display:block;margin-top:3px;font-style:normal;font-size:12px;color:var(--d-ink-4)}
     .app:not(.pub) .master-week-of{display:block;margin-top:2px;font-size:11px;font-weight:400;letter-spacing:0;text-transform:none;white-space:nowrap;color:var(--d-ink-4)}
+    /* the table without its forecast columns fits beside the client list at 1280 and up: it no longer
+       stretches to its widest (max-content), so heads wrap to two lines ("Gross / streams") and the
+       week's dates under "This week" wrap too; figures stay on one line. The forecast columns still scroll. */
+    .app:not(.pub) .master-table{min-width:0}
+    .app:not(.pub) .master-table th,.app:not(.pub) .master-table td{padding:0 9px}
+    .app:not(.pub) .master-table td:first-child{max-width:150px;overflow:hidden;text-overflow:ellipsis}   /* a long writer name ends in … (its row title says it whole) */
+    @media (min-width:1200px) and (max-width:1399px){ .app:not(.pub) .catalog-wrap{grid-template-columns:224px minmax(0,1fr);gap:20px} }   /* room for the table at 1280 */
+    .app:not(.pub) .master-table thead th{height:auto;padding-block:8px;white-space:normal;vertical-align:bottom;letter-spacing:.04em;line-height:1.3}
+    .app:not(.pub) .master-table th .ar-sort{white-space:normal}
+    .app:not(.pub) .master-week-of{white-space:normal;min-width:7em}
     .app:not(.pub) .muted-dash{color:var(--d-ink-off)}
     /* ---- polish: A&R. Stage colours live here only (they reuse the area hexes on purpose: cool → hot →
        green, never red or amber, which mean "down" and "needs attention"); one pill per stage everywhere ---- */
