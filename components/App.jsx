@@ -10,7 +10,7 @@ import {
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
   Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator, Copy,
   Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
-  LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight,
+  LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight, Info,
 } from "lucide-react";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
@@ -6029,6 +6029,10 @@ function useMedia(q) {
 // a writer's week-on-week % needs this many streams this week (lib/weekly.js TOP_MIN)
 const WEEK_PCT_MIN = 1000;
 const SCROLL_ROWS = ".attn-row,.cu-row,.gainer,.pay-row,.acct-row:not(.acct-row-hd)";
+// section labels: one that reaches into the fade at the foot is hidden until it's scrolled fully into view,
+// so a half-cut "CLICKUP" never peeks above "1 more"
+const SCROLL_LABELS = ".todo-group,.todo-sub,.gainer-split,.acct-row-hd,.acct-unlogged-head";
+const LABEL_FADE = 24; // the mask's height (.home-scroll[data-more])
 function useScrollMore(ref) {
   const [hidden, setHidden] = useState(0);
   useEffect(() => {
@@ -6038,6 +6042,10 @@ function useScrollMore(ref) {
       const more = el.scrollTop + el.clientHeight < el.scrollHeight - 4;
       if (more) el.setAttribute("data-more", ""); else el.removeAttribute("data-more");
       const bottom = el.getBoundingClientRect().bottom;
+      for (const g of el.querySelectorAll(SCROLL_LABELS)) {
+        const b = g.getBoundingClientRect();
+        g.toggleAttribute("data-cut", more && b.bottom > bottom - LABEL_FADE && b.top < bottom);
+      }
       setHidden(more ? [...el.querySelectorAll(SCROLL_ROWS)].filter((r) => r.offsetParent && r.getBoundingClientRect().bottom > bottom + 2).length || -1 : 0);
     };
     check();
@@ -6288,8 +6296,10 @@ function MoneyRow({ money: m, failed, retry }) {
       <div className="cat-summary-grid">
         {stats.map(([k, label]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(m[k])}</span></div>)}
       </div>
-      {/* the tiles add up Defied's whole cut through Stripe: say so, so nobody reads it as management commission alone */}
-      <p className="hint home-money-note">Everything Defied's cut took in through Stripe, before Stripe's card fees. It also counts test payments and other income paid through Stripe, like studio work.</p>
+      {/* the tiles add up Defied's whole cut through Stripe: say so, so nobody reads it as management commission alone.
+          Desktop: an (i) on the strip that shows it on hover or focus (the Dashboard fits one screen); phones: a small line */}
+      <span className="home-money-info" tabIndex={0} aria-describedby="home-money-note"><Info size={14} aria-hidden="true" /><span className="sr-only">What these count</span></span>
+      <p className="hint home-money-note" id="home-money-note" role="note">Everything Defied's cut took in through Stripe, before Stripe's card fees. It also counts test payments and other income paid through Stripe, like studio work.</p>
     </div>
   );
 }
@@ -6387,7 +6397,8 @@ function MoneyCard({ home, failed, retry, tab, setTab }) {
             </button>
           ))}
         </span>
-        {P?.items?.length > 0 && <button className="inline-link pay-all" onClick={() => setAll(true)}>All payments ({fmt(P.total ?? P.items.length)}) ›</button>}
+        {/* a narrow card (one-screen Dashboard at 1280) drops the word "payments" so the head stays one line */}
+        {P?.items?.length > 0 && <button className="inline-link pay-all" onClick={() => setAll(true)} title="All payments">All<span className="pay-all-w"> payments</span> ({fmt(P.total ?? P.items.length)}) ›</button>}
       </div>
       <div className={open ? "home-scroll open" : "home-scroll"} ref={body}>{content}</div>
       <ScrollFoot n={hidden} box={body} />
@@ -8789,6 +8800,41 @@ function StyleTag() {
       .app:not(.pub) .home-scroll-foot{display:none}   /* phones list N rows and "Show N more" instead */
       .app:not(.pub) .home-scroll:not(.open) .over{display:none}   /* a scroll box inside a scrolling page traps the thumb */
       .app:not(.pub) .home-money-card .acct-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+    }
+    /* One screen (the owner's ask): from 900px wide and 640px tall the Dashboard fits the window with no
+       page scroll. The head and a slim money strip on top, then To do over Money on the left and This
+       week down the right, sharing what's left of the window; each card keeps its head and scrolls inside
+       (fade + "N more" at the foot). Lower or narrower windows scroll the page as before. The DOM is
+       unchanged: .home-row steps aside (display:contents) so its two cards sit in the page's grid. */
+    .app:not(.pub) .home-money-row{position:relative}
+    .app:not(.pub) .home-money-info{display:none}
+    .app:not(.pub) .home-scroll [data-cut]{visibility:hidden}   /* a label in the foot's fade waits until it's fully in view */
+    @media (min-width:900px){
+      /* the strip's note: an (i) at its top right that shows the line on hover or keyboard focus */
+      .app:not(.pub) .home-money-row .cat-stat{gap:4px;padding:10px 18px 11px}
+      .app:not(.pub) .home-money-row .cat-stat-val{font-size:clamp(18px,8cqi,22px)}
+      .app:not(.pub) .home-money-info{position:absolute;top:7px;right:8px;z-index:2;display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;color:var(--d-ink-4);cursor:help;outline-offset:2px}
+      .app:not(.pub) .home-money-info:is(:hover,:focus-visible){color:var(--d-ink);background:var(--d-active)}
+      .app:not(.pub) .home-money-row .home-money-note{position:absolute;top:38px;right:6px;z-index:40;width:min(380px,calc(100% - 12px));margin:0;padding:10px 12px;
+        border:1px solid var(--d-line-2);border-radius:var(--d-r-md);background:var(--d-s2);box-shadow:var(--d-shadow-pop);color:var(--d-ink-2);font-size:13px;line-height:1.45;
+        opacity:0;visibility:hidden;pointer-events:none;transition:opacity var(--d-t-fast) ease,visibility var(--d-t-fast)}
+      .app:not(.pub) .home-money-info:is(:hover,:focus) + .home-money-note{opacity:1;visibility:visible}
+    }
+    @media (min-width:900px) and (min-height:640px){
+      .app:not(.pub) .dash-main:has(> .home){padding-bottom:20px}
+      .app:not(.pub) .home{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);grid-template-rows:auto auto minmax(0,1.2fr) minmax(0,1fr);gap:12px;
+        height:calc(100vh - 52px);height:calc(100dvh - 52px)}   /* the page's 32px top and 20px bottom padding */
+      .app:not(.pub):has(> .storage-warn) .home{height:calc(100dvh - 52px - var(--d-ban-h))}
+      .app:not(.pub) .home > :is(.admin-head,.home-money-row,.home-money){grid-column:1 / -1;margin:0}
+      .app:not(.pub) .home-row{display:contents}
+      .app:not(.pub) .home-row > .todo{grid-column:1;grid-row:3;min-height:0}
+      .app:not(.pub) .home-row > .todo.clear{align-self:start}   /* "All caught up" stays one line */
+      .app:not(.pub) .home-row > .gainers{grid-column:2;grid-row:3 / span 2;min-height:0}
+      .app:not(.pub) .home > .home-money-card{grid-column:1;grid-row:4;min-height:0;margin:0}
+      .app:not(.pub) .home .home-card{max-height:none}
+      .app:not(.pub) .home .home-card > .attn-head{flex:none}   /* the head never gives way to the list */
+      .app:not(.pub) .home-money-card{container-type:inline-size}
+      @container (max-width:560px){ .app:not(.pub) .pay-all-w{display:none} }
     }
     /* To do: caps labels in each area's colour, a 3px bar on each row */
     .app:not(.pub) .todo .attn-head svg{color:var(--d-warn)}
