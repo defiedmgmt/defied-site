@@ -4080,8 +4080,8 @@ function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reloa
                   {!isNew && <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Total est. value</span><span className="cat-stat-val">≈ {wholeMoney(prospect.money.totalEstValue)}</span></div>}
                   <div className="cat-stat"><span className="cat-stat-label">Gross streams</span><span className="cat-stat-val">{bigNum(grossStreams)}</span></div>
                   <div className="cat-stat"><span className="cat-stat-label">Net streams (their share)</span><span className="cat-stat-val">{bigNum(netStreams)}</span></div>
-                  {/* the writer's own all-time earnings, not ours: our cut of it is said beside it */}
-                  <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Their est. publishing earnings (all-time){assume?.adminFeeRate != null ? ` · our ${Math.round(assume.adminFeeRate * 100)}% ≈ ${wholeMoney(estRevenue * assume.adminFeeRate)}` : ""}</span><span className="cat-stat-val">{wholeMoney(estRevenue)}</span></div>
+                  {/* the writer's own all-time earnings, not ours: our cut (the sheet's admin fee) gets its own readable line under it */}
+                  <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Their est. publishing earnings (all-time)</span><span className="cat-stat-val">{wholeMoney(estRevenue)}</span>{assume?.adminFeeRate != null && <span className="ar-tile-cut" data-our-cut>Our {Math.round(assume.adminFeeRate * 100)}% ≈ {wholeMoney(estRevenue * assume.adminFeeRate)}</span>}</div>
                 </div>
               </div>
               <p className="hint arb-money-tip">Estimates, not payouts: all-time streams × their writer share × ${blendedRate} a stream (the rate in ASSUMPTIONS), from the OUTREACH tab's own formulas. Year 1 = {yearOne(assume) ? `${yearOne(assume).share} of their all-time earnings (${yearOne(assume).how})` : "a set share of their all-time earnings"}, then {assume?.decayRate != null ? pct1(assume.decayRate) : "a set amount"} less each year; we keep {assume?.adminFeeRate != null ? `${Math.round(assume.adminFeeRate * 100)}%` : "our cut"}. Real income depends on platform, country and deal.</p>
@@ -4321,11 +4321,11 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
         )}
         {selectedProspect && (
           <div className="ar-given-row">
-            <span className="fld-label">Advance given?</span>
-            {/* a blank cell is "Not answered" (as on the panel), never a lit No */}
+            {/* a blank cell is "Not answered" (as on the panel), never a lit No; said on the label, before
+                the buttons, so it never reads as a third choice */}
+            <span className="fld-label">Advance given?{!selectedProspect.advance.given && <span className="ar-given-none"> · Not answered yet</span>}</span>
             <button className={selectedProspect.advance.given === "Yes" ? "btn sm" : "btn ghost sm"} aria-pressed={selectedProspect.advance.given === "Yes"} onClick={() => setGiven(true)} disabled={busy || !selectedProspect.advance.editable}>Yes</button>
             <button className={selectedProspect.advance.given === "No" ? "btn sm" : "btn ghost sm"} aria-pressed={selectedProspect.advance.given === "No"} onClick={() => setGiven(false)} disabled={busy || !selectedProspect.advance.editable}>No</button>
-            {!selectedProspect.advance.given && <span className="hint ar-given-none">Not answered</span>}
           </div>
         )}
         {selectedProspect && !selectedProspect.advance.editable && selectedProspect.advance.why && <p className="hint">{selectedProspect.advance.why}</p>}
@@ -6057,9 +6057,14 @@ function useScrollMore(ref) {
       const more = el.scrollTop + el.clientHeight < el.scrollHeight - 4;
       if (more) el.setAttribute("data-more", ""); else el.removeAttribute("data-more");
       const bottom = el.getBoundingClientRect().bottom;
-      for (const g of el.querySelectorAll(SCROLL_LABELS)) {
-        const b = g.getBoundingClientRect();
-        g.toggleAttribute("data-cut", more && b.bottom > bottom - LABEL_FADE && b.top < bottom);
+      // a label also waits while what it heads starts in the fade or below (the next label counts as
+      // that too), bottom-up so "ClickUp" follows its sub line, which follows its first row: a heading
+      // never shows over an empty band
+      const labels = [...el.querySelectorAll(SCROLL_LABELS)];
+      for (let i = labels.length - 1; i >= 0; i--) {
+        const g = labels[i], b = g.getBoundingClientRect(), next = g.nextElementSibling;
+        const orphan = !!next && (next.hasAttribute("data-cut") || next.getBoundingClientRect().top >= bottom - LABEL_FADE);
+        g.toggleAttribute("data-cut", more && b.top < bottom && (b.bottom > bottom - LABEL_FADE || orphan));
       }
       setHidden(more ? [...el.querySelectorAll(SCROLL_ROWS)].filter((r) => r.offsetParent && r.getBoundingClientRect().bottom > bottom + 2).length || -1 : 0);
     };
@@ -7431,7 +7436,7 @@ function StyleTag() {
     .app:not(.pub) .ar-given-row .fld-label{margin-right:6px}
     .app:not(.pub) .ar-given-row .btn{min-width:56px}
     .app:not(.pub) .ar-given-row .btn:not(.ghost){background:var(--d-active);border-color:var(--d-line-3);color:var(--d-ink)}
-    .app:not(.pub) .ar-given-row .btn.ghost{border-color:transparent;color:var(--d-ink-3)}
+    .app:not(.pub) .ar-given-row .btn.ghost{border-color:var(--d-line-2);color:var(--d-ink-2)}   /* an unpicked choice still looks like a button */
     /* chips (public .chip-tag shape; copied, not shared) */
     .app:not(.pub) :is(.tag,.badge-yes,.badge-no){display:inline-flex;align-items:center;gap:6px;height:22px;max-width:100%;padding:0 9px;vertical-align:middle;
       border:1px solid #262628;border-radius:100px;background:var(--d-s3);color:var(--d-ink-2);
@@ -8761,7 +8766,8 @@ function StyleTag() {
     .app:not(.pub) .arb-follow{font-size:13px;color:var(--d-ink-3)}
     .app:not(.pub) .arb-money-tip{margin:0 0 16px;color:var(--d-ink-3)}   /* readable on the dark panel */
     .app:not(.pub) .adv-rate{margin:-8px 0 16px}
-    .app:not(.pub) .ar-given-none{margin:0 0 0 4px}
+    .app:not(.pub) .ar-given-none{color:var(--d-ink-4);letter-spacing:0}
+    .app:not(.pub) .ar-tile-cut{font-size:12.5px;line-height:1.35;color:var(--d-ink-3)}
     .app:not(.pub) .ar-client-tag{margin-left:6px;vertical-align:1px}
     .app:not(.pub) .gainer[data-fall]{opacity:.62}   /* a fall under a "rise first" list: listed, not ranked */
     .app:not(.pub) .arb-err{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
@@ -8923,15 +8929,17 @@ function StyleTag() {
     }
     @media (min-width:900px) and (min-height:640px){
       .app:not(.pub) .dash-main:has(> .home){padding-bottom:20px}
-      .app:not(.pub) .home{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);grid-template-rows:auto auto minmax(0,1.2fr) minmax(0,1fr);gap:12px;
+      .app:not(.pub) .home{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);grid-template-rows:auto auto minmax(0,auto) minmax(200px,1fr);gap:12px;
         height:calc(100vh - 52px);height:calc(100dvh - 52px)}   /* the page's 32px top and 20px bottom padding */
       .app:not(.pub):has(> .storage-warn) .home{height:calc(100dvh - 52px - var(--d-ban-h))}
       .app:not(.pub) .home > :is(.admin-head,.home-money-row,.home-money){grid-column:1 / -1;margin:0}
       .app:not(.pub) .home-row{display:contents}
-      .app:not(.pub) .home-row > .todo{grid-column:1;grid-row:3;min-height:0}
+      /* To do (the longest list) takes the whole left column; This week sits top-right at its own
+         height (its top 5), and Money gets the rest of the right column under it */
+      .app:not(.pub) .home-row > .todo{grid-column:1;grid-row:3 / span 2;min-height:0}
       .app:not(.pub) .home-row > .todo.clear{align-self:start}   /* "All caught up" stays one line */
-      .app:not(.pub) .home-row > .gainers{grid-column:2;grid-row:3 / span 2;min-height:0}
-      .app:not(.pub) .home > .home-money-card{grid-column:1;grid-row:4;min-height:0;margin:0}
+      .app:not(.pub) .home-row > .gainers{grid-column:2;grid-row:3;min-height:0}
+      .app:not(.pub) .home > .home-money-card{grid-column:2;grid-row:4;min-height:0;margin:0}
       .app:not(.pub) .home .home-card{max-height:none}
       .app:not(.pub) .home .home-card > .attn-head{flex:none}   /* the head never gives way to the list */
       .app:not(.pub) .home-money-card{container-type:inline-size}
@@ -8947,11 +8955,9 @@ function StyleTag() {
     .app:not(.pub) .todo .attn-row{min-height:56px;padding:9px 12px 9px 16px}
     .app:not(.pub) .todo .cu-row{min-height:52px}
     .app:not(.pub) .attn-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-    .app:not(.pub) .attn-main b{font-size:14px;font-weight:500;line-height:1.35;color:var(--d-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .app:not(.pub) .attn-main b{font-size:14px;font-weight:500;line-height:1.35;color:var(--d-ink);white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}   /* two lines: the end ("since Oct 21") is often the point */
     .app:not(.pub) .attn-main em{font-style:normal;font-size:12.5px;line-height:1.35;color:var(--d-ink-4);white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}   /* two lines: the detail is often the fix */
     .app:not(.pub) .attn-chev{display:none}
-    /* a headline with no detail line may take both lines, so a phone shows it whole */
-    .app:not(.pub) .attn-main b:only-child{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
     .app:not(.pub) .todo-sub{display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;padding:8px 16px 6px;font-size:12px;color:var(--d-ink-4)}
     .app:not(.pub) .todo-sub .inline-link{font-size:12px;color:var(--d-ink-3)}
     .app:not(.pub) .todo-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0;padding:10px 16px 12px;font-size:12.5px;line-height:1.45;color:var(--d-ink-4)}
