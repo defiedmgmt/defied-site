@@ -6325,17 +6325,89 @@ function MoneyRow({ money: m, failed, retry }) {
 // "via Devin's link", or straight to Defied's own account (tests and deposits so far)
 const viaText = (p) => (p.direct ? "paid to Defied directly" : p.via ? `via ${p.via}'s link` : "via a payment link");
 // green = Defied's share; what they paid in all sits under it only when it's different
-function PayRow({ p, over }) {
+function PayRow({ p, over, onLog }) {
   return (
     <div className={over ? "pay-row over" : "pay-row"} data-pay={p.id}>
       <span className="pay-main"><strong>{p.client || p.payer || "Unknown payer"}</strong>
         <span>{payDay(p.at)} · {viaText(p)}{p.logged === false && <> · <span className="pay-flag">Not in the sheet yet</span></>}</span></span>
+      {onLog && p.logged === false && <button className="btn ghost sm pay-log" data-log={p.id} onClick={() => onLog([p.id])}>Log it</button>}
       <span className="pay-amt"><b>{money(p.fee)}</b>{p.fee !== p.amount && <em>{money(p.amount)} paid</em>}</span>
     </div>
   );
 }
 
-function PaymentsModal({ onClose }) {
+// "Log it" / "Log all": the exact rows first (a dry run on the server, fresh from Stripe and the
+// sheet), then one click adds them to the accounting sheet's Income tab. Off until the server's
+// ACCOUNTING_SHEET_WRITES is on, and then it only says so.
+function LogConfirm({ ids, canLog, onClose, onDone }) {
+  const [plan, setPlan] = useState(null); // {rows, skipped} | {error}
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(null); // the write's answer
+  const close = () => { if (busy) return; if (done) onDone(); onClose(); };
+  useEscape(close);
+  const post = (body) => fetch("/api/accounting-log", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify(body) })
+    .then((r) => r.json().catch(() => ({})).then((d) => (r.ok ? d : { error: d.error || "Couldn't reach the server. Try again in a minute." })))
+    .catch(() => ({ error: "Couldn't reach the server. Try again in a minute." }));
+  useEffect(() => {
+    if (!canLog) return;
+    let alive = true;
+    post({ ids, dryRun: true }).then((d) => alive && setPlan(d));
+    return () => { alive = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const go = async () => { setBusy(true); const d = await post({ ids }); setBusy(false); setDone(d); };
+  const n = plan?.rows?.length || 0;
+  const reasons = (list) => list?.length > 0 && <ul className="log-skipped">{list.map((x) => <li key={x.id} data-skip={x.id}>{x.reason}</li>)}</ul>;
+  let body;
+  if (!canLog) body = <p className="home-muted" data-log-off><AlertTriangle size={15} /> Logging from the dashboard isn't switched on yet. For now, add {ids.length === 1 ? "it" : "them"} in the sheet as a new row with the full amount paid.</p>;
+  else if (done) {
+    body = done.error && !done.logged?.length ? <p className="home-muted"><AlertTriangle size={15} /> {done.error}</p> : (
+      <>
+        {done.logged?.length > 0 && <p className="log-done" data-log-done><CheckCircle2 size={15} /> Added to the Income tab: {done.logged.length === 1 ? `row ${done.logged[0].row}` : `rows ${done.logged[0].row}–${done.logged[done.logged.length - 1].row}`}.{done.left > 0 ? ` ${done.left} still to log.` : " Every Stripe payment is in the sheet now."}</p>}
+        {done.error && <p className="home-muted"><AlertTriangle size={15} /> {done.error}</p>}
+        {reasons(done.skipped)}
+      </>
+    );
+  } else if (!plan) body = <p className="home-muted"><RefreshCw size={15} className="spin" /> Checking Stripe and the sheet…</p>;
+  else if (plan.error) body = <p className="home-muted"><AlertTriangle size={15} /> {plan.error}</p>;
+  else {
+    body = (
+      <>
+        {n > 0 && <p className="log-lead">{n === 1 ? "This row goes" : `These ${n} rows go`} on the Income tab, under its last row. The sheet works out the month, manager and shares, the same as a row typed by hand.</p>}
+        {n > 0 && (
+          <div className="log-table" role="table" aria-label="Rows to add">
+            <div className="log-tr log-th" role="row"><span role="columnheader">Date</span><span role="columnheader">Artist / Client</span><span role="columnheader">Revenue type</span><span role="columnheader" className="acct-amt">Gross commission</span></div>
+            {plan.rows.map((r) => (
+              <div key={r.id} className="log-tr" role="row" data-row={r.id}>
+                <span role="cell">{r.date}</span><span role="cell" className="acct-who">{r.client}{r.notes ? <em> · {r.notes}</em> : null}</span><span role="cell">{r.type}</span><span role="cell" className="acct-amt">{money(r.amount)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {n > 0 && <p className="hint log-acct">Account: {plan.rows[0].account}. The full amount paid goes in Gross Commission, like the rows already there.</p>}
+        {reasons(plan.skipped)}
+        {n === 0 && !plan.skipped?.length && <p className="home-muted">Nothing to add.</p>}
+      </>
+    );
+  }
+  return (
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && close()}>
+      <div className="modal-card log-modal" role="dialog" aria-label="Log to the accounting sheet">
+        <div className="modal-head"><h3>{done ? "Logged" : ids.length === 1 ? "Log this payment" : `Log ${ids.length} payments`}</h3><button onClick={close} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-body">{body}</div>
+        <div className="modal-foot">
+          {done || !canLog || !n ? <button className="btn sm" onClick={close}>{done ? "Done" : "Close"}</button> : (
+            <>
+              <button className="btn ghost sm" onClick={close} disabled={busy}>Cancel</button>
+              <button className="btn sm" data-log-go onClick={go} disabled={busy}>{busy ? "Adding…" : n === 1 ? "Add 1 row to the sheet" : `Add ${n} rows to the sheet`}</button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaymentsModal({ onClose, onLog }) {
   const [P, setP] = useState(null);
   const [err, setErr] = useState(false);
   useEscape(onClose);
@@ -6353,7 +6425,7 @@ function PaymentsModal({ onClose }) {
         <div className="modal-body">
           {err ? <p className="home-muted"><AlertTriangle size={15} /> {typeof err === "string" ? err : "Couldn't load the payments. Close this and try again."}</p>
             : !P ? <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>
-            : <><p className="pay-legend">Green = Defied's share of each payment</p>{P.items.map((p) => <PayRow key={p.id} p={p} />)}</>}
+            : <><p className="pay-legend">Green = Defied's share of each payment</p>{P.items.map((p) => <PayRow key={p.id} p={p} onLog={onLog} />)}</>}
         </div>
         <div className="modal-foot"><button className="btn sm" onClick={onClose}>Close</button></div>
       </div>
@@ -6366,6 +6438,7 @@ function PaymentsModal({ onClose }) {
 function MoneyCard({ home, failed, retry, tab, setTab }) {
   const [all, setAll] = useState(false);
   const [open, setOpen] = useState(false);
+  const [logIds, setLogIds] = useState(null); // the payments the Log confirm is for
   const body = useRef(null);
   const hidden = useScrollMore(body);
   const P = home?.payments, A = home?.accounting;
@@ -6394,13 +6467,15 @@ function MoneyCard({ home, failed, retry, tab, setTab }) {
       : !U.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every Stripe payment is in the accounting sheet.</p>
       : (
         <div className="acct-unlogged">
-          <p className="acct-unlogged-head">Add {U.length === 1 ? "this one" : `these ${U.length}`} to the accounting sheet · {money(A.unloggedTotal)} paid in total</p>
-          <div className="acct-row acct-row-hd" aria-hidden="true"><span>Date</span><span>Who</span><span className="acct-amt">Paid</span></div>
+          <p className="acct-unlogged-head"><span>Add {U.length === 1 ? "this one" : `these ${U.length}`} to the accounting sheet · {money(A.unloggedTotal)} paid in total</span>
+            {U.length > 1 && <button className="btn sm acct-log-all" data-log-all onClick={() => setLogIds(U.map((p) => p.id))}>Log all {U.length}</button>}</p>
+          <div className="acct-row acct-row-hd" aria-hidden="true"><span>Date</span><span>Who</span><span className="acct-amt">Paid</span><span /></div>
           {U.map((p, i) => (
-            <div key={p.id} className={i >= HOME_ROWS ? "acct-row over" : "acct-row"} data-pay={p.id}><span>{shortDay(p.at)}</span><span className="acct-who">{p.client || p.payer || "Unknown payer"}</span><span className="acct-amt">{money(p.amount)}</span></div>
+            <div key={p.id} className={i >= HOME_ROWS ? "acct-row over" : "acct-row"} data-pay={p.id}><span>{shortDay(p.at)}</span><span className="acct-who">{p.client || p.payer || "Unknown payer"}</span><span className="acct-amt">{money(p.amount)}</span>
+              <button className="btn ghost sm acct-log" data-log={p.id} onClick={() => setLogIds([p.id])}>Log it</button></div>
           ))}
           {more(U.length)}
-          <p className="hint">Add each one as a new row in the sheet with the full amount paid. They leave this list once the sheet has them.</p>
+          <p className="hint">{A.canLog ? "Log it adds the row to the sheet's Income tab for you, after showing you the row. They leave this list once the sheet has them." : "Add each one as a new row in the sheet with the full amount paid. They leave this list once the sheet has them."}</p>
         </div>
       );
   }
@@ -6420,7 +6495,8 @@ function MoneyCard({ home, failed, retry, tab, setTab }) {
       </div>
       <div className={open ? "home-scroll open" : "home-scroll"} ref={body}>{content}</div>
       <ScrollFoot n={hidden} box={body} />
-      {all && <PaymentsModal onClose={() => setAll(false)} />}
+      {all && <PaymentsModal onClose={() => setAll(false)} onLog={(ids) => { setAll(false); setLogIds(ids); }} />}
+      {logIds && <LogConfirm ids={logIds} canLog={!!A?.canLog} onClose={() => setLogIds(null)} onDone={retry} />}
     </div>
   );
 }
@@ -8927,6 +9003,26 @@ function StyleTag() {
     .app:not(.pub) .acct-row-hd{padding-block:4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-ink-4)}
     .app:not(.pub) .acct-amt{text-align:right}
     .app:not(.pub) .home-money-card .acct-unlogged .hint{padding:10px 16px 14px}
+    /* one-click logging: a Log it on each row, Log all in the head, the confirm's rows */
+    .app:not(.pub) .home-money-card .acct-unlogged-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .app:not(.pub) .home-money-card .acct-row{grid-template-columns:64px minmax(0,1fr) auto auto;align-items:center}
+    .app:not(.pub) .acct-log,.app:not(.pub) .pay-log{padding:3px 10px;font-size:12px}
+    .app:not(.pub) .pay-row .pay-log{flex:none;align-self:center}
+    .app:not(.pub) .log-modal{max-width:640px}
+    .app:not(.pub) .log-lead{margin:0 0 10px;font-size:13.5px;line-height:1.5;color:var(--d-ink-2)}
+    .app:not(.pub) .log-table{border:1px solid var(--d-line);border-radius:var(--d-r-md);overflow:hidden}
+    .app:not(.pub) .log-tr{display:grid;grid-template-columns:92px minmax(0,1fr) minmax(0,1.1fr) 112px;gap:10px;padding:8px 12px;border-top:1px solid var(--d-line);font-size:13px;color:var(--d-ink)}
+    .app:not(.pub) .log-tr:first-child{border-top:0}
+    .app:not(.pub) .log-tr em{font-style:normal;color:var(--d-ink-4)}
+    .app:not(.pub) .log-th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-ink-4);background:var(--d-hover)}
+    .app:not(.pub) .log-acct{margin:10px 0 0}
+    .app:not(.pub) .log-skipped{margin:10px 0 0;padding-left:18px;font-size:13px;line-height:1.5;color:var(--d-warn)}
+    .app:not(.pub) .log-done{display:flex;align-items:flex-start;gap:8px;margin:0;font-size:14px;line-height:1.5;color:var(--d-ink)}
+    .app:not(.pub) .log-done svg{flex:none;margin-top:3px;color:var(--d-pos)}
+    @media (max-width:599px){
+      .app:not(.pub) .log-tr{grid-template-columns:76px minmax(0,1fr) 84px;row-gap:2px}
+      .app:not(.pub) .log-tr > :nth-child(3){grid-row:2;grid-column:2;font-size:12px;color:var(--d-ink-3)}   /* the revenue type goes under who */
+    }
     .app:not(.pub) .home-money-card > .home-scroll > .home-muted{padding:14px 16px}
     @media (max-width:599px){
       .app:not(.pub) .money-tabs{order:3;margin-left:0;width:100%;overflow-x:auto;scrollbar-width:none}

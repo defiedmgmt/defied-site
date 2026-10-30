@@ -7,6 +7,7 @@
 import { requireStaff } from "../../lib/session";
 import { moneyState, payerNamer, paymentRow, checkClickUpTasks } from "../../lib/money";
 import { listTasks, LISTS, clearTaskCache } from "../../lib/clickup-tasks";
+import { logWritesOn } from "../../lib/accounting-log";
 
 // a first Stripe fill reads ~3 things a payment (saved as it goes, lib/stripe.js)
 export const config = { maxDuration: 60 };
@@ -32,7 +33,7 @@ export default async function handler(req, res) {
     if (req.query.list) return res.status(200).json({ clickup: await clickupPart(String(req.query.list)) });
     const [{ pay, acct, match }, clickup] = await Promise.all([moneyState({ fresh }), req.query.all ? null : clickupPart("internal")]);
     const nameOf = await payerNamer(match);
-    const logged = match ? new Set([...match.matched, ...match.loggedTogether].map((p) => p.id)) : null;
+    const logged = match ? new Set([...match.matched, ...match.loggedTogether, ...(match.loggedHere || [])].map((p) => p.id)) : null;
 
     const money = !pay.connected ? { connected: false }
       : pay.error ? { connected: true, error: pay.error }
@@ -51,6 +52,8 @@ export default async function handler(req, res) {
         // null = Stripe couldn't be read, so nobody can say what's missing
         unlogged: match ? match.unlogged.map((p) => paymentRow(p, nameOf, null)) : null,
         unloggedTotal: match ? match.unloggedTotal / 100 : null,
+        // the "Log it" buttons: off until ACCOUNTING_SHEET_WRITES=on
+        canLog: logWritesOn(),
       };
 
     // keep the two ClickUp tasks in step with what was just read (debounced; never blocks the page)
