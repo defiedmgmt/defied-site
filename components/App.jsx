@@ -8619,6 +8619,8 @@ function StyleTag() {
     .app:not(.pub) .attn-main b{font-size:14px;font-weight:500;line-height:1.35;color:var(--d-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .app:not(.pub) .attn-main em{font-style:normal;font-size:12.5px;line-height:1.35;color:var(--d-ink-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .app:not(.pub) .attn-chev{display:none}
+    /* a headline with no detail line may take both lines, so a phone shows it whole */
+    .app:not(.pub) .attn-main b:only-child{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
     .app:not(.pub) .todo-sub{display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;padding:8px 16px 6px;font-size:12px;color:var(--d-ink-4)}
     .app:not(.pub) .todo-sub .inline-link{font-size:12px;color:var(--d-ink-3)}
     .app:not(.pub) .todo-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0;padding:10px 16px 12px;font-size:12.5px;line-height:1.45;color:var(--d-ink-4)}
@@ -8655,7 +8657,7 @@ function StyleTag() {
     .app:not(.pub) .money-tabs button{display:inline-flex;align-items:center;gap:6px}
     .app:not(.pub) .money-tabs .attn-n{height:16px;min-width:16px;padding:0 5px;font-size:10.5px}
     .app:not(.pub) .pay-legend{margin:0;padding:10px 16px 4px;font-size:12px;color:var(--d-ink-4)}
-    .app:not(.pub) .pay-flag{color:var(--d-warn)}
+    .app:not(.pub) .pay-flag{color:var(--d-warn);white-space:nowrap}
     .app:not(.pub) .pay-amt b{font-variant-numeric:tabular-nums}
     .app:not(.pub) .home-money-card .acct-grid{margin:14px 16px}
     .app:not(.pub) .acct-note{font-size:12px;line-height:1.35;color:var(--d-ink-4)}
