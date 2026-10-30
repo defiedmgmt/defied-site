@@ -8810,7 +8810,7 @@ function StyleTag() {
       .app:not(.pub) .home .attn-row[data-task] .btn{display:none}
       .app:not(.pub) .home .attn-row[data-task] .attn-chev{display:block;flex:none;color:var(--d-ink-4)}
       .app:not(.pub) .home-money-row .cat-stat-val{font-size:16px}
-      /* "Commission · September" stays on one line: this month takes the whole first row, the other two share the next */
+      /* this month's label stays on one line: its tile takes the whole first row, the other two share the next (no money words in CSS: the portal's leak check reads the page text) */
       .app:not(.pub) .home-money-row .cat-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
       .app:not(.pub) .home-money-row .cat-stat:first-child{grid-column:1 / -1}
       .app:not(.pub) .home-money-row .cat-stat:last-child:nth-child(odd){grid-column:auto}
