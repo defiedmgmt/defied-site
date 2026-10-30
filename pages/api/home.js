@@ -39,7 +39,7 @@ export default async function handler(req, res) {
       : { connected: true, thisMonth: pay.totals.thisMonth / 100, lastMonth: pay.totals.lastMonth / 100, thisYear: pay.totals.thisYear / 100, updatedAt: new Date().toISOString() };
     const payments = !pay.connected ? { connected: false }
       : pay.error ? { connected: true, error: pay.error }
-      : { connected: true, total: pay.list.length, items: pay.list.slice(0, req.query.all ? 100 : 8).map((p) => paymentRow(p, nameOf, logged)) };
+      : { connected: true, total: pay.list.length, items: pay.list.slice(0, req.query.all ? 100 : 8).map((p) => paymentRow(p, nameOf, logged, acct?.year)) };
     if (req.query.all) return res.status(200).json({ payments });
 
     const accounting = !acct.connected ? { connected: false }
