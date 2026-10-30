@@ -3775,6 +3775,13 @@ function ArWatch({ ar, onGo, at }) {
   );
 }
 
+// The sheet's Year 1 is the run-rate (B9) less one year's decay (B8): H × B9 × (1 − I), so 30% and 25%
+// make 22.5%. Say that share, not B9 alone, or a hand check comes out a third too high. One decimal,
+// so 22.5% never shows as 23%. null when either lever is missing.
+const pct1 = (x) => `${Math.round(x * 1000) / 10}%`;
+const yearOne = (a) => (a?.runRate != null && a?.decayRate != null
+  ? { share: pct1(a.runRate * (1 - a.decayRate)), run: pct1(a.runRate), decay: pct1(a.decayRate) } : null);
+
 // Show › Producers: three whole-dollar tiles from OUTREACH's row-1 totals exactly as the sheet works
 // them out (never summed here); the rest of that row sits under How we estimate
 function ArTotals({ data }) {
@@ -3797,7 +3804,7 @@ function ArTotals({ data }) {
       <details className="ar-how">
         <summary>How we estimate</summary>
         <p className="ar-how-nums">{rest.map(([k, label, f]) => <span key={k} data-total={k} data-value={t[k] ?? ""}>{label} <b>{t[k] == null ? "—" : f(t[k])}</b></span>)}</p>
-        <p>Streams × their share × ${a?.blendedRate ?? "—"} a stream = their earnings so far; we keep {cut}. Year 1 = {a?.runRate != null ? `${Math.round(a.runRate * 100)}%` : "a set share"} of those earnings, then {a?.decayRate != null ? `${Math.round(a.decayRate * 100)}%` : "a set amount"} less each year. These come from the ASSUMPTIONS tab.</p>
+        <p>Streams × their share × ${a?.blendedRate ?? "—"} a stream = their earnings so far; we keep {cut}. Year 1 = {yearOne(a) ? `${yearOne(a).share} of those earnings (the ${yearOne(a).run} run-rate less ${yearOne(a).decay})` : "a set share of those earnings"}, then {a?.decayRate != null ? pct1(a.decayRate) : "a set amount"} less each year. These come from the ASSUMPTIONS tab.</p>
         {b && <p className="ar-budget">Advance budget {wholeMoney(b.starting)} · given {wholeMoney(b.committed)} · left {wholeMoney(b.remaining)}</p>}
       </details>
     </div>
@@ -4066,7 +4073,7 @@ function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reloa
                   <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Their est. publishing earnings (all-time){assume?.adminFeeRate != null ? ` · our ${Math.round(assume.adminFeeRate * 100)}% ≈ ${wholeMoney(estRevenue * assume.adminFeeRate)}` : ""}</span><span className="cat-stat-val">{wholeMoney(estRevenue)}</span></div>
                 </div>
               </div>
-              <p className="hint arb-money-tip">Estimates, not payouts: all-time streams × their writer share × ${blendedRate} a stream (the rate in ASSUMPTIONS), from the OUTREACH tab's own formulas. Year 1 = {assume?.runRate != null ? `${Math.round(assume.runRate * 100)}%` : "a set share"} of their all-time earnings, then {assume?.decayRate != null ? `${Math.round(assume.decayRate * 100)}%` : "a set amount"} less each year; we keep {assume?.adminFeeRate != null ? `${Math.round(assume.adminFeeRate * 100)}%` : "our cut"}. Real income depends on platform, country and deal.</p>
+              <p className="hint arb-money-tip">Estimates, not payouts: all-time streams × their writer share × ${blendedRate} a stream (the rate in ASSUMPTIONS), from the OUTREACH tab's own formulas. Year 1 = {yearOne(assume) ? `${yearOne(assume).share} of their all-time earnings (the ${yearOne(assume).run} run-rate less ${yearOne(assume).decay})` : "a set share of their all-time earnings"}, then {assume?.decayRate != null ? pct1(assume.decayRate) : "a set amount"} less each year; we keep {assume?.adminFeeRate != null ? `${Math.round(assume.adminFeeRate * 100)}%` : "our cut"}. Real income depends on platform, country and deal.</p>
               {!isNew && (
                 <label className="fld"><span>Advance given?</span>
                   <select value={adv?.given || ""} onChange={(e) => saveGiven(e.target.value)} disabled={busy || !canSave || !adv?.editable} title={adv?.editable ? paused : adv?.why || undefined}>
@@ -5091,8 +5098,8 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
                   (MASTER's "CATALOG TO DATE", the table's "Est. admin fee"), its 3-year forecast, and the two together */}
               <div className="cat-stat"><span className="cat-stat-label">Est. publishing earnings <span className="cat-stat-note">(paid to the client directly)</span></span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Est. admin fee so far <span className="cat-stat-note">(our commission)</span></span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>
-              {/* the sheet's forecast takes a set share of all-time earnings (ASSUMPTIONS B9) as next year's: a guess, said so */}
-              <div className="cat-stat"><span className="cat-stat-label">3-yr fee forecast <span className="cat-stat-note">(rough guess{state.data.runRate ? `: ${Math.round(state.data.runRate * 100)}% of all-time earnings a year` : ""})</span></span><span className="cat-stat-val">{money(state.data.totals.threeYearForecast)}</span></div>
+              {/* the sheet's forecast: Year 1 = the fee so far × B9 × (1 − B8), then B8 less each year; a guess, said so */}
+              <div className="cat-stat"><span className="cat-stat-label">3-yr fee forecast <span className="cat-stat-note">(rough guess{yearOne(state.data) ? `: ${yearOne(state.data).share} of the fee so far in year 1, then ${yearOne(state.data).decay} less a year` : ""})</span></span><span className="cat-stat-val">{money(state.data.totals.threeYearForecast)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Total est. fee <span className="cat-stat-note">(so far + 3 years)</span></span><span className="cat-stat-val">{money(state.data.totals.totalEstAdminFee)}</span></div>
             </div>
             {/* the one place the money's explained: everything below (and each client's page) is the same estimate */}

@@ -16,8 +16,8 @@ export default async function handler(req, res) {
     // the $ a stream every estimate uses (ASSUMPTIONS!B7), for the overview's one line explaining
     // the money; without it the line just says "the sheet's blended rate"
     const a = await readAssumptions(sheets, spreadsheetId).catch(() => ({}));
-    // runRate (B9): the share of all-time earnings the forecast takes as next year's, said on its tile
-    return res.status(200).json({ ...rollup, links, rate: a.blendedRate || null, runRate: a.runRate || null });
+    // runRate (B9) and decayRate (B8): the forecast tile says Year 1 = the fee so far × B9 × (1 − B8)
+    return res.status(200).json({ ...rollup, links, rate: a.blendedRate || null, runRate: a.runRate || null, decayRate: a.decayRate ?? null });
   } catch (err) {
     return res.status(502).json({ error: err.message || "Failed to read the MASTER tab." });
   }
