@@ -2966,9 +2966,9 @@ function useArData() {
 }
 const ArDataError = ({ err, retry }) => <p className="hint err-text mb"><span>{err}</span> <button className="btn ghost sm" onClick={retry}>Try again</button></p>;
 
-// A&R: Summary (default) · Board · Watchlist. One read of the pub sheet (useArData) and one of
+// A&R: Summary (default) · Watchlist · Board. One read of the pub sheet (useArData) and one of
 // Postgres (/api/ar) serve all three; the sub-page last opened is remembered for the session.
-const AR_SECS = [["summary", "Summary"], ["board", "Board"], ["watch", "Watchlist"]];
+const AR_SECS = [["summary", "Summary"], ["watch", "Watchlist"], ["board", "Board"]];
 const AR_SEC_KEY = "dm-ar-sec";
 function useArAll() {
   const sheet = useArData(); // the sheet read: money, cells, rows free
@@ -3024,7 +3024,9 @@ const AR_STAGES = [
 ];
 const STAGE_OF_STATUS = { "Not Contacted": "reach", Researching: "reach", "": "reach", Contacted: "reached", "In Talks": "talking", "Offer Out": "offer", Signed: "signed", Passed: "passed" };
 const stageOfStatus = (s) => STAGE_OF_STATUS[String(s ?? "").trim()] || "other";
-const stageLabel = (id) => AR_STAGES.find((s) => s.id === id)?.label || (id === "passed" ? "Passed" : id === "other" ? "Other" : "Not on the board");
+const stageLabel = (id) => AR_STAGES.find((s) => s.id === id)?.label || (id === "passed" ? "Passed" : id === "other" ? "Other" : "Just watching");
+// one coloured pill per stage (the colour comes from data-stage), the same on every A&R page
+const StagePill = ({ id, n, label }) => <span className="ar-stage" data-stage={id}>{label || stageLabel(id)}{n != null && <b>{n}</b>}</span>;
 // the status a move saves: "To reach out" keeps Researching when that's what it was
 const statusForStage = (id, current) => (id === "passed" ? "Passed" : id === "reach" && String(current ?? "").trim() === "Researching" ? "Researching" : AR_STAGES.find((s) => s.id === id)?.status);
 // a card can only be moved onto a real stage: "Other" is whatever was typed by hand, never a target
@@ -3041,8 +3043,10 @@ const WowPill = ({ pct, big }) => (pct == null ? null : <span className={big ? "
 // rarely have one, and Passed is done, so neither counts)
 const needsLumRow = (r) => r.ref?.type === "tracked" && !r.luminateId && r.stage !== "passed";
 const UpDown = ({ r }) => (r.current == null ? <span className="muted">No numbers yet</span>
-  : r.changePct == null ? <span className="muted">—</span>
-  : <span className={`ar-ch ${r.changePct >= 0 ? "up" : "down"}`}>{pctText(r.changePct)}</span>);
+  : r.changePct == null ? <span className="muted-dash" title="No last week to compare">—</span>
+  : <WowPill pct={r.changePct} />);
+// a week's span moved by whole days ("compared with Oct 16 – 22" is the 7 days before)
+const shiftDay = (iso, d) => { const t = new Date(`${iso}T12:00:00`); t.setDate(t.getDate() + d); return t.toLocaleDateString("en-CA"); };
 
 // Everyone on the Board: producers (prospects, their stage from the sheet) and the tracked artists
 // put on the board (stage not null). Built the same way for Summary, the Board and the Watchlist.
@@ -3079,24 +3083,25 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
   useEffect(() => { if (open?.type === "add") setKind(open.kind || "producer"); }, [open]);
   if (!open) return null;
   const canSave = !!data && data.sheet?.ok !== false;
-  const statuses = data?.statuses || ["Not Contacted", "Researching", "Contacted", "In Talks", "Offer Out", "Signed", "Passed"];
+  // one tap picks what's being added, and the form's title follows it
   const picker = (
-    <label className="fld ar-kind"><span>What are you adding?</span>
-      <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="What are you adding?">
-        <option value="artist">Artist</option><option value="producer">Producer</option><option value="song">Song</option>
-      </select>
-    </label>
+    <span className="gainer-tabs ar-kind" role="tablist" aria-label="What are you adding?">
+      {[["artist", "Artist"], ["producer", "Producer"], ["song", "Song"]].map(([id, label]) => (
+        <button key={id} type="button" role="tab" aria-selected={kind === id} className={kind === id ? "active" : ""} onClick={() => setKind(id)}>{label}</button>
+      ))}
+    </span>
   );
+  const addTitle = open.prefill?.name ? `Add ${open.prefill.name}` : kind === "artist" ? "Add an artist" : kind === "song" ? "Add a song" : "Add a producer";
   if (open.type === "add" && kind === "producer") {
     return (
-      <ProspectForm title="Add someone" picker={picker} blendedRate={data?.assumptions?.blendedRate ?? 0} statuses={statuses} canSave={canSave}
+      <ProspectForm title={addTitle} picker={picker} blendedRate={data?.assumptions?.blendedRate ?? 0} canSave={canSave}
         onClose={closePanel} onChanged={async (r) => { await load(); if (r?.prospect?.id) openPanel({ type: "prospect", id: r.prospect.id }); else closePanel(); }} />
     );
   }
   if (open.type === "add" || open.type === "tracked") {
     const t = open.type === "tracked" ? (pg?.tracked || []).find((x) => x.id === open.id) : null;
     if (open.type === "tracked" && !t) return null;
-    return <ArTrackedForm key={t?.id || kind} kind={t?.kind || kind} t={t} prefill={open.prefill} picker={t ? null : picker} pg={pg}
+    return <ArTrackedForm key={t?.id || kind} kind={t?.kind || kind} t={t} prefill={open.prefill} picker={t ? null : picker} title={addTitle} pg={pg}
       onClose={closePanel} onSaved={async () => { await loadPg(); closePanel(); }} />;
   }
   const s = (data?.prospects || []).find((p) => p.id === open.id);
@@ -3106,17 +3111,17 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
   const link = (p?.tracked || []).find((x) => x.kind === "artist" && x.luminateId)?.luminateId || "";
   const mine = (pg?.watch?.people || []).find((r) => r.ref?.id === open.id);
   return (
-    <ProspectForm key={s.id} prospect={s} pg={p} blendedRate={data.assumptions.blendedRate} statuses={statuses} canSave={canSave} reload={load}
+    <ProspectForm key={s.id} prospect={s} pg={p} blendedRate={data.assumptions.blendedRate} canSave={canSave} reload={load}
       onClose={closePanel} onChanged={async () => { await load(); closePanel(); }}
       extra={(
         <div className="ar-panel-extra">
           <p className="fld-label mb">Their Luminate numbers</p>
           {mine?.current != null
-            ? <p className="ar-nums">{fmt(mine.current)} streams this period <UpDown r={mine} /> · {fmt(mine.atd ?? 0)} all-time</p>
+            ? <p className="ar-nums">{fmt(mine.current)} streams this week <UpDown r={mine} /> · {fmt(mine.atd ?? 0)} all-time</p>
             : <p className="muted ar-nums">No numbers yet. Add them to your A&amp;R list in Luminate, then pick their row here.</p>}
-          <label className="fld"><span>Their row in the A&amp;R Artists list</span>
-            <select value={link} onChange={(e) => arPost({ action: "linkLuminate", prospectId: s.id, luminateId: e.target.value }).then(loadPg).catch((e2) => window.alert(e2.message))} aria-label="Their row in the A&R Artists list">
-              <option value="">{mine?.luminateId && !link ? `Matched by name: ${artistRows.find((r) => r.id === mine.luminateId)?.name || ""}` : "Not linked"}</option>
+          <label className="fld"><span>Their row in your Luminate A&amp;R Artists list</span>
+            <select value={link} onChange={(e) => arPost({ action: "linkLuminate", prospectId: s.id, luminateId: e.target.value }).then(loadPg).catch((e2) => window.alert(e2.message))} aria-label="Their row in your Luminate A&R Artists list">
+              <option value="">{mine?.luminateId && !link ? `Matched by name: ${artistRows.find((r) => r.id === mine.luminateId)?.name || ""}` : "None yet"}</option>
               {artistRows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
           </label>
@@ -3128,7 +3133,7 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
 
 // Add or edit a tracked artist or song: saved in the dashboard's database only, never the sheet, and
 // no money anywhere (only producers have estimates)
-function ArTrackedForm({ kind, t, prefill, picker, pg, onClose, onSaved }) {
+function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }) {
   const isNew = !t;
   const init = t || { name: prefill?.name || "", artist: "", handle: "", spotify: "", isrc: "", genre: "", notes: "", luminateId: prefill?.luminateId || "", personId: null, stage: null };
   const [f, setF] = useState({ ...init, stage: init.stage || "" });
@@ -3161,20 +3166,31 @@ function ArTrackedForm({ kind, t, prefill, picker, pg, onClose, onSaved }) {
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
       <div className="modal-card ar-tracked-form" data-kind={type}>
-        <div className="modal-head"><h3>{isNew ? "Add someone" : t.name}</h3><button onClick={onClose} aria-label="Close" disabled={busy}><X size={18} /></button></div>
+        <div className="modal-head"><h3>{isNew ? title || "Add an artist" : t.name}</h3><button onClick={onClose} aria-label="Close" disabled={busy}><X size={18} /></button></div>
         <div className="modal-body">
           {picker}
+          {isNew && prefill?.name && <p className="hint mb">Their numbers already come in from Luminate. Add a handle or Spotify link, or put them on the board.</p>}
           {err && <p className="hint err-text" role="alert">{err}</p>}
           <Field label={type === "song" ? "Song title" : "Name"} value={f.name} onChange={set("name")} />
+          {type === "artist" && (
+            <label className="fld"><span>Stage</span>
+              <select value={f.stage} onChange={set("stage")} aria-label="Stage">
+                <option value="">Just watching (not on the Board)</option>
+                {AR_STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+                <option value="passed">Passed</option>
+              </select>
+            </label>
+          )}
           {type === "song" && <Field label="Artist" value={f.artist} onChange={set("artist")} />}
           {type === "artist" && <Field label="Instagram or TikTok" value={f.handle} onChange={set("handle")} />}
           <Field label="Spotify link" value={f.spotify} onChange={set("spotify")} />
           {type === "song" && <Field label="ISRC (if you have it)" value={f.isrc} onChange={set("isrc")} />}
-          <label className="fld"><span>Their row in the A&amp;R {type === "song" ? "Songs" : "Artists"} list</span>
+          <label className="fld"><span>Their row in your Luminate A&amp;R {type === "song" ? "Songs" : "Artists"} list</span>
             <select value={f.luminateId} onChange={set("luminateId")} aria-label="Their row in Luminate">
-              <option value="">Not in Luminate yet</option>
+              <option value="">None yet</option>
               {rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
+            <span className="hint">Not there? Add them in Luminate. They show up here after your next export.</span>
           </label>
           {type === "artist" && <Field label="Genre" value={f.genre} onChange={set("genre")} />}
           {type === "song" && (
@@ -3186,15 +3202,6 @@ function ArTrackedForm({ kind, t, prefill, picker, pg, onClose, onSaved }) {
             </label>
           )}
           <Area label="Notes" value={f.notes} onChange={set("notes")} />
-          {type === "artist" && (
-            <label className="fld"><span>Stage</span>
-              <select value={f.stage} onChange={set("stage")} aria-label="Stage">
-                <option value="">Not on the board</option>
-                {AR_STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-                <option value="passed">Passed</option>
-              </select>
-            </label>
-          )}
           <p className="hint">Saved here in the dashboard only. Nothing goes into the pub sheet.</p>
         </div>
         <div className="modal-foot">
@@ -3223,25 +3230,26 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const watch = pg?.watch;
   const { cards } = arCards(data, pg);
   const [showToLum, setShowToLum] = useState(false);
+  const phone = useMedia("(max-width: 699px)");
+  const [gtab, setGtab] = useState("people"); // phones show one list at a time
   // ranked on the server by week-on-week % (watch.top: keys, ranked = shown with its %)
   const ranked = (list, keys) => (keys || []).map((k) => { const r = list.find((x) => x.key === k.key); return r && { ...r, ranked: k.ranked }; }).filter(Boolean);
   const people = ranked(watch?.people || [], watch?.top?.people), songs = ranked(watch?.songs || [], watch?.top?.songs);
   const to = watch?.period?.to;
   const old = to && daysSince(to) > 8;
-  const title = "Top gainers";
-  const today = new Date().toLocaleDateString("en-CA");
-  // most urgent first: late follow-ups, then due today, then quiet offers, then what can't get numbers
+  // most urgent first: late follow-ups, then due today, then quiet offers, then what can't get numbers.
+  // urg colours the row's dot: red late, amber soon, blue Luminate
   const tasks = [];
   const live = cards.filter((c) => c.stage !== "passed" && c.stage !== "signed");
-  for (const c of live.filter((x) => x.followUp?.state === "overdue")) tasks.push({ k: `late:${c.key}`, t: `Follow up with ${c.name}: ${c.followUp.daysLate === 1 ? "1 day" : `${c.followUp.daysLate} days`} late.`, cta: "Open", go: () => goBoard() });
-  for (const c of live.filter((x) => x.followUp?.state === "due")) tasks.push({ k: `due:${c.key}`, t: `Follow up with ${c.name} today.`, cta: "Open", go: () => goBoard() });
+  for (const c of live.filter((x) => x.followUp?.state === "overdue")) tasks.push({ k: `late:${c.key}`, urg: "late", t: `Follow up with ${c.name}: ${c.followUp.daysLate === 1 ? "1 day" : `${c.followUp.daysLate} days`} late.`, cta: "Open", go: () => goBoard() });
+  for (const c of live.filter((x) => x.followUp?.state === "due")) tasks.push({ k: `due:${c.key}`, urg: "soon", t: `Follow up with ${c.name} today.`, cta: "Open", go: () => goBoard() });
   for (const c of cards.filter((x) => x.stage === "offer" && (!x.lastContact || daysSince(x.lastContact) >= 7))) {
-    tasks.push({ k: `offer:${c.key}`, t: `The offer to ${c.name} has had no contact ${c.lastContact ? `since ${shortDay(c.lastContact)}` : "logged"}.`, cta: "Open", go: () => goBoard() });
+    tasks.push({ k: `offer:${c.key}`, urg: "soon", t: `The offer to ${c.name} has had no contact ${c.lastContact ? `since ${shortDay(c.lastContact)}` : "logged"}.`, cta: "Open", go: () => goBoard() });
   }
   // the same task and wording as the Dashboard's (lib/ar.js arToLuminateOf)
   const toLum = pg?.toLuminate;
-  if (toLum?.count) tasks.push({ k: "noNumbers", t: toLum.text, cta: "See the list", go: () => setShowToLum(true) });
-  if (old) tasks.push({ k: "stale", t: `A&R numbers are from ${shortDay(to)}.`, cta: "Drop new exports", go: () => onGo("luminate", "drop") });
+  if (toLum?.count) tasks.push({ k: "noNumbers", urg: "lum", t: toLum.text, cta: "See the list", go: () => setShowToLum(true) });
+  if (old) tasks.push({ k: "stale", urg: "lum", t: `A&R numbers are from ${shortDay(to)}.`, cta: "Drop new exports", go: () => onGo("luminate", "drop") });
   // ClickUp's A&R Tasks, merged by urgency: urgent ones above the late follow-ups, high ones right
   // after them, the rest only while the list is short. Each opens the task in ClickUp.
   const cuItem = (t) => ({ k: `cu:${t.id}`, pri: t.priority, t: `${t.name}${t.due ? ` (${dueLate(t.due) ? "late, was due" : "due"} ${shortDay(t.due)})` : ""}`, cta: "Open in ClickUp", go: () => openTab(t.url) });
@@ -3251,44 +3259,71 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const others = cuOpen.filter((t) => t.priority !== "urgent" && t.priority !== "high");
   if (merged.length < 5) merged.push(...others.slice(0, 5 - merged.length).map(cuItem));
   if (cu?.error) merged.push({ k: "cu:error", t: "Couldn't reach ClickUp, so its A&R tasks aren't listed here.", cta: "Try again", go: retryCu });
-  const talking = cards.filter((c) => c.stage === "talking").length, offers = cards.filter((c) => c.stage === "offer").length;
   const value = data?.totals?.totalValue;
+  const stageN = (id) => cards.filter((c) => c.stage === id).length;
+  // someone tracked here opens their panel on the Watchlist; a Luminate-only row is just shown there
+  const openGainer = (r, kind) => goWatch(r.ref ? { pill: kind, open: r.key } : { pill: kind, flash: r.key });
   const Gainers = ({ list, kind }) => (
     <div className="gainers ar-gainers" data-list={kind}>
       <div className="attn-head"><TrendingUp size={15} /> {kind === "people" ? "People" : "Songs"}{watch?.periods?.[kind] && <span className="ar-dates"> · {dayRange(watch.periods[kind].from, watch.periods[kind].to)}</span>}</div>
       {!pg ? <p className="gainers-empty">Loading…</p> : !list.length ? (
         <p className="gainers-empty">{kind === "people" ? "Nobody" : "No songs"} with numbers yet. <button className="btn ghost sm" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></p>
-      ) : list.map((r, i) => (
-        <button key={r.key} className="gainer" onClick={() => goWatch({ pill: kind, open: r.key })}>
-          <span className="gainer-n">{i + 1}</span>
-          <span className="lm-song-main"><strong>{r.name || r.title}</strong>
-            <span>{kind === "people" ? <span className="tag ar-role">{r.role === "producer" ? "Producer" : "Artist"}</span> : <>{r.release && <span className="tag ar-role">Release</span>} {r.artist || (r.fromLuminate ? "From Luminate" : "")}</>}</span>
-          </span>
-          {r.ranked && r.wowPct != null
-            ? <span className="gainer-num"><b className={`ar-ch ${r.wowPct >= 0 ? "up" : "down"}`}>{wowText(r.wowPct)} vs last week</b><em className="ar-week">{fmt(r.thisWeek)} {old ? "that week" : "this week"}</em></span>
-            : <span className="gainer-num"><b className="ar-week">{fmt(r.thisWeek)} {old ? "that week" : "this week"}</b></span>}
-        </button>
-      ))}
+      ) : list.map((r, i) => {
+        const pct = r.ranked && r.wowPct != null;
+        return (
+          <button key={r.key} className="gainer" data-ranked={pct ? "" : undefined} onClick={() => openGainer(r, kind)}>
+            <span className="gainer-n">{pct ? i + 1 : "·"}</span>
+            <span className="lm-song-main"><strong>{r.name || r.title}</strong>
+              {kind === "people"
+                ? <span className="ar-g-sub">{r.role === "producer" ? "Producer" : "Artist"}{r.stage && <StagePill id={r.stage} />}</span>
+                : r.artist && <span>{r.artist}</span>}
+            </span>
+            <span className="gainer-num" data-wow={pct ? (r.wowPct >= 0 ? "up" : "down") : "none"}>
+              {pct && <WowPill pct={r.wowPct} big />}<em>{fmt(r.thisWeek)} {old ? "that week" : "this week"}</em>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
+  const tabs = [["people", "People", (watch?.people || []).length], ["songs", "Songs", (watch?.songs || []).length]];
   return (
     <div className="ar-summary">
       <ArHead title="A&R" sub="Who's up this week and what needs doing." />
       {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
-      <div className="ar-sum-head"><h3 className="ar-h3">{title}</h3><button className="inline-link" onClick={() => goWatch(null)}>See everyone →</button></div>
-      <div className="home-pair ar-gainer-pair"><Gainers list={people} kind="people" /><Gainers list={songs} kind="songs" /></div>
-      <h3 className="ar-h3">Top priority A&amp;R tasks</h3>
-      <div className={merged.length ? "attn ar-tasks" : "attn clear ar-tasks"}>
-        {!merged.length && <div className="attn-head"><CheckCircle2 size={15} /> All caught up</div>}
-        {merged.map((it) => (
-          <div key={it.k} className="attn-row" data-task={it.k} data-pri={it.pri || undefined}>
-            <span>{it.pri && <span className="cu-pri" data-pri={it.pri} title={`${PRIORITY[it.pri] || it.pri} priority in ClickUp`}><Flag size={13} /></span>}{it.t}</span>
-            <button className="btn ghost sm" onClick={it.go}>{it.cta}</button>
-          </div>
-        ))}
+      {/* the pipeline at a glance: one coloured pill per stage, and the sheet's total value; opens the Board */}
+      <button className="ar-strip" onClick={goBoard} aria-label="Open the Board">
+        {AR_STAGES.map((st) => <StagePill key={st.id} id={st.id} n={stageN(st.id)} />)}
+        <span className="ar-strip-val">{value != null ? `≈ ${wholeMoney(value)} in play` : "Open the Board"} →</span>
+      </button>
+      <div className="ar-sum-head">
+        <h3 className="ar-h3">{old ? "Top gainers in the last export" : "Top gainers this week"} <span className="ar-h3-sub">· ranked by % vs last week</span></h3>
+        <button className="inline-link" onClick={() => goWatch(null)}>See everyone →</button>
       </div>
-      <p className="ar-pipe"><button className="inline-link" onClick={goBoard}>Pipeline: {talking} talking · {offers} offer{offers === 1 ? "" : "s"} out{value != null ? ` · ≈ ${wholeMoney(value)} value` : ""}</button></p>
-      {showToLum && toLum && <ArToLuminateModal t={toLum} onClose={() => setShowToLum(false)} />}
+      {phone && (
+        <span className="gainer-tabs ar-gainer-toggle" role="tablist" aria-label="People or songs">
+          {tabs.map(([id, label, n]) => <button key={id} role="tab" aria-selected={gtab === id} className={gtab === id ? "active" : ""} onClick={() => setGtab(id)}>{label} <span className="arb-n">{n}</span></button>)}
+        </span>
+      )}
+      <div className="home-pair ar-gainer-pair">
+        {(!phone || gtab === "people") && <Gainers list={people} kind="people" />}
+        {(!phone || gtab === "songs") && <Gainers list={songs} kind="songs" />}
+      </div>
+      {merged.length ? (
+        <>
+          <h3 className="ar-h3 ar-todo-h">To do <span className="attn-n">{merged.length}</span></h3>
+          <div className="attn ar-tasks">
+            {merged.map((it) => (
+              <div key={it.k} className="attn-row" data-task={it.k} data-pri={it.pri || undefined}>
+                {it.urg && <i className="ar-dot" data-urg={it.urg} aria-hidden="true" />}
+                <span>{it.pri && <span className="cu-pri" data-pri={it.pri} title={`${PRIORITY[it.pri] || it.pri} priority in ClickUp`}><Flag size={13} /></span>}{it.t}</span>
+                <button className="btn ghost sm" onClick={it.go}>{it.cta}</button>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : <h3 className="ar-h3 ar-todo-h ar-todo-clear">To do <span className="todo-done">· <CheckCircle2 size={14} /> All caught up</span></h3>}
+      {showToLum && toLum && <ArToLuminateModal t={toLum} onGo={onGo} onClose={() => setShowToLum(false)} />}
     </div>
   );
 }
@@ -3397,6 +3432,7 @@ function ArBoard({ ar, onGo }) {
   };
   const openCard = (c, e) => openPanel(c.role === "producer" ? { type: "prospect", id: c.id } : { type: "tracked", id: c.id }, e);
   const menuDo = (fn) => () => { setMore(false); fn(); };
+  const notes = (data?.sheet?.problems || []).map((pr) => pr.text || String(pr));
 
   return (
     <div className="arb">
@@ -3422,7 +3458,13 @@ function ArBoard({ ar, onGo }) {
           <span>The pub sheet isn't answering, so saving to it is paused. Showing what it said {data?.sheet?.seenAt ? `at ${clock(data.sheet.seenAt)}` : "last time"}.</span>
           <button className="btn ghost sm" onClick={() => { retry(); loadPg(); }}>Try again</button>
         </div>
-      ) : <p className="arb-status">{sheetOk === null ? <span className="muted">Reading the OUTREACH tab…</span> : `Saved to your OUTREACH sheet · checked ${clock(data.sheet.readAt)}`}</p>}
+      ) : (
+        <p className="arb-status">
+          {sheetOk === null ? <span className="muted">Reading the OUTREACH tab…</span> : `Saved to your OUTREACH sheet · ${clock(data.sheet.readAt)}`}
+          {/* what the sheet read flagged (a status dropdown it couldn't read…) is one quiet link; Sheet check has the full sentence */}
+          {notes.length > 0 && <> · <button className="inline-link arb-notes" onClick={() => setShowCheck(true)}>{notes.length === 1 ? "1 sheet note" : `${notes.length} sheet notes`}</button></>}
+        </p>
+      )}
       {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
       {flash && <p className={`hint ${flash.ok ? "ok-text" : "err-text"} arb-flash`} role="status">{flash.text}</p>}
 
@@ -3433,9 +3475,6 @@ function ArBoard({ ar, onGo }) {
           <button className="btn ghost sm" onClick={() => act(() => arPost({ action: "dismissFirstRun" }))} disabled={busy}>Got it</button>
         </div>
       )}
-      {(data?.sheet?.problems || []).map((pr) => (
-        <div key={pr.id || pr.text} className="arb-banner warn"><AlertTriangle size={16} /><span>{pr.text || String(pr)}</span></div>
-      ))}
       {(data?.givenMismatch || []).length > 0 && (
         <div className="attn arb-check">
           <div className="attn-head"><AlertTriangle size={15} /> Changes to check</div>
@@ -3464,18 +3503,18 @@ function ArBoard({ ar, onGo }) {
             const opened = isOpen(c.id), drop = drag && canMoveTo(c.id);
             const dropOk = (e) => { e.preventDefault(); if (over !== c.id) setOver(c.id); };
             return (
-              <section key={c.id} className={`arb-col${opened ? "" : " folded"}${over === c.id ? " over" : ""}`} data-col={c.id}
+              <section key={c.id} className={`arb-col${opened ? "" : " folded"}${over === c.id ? " over" : ""}`} data-col={c.id} data-stage={c.id}
                 onDragOver={drop ? dropOk : undefined} onDragEnter={drop ? dropOk : undefined}
                 onDragLeave={drop ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver((o) => (o === c.id ? null : o)); } : undefined}
                 onDrop={drop ? (e) => { e.preventDefault(); const card = shown.find((x) => x.key === drag); setDrag(null); setOver(null); if (card) moveTo(card, c.id); } : undefined}>
                 <button className="arb-col-head" onClick={() => setFolds({ ...folds, [c.id]: !opened })} aria-expanded={opened}>
-                  <span className="arb-col-title">{c.label} <span className="arb-n">· {c.cards.length}</span></span>
+                  <span className="arb-col-title"><i className="arb-dot" aria-hidden="true" /><span className="arb-col-label">{c.label}</span> <span className="arb-n">{c.cards.length}</span></span>
                   <span className="arb-hint">{c.hint}</span>
                 </button>
                 <div className="arb-cards">
                   {c.id === "reach" && (
                     <form onSubmit={quickAdd} className="arb-quick">
-                      <input placeholder="Add someone… type a name, press Enter" value={quick} onChange={(e) => setQuick(e.target.value)} disabled={!canSave || busy} title={paused} aria-label="Add someone" />
+                      <input placeholder="Add a producer, press Enter" value={quick} onChange={(e) => setQuick(e.target.value)} disabled={!canSave || busy} title={paused} aria-label="Add a producer" />
                     </form>
                   )}
                   {c.cards.map((card) => (
@@ -3484,7 +3523,7 @@ function ArBoard({ ar, onGo }) {
                       onDragStart={(e) => { e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", card.key); } catch { /* old browsers */ } setDrag(card.key); }}
                       onDragEnd={() => { setDrag(null); setOver(null); }} />
                   ))}
-                  {!c.cards.length && c.id !== "reach" && <p className="arb-empty">Nobody here yet.</p>}
+                  {!c.cards.length && c.id !== "reach" && <p className="arb-empty">{drop ? "Drop here" : "Nobody here yet"}</p>}
                 </div>
               </section>
             );
@@ -3505,7 +3544,7 @@ function ArBoard({ ar, onGo }) {
 
       <ArPanels ar={ar} open={open} openPanel={openPanel} closePanel={closePanel} onGo={onGo} />
       {showOff && <OffBoardList items={offBoard} live={live} canSave={canSave} onClose={() => setShowOff(false)} reload={reload} />}
-      {showCheck && <SheetCheck onClose={() => setShowCheck(false)} />}
+      {showCheck && <SheetCheck notes={notes} onClose={() => setShowCheck(false)} />}
     </div>
   );
 }
@@ -3513,8 +3552,26 @@ function ArBoard({ ar, onGo }) {
 // A card: who, how to reach them, a producer's numbers, the follow-up, and ONE next step (the ⋯ menu
 // has the rest). A producer's buttons wait for the sheet; an artist's don't need it.
 function ArCard({ c, canSave, paused, busy, canDrag, onOpen, onMove, onDragStart, onDragEnd }) {
-  const [menu, setMenu] = useState(false);
-  useEscape(() => setMenu(false), menu);
+  // the ⋯ menu is placed on the screen itself, so a column that scrolls can't cut it off. It opens
+  // upward when there's no room below, follows its button while the page or column scrolls, and
+  // closes once the button is off screen
+  const [menu, setMenu] = useState(null);
+  const dots = useRef(null);
+  useEscape(() => setMenu(null), !!menu);
+  const place = () => {
+    const r = dots.current?.getBoundingClientRect();
+    if (!r || r.bottom < 0 || r.top > window.innerHeight) return null;
+    const up = window.innerHeight - r.bottom < 160;
+    return { right: Math.max(8, window.innerWidth - r.right), ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }) };
+  };
+  const isOpen = !!menu;
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const follow = () => setMenu(place());
+    window.addEventListener("scroll", follow, true); window.addEventListener("resize", follow);
+    return () => { window.removeEventListener("scroll", follow, true); window.removeEventListener("resize", follow); };
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggle = () => setMenu(menu ? null : place());
   const next = stepFrom(c.stage, 1), back = stepFrom(c.stage, -1);
   const off = (c.role === "producer" && !canSave) || busy;
   const s = c.s;
@@ -3523,23 +3580,22 @@ function ArCard({ c, canSave, paused, busy, canDrag, onOpen, onMove, onDragStart
       <button className="arb-card-open" data-focus={c.key} onClick={onOpen} disabled={c.role === "producer" && !s} title={c.role === "producer" && !s ? "Waiting for the pub sheet" : undefined}>
         <span className="arb-card-top">
           <span className="arb-name">{c.name}</span>
-          <span className="tag ar-role">{c.role === "artist" ? "Artist" : "Producer"}</span>
-          {c.clientId && <span className="tag" data-tone="pos">Client</span>}
+          {c.role === "producer" && s && <b className="arb-val">≈ {wholeMoney(s.money.totalEstValue)}</b>}
         </span>
-        {c.contact && <span className="arb-contact">{c.contact}</span>}
+        <span className="arb-contact">{c.role === "artist" ? "Artist" : "Producer"}{c.contact ? ` · ${c.contact}` : ""}{c.clientId && <> <span className="tag" data-tone="pos">Client</span></>}</span>
         {c.status === "Researching" && <span className="arb-sub">Researching</span>}
-        {c.role === "producer" && s && <span className="arb-money">{shortNum(s.money.netStreams)} streams (their share) · ≈ {wholeMoney(s.money.totalEstValue)} value</span>}
+        {c.role === "producer" && s && <span className="arb-money">{shortNum(s.money.netStreams)} streams (their share)</span>}
         {c.followUp?.on && <span className="arb-tags">{followChip(c.followUp)}</span>}
       </button>
       <div className="arb-card-acts">
-        {next && <button className="btn sm arb-next" onClick={() => onMove(next.id)} disabled={off} title={c.role === "producer" ? paused : undefined}>{next.verb}</button>}
-        <span className="arb-more" onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setMenu(false)}>
-          <button className="btn ghost sm arb-dots" aria-label={`More for ${c.name}`} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>⋯</button>
+        {next && <button className="btn ghost sm arb-next" data-stage={next.id} onClick={() => onMove(next.id)} disabled={off} title={c.role === "producer" ? paused : undefined}>{next.verb}</button>}
+        <span className="arb-more" onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setMenu(null)}>
+          <button ref={dots} className="btn ghost sm arb-dots" aria-label={`More for ${c.name}`} aria-haspopup="menu" aria-expanded={!!menu} onClick={toggle}>⋯</button>
           {menu && (
-            <div className="arb-menu" role="menu">
-              {back && <button role="menuitem" disabled={off} onClick={() => { setMenu(false); onMove(back.id); }}>Move back to {back.label}</button>}
-              {c.stage !== "passed" && <button role="menuitem" disabled={off} onClick={() => { setMenu(false); onMove("passed"); }}>Mark as passed</button>}
-              <button role="menuitem" onClick={(e) => { setMenu(false); onOpen(e); }}>Open details</button>
+            <div className="arb-menu arb-menu-fixed" role="menu" style={menu}>
+              {back && <button role="menuitem" disabled={off} onClick={() => { setMenu(null); onMove(back.id); }}>Move back to {back.label}</button>}
+              {c.stage !== "passed" && <button role="menuitem" disabled={off} onClick={() => { setMenu(null); onMove("passed"); }}>Mark as passed</button>}
+              <button role="menuitem" onClick={(e) => { setMenu(null); onOpen(e); }}>Open details</button>
             </div>
           )}
         </span>
@@ -3550,22 +3606,20 @@ function ArCard({ c, canSave, paused, busy, canDrag, onOpen, onMove, onDragStart
 
 // The Board's list view (More ▾ › Show as a list, and Passed)
 function ArList({ rows, onOpen }) {
-  const cols = "1.3fr .8fr 1fr .9fr .9fr .9fr .9fr";
+  const cols = "minmax(0,1.6fr) minmax(0,1fr) minmax(0,.8fr) minmax(0,.8fr) minmax(0,.8fr)";
   if (!rows.length) return <div className="admin-empty">Nobody here yet.</div>;
   return (
-    <div className="admin-table arb-list">
+    <div className="admin-table arb-list ar-table">
       <div className="admin-row admin-hd" style={{ "--cols": cols }}>
-        <span>Name</span><span>Who</span><span>Contact</span><span>Stage</span><span>Last contact</span><span>Next follow-up</span><span>≈ Value</span>
+        <span data-col="name">Name</span><span data-col="stage">Stage</span><span data-col="contact">Last contact</span><span data-col="follow">Next follow-up</span><span data-col="value">≈ Value</span>
       </div>
       {rows.map((c) => (
-        <button key={c.key} className="admin-row admin-row-link" data-focus={`list:${c.key}`} style={{ "--cols": cols }} onClick={(e) => (c.role !== "producer" || c.s) && onOpen(c, e)}>
-          <span className="cell">{c.name}</span>
-          <span className="cell">{c.role === "artist" ? "Artist" : "Producer"}</span>
-          <span className="cell">{c.contact || "—"}</span>
-          <span className="cell">{c.stage === "other" ? c.status : stageLabel(c.stage)}</span>
-          <span className="cell">{c.lastContact ? shortDay(c.lastContact) : c.lastText || "—"}</span>
-          <span className="cell">{c.followUp?.on ? shortDay(c.followUp.on) : "—"}</span>
-          <span className="cell">{c.role === "producer" && c.s ? wholeMoney(c.s.money.totalEstValue) : "—"}</span>
+        <button key={c.key} className="admin-row ar-link" data-focus={`list:${c.key}`} style={{ "--cols": cols }} onClick={(e) => (c.role !== "producer" || c.s) && onOpen(c, e)}>
+          <span className="cell ar-who" data-col="name"><strong>{c.name}</strong><span className="ar-who-sub">{c.role === "artist" ? "Artist" : "Producer"}{c.contact ? ` · ${c.contact}` : ""}</span></span>
+          <span className="cell" data-col="stage">{c.stage === "other" ? <StagePill id="other" label={c.status} /> : <StagePill id={c.stage} />}</span>
+          <span className="cell" data-col="contact">{c.lastContact ? shortDay(c.lastContact) : c.lastText || <span className="muted-dash">—</span>}</span>
+          <span className="cell" data-col="follow">{c.followUp?.on ? shortDay(c.followUp.on) : <span className="muted-dash">—</span>}</span>
+          <span className="cell" data-col="value">{c.role === "producer" && c.s ? `≈ ${wholeMoney(c.s.money.totalEstValue)}` : <span className="muted-dash">—</span>}</span>
         </button>
       ))}
     </div>
@@ -3574,6 +3628,7 @@ function ArList({ rows, onOpen }) {
 
 // Watchlist: everyone and every song tracked (and every row of the A&R Luminate lists), up or down
 const SORTS = { name: (r) => String(r.name ?? r.title ?? "").toLowerCase(), current: (r) => r.current, changePct: (r) => r.changePct, atd: (r) => r.atd, value: (r) => r.value };
+const SHOW_TABS = [["everyone", "Everyone"], ["artists", "Artists"], ["producers", "Producers"]];
 // the Watchlist opens in the server's order: biggest week-on-week % first, no % last (by this week's streams)
 function ArWatch({ ar, onGo, at }) {
   const { data, pg, pgErr, loadPg } = ar;
@@ -3582,6 +3637,8 @@ function ArWatch({ ar, onGo, at }) {
   const [find, setFind] = useState("");
   const [onlyNone, setOnlyNone] = useState(!!at?.noNumbers);
   const [sort, setSort] = useState({ k: "changePct", dir: -1, server: true }); // biggest % first (the server's order) until a column is clicked
+  const [lit, setLit] = useState(null); // the row a Summary click points at, lit for about 2 seconds
+  const [showToLum, setShowToLum] = useState(false);
   const { open, openPanel, closePanel } = usePanel();
   const { cards, sheetById } = arCards(data, pg);
   const stageBy = Object.fromEntries(cards.map((c) => [c.key, c.stage]));
@@ -3605,24 +3662,39 @@ function ArWatch({ ar, onGo, at }) {
     return (x < y ? -1 : x > y ? 1 : 0) * (sort.k === "name" ? -sort.dir : sort.dir);
   });
   const openRow = (r, e) => openPanel(r.ref ? { type: r.ref.type, id: r.ref.id } : { type: "add", kind: pill === "songs" ? "song" : "artist", prefill: { name: r.name, luminateId: r.luminateId } }, e);
-  // Summary's row click: open that row here once it has drawn
+  // Summary's row click: open that person's panel once it has drawn, or (a Luminate-only row) light it up
   const jumped = useRef(false);
   useEffect(() => {
-    if (!at?.open || jumped.current || !pg || !data) return;
+    if (jumped.current || !pg) return;
+    if (at?.flash) {
+      jumped.current = true; setLit(at.flash);
+      document.querySelector(`.ar-watch-list [data-key="${CSS.escape(at.flash)}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    if (!at?.open || !data) return;
     jumped.current = true;
     const r = [...people, ...songs].find((x) => x.key === at.open);
     if (r) openRow(r);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pg, data]);
+  useEffect(() => { if (!lit) return undefined; const t = setTimeout(() => setLit(null), 2000); return () => clearTimeout(t); }, [lit]);
   // each list's own dates (Artists and Songs are often exported on different days)
   const period = pg?.watch?.periods?.[pill] || null;
   const to = period?.to, old = to && daysSince(to) > 8;
-  const head = (k, label) => (
-    <button className={`ar-sort${sort.k === k ? " on" : ""}`} onClick={() => setSort({ k, dir: sort.k === k ? -sort.dir : -1 })} aria-label={`Sort by ${label}`}>
-      {label}{sort.k === k ? (sort.dir < 0 ? " ↓" : " ↑") : ""}
-    </button>
+  const head = (k, label, col) => (
+    <span data-col={col}>
+      <button className={`ar-sort${sort.k === k && !sort.server ? " on" : ""}`} onClick={() => setSort({ k, dir: sort.k === k ? -sort.dir : -1 })} aria-label={`Sort by ${label}`}>
+        {label}{sort.k === k && !sort.server ? (sort.dir < 0 ? " ↓" : " ↑") : ""}
+      </button>
+    </span>
   );
-  const pcols = "1.5fr .7fr .9fr .8fr .9fr .9fr .8fr .8fr", scols = "1.5fr 1fr 1fr .9fr .8fr .9fr";
+  const producers = pill === "people" && show === "producers";
+  const cols = pill === "songs" ? "minmax(0,2.2fr) 118px minmax(0,.9fr) minmax(0,.9fr)"
+    : `minmax(0,1.7fr) 118px minmax(0,.8fr) minmax(0,.8fr) minmax(128px,1fr) minmax(0,.8fr)${producers ? " minmax(0,.8fr)" : ""}`;
+  const dash = (title) => <span className="muted-dash" title={title}>—</span>;
+  const subOf = (r) => (pill === "people" ? [r.role === "producer" ? "Producer" : "Artist", r.handle]
+    : [r.artist || (r.release ? "Release" : ""), r.tiedTo && `tied to ${r.tiedTo}`]).filter(Boolean).join(" · ");
+  const rowKey = (e, r) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openRow(r, e); } };
   return (
     <div className="ar-watch">
       <ArHead title="Watchlist" sub="Everyone and every song we're tracking, and whether they're up or down.">
@@ -3630,8 +3702,8 @@ function ArWatch({ ar, onGo, at }) {
       </ArHead>
       {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
       <p className="arb-status ar-period">
-        {to ? <>Numbers for {dayRange(period.from, to)}, against the 7 days before · from your Luminate A&amp;R lists</> : "No numbers from your Luminate A&R lists yet."}
-        {(old || (pg && !to)) && <> <button className="btn ghost sm" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></>}
+        {to ? <span>{old ? "Latest week" : "This week"}: {dayRange(period.from, to)} · compared with {dayRange(shiftDay(period.from, -7), shiftDay(to, -7))}</span> : "No numbers from your Luminate A&R lists yet."}
+        {(old || (pg && !to)) && <button className="btn ghost sm" onClick={() => onGo("luminate", "drop")}>Drop new exports</button>}
       </p>
       <div className="ar-watch-tools">
         <span className="gainer-tabs" role="tablist" aria-label="People or songs">
@@ -3640,83 +3712,81 @@ function ArWatch({ ar, onGo, at }) {
           ))}
         </span>
         {pill === "people" && (
-          <label className="ar-show"><span>Show</span>
-            <select value={show} onChange={(e) => setShow(e.target.value)} aria-label="Show">
-              <option value="everyone">Everyone</option><option value="artists">Artists</option><option value="producers">Producers</option>
-            </select>
-          </label>
+          <span className="gainer-tabs ar-show" role="tablist" aria-label="Show">
+            {SHOW_TABS.map(([id, label]) => <button key={id} role="tab" aria-selected={show === id} className={show === id ? "active" : ""} onClick={() => setShow(id)}>{label}</button>)}
+          </span>
         )}
         <input className="arb-find" type="search" placeholder={pill === "people" ? "Find someone" : "Find a song"} value={find} onChange={(e) => setFind(e.target.value)} aria-label="Find" />
         {onlyNone && <button className="inline-link" onClick={() => setOnlyNone(false)}>Showing only those with no numbers · show all</button>}
       </div>
-      {pill === "people" && show === "producers" && <ArTotals data={data} />}
+      {producers && <ArTotals data={data} />}
       {!pg && !pgErr && <p className="muted dash-wait">Loading…</p>}
       {pg && !rows.length && (
         <div className="admin-empty">{pill === "people" ? "Nobody here yet." : "No songs tracked yet."} <button className="btn sm" onClick={(e) => openPanel({ type: "add", kind: pill === "songs" ? "song" : "artist" }, e)}><Plus size={15} /> Add</button></div>
       )}
       {pg && rows.length > 0 && (
-        <div className="admin-table ar-watch-list" data-pill={pill}>
-          {pill === "people" ? (
-            <div className="admin-row admin-hd" style={{ "--cols": pcols }}>
-              {head("name", "Name")}<span>Who</span>{head("current", "This period")}{head("changePct", "vs before")}{head("atd", "All-time")}<span>Stage</span><span>Last contact</span>{head("value", "≈ Value")}
-            </div>
-          ) : (
-            <div className="admin-row admin-hd" style={{ "--cols": scols }}>
-              {head("name", "Title")}<span>Artist</span><span>Tied to</span>{head("current", "This period")}{head("changePct", "vs before")}{head("atd", "All-time")}
-            </div>
-          )}
-          {rows.map((r) => (
-            <button key={r.key} className="admin-row admin-row-link ar-row" data-focus={`w:${r.key}`} data-key={r.key} style={{ "--cols": pill === "people" ? pcols : scols }} onClick={(e) => openRow(r, e)}>
-              <span className="cell ar-who"><strong>{r.name}</strong>
-                {r.handle && <span className="arb-contact">{r.handle}</span>}
-                {r.release && <span className="tag ar-role">Release</span>}
-                {r.fromLuminate && <span className="arb-contact">From Luminate · Add details</span>}
-                {r.ref && !r.luminateId && <span className="arb-contact">No numbers yet — add them to your A&amp;R list in Luminate</span>}
-              </span>
-              {pill === "people" ? <>
-                <span className="cell"><span className="tag ar-role">{r.role === "producer" ? "Producer" : "Artist"}</span></span>
-                <span className="cell ar-num">{r.current == null ? "—" : fmt(r.current)}</span>
-                <span className="cell"><UpDown r={r} /></span>
-                <span className="cell ar-num">{r.atd == null ? "—" : fmt(r.atd)}</span>
-                <span className="cell">{r.stage ? stageLabel(r.stage) : "Not on the board"}</span>
-                <span className="cell">{r.lastContact ? shortDay(r.lastContact) : r.lastText || "—"}</span>
-                <span className="cell ar-num">{r.role === "producer" && r.value != null ? `≈ ${wholeMoney(r.value)}` : ""}</span>
-              </> : <>
-                <span className="cell">{r.artist || "—"}</span>
-                <span className="cell">{r.tiedTo || "—"}</span>
-                <span className="cell ar-num">{r.current == null ? "—" : fmt(r.current)}</span>
-                <span className="cell"><UpDown r={r} /></span>
-                <span className="cell ar-num">{r.atd == null ? "—" : fmt(r.atd)}</span>
-              </>}
-            </button>
-          ))}
+        <div className="admin-table ar-watch-list ar-table" data-pill={pill}>
+          <div className="admin-row admin-hd" style={{ "--cols": cols }}>
+            {head("name", pill === "people" ? "Name" : "Title", "name")}{head("changePct", "vs last week", "pct")}{head("current", "This week", "week")}{head("atd", "All-time", "atd")}
+            {pill === "people" && <><span data-col="stage">Stage</span><span data-col="contact">Last contact</span></>}
+            {producers && head("value", "≈ Value", "value")}
+          </div>
+          {rows.map((r) => {
+            const sub = subOf(r);
+            return (
+              <div key={r.key} role="button" tabIndex={0} className={`admin-row ar-link ar-row${lit === r.key ? " ar-flash" : ""}`} data-focus={`w:${r.key}`} data-key={r.key} style={{ "--cols": cols }}
+                onClick={(e) => openRow(r, e)} onKeyDown={(e) => rowKey(e, r)}>
+                <span className="cell ar-who" data-col="name"><strong>{r.name}</strong>
+                  {(sub || needsLumRow(r)) && (
+                    <span className="ar-who-sub">
+                      {sub && <span>{sub}</span>}
+                      {/* added here but not in Luminate yet: the same list the To do opens */}
+                      {needsLumRow(r) && <button type="button" className="ar-lum-chip" onClick={(e) => { e.stopPropagation(); setShowToLum(true); }}>Add to Luminate</button>}
+                    </span>
+                  )}
+                  {r.fromLuminate && <span className="ar-add-hint" aria-hidden="true">+ Add details</span>}
+                </span>
+                <span className="cell" data-col="pct">{r.current == null ? dash("No numbers yet") : r.changePct == null ? dash("No last week to compare") : <WowPill pct={r.changePct} />}</span>
+                <span className="cell ar-num" data-col="week">{r.current == null ? <>{dash()}<em>No numbers yet</em></> : <><b>{fmt(r.current)}</b><em> {old ? "that week" : "this week"}</em></>}</span>
+                <span className="cell ar-num" data-col="atd">{r.atd == null ? dash() : fmt(r.atd)}</span>
+                {pill === "people" && <>
+                  <span className="cell" data-col="stage">{r.stage ? <StagePill id={r.stage} /> : dash()}</span>
+                  <span className="cell" data-col="contact">{r.lastContact ? shortDay(r.lastContact) : r.lastText || dash()}</span>
+                </>}
+                {producers && <span className="cell ar-num" data-col="value">{r.value != null ? `≈ ${wholeMoney(r.value)}` : dash()}</span>}
+              </div>
+            );
+          })}
         </div>
       )}
       <ArPanels ar={ar} open={open} openPanel={openPanel} closePanel={closePanel} onGo={onGo} />
+      {showToLum && pg?.toLuminate && <ArToLuminateModal t={pg.toLuminate} onGo={onGo} onClose={() => setShowToLum(false)} />}
     </div>
   );
 }
 
-// Show › Producers: OUTREACH's row-1 totals exactly as the sheet works them out (never summed here)
+// Show › Producers: three whole-dollar tiles from OUTREACH's row-1 totals exactly as the sheet works
+// them out (never summed here); the rest of that row sits under How we estimate
 function ArTotals({ data }) {
   if (!data) return <p className="muted">Reading the OUTREACH tab…</p>;
   const t = data.totals, a = data.assumptions, b = data.budget;
   if (!t) return null;
   const cut = a?.adminFeeRate != null ? `${Math.round(a.adminFeeRate * 100)}%` : "cut";
-  const tiles = [["grossStreams", "Their streams", bigNum], ["netStreams", "Their share of streams", bigNum], ["grossRevenue", "Est. earnings pool", centsMoney],
-    ["adminFee", `Our ${cut} so far`, centsMoney], ["threeYear", "Next 3 years (our cut)", centsMoney], ["totalValue", "Total est. value", centsMoney]];
+  const tiles = [["totalValue", "Total est. value", t.totalValue], ["adminFee", `Our ${cut} so far`, t.adminFee], ...(b ? [["budgetLeft", "Advance budget left", b.remaining]] : [])];
+  const rest = [["grossStreams", "Their streams", bigNum], ["netStreams", "Their share of streams", bigNum], ["grossRevenue", "Est. earnings pool", wholeMoney], ["threeYear", "Next 3 years (our cut)", wholeMoney]];
   return (
     <div className="ar-totals">
       <div className="cat-summary"><div className="cat-summary-grid ar-totals-grid">
-        {tiles.map(([k, label, f]) => (
-          <div key={k} className="cat-stat" data-total={k} data-value={t[k] ?? ""}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{t[k] == null ? "—" : f(t[k])}</span></div>
+        {tiles.map(([k, label, v]) => (
+          <div key={k} className="cat-stat" data-total={k} data-value={v ?? ""}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{v == null ? "—" : wholeMoney(v)}</span></div>
         ))}
       </div></div>
       <details className="ar-how">
         <summary>How we estimate</summary>
+        <p className="ar-how-nums">{rest.map(([k, label, f]) => <span key={k} data-total={k} data-value={t[k] ?? ""}>{label} <b>{t[k] == null ? "—" : f(t[k])}</b></span>)}</p>
         <p>Streams × their share × ${a?.blendedRate ?? "—"} a stream = their earnings; we keep {cut}; the next 3 years shrink {a?.decayRate != null ? `${Math.round(a.decayRate * 100)}%` : "a set amount"} a year. These come from the ASSUMPTIONS tab.</p>
+        {b && <p className="ar-budget">Advance budget {wholeMoney(b.starting)} · given {wholeMoney(b.committed)} · left {wholeMoney(b.remaining)}</p>}
       </details>
-      {b && <p className="arb-status ar-budget">Advance budget {wholeMoney(b.starting)} · given {wholeMoney(b.committed)} · left {wholeMoney(b.remaining)}</p>}
     </div>
   );
 }
@@ -3777,7 +3847,7 @@ function OffBoardList({ items, live, canSave, onClose, reload }) {
 }
 
 // Sheet check (spec 5.7): read-only, so it's safe to run against the real sheet before any save
-function SheetCheck({ onClose }) {
+function SheetCheck({ notes = [], onClose }) {
   const [res, setRes] = useState(null);
   const [err, setErr] = useState(null);
   const run = () => {
@@ -3795,6 +3865,7 @@ function SheetCheck({ onClose }) {
         <div className="modal-head"><h3>Sheet check</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
         <div className="modal-body">
           <p className="muted mb">Reads the OUTREACH, ADVANCE CALCULATOR and ASSUMPTIONS tabs and checks they're laid out the way the dashboard expects. It doesn't change anything in the sheet.</p>
+          {notes.map((t) => <p key={t} className="arb-banner warn arb-note"><AlertTriangle size={16} /><span>{t}</span></p>)}
           {err && <ArDataError err={err} retry={run} />}
           {!res && !err && <p className="muted">Checking the sheet…</p>}
           {res && <p className={`hint ${bad ? "err-text" : "ok-text"} mb`}>{bad ? `${bad} thing${bad === 1 ? "" : "s"} to look at before saving from here.` : "Everything looks right."}</p>}
@@ -3822,12 +3893,12 @@ const showVal = (f, v) => (v === "" || v == null ? "blank" : /\.share$/.test(f) 
 // updateProspect carrying only what was changed, each with the value this panel opened with as
 // `expect`); the status and "Advance given?" save at once. The preview totals are computed the way
 // the sheet computes them: Net Streams is the sum of each slot's own streams × its own writer %.
-function ProspectForm({ prospect, pg, blendedRate, statuses, canSave = true, reload, onClose, onChanged, title, picker, extra }) {
+function ProspectForm({ prospect, pg, blendedRate, canSave = true, reload, onClose, onChanged, title, picker, extra }) {
   const isNew = !prospect;
   const [base] = useState(prospect); // what this panel opened with: the `expect` of every Save
   const [name, setName] = useState(prospect?.name || "");
   const [contact, setContact] = useState(prospect?.contact || "");
-  const [status, setStatus] = useState(prospect?.status || "");
+  const [status, setStatus] = useState(prospect ? prospect.status || "" : "Not Contacted"); // a new one starts in To reach out
   const [notes, setNotes] = useState(prospect?.notes || "");
   const [lastContact, setLastContact] = useState(prospect?.lastContact?.date || "");
   const startSongs = base ? base.songs.map((s) => ({ ...s, streams: s.streams || "", writerShare: s.writerShare || "" })) : BLANK_SONGS;
@@ -3899,7 +3970,7 @@ function ProspectForm({ prospect, pg, blendedRate, statuses, canSave = true, rel
     send(body, body.action !== "updateProspect");
   };
   const keepSheets = async () => { setConflict(null); setBusy(true); await onChanged(); };
-  const saveStatus = (st) => { setStatus(st); send({ action: "setStatus", prospectId: base.id, status: st, expect: prospect.cells.O ?? "" }, true); };
+  const saveStatus = (st) => { if (!st || st === prospect.status) return; setStatus(st); send({ action: "setStatus", prospectId: base.id, status: st, expect: prospect.cells.O ?? "" }, true); };
   const saveGiven = (v) => v && send({ action: "setGiven", prospectId: base.id, given: v === "Yes", expect: { given: prospect.advance?.given ?? "" } }, true);
   const logContact = () => send({ action: "logContact", prospectId: base.id, expect: { lastContact: prospect.cells.P ?? "", status: prospect.cells.O ?? "" } }, true);
   const undo = (id) => send({ action: "undo", eventId: id }, true);
@@ -3914,11 +3985,11 @@ function ProspectForm({ prospect, pg, blendedRate, statuses, canSave = true, rel
       <div className={`modal-card${isNew ? "" : " arb-panel"}`}>
         <div className="modal-head">
           <h3>{isNew ? title || "New prospect" : prospect.name}</h3>
+          {/* the Board's stage names; the sheet status they stand for is what's saved (statusForStage) */}
           {!isNew && (
-            <select className="arb-panel-status" value={prospect.status} onChange={(e) => saveStatus(e.target.value)} disabled={busy || !canSave} title={paused} aria-label="Status">
-              {!prospect.status && <option value="">No status</option>}
-              {!statuses.includes(prospect.status) && prospect.status && <option value={prospect.status}>{prospect.status}</option>}
-              {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+            <select className="arb-panel-status" value={stageOfStatus(prospect.status)} onChange={(e) => saveStatus(statusForStage(e.target.value, prospect.status))} disabled={busy || !canSave} title={paused} aria-label="Stage">
+              {stageOfStatus(prospect.status) === "other" && <option value="other">{prospect.status}</option>}
+              {[...AR_STAGES, { id: "passed", label: "Passed" }].map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
             </select>
           )}
           <button onClick={onClose} aria-label="Close" disabled={busy}><X size={18} /></button>
@@ -3945,13 +4016,12 @@ function ProspectForm({ prospect, pg, blendedRate, statuses, canSave = true, rel
           <div className="arb-panel-grid">
             <div>
               <p className="fld-label mb">Contact</p>
-              <Field label="Prospect / Producer" value={name} onChange={(e) => setName(e.target.value)} />
-              <Field label="Contact or handle" value={contact} onChange={(e) => setContact(e.target.value)} />
+              <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+              <Field label="Instagram, TikTok or email" value={contact} onChange={(e) => setContact(e.target.value)} />
               {isNew ? (
-                <label className="fld"><span>Outreach Status</span>
-                  <select value={status} onChange={(e) => setStatus(e.target.value)}>
-                    <option value="">— not set —</option>
-                    {(statuses || []).map((s) => <option key={s} value={s}>{s}</option>)}
+                <label className="fld"><span>Stage</span>
+                  <select value={stageOfStatus(status)} onChange={(e) => setStatus(statusForStage(e.target.value, status))} aria-label="Stage">
+                    {[...AR_STAGES, { id: "passed", label: "Passed" }].map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
                   </select>
                 </label>
               ) : (
@@ -3973,11 +4043,12 @@ function ProspectForm({ prospect, pg, blendedRate, statuses, canSave = true, rel
             <div>
               <p className="fld-label mb">What they could earn us</p>
               <div className="cat-summary" style={{ marginBottom: 10 }}>
-                <div className="cat-summary-grid">
-                  <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(grossStreams)}</span></div>
-                  <div className="cat-stat"><span className="cat-stat-label">Net Streams (their share)</span><span className="cat-stat-val">{fmt(Math.round(netStreams))}</span></div>
-                  <div className="cat-stat"><span className="cat-stat-label">Est. publishing earnings</span><span className="cat-stat-val">{money(estRevenue)}</span></div>
-                  {!isNew && <div className="cat-stat"><span className="cat-stat-label">3-yr est. value</span><span className="cat-stat-val">{money(prospect.money.totalEstValue)}</span></div>}
+                {/* the sheet's total first and full width; short numbers so nothing is cut off */}
+                <div className="cat-summary-grid ar-panel-tiles">
+                  {!isNew && <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Total est. value</span><span className="cat-stat-val">≈ {wholeMoney(prospect.money.totalEstValue)}</span></div>}
+                  <div className="cat-stat"><span className="cat-stat-label">Gross streams</span><span className="cat-stat-val">{bigNum(grossStreams)}</span></div>
+                  <div className="cat-stat"><span className="cat-stat-label">Net streams (their share)</span><span className="cat-stat-val">{bigNum(netStreams)}</span></div>
+                  <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Est. publishing earnings</span><span className="cat-stat-val">{wholeMoney(estRevenue)}</span></div>
                 </div>
               </div>
               <p className="hint arb-money-tip">Estimates, not payouts: all-time streams × their writer share × ${blendedRate} a stream (the rate in ASSUMPTIONS), from the OUTREACH tab's own formulas. The sheet counts all-time streams as one year of earnings, so an older catalog can look bigger than it is. Real income depends on platform, country and deal.</p>
@@ -6018,36 +6089,49 @@ function useArSummary(tab) {
   return t;
 }
 
-// "See the list": the names to add, by the Luminate list they go in, each with Copy name and its
-// Spotify link when one is saved
-function ArToLuminateModal({ t, onClose }) {
+// "See the list": the names to add, by the Luminate list they go in (with how full that list is),
+// each with Copy name and its Spotify link when one is saved. The Dashboard, A&R Summary and the
+// Watchlist's chips all open this one.
+function ArToLuminateModal({ t, onGo, onClose }) {
   useEscape(onClose);
-  const [copied, setCopied] = useState(null);
-  const copy = async (k, name) => { if (await copyText(name)) { setCopied(k); setTimeout(() => setCopied((c) => (c === k ? null : c)), 1500); } };
   const groups = [["artists", `Add to your ${t.lists.artists.name} list in Luminate`, t.artists, t.lists.artists], ["songs", `Add to your ${t.lists.songs.name} list`, t.songs, t.lists.songs]].filter(([, , items]) => items.length);
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-card ar-tolum-modal">
-        <div className="modal-head"><h3>Add to Luminate</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-head"><h3>Add these to Luminate</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
         <div className="modal-body">
-          <p className="hint">In Luminate, open the list → Add → search the name; it shows up here after your next export.</p>
-          {groups.map(([k, head, items, list]) => (
-            <div key={k} className="ar-tolum-group" data-group={k}>
-              <h4>{head}</h4>
-              {list.full && <p className="hint err-text">That list is full ({list.count} of {list.cap}). Remove someone from it in Luminate first.</p>}
-              {items.map((x) => (
-                <div key={x.id} className="ar-tolum-row">
-                  <span><strong>{x.name}</strong>{x.artist ? <span className="muted"> · {x.artist}</span> : null}</span>
-                  <span className="ar-tolum-acts">
-                    {x.spotify && <ExtLink className="btn ghost sm" href={x.spotify}>Spotify</ExtLink>}
-                    <button className="btn ghost sm" onClick={() => copy(`${k}:${x.id}`, x.name)}>{copied === `${k}:${x.id}` ? "Copied" : "Copy name"}</button>
-                  </span>
+          <p className="hint mb">In Luminate, open the list → Add → search the name; it shows up here after your next export.</p>
+          {groups.map(([k, head, items, list]) => {
+            const pct = list.count == null ? null : Math.min(100, Math.round((list.count / list.cap) * 100));
+            return (
+              <div key={k} className="lm-block ar-tolum-group" data-group={k}>
+                <div className="lm-block-head ar-tolum-head">
+                  <h4>{head}</h4>
+                  {pct != null && (
+                    <span className="ar-tolum-meter">
+                      <span className={`lm-bar${list.full ? " full" : pct >= 90 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
+                      <em className={list.full || pct >= 90 ? "warn-text" : undefined}>{list.count} of {list.cap} used</em>
+                    </span>
+                  )}
                 </div>
-              ))}
-            </div>
-          ))}
+                {list.full && <p className="ar-tolum-full"><AlertTriangle size={14} /> Your {list.name} list is full ({list.count} of {list.cap}). Remove one there first, then add these.</p>}
+                {items.map((x) => (
+                  <div key={x.id} className="ar-tolum-row">
+                    <span className="ar-tolum-name"><strong>{x.name}</strong>{x.artist ? <span className="muted"> · {x.artist}</span> : null}</span>
+                    <span className="ar-tolum-acts">
+                      {x.spotify && <ExtLink className="btn ghost sm" href={x.spotify}>Spotify ↗</ExtLink>}
+                      <CopyButton text={x.name} label="Copy name" />
+                    </span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
         </div>
-        <div className="modal-foot"><button className="btn sm" onClick={onClose}>Close</button></div>
+        <div className="modal-foot">
+          {onGo && <button className="btn ghost sm ar-tolum-drop" onClick={() => { onClose(); onGo("luminate", "drop"); }}>Drop new exports</button>}
+          <button className="btn sm" onClick={onClose}>Done</button>
+        </div>
       </div>
     </div>
   );
@@ -6077,7 +6161,7 @@ function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum }) {
         <TopGainers db={db} lum={lum} onGo={onGo} />
       </div>
       <MoneyCard home={home} failed={failed} retry={retry} tab={moneyTab} setTab={setMoneyTab} />
-      {showToLum && toLum && <ArToLuminateModal t={toLum} onClose={() => setShowToLum(false)} />}
+      {showToLum && toLum && <ArToLuminateModal t={toLum} onGo={onGo} onClose={() => setShowToLum(false)} />}
     </div>
   );
 }
@@ -8510,7 +8594,6 @@ function StyleTag() {
     .app:not(.pub) .ar-ch.up{color:var(--d-pos)} .app:not(.pub) .ar-ch.down{color:var(--d-neg)}
     .app:not(.pub) .gainer-num b.ar-week{color:var(--d-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
     .app:not(.pub) .ar-role{font-size:10.5px;padding:2px 7px}
-    .app:not(.pub) .ar-pipe{margin:18px 0 0;font-size:13px;color:var(--d-ink-3)}
     .app:not(.pub) .inline-link{padding:0;border:0;background:none;font:inherit;color:var(--d-ink-2);cursor:pointer;text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--d-line-3)}
     .app:not(.pub) .arb-board{grid-template-columns:repeat(5,minmax(0,1fr))}
     .app:not(.pub) .arb-board:has(.arb-col[data-col=other]){grid-template-columns:repeat(6,minmax(0,1fr))}
@@ -8564,12 +8647,6 @@ function StyleTag() {
       .app:not(.pub) .arb-col.folded .arb-col-head{border-bottom:0}
       .app:not(.pub) .arb-col.folded .arb-hint{display:none}
       .app:not(.pub) .ar-totals-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-      .app:not(.pub) .ar-watch-list .admin-row{grid-template-columns:minmax(0,1fr) auto auto !important}
-      .app:not(.pub) .ar-watch-list .admin-row > :nth-child(n+5){display:none}
-      .app:not(.pub) .ar-watch-list .admin-row > :nth-child(2){display:none}
-      .app:not(.pub) .ar-watch-list[data-pill=songs] .admin-row > :nth-child(2){display:none}
-      .app:not(.pub) .ar-watch-list[data-pill=songs] .admin-row > :nth-child(3){display:none}
-      .app:not(.pub) .ar-watch-list[data-pill=songs] .admin-row > :nth-child(4),.app:not(.pub) .ar-watch-list[data-pill=songs] .admin-row > :nth-child(5){display:block}
       .app:not(.pub) .ar-sum-head{flex-wrap:wrap}
     }
     /* ---- polish: one colour system. Area colours say which part of the business (To do labels and
@@ -8682,6 +8759,153 @@ function StyleTag() {
     .app:not(.pub) .master-table td.master-week{height:auto;padding-block:8px;white-space:nowrap}
     .app:not(.pub) .master-week em{display:block;margin-top:3px;font-style:normal;font-size:12px;color:var(--d-ink-4)}
     .app:not(.pub) .muted-dash{color:var(--d-ink-off)}
+    /* ---- polish: A&R. Stage colours live here only (they reuse the area hexes on purpose: cool → hot →
+       green, never red or amber, which mean "down" and "needs attention"); one pill per stage everywhere ---- */
+    .app:not(.pub) .ar{--d-st-reach:#a3a3a3;--d-st-reached:#6fd6c4;--d-st-talking:#c4a7ff;--d-st-offer:#f29bc8;--d-st-signed:#8fce8f;--d-st-passed:#8a8a8a}
+    .app:not(.pub) .ar [data-stage=reach]{--st:var(--d-st-reach)} .app:not(.pub) .ar [data-stage=reached]{--st:var(--d-st-reached)}
+    .app:not(.pub) .ar [data-stage=talking]{--st:var(--d-st-talking)} .app:not(.pub) .ar [data-stage=offer]{--st:var(--d-st-offer)}
+    .app:not(.pub) .ar [data-stage=signed]{--st:var(--d-st-signed)} .app:not(.pub) .ar [data-stage=passed]{--st:var(--d-st-passed)}
+    .app:not(.pub) .ar [data-stage=other]{--st:var(--d-ink-4)}
+    .app:not(.pub) .ar-stage{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px 0 8px;border-radius:100px;font:500 12px/1 var(--d-body);white-space:nowrap;
+      color:var(--st);background:color-mix(in srgb,var(--st) 12%,transparent);border:1px solid color-mix(in srgb,var(--st) 30%,transparent)}
+    .app:not(.pub) .ar-stage::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:currentColor}
+    .app:not(.pub) .ar-stage[data-stage=passed]{background:none}
+    .app:not(.pub) .ar-stage[data-stage=other]{background:none;border:1px dashed var(--d-line-3);color:var(--d-ink-3)}
+    .app:not(.pub) .ar-stage b{margin-left:2px;font-weight:600;color:var(--d-ink);font-variant-numeric:tabular-nums}
+    /* Summary: the pipeline strip (opens the Board), the movers, To do with an urgency dot per row */
+    .app:not(.pub) .ar-strip{display:flex;align-items:center;gap:8px;width:100%;margin:0 0 24px;padding:10px 14px 10px 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);
+      background:var(--d-s1);color:inherit;font:inherit;text-align:left;cursor:pointer;overflow-x:auto;scrollbar-width:none;transition:border-color var(--d-t-fast) ease}
+    .app:not(.pub) .ar-strip::-webkit-scrollbar{display:none}
+    .app:not(.pub) .ar-strip > .ar-stage{flex:none}
+    .app:not(.pub) .ar-strip-val{flex:none;margin-left:auto;padding-left:12px;font:600 13.5px/1 var(--d-body);color:var(--d-ink);white-space:nowrap;font-variant-numeric:tabular-nums}
+    @media (hover:hover){ .app:not(.pub) .ar-strip:hover{border-color:var(--d-line-3)} }
+    .app:not(.pub) .ar-strip:focus-visible{outline:1px solid #f5f5f5;outline-offset:2px}
+    .app:not(.pub) .ar-h3-sub{font-weight:400;font-size:13px;color:var(--d-ink-4)}
+    .app:not(.pub) .ar-summary .ar-gainer-pair{align-items:start}
+    .app:not(.pub) .ar-summary .ar-gainers{align-self:start;height:auto}
+    .app:not(.pub) .ar-gainers .gainer{min-height:60px}
+    .app:not(.pub) .ar-gainers .gainer-n{color:var(--d-ink-4)} .app:not(.pub) .ar-gainers .gainer:not([data-ranked]) .gainer-n{color:var(--d-ink-off)}
+    .app:not(.pub) .ar-g-sub{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px}
+    .app:not(.pub) .ar-gainers .gainer-num em{font-style:normal;font-size:12px;color:var(--d-ink-4);white-space:nowrap}
+    .app:not(.pub) .ar-gainers .gainer-num[data-wow=none] em{font-size:12.5px}
+    .app:not(.pub) .ar-gainer-toggle{margin:0 0 10px}
+    .app:not(.pub) .ar-summary > .ar-todo-h{display:flex;align-items:center;gap:8px;margin:28px 0 10px}
+    .app:not(.pub) .ar-todo-clear .todo-done{font-size:13.5px}
+    .app:not(.pub) .ar-tasks .attn-row{justify-content:flex-start}
+    .app:not(.pub) .ar-tasks .attn-row > span{flex:1;min-width:0}
+    .app:not(.pub) .ar-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--d-info)}
+    .app:not(.pub) .ar-dot[data-urg=late]{background:var(--d-neg)} .app:not(.pub) .ar-dot[data-urg=soon]{background:var(--d-warn)}
+    /* Watchlist and the Board's list: their own rows (not the generic link table), every cell named by
+       data-col; numbers right-aligned under right-aligned heads; the head row stays on screen */
+    .app:not(.pub) .ar-link{position:relative;width:100%;background:none;border:0;border-bottom:1px solid var(--d-line);color:var(--d-ink-3);font-family:inherit;text-align:left;cursor:pointer;transition:background-color .6s ease}
+    .app:not(.pub) .ar-link:last-child{border-bottom:0}
+    @media (hover:hover){ .app:not(.pub) .ar-link:hover{background:var(--d-hover);transition-duration:var(--d-t-fast)} }
+    .app:not(.pub) .ar-link:focus-visible{outline:1px solid #f5f5f5;outline-offset:-1px}
+    .app:not(.pub) .ar-link.ar-flash{background:var(--d-active);transition:none}   /* a Summary click lands here; it fades back */
+    .app:not(.pub) .ar-table .admin-row{grid-template-columns:var(--cols)}
+    .app:not(.pub) .ar-table :is([data-col=pct],[data-col=week],[data-col=atd],[data-col=value]){text-align:right;font-variant-numeric:tabular-nums}
+    .app:not(.pub) .ar-sort{font:inherit;text-transform:inherit;letter-spacing:inherit;color:inherit;text-align:inherit}
+    @media (hover:hover){ .app:not(.pub) .ar-sort:hover{color:var(--d-ink)} }
+    .app:not(.pub) .ar-table .cell[data-col=week] b{font-weight:inherit;color:var(--d-ink-2)}
+    .app:not(.pub) .ar-table .cell[data-col=week] em{display:none;font-style:normal}
+    .app:not(.pub) .ar-table .cell:is([data-col=stage],[data-col=pct]){overflow:visible}
+    .app:not(.pub) .ar-table .admin-hd > span{white-space:nowrap}
+    @media (min-width:700px){ .app:not(.pub) .ar-table [data-col=stage]{padding-left:12px} }   /* a breath after the right-aligned numbers */
+    .app:not(.pub) .admin-table.ar-watch-list{overflow:clip}   /* clip, not hidden, so the sticky head can stick */
+    .app:not(.pub) .ar-watch-list .admin-hd{position:sticky;top:0;z-index:1;background:var(--d-s1)}
+    .app:not(.pub) .ar-table .ar-who{gap:3px}
+    .app:not(.pub) .ar-table .ar-who strong{font-weight:500;color:var(--d-ink)}
+    .app:not(.pub) .ar-who-sub{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;font-size:12.5px;line-height:1.35;font-weight:400;color:var(--d-ink-4)}
+    .app:not(.pub) .ar-lum-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:100px;border:1px solid var(--d-info-line);background:var(--d-info-bg);
+      color:var(--d-info);font:500 11.5px/1 var(--d-body);white-space:nowrap;cursor:pointer}
+    @media (hover:hover){ .app:not(.pub) .ar-lum-chip:hover{border-color:var(--d-info)} }
+    .app:not(.pub) .ar-add-hint{position:absolute;right:12px;top:50%;transform:translateY(-50%);padding:5px 10px;border:1px solid var(--d-line-3);border-radius:100px;background:var(--d-s2);
+      font:500 12px/1 var(--d-body);color:var(--d-ink-2);opacity:0;pointer-events:none;transition:opacity var(--d-t-fast) ease}
+    .app:not(.pub) .ar-link:is(:hover,:focus-visible) .ar-add-hint{opacity:1}
+    .app:not(.pub) .ar-period{color:var(--d-ink-3)}
+    .app:not(.pub) .ar-totals .cat-summary-grid.ar-totals-grid:has(> .cat-stat){grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr)}
+    @media (max-width:699px){ .app:not(.pub) .ar-totals .cat-summary-grid.ar-totals-grid:has(> .cat-stat){grid-template-columns:repeat(2,minmax(0,1fr))} }
+    .app:not(.pub) .ar-how-nums{display:flex;flex-wrap:wrap;gap:4px 18px} .app:not(.pub) .ar-how-nums b{font-weight:600;color:var(--d-ink-2)}
+    .app:not(.pub) .ar-kind{display:inline-flex;margin:0 0 16px} .app:not(.pub) .ar-kind button{height:32px;padding:0 16px;font-size:13px}
+    @media (min-width:700px) and (max-width:899px){
+      /* the generic phone list rows start at 899; these tables keep their columns down to 700 */
+      .app:not(.pub) .ar-table .admin-hd{display:grid}
+      .app:not(.pub) .ar-table .admin-row:not(.admin-hd){display:grid;min-height:52px;padding:8px 12px 8px 16px;column-gap:16px}
+      .app:not(.pub) .ar-table .admin-row:not(.admin-hd) > .cell{order:0;max-width:none;font-size:14px;line-height:24px;font-weight:400}
+      .app:not(.pub) .ar-table .admin-row:not(.admin-hd) > .cell::before,.app:not(.pub) .ar-table .admin-row:not(.admin-hd)::after{content:none}
+    }
+    @media (max-width:699px){
+      /* phones: each row is two lines; the name over its subtitle, the % pill over "N this week". The
+         long prefix outranks the generic phone list rows (their "·" joins, 70% caps and nth-child hides) */
+      .app:not(.pub) .admin-table.ar-table .admin-row.ar-link:not(.admin-hd):not(.admin-row-link){display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;column-gap:12px;row-gap:3px;align-items:center;min-height:60px;padding:10px 14px}
+      .app:not(.pub) .admin-table.ar-table .admin-row.ar-link:not(.admin-hd):not(.admin-row-link) > .cell{order:0;flex:none;max-width:none;min-width:0;overflow:visible}
+      .app:not(.pub) .admin-table.ar-table .admin-row.ar-link:not(.admin-hd):not(.admin-row-link) > .cell::before,.app:not(.pub) .admin-table.ar-table .admin-row.ar-link:not(.admin-hd):not(.admin-row-link)::after{content:none}
+      .app:not(.pub) .admin-table.ar-table .ar-link > .cell[data-col=name]{grid-column:1;grid-row:1 / span 2;font-size:15px;line-height:22px;overflow:hidden}
+      .app:not(.pub) .admin-table.ar-table .ar-link > .cell:is([data-col=pct],[data-col=stage]){grid-column:2;grid-row:1;justify-self:end}
+      .app:not(.pub) .admin-table.ar-table .ar-link > .cell:is([data-col=week],[data-col=value]){grid-column:2;grid-row:2;justify-self:end;font-size:12px;line-height:16px;color:var(--d-ink-4);white-space:nowrap}
+      .app:not(.pub) .admin-table.ar-table .ar-link > .cell:is([data-col=atd],[data-col=contact],[data-col=follow]){display:none}
+      .app:not(.pub) .admin-table.ar-watch-list .ar-link > .cell:is([data-col=stage],[data-col=value]){display:none}
+      .app:not(.pub) .ar-table .cell[data-col=week] em{display:inline}
+      .app:not(.pub) .ar-table .cell[data-col=week] b{color:var(--d-ink-3)}
+      .app:not(.pub) .ar-table .cell[data-col=week] .muted-dash{display:none}
+      .app:not(.pub) .admin-table.ar-table .ar-link > .cell[data-col=pct]:has(.muted-dash){display:none}
+      .app:not(.pub) .admin-table.ar-table .ar-link:has(> [data-col=pct] .muted-dash) > .cell[data-col=week]{grid-row:1 / span 2}
+      .app:not(.pub) .ar-add-hint{display:none}
+      .app:not(.pub) .ar-totals-grid > .cat-stat:first-child{grid-column:1 / -1}
+      .app:not(.pub) .ar-watch-tools .arb-find{flex:1 1 100%}
+      /* Summary: the strip fades at the edge while it scrolls; a task row is dot | text, its button under the text */
+      .app:not(.pub) .ar-strip{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 28px),transparent)}
+      .app:not(.pub) .ar-tasks .attn-row{display:grid;grid-template-columns:8px minmax(0,1fr);column-gap:10px;row-gap:8px;align-items:start}
+      .app:not(.pub) .ar-tasks .attn-row > span{grid-column:2}
+      .app:not(.pub) .ar-tasks .attn-row > .btn{grid-column:2;justify-self:start}
+      .app:not(.pub) .ar-tasks .attn-row > .ar-dot{grid-column:1;margin-top:8px}
+      .app:not(.pub) .ar-tasks .attn-row[data-pri] > span{grid-column:1 / -1}
+      .app:not(.pub) .ar-tasks .attn-row[data-pri] > .btn{grid-column:1 / -1;margin-left:19px}
+    }
+    /* Board: a coloured top edge, dot and count per column; the next step outlined in the next stage's colour */
+    .app:not(.pub) .arb-col{overflow:visible;box-shadow:inset 0 2px 0 var(--st,transparent)}
+    .app:not(.pub) .arb-col-head{border-radius:var(--d-r-card) var(--d-r-card) 0 0}
+    .app:not(.pub) .arb-col-title{display:flex;align-items:center;gap:8px}
+    .app:not(.pub) .arb-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--st)}
+    .app:not(.pub) .arb-col .arb-n{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:18px;padding:0 6px;border-radius:100px;font:600 11px/1 var(--d-body);
+      color:var(--st);background:color-mix(in srgb,var(--st) 12%,transparent);border:1px solid color-mix(in srgb,var(--st) 30%,transparent)}
+    .app:not(.pub) .arb-empty{color:var(--d-ink-off)}
+    .app:not(.pub) .arb-board.dragging .arb-col[data-col]:not([data-col=other]) .arb-empty{color:var(--d-ink-3)}
+    .app:not(.pub) .arb-card-open{width:100%}
+    .app:not(.pub) .arb-card .arb-card-top{flex-wrap:nowrap;align-items:baseline;justify-content:space-between;gap:10px;width:100%}
+    .app:not(.pub) .arb-val{flex:none;font:600 13px/1.3 var(--d-body);color:var(--d-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+    .app:not(.pub) .arb-contact .tag{margin-left:2px;vertical-align:1px}
+    .app:not(.pub) .arb-money{color:var(--d-ink-3)}
+    .app:not(.pub) .arb-next[data-stage]{color:var(--st);border-color:color-mix(in srgb,var(--st) 45%,transparent);background:color-mix(in srgb,var(--st) 8%,transparent)}
+    @media (hover:hover){ .app:not(.pub) .arb-next[data-stage]:hover:not(:disabled){border-color:var(--st);background:color-mix(in srgb,var(--st) 16%,transparent)} }
+    .app:not(.pub) .arb-menu.arb-menu-fixed{position:fixed;top:auto;left:auto;z-index:50}
+    .app:not(.pub) .arb-notes{font-size:inherit;color:var(--d-warn);text-decoration-color:var(--d-warn-line)}
+    .app:not(.pub) .arb-note{margin:0 0 12px}
+    @media (min-width:700px){
+      /* one row of columns that scrolls sideways (never a 3 + 2 wrap); each column scrolls inside */
+      .app:not(.pub) .arb-board,.app:not(.pub) .arb-board:has(.arb-col[data-col=other]){grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(208px,1fr);
+        overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:6px;scrollbar-width:thin;scrollbar-color:#3a3a3c transparent}
+      .app:not(.pub) .arb-col{scroll-snap-align:start}
+      .app:not(.pub) .arb-cards{max-height:calc(100dvh - 320px);min-height:64px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#3a3a3c transparent}
+    }
+    /* producer panel: the sheet's total first and full width, then two per row; roomier fields */
+    .app:not(.pub) .modal-card .cat-summary-grid.ar-panel-tiles:has(> .cat-stat){grid-template-columns:repeat(2,minmax(0,1fr))}
+    .app:not(.pub) .ar-panel-tiles > .ar-tile-wide{grid-column:1 / -1}
+    .app:not(.pub) :is(.arb-panel,.ar-tracked-form) .fld{margin-bottom:18px}
+    /* Add these to Luminate: one block per list, with how full it is */
+    .app:not(.pub) .ar-tolum-modal .lm-block.ar-tolum-group{margin:14px 0 0}
+    .app:not(.pub) .ar-tolum-head{flex-direction:column;align-items:stretch;gap:8px}
+    .app:not(.pub) .ar-tolum-head h4{margin:0;font-size:14px;font-weight:600;color:var(--d-ink)}
+    .app:not(.pub) .ar-tolum-meter{display:flex;align-items:center;gap:10px}
+    .app:not(.pub) .ar-tolum-meter .lm-bar{flex:1}
+    .app:not(.pub) .ar-tolum-meter em{flex:none;font-style:normal;font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .ar-tolum-meter em.warn-text{color:var(--d-warn)}
+    .app:not(.pub) .ar-tolum-full{display:flex;align-items:flex-start;gap:8px;margin:0;padding:10px 16px;border-bottom:1px solid var(--d-line);background:var(--d-warn-bg);color:var(--d-warn);font-size:13px;line-height:1.45}
+    .app:not(.pub) .ar-tolum-full svg{flex:none;margin-top:2px}
+    .app:not(.pub) .ar-tolum-group .ar-tolum-row{padding:10px 12px 10px 16px;border-top:1px solid var(--d-line)}
+    .app:not(.pub) .ar-tolum-group .lm-block-head + .ar-tolum-row{border-top:0}
+    .app:not(.pub) .ar-tolum-name{min-width:0;font-size:13.5px}
+    .app:not(.pub) .modal-foot .ar-tolum-drop{margin-right:auto}
     `}</style>
   );
 }
