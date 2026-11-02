@@ -5417,8 +5417,8 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
     // under 1,000 streams this week a % says little (1 → 2 is "▲ 100%"): streams only, as on the Dashboard
     return { thisWeek: t, wowPct: l > 0 && t >= WEEK_PCT_MIN ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null };
   };
-  const cols = [["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Gross streams"], ["net", "Net streams"], ["earn", "Est. earnings"], ["fee", "Est. admin fee"],
-    ...(forecast ? [["y1", "Yr 1 fee"], ["y2", "Yr 2 fee"], ["y3", "Yr 3 fee"], ["fc", "3-yr fee forecast"], ["tot", "Total est. fee"], ["share", "% of roster fee"]] : [])];
+  const cols = [["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Gross streams"], ["net", "Net streams"], ["earn", "Their earnings"], ["fee", "Our fee"],
+    ...(forecast ? [["y1", "Our fee yr 1"], ["y2", "Our fee yr 2"], ["y3", "Our fee yr 3"], ["fc", "Our fee next 3 yrs"], ["tot", "Our fee in all"], ["share", "% of roster fee"]] : [])];
   const val = { songs: (x) => x.r.songs, gross: (x) => x.r.grossStreams, net: (x) => x.r.netStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, y1: (x) => x.r.year1, y2: (x) => x.r.year2, y3: (x) => x.r.year3, fc: (x) => x.r.forecastTotal, tot: (x) => x.r.totalEstAdminFee, share: (x) => Number(x.r.pctOfRoster) };
   const rows = (state.data?.rows || []).map((r) => { const client = findClient(r); return { r, client, wk: weekOf(client) }; });
   const name = (x) => (x.client ? x.client.name : x.r.writer).toLowerCase();
@@ -5469,12 +5469,13 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
               <div className="cat-stat"><span className="cat-stat-label">Gross Streams <span className="cat-stat-note">(added up by writer: a shared song counts once per writer)</span></span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
               <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterNetStreams)}</span></div>
               {/* the same words as each client's page; the fee figures are the sheet's own: the fee so far
-                  (MASTER's "CATALOG TO DATE", the table's "Est. admin fee"), its 3-year forecast, and the two together */}
-              <div className="cat-stat"><span className="cat-stat-label">Est. publishing earnings <span className="cat-stat-note">(paid to the client directly)</span></span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Est. admin fee so far <span className="cat-stat-note">(our commission)</span></span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>
+                  (MASTER's "CATALOG TO DATE", the table's "Our fee"), its 3-year forecast, and the two together. The words are the
+                  Advance calculator's: "Their earnings" and "Our fee" */}
+              <div className="cat-stat"><span className="cat-stat-label">Their earnings <span className="cat-stat-note">(est., paid to them directly)</span></span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Our fee so far <span className="cat-stat-note">(est. admin fee)</span></span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>
               {/* the sheet's forecast: Year 1 = the fee so far × B9 × (1 − B8), then B8 less each year; a guess, said so */}
-              <div className="cat-stat"><span className="cat-stat-label">3-yr fee forecast <span className="cat-stat-note">(rough guess{yearOne(state.data) ? `: ${yearOne(state.data).share} of the fee so far in year 1, then ${yearOne(state.data).decay} less a year` : ""})</span></span><span className="cat-stat-val">{money(state.data.totals.threeYearForecast)}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Total est. fee <span className="cat-stat-note">(so far + 3 years)</span></span><span className="cat-stat-val">{money(state.data.totals.totalEstAdminFee)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Our fee next 3 yrs <span className="cat-stat-note">(rough guess{yearOne(state.data) ? `: ${yearOne(state.data).share} of the fee so far in year 1, then ${yearOne(state.data).decay} less a year` : ""})</span></span><span className="cat-stat-val">{money(state.data.totals.threeYearForecast)}</span></div>
+              <div className="cat-stat"><span className="cat-stat-label">Our fee in all <span className="cat-stat-note">(so far + 3 years)</span></span><span className="cat-stat-val">{money(state.data.totals.totalEstAdminFee)}</span></div>
             </div>
             {/* the one place the money's explained: everything below (and each client's page) is the same estimate */}
             <p className="hint cat-asof money-hint" title="The rate is ASSUMPTIONS!B7 on the pub sheet">
