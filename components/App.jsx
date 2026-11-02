@@ -5636,6 +5636,9 @@ function HeldDupes({ dupes, onDupe }) {
   );
 }
 const UPDATE_FIRST = 8;
+// a row's chips, the money gaps first (no writer share, not on the sheet, not in Luminate), as updateWords names them
+const GAP_RANK = ["share", "sheet", "lum", "date", "link"];
+const gapRank = (k) => (GAP_RANK.includes(k) ? GAP_RANK.indexOf(k) : GAP_RANK.length);
 // Publishing › Songs to update: what each song is missing, one button that opens the song at the first gap
 function SongsToUpdate({ db, lum, onFix, focus, dupes = [], onDupe }) {
   const list = useMemo(() => songsToUpdate(db, lum), [db, lum]);
@@ -5644,6 +5647,7 @@ function SongsToUpdate({ db, lum, onFix, focus, dupes = [], onDupe }) {
   // the biggest 8 first, so Overview's totals stay close; a gap chip narrows the list to that gap
   const [gap, setGap] = useState(null);
   const [more, setMore] = useState(false);
+  const [opened, setOpened] = useState(() => new Set()); // phone rows whose "+N" was tapped: every chip shows
   const counts = useMemo(() => { const n = {}; for (const x of list) for (const g of x.gaps) if (GAP_WORDS[g.k]) n[g.k] = (n[g.k] || 0) + 1; return n; }, [list]);
   const shown = gap && counts[gap] ? list.filter((x) => x.gaps.some((g) => g.k === gap)) : list;
   const rows = more ? shown : shown.slice(0, UPDATE_FIRST);
@@ -5664,19 +5668,20 @@ function SongsToUpdate({ db, lum, onFix, focus, dupes = [], onDupe }) {
       )}
       {list.length > 0 && (
         <div className="fix-group" data-group="update">
-          {rows.map((x) => (
-            <div className="fix-row" key={x.p.id} data-song={x.p.id}>
+          {rows.map((x) => { const gs = [...x.gaps].sort((a, b) => gapRank(a.k) - gapRank(b.k)), extra = gs.length + (x.splitSee ? 1 : 0) - 2, open = opened.has(x.p.id); return (
+            <div className={`fix-row${open ? " upd-open" : ""}`} key={x.p.id} data-song={x.p.id}>
               <span className="fix-song"><span className="fix-who">{x.client?.name || "A deleted client"} · </span>{x.p.song || "Untitled"}</span>
-              {/* on phones the first two chips and "+N" (all of them in its title), so a row stays short */}
-              <span className="fix-mid upd-gaps" title={[...x.gaps.map((g) => g.label), x.splitSee && "Split: see Splits to confirm"].filter(Boolean).join(" · ")}>
-                {x.gaps.map((g, i) => <span key={g.k} className={`upd-gap${i >= 2 ? " upd-gap-x" : ""}`} data-gap={g.k}>{g.label}</span>)}
-                {x.splitSee && <span className={`upd-gap upd-split${x.gaps.length >= 2 ? " upd-gap-x" : ""}`} data-gap="split-see">Split: see Splits to confirm</span>}
-                {x.gaps.length + (x.splitSee ? 1 : 0) > 2 && <span className="upd-gap upd-gap-more" data-gap-more aria-hidden="true">+{x.gaps.length + (x.splitSee ? 1 : 0) - 2}</span>}
+              {/* money gaps first (as the To do names them); on phones the first two chips and a "+N" that shows the rest */}
+              <span className="fix-mid upd-gaps">
+                {gs.map((g, i) => <span key={g.k} className={`upd-gap${i >= 2 ? " upd-gap-x" : ""}`} data-gap={g.k}>{g.label}</span>)}
+                {x.splitSee && <span className={`upd-gap upd-split${gs.length >= 2 ? " upd-gap-x" : ""}`} data-gap="split-see">Split: see Splits to confirm</span>}
+                {extra > 0 && <button type="button" className="upd-gap upd-gap-more" data-gap-more aria-expanded={open} aria-label={open ? "Show fewer" : `Show ${extra} more`}
+                  onClick={() => setOpened((o) => { const n = new Set(o); if (n.has(x.p.id)) n.delete(x.p.id); else n.add(x.p.id); return n; })}>{open ? "Less" : `+${extra}`}</button>}
               </span>
               <span className="fix-streams">{fmt(x.p.streams || 0)} streams</span>
               <span className="fix-acts"><button className="btn sm" data-update onClick={() => onFix(x.p.id, (x.gaps[0] || {}).field)}>Update</button></span>
             </div>
-          ))}
+          ); })}
           {shown.length > UPDATE_FIRST && <button className="inline-link upd-more" data-upd-more onClick={() => setMore(!more)}>{more ? `Show the first ${UPDATE_FIRST}` : `Show all ${shown.length}`}</button>}
         </div>
       )}
@@ -5721,7 +5726,10 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
       if (!c?.tabFound) return { ok: false };
       const live = new Set(db.placements.map((p) => p.id));
       const k = sheetRowOf(keep, c.rows || [], live), d = sheetRowOf(drop, c.rows || [], live);
-      return { ok: true, keepRow: k?.row ?? null, keepSong: k ? String(k.song ?? "") : null, dropRow: d?.row ?? null, share: k && Number(k.writerShare) > 0 ? Number(k.writerShare) : null };
+      // byId: the push finds this row by itself (its Site Sync ID, or the merged card's Luminate id in M). A row
+      // matched by its old title only is stamped first (/api/sheets-claim), or a push under the new title adds a row
+      const byId = !!k && ((!!k.syncId && k.syncId.split(":")[0] === keep.id) || (!!merged.luminateId && (k.luminateId || "").trim() === merged.luminateId));
+      return { ok: true, keepRow: k?.row ?? null, keepSong: k ? String(k.song ?? "") : null, keepById: byId, dropRow: d?.row ?? null, share: k && Number(k.writerShare) > 0 ? Number(k.writerShare) : null };
     } catch { return { ok: false }; }
   };
   useEffect(() => { let off = false; if (client) readTab().then((f) => { if (!off) setFresh(f); }); return () => { off = true; }; }, [keep.id, drop.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -5746,6 +5754,17 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
     change: `${client?.name}'s writer share on the ${tab} tab changes from ${now == null ? "blank" : pctOf(now)} to ${pctOf(will)}, and the song's earnings on the sheet change with it.`,
   }[share.kind];
   const fromOther = (k) => !keep[k] && !!drop[k];
+  // the merged card takes another title (Luminate's, "TRUST WHO #jerseyclub"): the card is told by its outcome, one
+  // card with that title, since "X is removed" would read as the real song going (owner, Nov 2)
+  const retitled = title.trim() !== (keep.song || "").trim();
+  const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0] || "");
+  const keeps = [row != null && `row ${row} on the ${tab} tab`, keep.luminateId && "the Luminate id"].filter(Boolean);
+  const takes = [fromOther("releaseDate") && "release date", fromOther("link") && "link", fromOther("cover") && "cover",
+    fromOther("luminateId") && "Luminate id", merged.splits !== keep.splits && "split"].filter(Boolean);
+  const outcome = `One card is left, titled "${title || "Untitled"}"${keeps.length ? `: it keeps ${and(keeps)}` : ""}${takes.length ? `${keeps.length ? "," : ""} and takes the ${and(takes)} from the other card` : ""}. The other card comes off the site and Add to Luminate.`;
+  const keptHead = [row != null && "sheet row", keep.luminateId && "Luminate id"].filter(Boolean);
+  // the second card's title is the one kept: not struck through
+  const dropTitleKept = !!(drop.song || "").trim() && title.trim() === (drop.song || "").trim();
   // the merged card's title: two choices, the rule's first (Luminate's title for this song when it has one)
   const titleChoice = pick.other ? (
     <span className="dupe-title-pick" role="radiogroup" aria-label="Title after merging">
@@ -5765,10 +5784,13 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
     ["Cover", p.cover ? <span className="dupe-cover"><Photo src={p.cover} alt="" /></span> : "None", side === "merged" && fromOther("cover")],
     ["Split", splitLine(p.splits), side === "merged" && p.splits !== keep.splits],
     // Luminate's release group rows of this song ("TRUST WHO (SLOWED & REVERB)"): a note here, never a card
-    ...(side === "merged" && lumT?.releases?.length ? [["Also in Luminate", `${lumT.releases.map((r) => `"${r}"`).join(", ")}, a release group of this song. It stays a note on this card, not a second card.`]] : []),
+    // (nothing keeps it after the merge: it's what Luminate says, shown only here)
+    ...(side === "merged" && lumT?.releases?.length ? [["Also in Luminate", lumT.releases.length === 1
+      ? `Luminate also lists "${lumT.releases[0]}" as a release group of this song. It isn't made into a card.`
+      : `Luminate also lists ${and(lumT.releases.map((r) => `"${r}"`))} as release groups of this song. They aren't made into cards.`]] : []),
   ];
   const col = (p, side, head) => (
-    <div className={`dupe-col ${side}`} data-dupe-col={side}>
+    <div className={`dupe-col ${side}${side === "drop" && dropTitleKept ? " title-kept" : ""}`} data-dupe-col={side}>
       <div className="dupe-col-head">{head}</div>
       {/* the cover is an image on its own line: its note goes under it without the leading dot */}
       <dl>{fields(p, side).map(([k, v, filled]) => <div key={k} className="dupe-f" data-f={k}><dt>{k}</dt><dd>{v}{filled && <em className="dupe-from">{k === "Cover" ? "From the other card" : " · from the other card"}</em>}</dd></div>)}</dl>
@@ -5783,6 +5805,17 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
     if (f.dropRow != null) return setBlocked(`"${drop.song || "Untitled"}" now has its own row on the ${tab} tab (row ${f.dropRow}). Removing the card would leave that row counting on the sheet, so nothing was changed. Remove the row from the sheet first, or choose Not the same song.`);
     const share = planFor(f);
     const renameNow = renames(f, share.kind);
+    // the kept row was found by its title only (typed in by hand, no Site Sync ID, no Luminate id in M): stamp its
+    // Site Sync ID before anything else, so the push below writes that row, never a second one under the new title
+    if ((share.kind === "change" || renameNow) && !f.keepById) {
+      const who = (client?.sheetTabName || client?.name || "").trim();
+      const ok = await fetch("/api/sheets-claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+        body: JSON.stringify({ claims: [{ tab: who, row: f.keepRow, syncId: `${keep.id}:${who.toLowerCase()}` }] }),
+      }).then((r) => r.ok).catch(() => false);
+      if (!ok) return setBlocked(`Row ${f.keepRow} on the ${tab} tab couldn't be marked as this song's row just now, so nothing was changed. Try again.`);
+    }
     const done = await commit({ ...db, placements: db.placements.filter((p) => p.id !== drop.id).map((p) => (p.id === keep.id ? merged : p)) });
     if (!done) return; // the save's own error banner says why; nothing went to the sheet
     const saved = done.placements.find((p) => p.id === keep.id);
@@ -5804,9 +5837,9 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
   };
   return (
     <AskCard title="Merge these two cards?" goLabel="Merge cards" busyLabel="Working…" plain wide go={merge} onClose={onClose} alt={{ label: "Not the same song", run: notSame }}>
-      <p data-dupe-why>{client?.name ? `${client.name}'s page has` : "These are"} two cards with {pair.why}. After merging, one card is left.</p>
+      <p data-dupe-why>{client?.name ? `${client.name}'s page has` : "These are"} two cards with {pair.why}.{retitled ? "" : " After merging, one card is left."}</p>
       {/* what happens, above the columns so it's in view at 1280x800 before Merge cards */}
-      <p data-merge-drop>"{drop.song || "Untitled"}" is removed from the site and from Add to Luminate. {!fresh ? `Checking the ${tab} tab for its row…`
+      <p data-merge-drop>{retitled ? outcome : `"${drop.song || "Untitled"}" is removed from the site and from Add to Luminate.`} {!fresh ? `Checking the ${tab} tab for its row…`
         : !fresh.ok ? `The ${tab} tab couldn't be checked just now; Merge checks it again first.`
         : fresh.dropRow != null ? `It has its own row on the ${tab} tab (row ${fresh.dropRow}), so it can't be merged here.`
         : `It has no row on the ${tab} tab (checked just now), so nothing is written there for it.`}</p>
@@ -5815,8 +5848,8 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
       <p className="hint" data-merge-clickup>The weekly ClickUp task updates its counts at the next Dashboard load.</p>
       {blocked && <p className="warn-text" role="alert" data-merge-blocked>{blocked}</p>}
       <div className="dupe-cols">
-        {col(keep, "keep", "Keeps this card")}
-        {col(drop, "drop", "Removed from the site")}
+        {col(keep, "keep", retitled && keptHead.length ? `Kept: ${keptHead.join(" and ")}` : "Keeps this card")}
+        {col(drop, "drop", retitled ? "Folded in, then removed" : "Removed from the site")}
         {col(merged, "merged", "After merging")}
       </div>
     </AskCard>
@@ -6399,7 +6432,9 @@ function PortfolioForm({ initial, onClose, onSaved }) {
               hint="Open the portfolio in Luminate and copy the address bar. Used for its Open button." />
             {err && <p className="hint err-text" role="alert">{err}</p>}
           </> : <>
-          <Field label="Name" value={f.name} placeholder="Portfolio C" onChange={(e) => setF({ ...f, name: e.target.value })} />
+          {/* one of the four Luminate names (PORTFOLIO_NAMES): it always reads that, so a typed name would be thrown away */}
+          {f.fixedName ? <Field label="Name" value={f.name} readOnly aria-readonly="true" data-fixed-name hint="Luminate's own name for it." />
+            : <Field label="Name" value={f.name} placeholder="Portfolio C" onChange={(e) => setF({ ...f, name: e.target.value })} />}
           <Field label="Link to it in Luminate" value={f.url} placeholder="https://…" onChange={(e) => setF({ ...f, url: e.target.value })}
             hint="Open the portfolio in Luminate and copy the address bar. Used for the Open buttons, and to recognize its exports." />
           <Field label="Slots it holds (songs, artists and releases)" type="number" min={1} max={1000} value={f.capacity} onChange={(e) => setF({ ...f, capacity: e.target.value })}
@@ -6751,7 +6786,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
             const room = used >= p.capacity && lum.portfolios.find((q) => q.id !== p.id && q.area === p.area && (q.usedCount ?? q.songCount) + q.pendingCount < q.capacity);
             const age = p.exportedAt ? Math.floor((Date.now() - new Date(p.exportedAt).getTime()) / 86400000) : null;
             return (
-              <button key={p.id} className="lm-port" onClick={() => setEditing({ ...p })} title="Edit name, link or size">
+              <button key={p.id} className="lm-port" onClick={() => setEditing({ ...p })} title={p.fixedName ? "Edit link or size" : "Edit name, link or size"}>
                 <span className="lm-port-top"><strong>{p.name}</strong></span>
                 <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity ? ` · Full${room ? ` · new songs go in ${room.name}` : ""}` : ""}</span>
                 <span className="lm-port-meta">{held(p)}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
@@ -8479,6 +8514,8 @@ function StyleTag() {
     .app:not(.pub) input[type=number]{-moz-appearance:textfield;appearance:textfield}
     .app:not(.pub) input[type=number]::-webkit-inner-spin-button,.app:not(.pub) input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
     .app:not(.pub) input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.75);cursor:pointer}
+    /* a name that can't be changed here (Luminate's own portfolio names): plain text in a quiet box */
+    .app:not(.pub) .fld input[readonly]{background:transparent;border-style:dashed;color:var(--d-ink-2);cursor:default}
     .app:not(.pub) .fld input:-webkit-autofill{-webkit-text-fill-color:var(--d-ink);caret-color:var(--d-ink);box-shadow:0 0 0 100px var(--d-field) inset}
     @media (max-width:599px),(pointer:coarse){
       .app:not(.pub) :is(.fld,.sp-row,.splits-ed-row,.ar-song-row) :is(input,select,textarea),.app:not(.pub) .about-editor{font-size:16px}
@@ -9740,7 +9777,7 @@ function StyleTag() {
     .app:not(.pub) .dupe-col.merged{border-color:var(--d-pos-line)}
     .app:not(.pub) .dupe-col.drop{border-color:var(--d-neg-line)}
     .app:not(.pub) .dupe-col.drop .dupe-col-head{color:var(--d-neg)}
-    .app:not(.pub) .dupe-col.drop .dupe-f:first-child dd{text-decoration:line-through;text-decoration-color:var(--d-neg);color:var(--d-ink-3)}
+    .app:not(.pub) .dupe-col.drop:not(.title-kept) .dupe-f:first-child dd{text-decoration:line-through;text-decoration-color:var(--d-neg);color:var(--d-ink-3)}
     .app:not(.pub) .dupe-f[data-f=Cover] .dupe-from{display:block;margin-top:2px}
     .app:not(.pub) .dupe-col-head{margin-bottom:6px;font:400 10px/1.2 var(--d-display);letter-spacing:.14em;text-transform:uppercase;color:var(--d-ink-4)}
     .app:not(.pub) .dupe-col dl{margin:0}
@@ -9759,7 +9796,9 @@ function StyleTag() {
     .app:not(.pub) .dupe-title-pick small{font-size:11.5px;color:var(--d-ink-3)}
     .app:not(.pub) .dupe-cover{display:block;position:relative;width:40px;height:40px;border-radius:6px;overflow:hidden}
     .app:not(.pub) .dupe-cover img{width:100%;height:100%;object-fit:cover}
-    @media (max-width:699px){.app:not(.pub) .dupe-cols{grid-template-columns:minmax(0,1fr)}}
+    @media (max-width:699px){.app:not(.pub) .dupe-cols{grid-template-columns:minmax(0,1fr)}
+      /* on phones the card the merge leaves, with its title choice, comes first (Merge cards is pinned below) */
+      .app:not(.pub) .dupe-col.merged{order:-1}}
     .app:not(.pub) .client-head .client-more{margin-left:auto;position:relative;flex:none}
     .app:not(.pub) .client-more-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:30;min-width:170px;padding:4px;border:1px solid var(--d-line);border-radius:10px;background:var(--d-s2);box-shadow:0 10px 30px rgba(0,0,0,.45)}
     .app:not(.pub) .client-more-menu button{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:8px 10px;border:0;border-radius:7px;background:none;color:var(--d-neg);font:inherit;font-size:13.5px;text-align:left;cursor:pointer}
@@ -9820,7 +9859,7 @@ function StyleTag() {
     .app:not(.pub) .upd-gaps{gap:4px 6px}
     .app:not(.pub) .upd-gap{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;border:1px solid var(--d-line-2);color:var(--d-warn);font-size:12px;line-height:18px;white-space:nowrap}
     .app:not(.pub) .upd-gap.upd-split{color:var(--d-ink-3)}
-    .app:not(.pub) .upd-gap-more{display:none;color:var(--d-ink-3)}
+    .app:not(.pub) .upd-gap-more{display:none;color:var(--d-ink-3);background:none;font-family:inherit;cursor:pointer}
     .app:not(.pub) .upd-filters{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
     .app:not(.pub) .upd-filter{display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid var(--d-line-2);border-radius:999px;background:none;color:var(--d-ink-3);font:400 12px/1 var(--d-body);cursor:pointer;white-space:nowrap}
     .app:not(.pub) .upd-filter.on{background:var(--d-active);border-color:var(--d-line-3);color:var(--d-ink)}
@@ -9868,6 +9907,8 @@ function StyleTag() {
       .app:not(.pub) .fix-group[data-group=update] .upd-gap-x{display:none}
       .app:not(.pub) .fix-group[data-group=update] .upd-gap-more{display:inline-flex}
       .app:not(.pub) .fix-group[data-group=update] .upd-gaps{flex-wrap:nowrap;overflow:hidden}
+      .app:not(.pub) .fix-group[data-group=update] .upd-open .upd-gap-x{display:inline-flex}
+      .app:not(.pub) .fix-group[data-group=update] .upd-open .upd-gaps{flex-wrap:wrap}
       /* thumb-sized taps: the segmented toggles, the A&R strip in two lines, Luminate's buttons under its title */
       .app:not(.pub) .gainer-tabs button{min-height:40px}
       .app:not(.pub) .ar-strip{flex-wrap:wrap;overflow-x:visible}
