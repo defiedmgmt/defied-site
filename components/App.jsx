@@ -10,7 +10,7 @@ import {
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
   Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator, Copy,
   Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
-  LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight, Info, Eye,
+  LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight, Info, Eye, MoreHorizontal,
 } from "lucide-react";
 import { evenSplit, splitWords, filledSplits, orderSplits } from "../lib/splits";
 import { songGaps, netStreamsOf, SONG_GAPS } from "../lib/sheet-facts";
@@ -2589,18 +2589,21 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
     ["website", "Website", Pencil, 0, "site"],
     ["users", "Users", UserCog], ["subs", "Messages", Inbox, unreadCount],
   ];
+  // phones: 8 tabs don't fit a 360px bar, so Website, Users and Messages sit behind "More" (desktop lists all)
+  const moreBadge = tabs.filter(([id]) => PHONE_MORE.has(id)).reduce((n, t) => n + (t[3] || 0), 0);
   return (
     <div className="dash">
       <aside className="dash-side">
         <div className="dash-brand"><Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link></div>
         <nav>
           {tabs.map(([id, label, Icon, badge, area, short]) => (
-            <button key={id} className={tab === id ? "active" : ""} data-area={area} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
-              {/* short: the phone tab bar's word when the full one can't fit 8 tabs at 390 */}
+            <button key={id} className={[tab === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+              {/* short: the phone tab bar's word when the full one doesn't fit its tab at 360 */}
               <Icon size={17} /> <span className="nav-label">{short ? <><span className="nav-full">{label}</span><span className="nav-short" aria-hidden="true">{short}</span></> : label}</span>
               {!!badge && <span className="nav-badge">{badge}</span>}
             </button>
           ))}
+          <NavMore tabs={tabs.filter(([id]) => PHONE_MORE.has(id))} tab={tab} badge={moreBadge} setTab={setTab} />
         </nav>
         <div className="dash-side-foot">
           <div className="dash-role">Staff — full edit access</div>
@@ -7814,11 +7817,13 @@ function AcctToLog({ d, onLog, onPick }) {
 // blank like the Other Income rows), then the same confirm, claim and read-back as Log it
 function LogDetails({ p, options, canLog, onClose, onNext }) {
   const types = options?.types || [], clients = options?.clients || [];
-  const [type, setType] = useState(types.includes("Other Income") && !p.client ? "Other Income" : types[0] || "");
-  const [client, setClient] = useState(p.client && clients.includes(p.client) ? p.client : "");
-  const need = type === "Management Commission" && !client;
-  // a payer who is a client on INFO: their commission goes in as Management Commission with their name
+  // a payer who is a client on INFO (Stripe's "Reallyindig0" is INFO's "reallyindig0"): their commission goes
+  // in as Management Commission with INFO's spelling, so both start picked
   const onInfo = clients.find((c) => c.toLowerCase() === String(p.client || p.payer || "").trim().toLowerCase());
+  const [type, setType] = useState(onInfo && types.includes("Management Commission") ? "Management Commission"
+    : types.includes("Other Income") && !p.client ? "Other Income" : types[0] || "");
+  const [client, setClient] = useState(onInfo || "");
+  const need = type === "Management Commission" && !client;
   const offInfo = onInfo && (type !== "Management Commission" || !client);
   return (
     <AskCard title="Log with details" goLabel="Check the row" plain goDisabled={need || !type} onClose={onClose} go={() => { if (!need && type) onNext({ [p.id]: { type, client } }); }}>
@@ -7898,6 +7903,39 @@ function CuTask({ t, over }) {
 // Website), then ClickUp's three lists. On phones a whole row is the button (with a ›), and the list
 // stops at 4 rows with "Show N more". failed = the Luminate data couldn't load: a plain line to try
 // again, never "All caught up" or a spinner that never stops.
+// The phone tab bar's "More": Website, Users and Messages in a small menu above the bar, with their badges
+// added up on the button. Hidden on desktop, where the sidebar lists every section.
+const PHONE_MORE = new Set(["website", "users", "subs"]);
+function NavMore({ tabs, tab, badge, setTab }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", away); document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const here = tabs.some(([id]) => id === tab);
+  return (
+    <div className="nav-more" ref={box}>
+      <button type="button" className={here ? "active" : ""} aria-haspopup="menu" aria-expanded={open} data-nav-more onClick={() => setOpen((o) => !o)}>
+        <MoreHorizontal size={17} /> <span className="nav-label">More</span>
+        {!!badge && <span className="nav-badge">{badge}</span>}
+      </button>
+      {open && (
+        <div className="nav-more-menu" role="menu">
+          {tabs.map(([id, label, Icon, n]) => (
+            <button key={id} role="menuitem" className={tab === id ? "active" : ""} onClick={() => { setOpen(false); setTab(id); }}>
+              <Icon size={17} /> <span>{label}</span>{!!n && <span className="nav-badge">{n}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const TODO_GROUPS = [["luminate", "Luminate"], ["roster", "Publishing"], ["money", "Money"], ["ar", "A&R"], ["site", "Website"]];
 function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, homeRetry, settled = true }) {
   const phone = useMedia("(max-width: 599px)");
@@ -8998,6 +9036,15 @@ function StyleTag() {
       .app:not(.pub) .dash-side nav button.active{background:none;color:var(--d-ink)}
       .app:not(.pub) .dash-side nav .nav-badge{position:absolute;top:8px;left:calc(50% + 6px)}
       .app:not(.pub) .dash-side nav button:focus-visible{outline-offset:-4px;border-radius:var(--d-r-md)}
+      /* "More" holds Website, Users and Messages; its menu opens above the bar */
+      .app:not(.pub) .dash-side nav .nav-more-item{display:none}
+      .app:not(.pub) .dash-side nav .nav-more{display:grid;position:relative}
+      .app:not(.pub) .dash-side nav .nav-more > button{width:100%;display:flex}
+      .app:not(.pub) .dash-side nav .nav-more-menu{position:absolute;right:4px;bottom:calc(100% + 8px);display:flex;flex-direction:column;gap:2px;min-width:180px;padding:6px;
+        border:1px solid var(--d-line-2);border-radius:var(--d-r-md);background:var(--d-s2);box-shadow:var(--d-shadow-pop)}
+      .app:not(.pub) .dash-side nav .nav-more-menu button{flex-direction:row;justify-content:flex-start;gap:10px;height:44px;padding:0 12px;border-radius:var(--d-r-sm,8px);color:var(--d-ink-2);font-size:14px}
+      .app:not(.pub) .dash-side nav .nav-more-menu button.active{color:var(--d-ink);background:var(--d-active)}
+      .app:not(.pub) .dash-side nav .nav-more-menu .nav-badge{position:static;margin-left:auto}
       .app:not(.pub) .dash-main{padding:20px 16px calc(var(--d-tab-h) + 24px + env(safe-area-inset-bottom))}
       html:has(.app:not(.pub) .dash){scroll-padding-bottom:calc(var(--d-tab-h) + 16px + env(safe-area-inset-bottom))}
       .app:not(.pub):has(.dash) .toast-wrap{bottom:calc(var(--d-tab-h) + 16px + env(safe-area-inset-bottom))}   /* for phase-2 toasts */
@@ -10184,13 +10231,14 @@ function StyleTag() {
     .app:not(.pub) .ar-tolum-acts{display:flex;gap:6px;flex:none}
     @media (max-width:899px){
       .app:not(.pub) .home-pair{grid-template-columns:minmax(0,1fr)}
-      /* 8 tabs: each as wide as its label plus an even share of what's left (never under 44px), so the
+      /* 6 tabs (5 + More): each as wide as its label plus an even share of what's left (never under 44px), so the
          long labels ("Dashboard", "Publishing") get their room and a gap, instead of equal slices */
       .app:not(.pub) .dash-side nav{grid-auto-columns:minmax(44px,auto)}
     }
     .app:not(.pub) .dash-side nav .nav-short{display:none}
+    @media (min-width:900px){ .app:not(.pub) .dash-side nav .nav-more{display:none} }
     @media (max-width:420px){
-      /* phones: iOS-size labels (10px), so all 8 stay whole and apart down to 360px ("Accounting" reads Money) */
+      /* phones: iOS-size labels (10px), so all 6 stay whole and well apart down to 360px ("Accounting" reads Money) */
       .app:not(.pub) .dash-side nav{padding-left:2px;padding-right:2px}
       .app:not(.pub) .dash-side nav button{padding:0 1px}
       .app:not(.pub) .dash-side nav button .nav-label{font-size:10px;letter-spacing:-.01em}
@@ -10534,12 +10582,13 @@ function StyleTag() {
          whole payment row shows without scrolling */
       .app:not(.pub) .home-money-card .acct-unlogged-top{flex:none}
       .app:not(.pub) .home-money-card .acct-log-all{flex:none}
-      @media (max-height:820px){
-        .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head{flex-wrap:nowrap}
-        .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head > span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-        .app:not(.pub) .acct-hd-w{display:none}
-        .app:not(.pub) .home-money-card .acct-row-hd{display:none}
-      }
+    }
+    /* the same one-line head on phones, so the Money card stays inside its phone cap with the list under it */
+    @media (min-width:900px) and (max-height:820px), (max-width:599px){
+      .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head{flex-wrap:nowrap}
+      .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head > span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .app:not(.pub) .acct-hd-w{display:none}
+      .app:not(.pub) .home-money-card .acct-row-hd{display:none}
     }
     /* below 1400 the two columns share evenly, so Money's head (tabs + "All (N) ›") fits on one line */
     @media (min-width:900px) and (max-width:1399px) and (min-height:640px){
