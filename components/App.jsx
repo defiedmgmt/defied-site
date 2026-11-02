@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { evenSplit, splitWords, filledSplits } from "../lib/splits";
 import { songGaps, netStreamsOf } from "../lib/sheet-facts";
+import { likelyDuplicates, mergedCard, plainTitle } from "../lib/duplicates";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
    this bundle instead of inside it). The chrome wordmark + D live in /public/brand as transparent
@@ -4599,17 +4600,18 @@ const releaseDay = (s) => {
 // An in-app "are you sure?" in place of the browser's own confirm box: a title, what will happen, a
 // red button and Cancel. Esc, ×, Cancel or a click outside cancel; the red button waits for go().
 // plain: a normal button for a step that loses nothing; typeName: the button stays off until that is typed.
-function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClose, plain = false, typeName = null }) {
+// alt: { label, run } a second answer beside the red one (the merge card's "Not the same song"); wide: room for columns
+function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClose, plain = false, typeName = null, alt = null, wide = false }) {
   const [busy, setBusy] = useState(false);
   const [typed, setTyped] = useState("");
   const running = useRef(false); // set at once: a double click lands before the busy re-render
   const typedOk = !typeName || typed.trim() === typeName.trim();
   const close = () => { if (!busy) onClose(); };
   useEscape(close, true, true); // ahead of the window it opened over, so Esc closes only this
-  const run = async () => { if (!typedOk || running.current) return; running.current = true; setBusy(true); try { await go(); } finally { running.current = false; setBusy(false); } };
+  const run = async (fn = go) => { if (!typedOk || running.current) return; running.current = true; setBusy(true); try { await fn(); } finally { running.current = false; setBusy(false); } };
   return (
     <div className="modal ask-modal" onClick={(e) => e.target === e.currentTarget && close()}>
-      <div className="modal-card ask-card" role="alertdialog" aria-modal="true" aria-label={title}>
+      <div className={wide ? "modal-card ask-card ask-wide" : "modal-card ask-card"} role="alertdialog" aria-modal="true" aria-label={title}>
         <div className="modal-head"><h3>{title}</h3><button onClick={close} aria-label="Close"><X size={18} /></button></div>
         <div className="modal-body ask-body">
           {children}
@@ -4618,7 +4620,8 @@ function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClo
         <div className="modal-foot">
           {/* Cancel has the focus: Enter never deletes by accident */}
           <button className="btn ghost sm" onClick={close} disabled={busy} autoFocus={!typeName}>Cancel</button>
-          <button className={plain ? "btn sm" : "btn sm ask-go"} data-ask-go onClick={run} disabled={busy || !typedOk}>{busy ? busyLabel : goLabel}</button>
+          {alt && <button className="btn ghost sm" data-ask-alt onClick={() => run(alt.run)} disabled={busy}>{alt.label}</button>}
+          <button className={plain ? "btn sm" : "btn sm ask-go"} data-ask-go onClick={() => run()} disabled={busy || !typedOk}>{busy ? busyLabel : goLabel}</button>
         </div>
       </div>
     </div>
@@ -5601,10 +5604,96 @@ function SongsToUpdate({ db, lum, onFix, focus }) {
   );
 }
 
-function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onFix, focusSplits, focusUpdate }) {
+// The merge card (build H1): the two cards side by side and the card the merge leaves. The kept card is the one
+// with the pub sheet row and the Luminate id; it keeps its title, streams, row and id, and takes what it lacks
+// (release date, link, cover) and the split that adds up to 100% from the other. The other card comes off the
+// site, and with it off Add to Luminate. It has no row, so nothing is written to the sheet for it; the kept
+// card's row is written only when the client's own share changes (the song editor's Save step, pushOwnShare).
+// "Not the same song" is kept (app_state, /api/luminate) so the pair never comes back.
+const splitLine = (splits) => {
+  const list = splits || [];
+  if (!list.length) return "No split yet";
+  const t = splitTotal(list);
+  return `${list.map((x) => `${x.name || x.label || "Unnamed"} ${splitPct([x])}%`).join(" · ")}${t === 100 ? "" : ` (adds up to ${splitPct(list)}%)`}`;
+};
+function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
+  const { keep, drop, client } = pair;
+  const facts = db.sheetFacts?.songs || {};
+  const merged = mergedCard(keep, drop);
+  const tab = client?.sheetTabName?.trim() || client?.name || "";
+  const row = facts[keep.id]?.row ?? null;
+  // what the merge does to the client's writer share on their tab: only the kept card's row, and only on a change
+  const own = client ? ownSplit(merged, client) : null;
+  const now = facts[keep.id]?.share ?? null, will = own ? Number(own.percent) : null;
+  const share = !own ? { kind: "none" } : row == null ? { kind: "norow" } : noSheetTab(lum, client) ? { kind: "tabless" }
+    : now != null && Math.abs(now - will) <= 0.05 ? { kind: "same", will } : { kind: "change", from: now, will };
+  const shareText = {
+    none: `${client?.name || "The client"} isn't on the merged split, so nothing is written to the pub sheet.`,
+    norow: `Neither card has a row on the ${tab} tab, so nothing is written to the pub sheet.`,
+    tabless: `${client?.name}'s sheet tab isn't set, so nothing is written to the pub sheet.`,
+    same: `${client?.name}'s writer share on the ${tab} tab stays ${pctOf(will)} (no change). Nothing is written to the pub sheet.`,
+    change: `${client?.name}'s writer share on the ${tab} tab changes from ${now == null ? "blank" : pctOf(now)} to ${pctOf(will)}, and the song's earnings on the sheet change with it.`,
+  }[share.kind];
+  const fromOther = (k) => !keep[k] && !!drop[k];
+  const fields = (p, side) => [
+    ["Title", p.song || "Untitled"],
+    ["Streams", fmt(p.streams || 0)],
+    ["Pub sheet", side === "drop" ? "No row" : facts[p.id]?.row != null ? `Row ${facts[p.id].row} on the ${tab} tab` : "No row"],
+    ["Luminate id", p.luminateId || "None", side === "merged" && fromOther("luminateId")],
+    ["Release date", p.releaseDate ? releaseDay(p.releaseDate) : "None", side === "merged" && fromOther("releaseDate")],
+    ["Link", p.link ? <ExtLink className="inline-link" href={p.link}>Open track ↗</ExtLink> : "None", side === "merged" && fromOther("link")],
+    ["Cover", p.cover ? <span className="dupe-cover"><Photo src={p.cover} alt="" /></span> : "None", side === "merged" && fromOther("cover")],
+    ["Split", splitLine(p.splits), side === "merged" && p.splits !== keep.splits],
+  ];
+  const col = (p, side, head) => (
+    <div className={`dupe-col ${side}`} data-dupe-col={side}>
+      <div className="dupe-col-head">{head}</div>
+      <dl>{fields(p, side).map(([k, v, filled]) => <div key={k} className="dupe-f"><dt>{k}</dt><dd>{v}{filled && <em className="dupe-from"> · from the other card</em>}</dd></div>)}</dl>
+    </div>
+  );
+  const merge = async () => {
+    const done = await commit({ ...db, placements: db.placements.filter((p) => p.id !== drop.id).map((p) => (p.id === keep.id ? merged : p)) });
+    if (!done) return; // the save's own error banner says why; nothing went to the sheet
+    const saved = done.placements.find((p) => p.id === keep.id);
+    const c = done.clients?.find((x) => x.id === keep.clientId) || client;
+    let err = null;
+    if (share.kind === "change" && saved && ownSplit(saved, c)) err = await pushOwnShare(saved, c, done.placements.map((p) => p.id));
+    reloadLum?.();
+    const n = done.placements.filter((p) => p.clientId === keep.clientId).length;
+    onDone(err
+      ? { warn: true, text: `Merged into "${keep.song}", but the pub sheet wasn't updated (${err}). Open the song and Save again.` }
+      : { text: `Merged "${drop.song || "Untitled"}" into "${keep.song || "Untitled"}". ${client?.name || "The client"} has ${n} song${n === 1 ? "" : "s"}.${share.kind === "change" ? ` The writer share on the ${tab} tab is now ${pctOf(share.will)}.` : ""}` });
+  };
+  const notSame = async () => {
+    try { await lumPost({ action: "notDuplicate", ids: [keep.id, drop.id] }); } catch (e) { onDone({ warn: true, text: `Couldn't save that: ${e.message}` }); return; }
+    reloadLum?.();
+    onDone({ text: `Kept both "${keep.song}" and "${drop.song}". They won't be asked about again.` });
+  };
+  return (
+    <AskCard title="Merge these two cards?" goLabel="Merge cards" busyLabel="Working…" plain wide go={merge} onClose={onClose} alt={{ label: "Not the same song", run: notSame }}>
+      <p data-dupe-why>{client?.name ? `${client.name}'s page has` : "These are"} two cards with {pair.why}. After merging, one card is left.</p>
+      <div className="dupe-cols">
+        {col(keep, "keep", "Keeps this card")}
+        {col(drop, "drop", "Comes off the site")}
+        {col(merged, "merged", "After merging")}
+      </div>
+      <p data-merge-share>{shareText}</p>
+      <p data-merge-drop>"{drop.song || "Untitled"}" comes off the site and off Add to Luminate. It has no row on the pub sheet, so nothing is written there for it.</p>
+    </AskCard>
+  );
+}
+
+function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onFix, focusSplits, focusUpdate, focusDupes }) {
   // Splits to confirm and Songs to update share one place: two tabs, the To do's own one open
   const nUpdate = useMemo(() => songsToUpdate(db, lum).length, [db, lum]);
   const nSplits = useMemo(() => splitsToFix(db).reduce((a, g) => a + g.songs.length, 0), [db]);
+  // cards that look like the same song: the To do's Review opens the merge card at once, the line below reopens it
+  const dupes = useMemo(() => likelyDupes(db, lum), [db, lum]);
+  const [dupeKey, setDupeKey] = useState(null);
+  const [dupeNote, setDupeNote] = useState(null);
+  const dupeOpen = dupeKey && dupes.find((x) => x.key === dupeKey);
+  const askedDupes = useRef(false);
+  useEffect(() => { if (focusDupes && !askedDupes.current && dupes.length) { askedDupes.current = true; setDupeKey(dupes[0].key); } }, [focusDupes, dupes]);
   const [fixTab, setFixTab] = useState(focusUpdate ? "update" : "splits");
   useEffect(() => { if (focusUpdate) setFixTab("update"); }, [focusUpdate]);
   useEffect(() => { if (focusSplits) setFixTab("splits"); }, [focusSplits]);
@@ -5672,7 +5761,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
   const links = state.data?.links || {};
   // the task list lives on the Dashboard now: here, only how many of them are this tab's to fix
   // the splits task is the Splits to fix list right under this line: only the others point to the Dashboard
-  const pubTasks = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster" && t.k !== "splits" && t.k !== "update").length, [db, lum]);
+  const pubTasks = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster" && t.k !== "splits" && t.k !== "update" && t.k !== "dupes").length, [db, lum]);
   const rate = state.data?.rate;
   // the writers' table: This week first (each writer's songs that have both weeks, added up, as
   // lib/weekly.js sumWeeks), biggest % first; any column head re-sorts. The 6 forecast columns wait
@@ -5729,6 +5818,11 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
       {pubTasks > 0 && (
         <p className="pub-tasks"><AlertTriangle size={14} /> {pubTasks} {splitsToFix(db).length ? "more " : ""}publishing task{pubTasks === 1 ? "" : "s"} · <button className="inline-link" onClick={() => onGo("home")}>see the Dashboard</button></p>
       )}
+      {dupes.length > 0 && (
+        <p className="pub-tasks dupe-line" data-dupe-line><AlertTriangle size={14} /> {dupeWords(dupes)} · <button className="inline-link" data-dupe-review onClick={() => { setDupeNote(null); setDupeKey(dupes[0].key); }}>Review</button></p>
+      )}
+      <DropNote note={dupeNote} />
+      {dupeOpen && <DupeMerge db={db} commit={commit} lum={lum} reloadLum={reloadLum} pair={dupeOpen} onClose={() => setDupeKey(null)} onDone={(r) => { setDupeKey(null); setDupeNote(r); }} />}
       {nUpdate > 0 && (
         <div className="fix-tabs" role="tablist">
           <button role="tab" aria-selected={fixTab === "splits"} className={fixTab === "splits" ? "fix-tab active" : "fix-tab"} data-fix-tab="splits" onClick={() => setFixTab("splits")}>{nSplits ? `Splits to confirm (${nSplits})` : "Splits"}</button>
@@ -5936,7 +6030,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
         </div>
         <div className="catalog-main">
           {clientId === null
-            ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} onGo={onGo} onFix={openFix} focusSplits={sub === "splits"} focusUpdate={sub === "update"} />
+            ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} onGo={onGo} onFix={openFix} focusSplits={sub === "splits"} focusUpdate={sub === "update"} focusDupes={sub === "dupes"} />
             : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={() => setClientId(null)} onGo={onGo} onDeleteClient={setDelAsk} />
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
@@ -6771,6 +6865,16 @@ function songsToUpdate(db, lum) {
   }
   return out.sort((a, b) => (b.p.streams || 0) - (a.p.streams || 0));
 }
+// Two cards that look like the same song (build H1, lib/duplicates.js): only once Luminate's data is in (the ISRCs
+// and the pairs staff marked "Not the same song" come with it), and only for clients whose tab the last pull read
+function likelyDupes(db, lum) {
+  if (!lum) return [];
+  return likelyDuplicates(db.placements, { facts: db.sheetFacts || {}, isrcOf: (id) => lum.tracking?.[id]?.isrc || "", dismissed: lum.notDuplicates || [] })
+    .map((x) => ({ ...x, client: (db.clients || []).find((c) => c.id === x.clientId) || null }));
+}
+// "TRUST WHO (Stack!e)": the To do and Publishing's line name the song once, without its version tags
+const dupeName = (x) => `${plainTitle(x.keep.song) || "Untitled"} (${x.client?.name || "no client"})`;
+const dupeWords = (list) => (list.length === 1 ? `2 cards look like the same song: ${dupeName(list[0])}` : `${list.length} pairs of cards look like the same song`);
 // the To do's detail: the two most common gaps, counted
 function updateWords(list) {
   const n = {};
@@ -6793,6 +6897,12 @@ function dashTasks(db, lum) {
     d: updateWords(upd), tab: "catalog", sub: "update", cta: "Review",
   };
   if (!lum) return [splits, update].filter(Boolean);
+  // one line for every pair of cards that look like the same song: Review opens the merge card
+  const dupes = likelyDupes(db, lum);
+  const dupe = dupes.length > 0 && {
+    k: "dupes", area: "roster", t: dupeWords(dupes), d: dupes.length > 1 ? dupes.slice(0, 2).map(dupeName).join(" · ") : undefined,
+    tab: "catalog", sub: "dupes", cta: "Review",
+  };
   const groups = lumGroups(db, lum);
   // one row for every song that still has to go into a portfolio (the Luminate badge counts the same)
   const toAdd = groups.filter((g) => g.status === "toAdd" || g.status === "unplaced").length;
@@ -6824,6 +6934,7 @@ function dashTasks(db, lum) {
     toAdd && { ...L, k: "add", sub: "add", t: `${toAdd} song${toAdd === 1 ? " needs" : "s need"} adding to Luminate`, d: noIsrc ? (toAdd === 1 ? "It still needs its ISRC typed in" : `${noIsrc} of them still need${noIsrc === 1 ? "s its" : " their"} ISRC typed in`) : undefined, cta: "View list" },
     lum.unlinked.length && { ...L, k: "unlinked", sub: "match", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here`, cta: "Match them" },
     missing && { ...L, k: "missing", sub: "missing", t: `${missing} song${missing === 1 ? "" : "s"} marked as added ${missing === 1 ? "isn't" : "aren't"} in the latest export`, d: "Check them in Luminate, then add them again or unmark them.", cta: "View list" },
+    dupe,
     splits,
     update,
     // the fix is each one's "Sheet tab name", which lives in Website › Roster
@@ -9465,6 +9576,22 @@ function StyleTag() {
     .app:not(.pub) .ask-body > p.hint{font-size:12.5px;color:var(--d-ink-3);margin-bottom:0}
     .app:not(.pub) .ask-places{margin:0 0 12px;padding-left:18px;font-size:13.5px;line-height:1.6;color:var(--d-ink)}
     .app:not(.pub) .ask-type{width:100%;height:40px;margin-top:4px}
+    /* the merge card (H1): the two cards and the one the merge leaves, side by side; stacked on phones */
+    .app:not(.pub) .ask-card.ask-wide{max-width:880px}
+    .app:not(.pub) .dupe-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 12px}
+    .app:not(.pub) .dupe-col{min-width:0;padding:10px 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field);background:var(--d-s2)}
+    .app:not(.pub) .dupe-col.merged{border-color:var(--d-pos-line)}
+    .app:not(.pub) .dupe-col.drop{opacity:.8}
+    .app:not(.pub) .dupe-col-head{margin-bottom:6px;font:400 10px/1.2 var(--d-display);letter-spacing:.14em;text-transform:uppercase;color:var(--d-ink-4)}
+    .app:not(.pub) .dupe-col dl{margin:0}
+    .app:not(.pub) .dupe-f{padding:4px 0;border-top:1px solid var(--d-line)}
+    .app:not(.pub) .dupe-f:first-child{border-top:0}
+    .app:not(.pub) .dupe-f dt{font-size:11.5px;color:var(--d-ink-3)}
+    .app:not(.pub) .dupe-f dd{margin:0;font-size:13px;line-height:1.4;color:var(--d-ink);overflow-wrap:anywhere}
+    .app:not(.pub) .dupe-from{font-style:normal;color:var(--d-pos)}
+    .app:not(.pub) .dupe-cover{display:block;position:relative;width:40px;height:40px;border-radius:6px;overflow:hidden}
+    .app:not(.pub) .dupe-cover img{width:100%;height:100%;object-fit:cover}
+    @media (max-width:699px){.app:not(.pub) .dupe-cols{grid-template-columns:minmax(0,1fr)}}
     .app:not(.pub) .client-head .client-more{margin-left:auto;position:relative;flex:none}
     .app:not(.pub) .client-more-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:30;min-width:170px;padding:4px;border:1px solid var(--d-line);border-radius:10px;background:var(--d-s2);box-shadow:0 10px 30px rgba(0,0,0,.45)}
     .app:not(.pub) .client-more-menu button{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:8px 10px;border:0;border-radius:7px;background:none;color:var(--d-neg);font:inherit;font-size:13.5px;text-align:left;cursor:pointer}

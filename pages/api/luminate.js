@@ -158,6 +158,16 @@ async function act(body, session) {
     await sql.transaction(q);
     return [200, { ok: true }];
   }
+  if (action === "notDuplicate") {
+    // "Not the same song" on the merge card (build H1): the pair is kept in app_state so it's never asked about
+    // again. Added to what's there in one statement, so two staff answering at once both stay
+    const pair = ids(body.ids).map((x) => x.slice(0, 40));
+    if (pair.length !== 2 || pair[0] === pair[1]) return [400, { error: "Two different songs are needed." }];
+    const key = [...pair].sort().join("|");
+    await sql`INSERT INTO app_state (key, value, updated_at) VALUES ('notDuplicates', jsonb_build_object(${key}::text, now()), now())
+      ON CONFLICT (key) DO UPDATE SET value = app_state.value || EXCLUDED.value, updated_at = now()`;
+    return [200, { ok: true }];
+  }
   if (action === "notOursOut") {
     // staff took it out of the portfolio in Luminate: the reminder waits for an export that still has it
     const lumId = String(body.luminateId || "").trim();
