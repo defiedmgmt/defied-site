@@ -238,13 +238,14 @@ function CropModal({ src, onCancel, onDone }) {
 function PhotoUpload({ label, value, onChange }) {
   const [busy, setBusy] = useState(false);
   const [cropSrc, setCropSrc] = useState(null);
+  const [err, setErr] = useState(null);
   const pick = async (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = "";
     if (!file) return;
-    setBusy(true);
+    setBusy(true); setErr(null);
     try { setCropSrc(await fileToDataURL(file)); }
-    catch { alert("Couldn't read that image. HEIC photos need a moment to convert — try again, or use a JPG/PNG."); }
+    catch { setErr("Couldn't read that image. HEIC photos need a moment to convert — try again, or use a JPG/PNG."); }
     setBusy(false);
   };
   return (
@@ -260,6 +261,7 @@ function PhotoUpload({ label, value, onChange }) {
           {value && <button type="button" className="photo-remove" onClick={() => onChange("")}>Remove</button>}
         </div>
       </div>
+      {err && <p className="hint err-text" role="alert">{err}</p>}
       {cropSrc && <CropModal src={cropSrc} onCancel={() => setCropSrc(null)} onDone={(d) => { onChange(d); setCropSrc(null); }} />}
     </div>
   );
@@ -2573,6 +2575,8 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
   const [editing, setEditing] = useState(null); // object or null
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState(null);
+  const [delAsk, setDelAsk] = useState(null); // the row its Delete asks about
+  const [listErr, setListErr] = useState(null); // a Delete that was refused ("There has to be at least one staff account.")
   const from = useRef(null); // the row as it was when the form opened
   useEscape(() => setEditing(null), !!editing && !saving); // as Cancel: a save in flight finishes into its own form
   useEffect(() => {
@@ -2596,11 +2600,9 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
       else if (ok !== false) setEditing(null);
     } finally { setSaving(false); }
   };
-  const remove = (it) => {
-    const label = it.name || it.song || it.email || "this entry";
-    const msg = confirmDelete ? confirmDelete(it) : `Delete "${label}"? This can't be undone.`;
-    if (window.confirm(msg)) onDelete(it.id);
-  };
+  const remove = (it) => { setListErr(null); setDelAsk(it); };
+  // confirmDelete(row) can give its own {title, body, typeName, goLabel}
+  const ask = delAsk && { title: `Delete "${delAsk.name || delAsk.song || delAsk.email || "this entry"}"?`, body: "This can't be undone.", goLabel: "Delete", ...(confirmDelete ? confirmDelete(delAsk) : {}) };
   const gridCols = { "--cols": columns.map((c) => c.w || "1fr").join(" ") + (onReorder ? " 128px" : " 72px") };
   const atMax = !!maxItems && items.length >= maxItems;
   // reorder rows carry 4 action buttons (up/down/edit/delete) instead of 2,
@@ -2612,6 +2614,13 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
         <h2>{title}{maxItems ? ` — ${items.length}/${maxItems}` : ""}</h2>
         <button className="btn sm" onClick={() => start(null)} disabled={atMax} title={atMax ? `Remove one to add another (max ${maxItems})` : undefined}><Plus size={15} /> Add</button>
       </div>
+      {listErr && <p className="hint err-text mb" role="alert">{listErr}</p>}
+      {ask && (
+        <AskCard title={ask.title} goLabel={ask.goLabel} busyLabel="Deleting…" typeName={ask.typeName} onClose={() => setDelAsk(null)}
+          go={async () => { const r = await onDelete(delAsk.id); setDelAsk(null); setListErr(typeof r === "string" ? r : null); }}>
+          <p>{ask.body}</p>
+        </AskCard>
+      )}
       <div className="admin-table">
         <div className={`${rowCls} admin-hd`} style={gridCols}>
           {columns.map((c) => <span key={c.key}>{c.label}</span>)}
@@ -2661,6 +2670,38 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
 // never a co-writer's) and finally releases the client's own tab back into
 // the generic WRITER pool. Returns a warning string on partial failure, or
 // null if everything cleared cleanly.
+// the client header's More ▾: Delete client lives here, away from the chips you click all day
+function ClientMore({ onDelete }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEscape(() => setOpen(false), open);
+  useEffect(() => {
+    if (!open) return;
+    const off = (e) => { if (!box.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", off);
+    return () => document.removeEventListener("mousedown", off);
+  }, [open]);
+  return (
+    <div className="client-more" ref={box}>
+      <button className="btn ghost sm" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>More <ChevronDown size={14} /></button>
+      {open && (
+        <div className="client-more-menu" role="menu">
+          <button role="menuitem" data-del-client onClick={() => { setOpen(false); onDelete(); }}><Trash2 size={14} /> Delete client</button>
+        </div>
+      )}
+    </div>
+  );
+}
+// Delete client: what goes with them, and their name typed to confirm (both Publishing and Website › Roster)
+function clientDeleteAsk(db, c) {
+  const n = db.placements.filter((p) => p.clientId === c.id).length;
+  const hasLogin = db.users.some((u) => u.clientId === c.id);
+  const tab = c.sheetTabName?.trim() || c.name;
+  return {
+    title: `Delete ${c.name}?`, goLabel: "Delete client", typeName: c.name,
+    body: `${n ? `Deletes ${c.name}'s ${n} song${n === 1 ? "" : "s"} and clears their rows on the ${tab} tab.` : `${c.name} has no songs.`}${c.onRoster ? " Takes them off the public roster." : ""}${hasLogin ? " Removes their login." : ""} This can't be undone. Type ${c.name} to confirm.`,
+  };
+}
 async function deleteClientCascade(db, commit, id) {
   const client = db.clients.find((c) => c.id === id);
   const clientPlacements = db.placements.filter((p) => p.clientId === id);
@@ -2751,11 +2792,7 @@ function ClientsAdmin({ db, commit, openId = null }) {
     <Editor title="Clients" items={db.clients} columns={cols}
       blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "", sheetTabName: "", onRoster: false }}
       onSave={save} onDelete={del} onReorder={reorder} openId={openId}
-      confirmDelete={(c) => {
-        const n = db.placements.filter((p) => p.clientId === c.id).length;
-        const hasLogin = db.users.some((u) => u.clientId === c.id);
-        return `Delete ${c.name}? This also permanently deletes their ${n} song${n === 1 ? "" : "s"}, clears them from the pub sheet${hasLogin ? ", and removes their login" : ""}. This can't be undone.`;
-      }}
+      confirmDelete={(c) => clientDeleteAsk(db, c)}
       extra={(e, set) => (
         <>
           <label className="check-row">
@@ -2926,18 +2963,12 @@ function UsersAdmin({ db, commit }) {
     // the server skips a new login with no password, which would leave it on screen but never saved
     if (!o.id && !(o.password || "").trim()) return "Enter a password to create this account.";
     const users = o.id ? db.users.map((u) => u.id === o.id ? o : u) : [...db.users, { ...o, id: uid() }];
-    if (!users.some((u) => u.role === "staff")) {
-      window.alert("At least one staff account must exist — can't demote the last one.");
-      return;
-    }
+    if (!users.some((u) => u.role === "staff")) return "There has to be at least one staff account.";
     return saveRow(commit, { ...db, users }, "users", o.id, "user");
   };
   const del = async (id) => {
     const users = db.users.filter((u) => u.id !== id);
-    if (!users.some((u) => u.role === "staff")) {
-      window.alert("At least one staff account must exist — can't delete the last one.");
-      return;
-    }
+    if (!users.some((u) => u.role === "staff")) return "There has to be at least one staff account.";
     await commit({ ...db, users });
   };
   return (
@@ -3176,6 +3207,7 @@ function usePanel() {
 function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
   const { data, pg, load, loadPg } = ar;
   const [kind, setKind] = useState(open?.kind || "producer");
+  const [linkErr, setLinkErr] = useState(null);
   useEffect(() => { if (open?.type === "add") setKind(open.kind || "producer"); }, [open]);
   if (!open) return null;
   const canSave = !!data && data.sheet?.ok !== false;
@@ -3216,10 +3248,11 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
             ? <p className="ar-nums">{fmt(mine.current)} streams this week <UpDown r={mine} /> · {fmt(mine.atd ?? 0)} all-time</p>
             : <p className="muted ar-nums">No numbers yet. Add them to your A&amp;R list in Luminate, then pick their row here.</p>}
           <label className="fld"><span>Their row in your Luminate A&amp;R Artists list</span>
-            <select value={link} onChange={(e) => arPost({ action: "linkLuminate", prospectId: s.id, luminateId: e.target.value }).then(loadPg).catch((e2) => window.alert(e2.message))} aria-label="Their row in your Luminate A&R Artists list">
+            <select value={link} onChange={(e) => { setLinkErr(null); arPost({ action: "linkLuminate", prospectId: s.id, luminateId: e.target.value }).then(() => loadPg()).catch((e2) => setLinkErr(e2.message)); }} aria-label="Their row in your Luminate A&R Artists list">
               <option value="">{mine?.luminateId && !link ? `Matched by name: ${artistRows.find((r) => r.id === mine.luminateId)?.name || ""}` : "None yet"}</option>
               {artistRows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
+            {linkErr && <span className="hint err-text" role="alert">{linkErr}</span>}
           </label>
           <button className="btn ghost sm" onClick={() => onGo("catalog", `advance:${s.id}`)}>Work out an advance</button>
         </div>
@@ -3256,9 +3289,9 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
       await onSaved();
     } catch (e) { setErr(e.message); setBusy(false); }
   };
+  const [askStop, setAskStop] = useState(false);
   const remove = async () => {
-    if (!window.confirm(`Stop tracking ${t.name}? Nothing in Luminate or the pub sheet changes.`)) return;
-    setBusy(true);
+    setAskStop(false); setBusy(true);
     try { await arPost({ action: "removeTracked", id: t.id }); await onSaved(); } catch (e) { setErr(e.message); setBusy(false); }
   };
   return (
@@ -3308,11 +3341,16 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
         </div>
         {guard.bar}
         <div className="modal-foot">
-          {!isNew && <button className="btn ghost sm err-text arb-remove" onClick={remove} disabled={busy}>Stop tracking</button>}
+          {!isNew && <button className="btn ghost sm err-text arb-remove" onClick={() => setAskStop(true)} disabled={busy}>Stop tracking</button>}
           <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn sm" onClick={save} disabled={busy || !f.name.trim()}>{busy ? "Saving…" : isNew ? "Save" : "Save changes"}</button>
         </div>
       </div>
+      {askStop && (
+        <AskCard title={`Stop tracking ${t.name}?`} goLabel="Stop tracking" busyLabel="Stopping…" go={remove} onClose={() => setAskStop(false)}>
+          <p>Nothing in Luminate or the pub sheet changes.</p>
+        </AskCard>
+      )}
     </div>
   );
 }
@@ -4109,9 +4147,10 @@ function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reloa
   const saveGiven = (v) => v && send({ action: "setGiven", prospectId: base.id, given: v === "Yes", expect: { given: prospect.advance?.given ?? "" } }, true);
   const logContact = () => send({ action: "logContact", prospectId: base.id, expect: { lastContact: prospect.cells.P ?? "", status: prospect.cells.O ?? "" } }, true);
   const undo = (id) => send({ action: "undo", eventId: id }, true);
+  const [askOff, setAskOff] = useState(false);
   const deleteProspect = async () => {
-    if (!window.confirm(`Take ${prospect.name} off the board? Their row in the OUTREACH tab is cleared, including 'Advance given?'. Their songs, notes and history stay here, and 'Put back' returns them to the sheet.`)) return;
-    send({ action: "removeProspect", prospectId: prospect.id, expect: { A: prospect.cells.A } });
+    setAskOff(false);
+    await send({ action: "removeProspect", prospectId: prospect.id, expect: { A: prospect.cells.A } });
   };
   const adv = prospect?.advance;
 
@@ -4222,11 +4261,16 @@ function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reloa
         </div>
         {guard.bar}
         <div className="modal-foot">
-          {!isNew && <button className="btn ghost sm err-text arb-remove" onClick={deleteProspect} disabled={busy || !canSave} title={paused}>Remove from board</button>}
+          {!isNew && <button className="btn ghost sm err-text arb-remove" onClick={() => setAskOff(true)} disabled={busy || !canSave} title={paused}>Remove from board</button>}
           <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn sm" onClick={save} disabled={busy || !name.trim() || !canSave} title={paused}>{busy ? "Saving…" : isNew ? "Save" : "Save changes"}</button>
         </div>
       </div>
+      {askOff && (
+        <AskCard title={`Take ${prospect.name} off the board?`} goLabel="Remove from board" busyLabel="Removing…" go={deleteProspect} onClose={() => setAskOff(false)}>
+          <p>Their row in the OUTREACH tab is cleared, including 'Advance given?'. Their songs, notes and history stay here, and 'Put back' returns them to the sheet.</p>
+        </AskCard>
+      )}
       {conflict && (
         <div className="modal arb-conflict" onClick={(e) => e.stopPropagation()}>
           <div className="modal-card">
@@ -4493,20 +4537,26 @@ const releaseDay = (s) => {
 };
 // An in-app "are you sure?" in place of the browser's own confirm box: a title, what will happen, a
 // red button and Cancel. Esc, ×, Cancel or a click outside cancel; the red button waits for go().
-function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClose }) {
+// plain: a normal button for a step that loses nothing; typeName: the button stays off until that is typed.
+function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClose, plain = false, typeName = null }) {
   const [busy, setBusy] = useState(false);
+  const [typed, setTyped] = useState("");
+  const typedOk = !typeName || typed.trim() === typeName.trim();
   const close = () => { if (!busy) onClose(); };
   useEscape(close, true, true); // ahead of the window it opened over, so Esc closes only this
-  const run = async () => { setBusy(true); try { await go(); } finally { setBusy(false); } };
+  const run = async () => { if (!typedOk) return; setBusy(true); try { await go(); } finally { setBusy(false); } };
   return (
     <div className="modal ask-modal" onClick={(e) => e.target === e.currentTarget && close()}>
       <div className="modal-card ask-card" role="alertdialog" aria-modal="true" aria-label={title}>
         <div className="modal-head"><h3>{title}</h3><button onClick={close} aria-label="Close"><X size={18} /></button></div>
-        <div className="modal-body ask-body">{children}</div>
+        <div className="modal-body ask-body">
+          {children}
+          {typeName && <input className="ask-type" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Enter" && run()} aria-label={`Type ${typeName} to confirm`} placeholder={typeName} autoComplete="off" spellCheck={false} autoFocus />}
+        </div>
         <div className="modal-foot">
           {/* Cancel has the focus: Enter never deletes by accident */}
-          <button className="btn ghost sm" onClick={close} disabled={busy} autoFocus>Cancel</button>
-          <button className="btn sm ask-go" data-ask-go onClick={run} disabled={busy}>{busy ? busyLabel : goLabel}</button>
+          <button className="btn ghost sm" onClick={close} disabled={busy} autoFocus={!typeName}>Cancel</button>
+          <button className={plain ? "btn sm" : "btn sm ask-go"} data-ask-go onClick={run} disabled={busy || !typedOk}>{busy ? busyLabel : goLabel}</button>
         </div>
       </div>
     </div>
@@ -4595,7 +4645,7 @@ function NotOursAsk({ db, commit, lum, target, client, onDone, onClose }) {
   );
 }
 
-function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix, onFixList, onGo }) {
+function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix, onFixList, onGo, onDeleteClient }) {
   // staff's db has a `clients` array; a client session's db has just their
   // own `client` record (no `clients` array — that's not sent to them).
   const client = db.clients ? db.clients.find((c) => c.id === clientId) : db.client;
@@ -4659,7 +4709,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
     return () => { document.body.style.overflow = prev; };
   }, [active, editing]);
 
-  const saveSong = async (form) => {
+  const saveSong = async (form, anyway = false) => {
     // only what was changed in the form goes onto the song as it is now — streams the sync
     // brought in while it was open aren't put back (see Editor)
     const cur = form.id && db.placements.find((p) => p.id === form.id);
@@ -4681,11 +4731,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
       const splitMatch = (p.splits || []).some((s) => mySplitNames.has(personKey(s.name)));
       return artistMatch || splitMatch;
     });
-    if (possibleDup) {
-      const n = (possibleDup.splits || []).length;
-      const ok = window.confirm(`This looks like it might already exist here: "${possibleDup.song}" by ${possibleDup.artist || "—"} (${n} split${n === 1 ? "" : "s"}). Save this as a separate song anyway?`);
-      if (!ok) return;
-    }
+    if (possibleDup && !anyway) return setAsk({ kind: "dup", form, dup: possibleDup });
     const placementId = o.id || uid();
     const row = { ...o, id: placementId, clientId };
     const placements = o.id
@@ -4763,6 +4809,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               : noSheetTab(lum, client) ? <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span>
               : `Sheet tab: ${client.sheetTabName?.trim() || client.name}`}</div>
           </div>
+          {onDeleteClient && <ClientMore onDelete={() => onDeleteClient(client)} />}
         </div>
       )}
       {isStaff && fixNote && (
@@ -4946,6 +4993,12 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
             </div>
           </div>
         </div>
+      )}
+      {ask?.kind === "dup" && (
+        <AskCard title="Save as a separate song?" goLabel="Save it anyway" busyLabel="Saving…" plain onClose={() => setAsk(null)}
+          go={async () => { const f = ask.form; setAsk(null); await saveSong(f, true); }}>
+          <p>This looks like it might already exist here: "{ask.dup.song}" by {ask.dup.artist || "—"} ({(ask.dup.splits || []).length} split{(ask.dup.splits || []).length === 1 ? "" : "s"}).</p>
+        </AskCard>
       )}
     </>
   );
@@ -5546,11 +5599,9 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
     setNewClientForm({ name: "", role: "Producer" });
   };
 
+  const [delAsk, setDelAsk] = useState(null); // the client whose Delete is being asked about
   const removeClient = async (c) => {
-    const n = db.placements.filter((p) => p.clientId === c.id).length;
-    const hasLogin = db.users.some((u) => u.clientId === c.id);
-    const ok = window.confirm(`Delete ${c.name}? This also permanently deletes their ${n} song${n === 1 ? "" : "s"}, clears them from the pub sheet, removes them from the public roster if they're on it${hasLogin ? ", and removes their login" : ""}. This can't be undone.`);
-    if (!ok) return;
+    setDelAsk(null);
     setDeleteWarn(null);
     if (clientId === c.id) setClientId(db.clients.find((x) => x.id !== c.id)?.id || null);
     const warn = await deleteClientCascade(db, commit, c.id);
@@ -5586,19 +5637,22 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
                   {toFix[c.id] > 0 && <span className="cc-fix" title="Songs whose splits don't add up to 100%">{toFix[c.id]} to fix</span>}</span>
                 <span className="cc-count">{count(c.id)}</span>
               </button>
-              <button className="cc-del" onClick={() => removeClient(c)} title={`Delete ${c.name}`}><Trash2 size={13} /></button>
             </div>
           ))}
         </div>
         <div className="catalog-main">
           {clientId === null
             ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} onGo={onGo} onFix={openFix} focusSplits={sub === "splits"} />
-            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={() => setClientId(null)} onGo={onGo} />
+            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={() => setClientId(null)} onGo={onGo} onDeleteClient={setDelAsk} />
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
         </div>
       </div>}
 
+      {delAsk && (() => {
+        const a = clientDeleteAsk(db, delAsk);
+        return <AskCard title={a.title} goLabel={a.goLabel} busyLabel="Deleting…" typeName={a.typeName} go={() => removeClient(delAsk)} onClose={() => setDelAsk(null)}><p>{a.body}</p></AskCard>;
+      })()}
       {addingClient && (
         <div className="modal" onClick={(e) => e.target === e.currentTarget && setAddingClient(false)}>
           <div className="modal-card">
@@ -5793,11 +5847,12 @@ function PortfolioForm({ initial, onClose, onSaved }) {
   const [f, setF] = useState(initial);
   const [busy, setBusy] = useState(false), [err, setErr] = useState(null);
   const [canMove, setCanMove] = useState(0); // its link is a portfolio taken in as A&R: how many files it has
-  useEscape(onClose, !busy);
-  const save = async (action) => {
+  const [askMove, setAskMove] = useState(false);
+  useEscape(onClose, !busy && !askMove);
+  const save = async (action, sure = false) => {
     // "It's a clients' portfolio": a wrong "What's in it?" answer, taken back on purpose
-    if (action === "move" && !window.confirm(`Move this portfolio to your clients' portfolios? Its ${canMove} saved export${canMove === 1 ? "" : "s"} become${canMove === 1 ? "s" : ""} clients' numbers: the sheet and every client's page update now, and its songs show up to match and to add.`)) return;
-    setBusy(true); setErr(null);
+    if (action === "move" && !sure) return setAskMove(true);
+    setAskMove(false); setBusy(true); setErr(null);
     try {
       await lumPost(f.ar ? { action: "arLink", portfolioId: f.luminateId, url: f.url }
         : action === "remove" ? { action: "removePortfolio", id: f.id } : { action: "savePortfolio", ...f, fromAR: action === "move" });
@@ -5830,6 +5885,11 @@ function PortfolioForm({ initial, onClose, onSaved }) {
           <button className="btn sm" onClick={() => save()} disabled={busy || !String(f.name).trim()}>{busy ? "Saving…" : "Save"}</button>
         </div>
       </div>
+      {askMove && (
+        <AskCard title="Move it to your clients' portfolios?" goLabel="Move it" busyLabel="Moving…" plain go={() => save("move", true)} onClose={() => setAskMove(false)}>
+          <p>Its {canMove} saved export{canMove === 1 ? "" : "s"} become{canMove === 1 ? "s" : ""} clients' numbers: the sheet and every client's page update now, and its songs show up to match and to add.</p>
+        </AskCard>
+      )}
     </div>
   );
 }
@@ -5872,6 +5932,7 @@ function ExportDrop({ onDone, saved = [] }) {
   const [busy, setBusy] = useState(null); // "checking" | "applying"
   const [out, setOut] = useState(null);
   const [areas, setAreas] = useState({}); // POR id -> the picker's answer, for portfolios never seen
+  const [askBlocked, setAskBlocked] = useState(false);
   const files = useRef(null);
   const leftOut = useRef(null); // "Only 60 files at a time…": said on the preview and after Apply
   const post = async (body) => {
@@ -6008,13 +6069,16 @@ function ExportDrop({ onDone, saved = [] }) {
             <div className="lm-result-acts">
               {ready.length > 0 && <button className="btn sm" disabled={!!busy || unanswered.length > 0} onClick={() => apply(false)}><Check size={14} /> {busy === "applying" ? "Applying…" : `Apply this update${blocked.length ? ` (${ready.length} file${ready.length === 1 ? "" : "s"})` : ""}`}</button>}
               {unanswered.length > 0 && <span className="hint">Pick what {unanswered.length === 1 ? "the new portfolio holds" : `the ${unanswered.length} new portfolios hold`} first.</span>}
-              {blocked.length > 0 && <button className="btn ghost sm" disabled={!!busy} onClick={() => {
-                if (window.confirm("Use the blocked file anyway? Its lower numbers will replace the current ones for every song in that portfolio.")) apply(true);
-              }}>Use the blocked file anyway</button>}
+              {blocked.length > 0 && <button className="btn ghost sm" disabled={!!busy} onClick={() => setAskBlocked(true)}>Use the blocked file anyway</button>}
               <button className="btn ghost sm" disabled={!!busy} onClick={() => setOut(null)}>Cancel</button>
             </div>
           )}
         </div>
+      )}
+      {askBlocked && (
+        <AskCard title="Use the blocked file anyway?" goLabel="Use it anyway" busyLabel="Applying…" go={async () => { setAskBlocked(false); await apply(true); }} onClose={() => setAskBlocked(false)}>
+          <p>Its lower numbers will replace the current ones for every song in that portfolio.</p>
+        </AskCard>
       )}
     </div>
   );
@@ -7466,8 +7530,6 @@ function StyleTag() {
     .cc.active{background:var(--panel2)}
     .cc-row{display:flex;align-items:center;gap:2px}
     .cc-row .cc{flex:1;width:auto}
-    .cc-del{background:none;border:none;color:var(--mut2);padding:6px;border-radius:6px;cursor:pointer;display:flex;align-items:center;flex-shrink:0;transition:color .15s ease,background-color .15s ease}
-    .cc-del:hover{color:#e59a9a;background:var(--panel2)}
     .cc-name{flex:1;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .cc-add{border:1px dashed var(--line);color:var(--mut);font-size:13px;justify-content:center;margin-bottom:2px}
     .cc-add:hover{color:var(--ink);border-color:var(--mut2);background:var(--panel2)}
@@ -7728,15 +7790,8 @@ function StyleTag() {
     .app:not(.pub) .catalog-clients .cc-add{height:40px;min-height:0;margin:2px 0 6px;justify-content:center;gap:8px;border:1px dashed var(--d-line-3);
       border-radius:var(--d-r-md);color:var(--d-ink-3);font-size:13.5px}
     @media (hover:hover){ .app:not(.pub) .catalog-clients .cc-add:hover{border-style:solid;color:var(--d-ink);background:var(--d-hover)} }
-    /* trash: no longer a permanent icon 2px from every select target. It shows on the SELECTED client (always),
-       and on hover / keyboard focus of a row (desktop). Tests click it with el.click(), which ignores visibility. */
+    /* no trash on the chips: Delete client is in the client header's More ▾ */
     .app:not(.pub) .cc-row{gap:2px}
-    .app:not(.pub) .cc-del{width:32px;height:32px;padding:0;justify-content:center;border-radius:var(--d-r-sm);color:var(--d-ink-off);visibility:hidden}
-    .app:not(.pub) .cc-row:has(> .cc.active) .cc-del,.app:not(.pub) .cc-row:focus-within .cc-del{visibility:visible}
-    @media (hover:hover){
-      .app:not(.pub) .cc-row:hover .cc-del{visibility:visible}
-      .app:not(.pub) .cc-del:hover{color:var(--d-neg);background:var(--d-neg-bg)}
-    }
 
     .app:not(.pub) .client-head{display:flex;align-items:flex-start;gap:14px;min-width:0;margin:0 0 24px;padding:0 0 20px;border-bottom:1px solid var(--d-line)}
     /* the photo stays by the name's first line: where centring put it beside a one-line name (name + meta = 50.5px),
@@ -8081,8 +8136,6 @@ function StyleTag() {
       .app:not(.pub) .catalog-clients .cc-add{height:auto;margin:0;border:0;font-size:11.5px}
       .app:not(.pub) .catalog-clients .cc-add svg{width:44px;height:44px;padding:13px;border:1px dashed var(--d-line-3);border-radius:50%}
       .app:not(.pub) .cc-row{align-items:flex-start}
-      /* a bare trash between two chips doesn't say what it deletes: delete from Website > Roster here (same cascade) */
-      .app:not(.pub) .catalog-clients .cc-del{display:none}
       .app:not(.pub) .catalog-clients p.hint.err-text{order:-1;flex:0 0 min(320px,calc(100% - 12px));white-space:normal}
     }
     @media (max-width:899px){
@@ -8196,7 +8249,6 @@ function StyleTag() {
       .app:not(.pub) :is(.dash-brand,.portal-nav) .logo-link{min-height:44px;align-items:center}
       .app:not(.pub) .crop-zoom input[type=range]{height:44px}
       .app:not(.pub) .cc{min-height:44px}
-      .app:not(.pub) .cc-del{width:44px;height:44px}
       .app:not(.pub) .email-inline{padding:12px 0;margin:-12px 0}
     }
 
@@ -9064,6 +9116,11 @@ function StyleTag() {
     .app:not(.pub) .ask-body > p{margin:0 0 10px;font-size:13.5px;line-height:1.5;color:var(--d-ink-2)}
     .app:not(.pub) .ask-body > p.hint{font-size:12.5px;color:var(--d-ink-3);margin-bottom:0}
     .app:not(.pub) .ask-places{margin:0 0 12px;padding-left:18px;font-size:13.5px;line-height:1.6;color:var(--d-ink)}
+    .app:not(.pub) .ask-type{width:100%;height:40px;margin-top:4px}
+    .app:not(.pub) .client-head .client-more{margin-left:auto;position:relative;flex:none}
+    .app:not(.pub) .client-more-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:30;min-width:170px;padding:4px;border:1px solid var(--d-line);border-radius:10px;background:var(--d-s2);box-shadow:0 10px 30px rgba(0,0,0,.45)}
+    .app:not(.pub) .client-more-menu button{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:8px 10px;border:0;border-radius:7px;background:none;color:var(--d-neg);font:inherit;font-size:13.5px;text-align:left;cursor:pointer}
+    .app:not(.pub) .client-more-menu button:hover,.app:not(.pub) .client-more-menu button:focus-visible{background:var(--d-s3)}
     .app:not(.pub) .btn.ask-go{background:var(--d-neg);border-color:var(--d-neg);color:#160606}
     /* a list row's side actions (Don't track, This isn't ours): quiet words after the row's main button,
        so they don't shout next to real songs. Red only on hover / focus, and inside the confirm */
