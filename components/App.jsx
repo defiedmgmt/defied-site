@@ -13,7 +13,7 @@ import {
   LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight, Info, Eye,
 } from "lucide-react";
 import { evenSplit, splitWords, filledSplits, orderSplits } from "../lib/splits";
-import { songGaps, netStreamsOf } from "../lib/sheet-facts";
+import { songGaps, netStreamsOf, SONG_GAPS } from "../lib/sheet-facts";
 import { likelyDuplicates, mergedCard, plainTitle } from "../lib/duplicates";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
@@ -4489,7 +4489,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
             <option value="">— someone new (type their streams) —</option>
             {signedClients.length > 0 && (
               <optgroup label="Our clients">
-                {signedClients.map((c) => <option key={c.id} value={`client:${c.id}`}>{c.name} ({fmt(c.netStreams)} net streams{c.netFromSheet === false ? ", estimate" : ""})</option>)}
+                {signedClients.map((c) => <option key={c.id} value={`client:${c.id}`}>{c.name} ({fmt(c.netStreams)} net streams{c.netFromSheet === false ? ", estimate" : ", from the pub sheet"})</option>)}
               </optgroup>
             )}
             {prospects.length > 0 && (
@@ -4807,12 +4807,24 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
   // are left and offers the next one (on any client's page)
   const fixing = useRef(null);
   const [fixNote, setFixNote] = useState(null);
+  // an Update from Songs to update: { id, order (the list as it was), saved }. When its editor closes (Save or
+  // Cancel) a strip offers the next song in that order and the way back to the list, as the splits Fix does
+  const updating = useRef(null);
+  useEffect(() => {
+    const u = updating.current;
+    if (editing || !u) return;
+    updating.current = null;
+    const now = songsToUpdate(db, lum), at = new Map(now.map((x) => [x.p.id, x]));
+    const after = u.order.slice(u.order.indexOf(u.id) + 1).find((id) => at.has(id));
+    setFixNote({ upd: true, saved: u.saved, next: at.get(after) || now.find((x) => x.p.id !== u.id) || null });
+  }, [editing]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const p = fix && db.placements.find((x) => x.id === fix.id);
     if (!p || p.clientId !== clientId) return;
-    // a split Fix says what's left after Save; an Update from Songs to update just opens the song
+    // a split Fix says what's left after Save; an Update from Songs to update says what's next when it closes
     const onSplits = !fix.field || fix.field === "splits";
     setOpenId(null); setFixNote(null); fixing.current = fix.field ? null : p.id;
+    updating.current = fix.field ? { id: p.id, order: songsToUpdate(db, lum).map((x) => x.p.id), saved: false } : null;
     editFrom.current = p; setEditing({ ...p }); setSplitsFirst(onSplits ? fix.n : 0); setFieldFirst(onSplits ? null : { f: fix.field, n: fix.n });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fix?.n, clientId]);
@@ -4865,10 +4877,11 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
     const saved = done.placements.find((p) => p.id === placementId);
     if (!saved) return setFormErr(goneText(done.clients && !done.clients.some((c) => c.id === clientId) ? "client" : "song"));
     if (isStaff && fixing.current === placementId) {
-      const left = splitsToConfirm(done).all; // the list's own order: biggest streams first
+      const left = splitsToConfirm(done, lum).all; // the list's own order: biggest streams first
       setFixNote({ left: left.length, next: left.find((x) => x.p.id !== placementId) || null });
     }
     fixing.current = null;
+    if (updating.current?.id === placementId) updating.current.saved = true;
     setEditing(null);
     // push to the pub sheet in the background — a slow/failed network call
     // should never block or undo the local save that already succeeded —
@@ -4914,7 +4927,16 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
           {onDeleteClient && <ClientMore onDelete={() => onDeleteClient(client)} />}
         </div>
       )}
-      {isStaff && fixNote && (
+      {isStaff && fixNote?.upd && (
+        <p className="hint fix-strip" role="status" data-upd-strip>
+          {fixNote.saved && <><CheckCircle2 size={14} /> <span>Saved.</span></>}
+          {fixNote.next
+            ? <button className="inline-link" data-upd-next onClick={() => onFix?.(fixNote.next.p.id, fixNote.next.gaps[0].field)}>Next to update: {fixNote.next.p.song || "Untitled"} ({fixNote.next.client?.name || "a deleted client"}) →</button>
+            : <span>No more songs to update.</span>}
+          {" · "}<button className="inline-link" data-upd-back onClick={() => onFixList?.("update")}>Back to Songs to update</button>
+        </p>
+      )}
+      {isStaff && fixNote && !fixNote.upd && (
         <p className="hint fix-strip" role="status">
           <CheckCircle2 size={14} /> <span>Saved. {fixNote.left ? `${fixNote.left} left` : "All splits add up now."}</span>
           {fixNote.next && <> · <button className="inline-link" onClick={() => onFix?.(fixNote.next.p.id)}>Next: {fixNote.next.p.song || "Untitled"} ({fixNote.next.client?.name || "a deleted client"}) →</button></>}
@@ -4940,8 +4962,9 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
       {db.sheetSync?.lastSyncedAt && (
         <div className="cat-summary">
           <div className="cat-summary-grid">
-            <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(summary.gross)}</span></div>
-            <div className="cat-stat" data-net={netShown.fromSheet ? "sheet" : "estimate"}><span className="cat-stat-label">Net Streams{!netShown.fromSheet && <span className="cat-stat-note"> (estimate)</span>}</span><span className="cat-stat-val">{fmt(netShown.value)}</span></div>
+            <div className="cat-stat" data-gross="site"><span className="cat-stat-label">Gross Streams{isStaff && <span className="cat-stat-note"> (songs on the site)</span>}</span><span className="cat-stat-val">{fmt(summary.gross)}</span></div>
+            {/* staff see where each comes from, as the two can differ: the net is the pub sheet's own figure once a pull read the tab */}
+            <div className="cat-stat" data-net={netShown.fromSheet ? "sheet" : "estimate"}><span className="cat-stat-label">Net Streams{!netShown.fromSheet ? <span className="cat-stat-note"> (estimate)</span> : isStaff && <span className="cat-stat-note"> (from the pub sheet)</span>}</span><span className="cat-stat-val">{fmt(netShown.value)}</span></div>
             {isStaff ? (
               <>
                 {/* estimates, not cash we hold: clients are paid their publishing directly, our commission is billed through Stripe */}
@@ -5386,6 +5409,16 @@ async function fullSiteSync(tabDb, commit) {
       body: JSON.stringify({ claims: kept }),
     }).catch((err) => console.error("Claim-back failed:", err));
   }
+  // the cards just imported have no sheet facts yet (the pull above ran before they existed), so they'd read as
+  // having no row: read those clients' tabs once more, which keeps their facts (a read of the sheet only)
+  const got = [...new Set(created.filter((p) => onSite.has(p.id)).map((p) => p.clientId))].map((id) => db.clients.find((c) => c.id === id)).filter(Boolean);
+  if (got.length) {
+    await fetch("/api/sheets-pull", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+      body: JSON.stringify({ clients: got.map((c) => ({ id: c.id, name: c.name, sheetTabName: c.sheetTabName })) }),
+    }).catch(() => {}); // the next pull keeps them instead
+  }
 
   // a client whose tab couldn't be found by name gets nothing synced at
   // all, with no other signal that anything's wrong — surface it here so
@@ -5403,10 +5436,14 @@ async function fullSiteSync(tabDb, commit) {
 // even default, ready to Confirm; "Needs a look" can't be completed evenly, so Fix opens its editor. Confirm is
 // the song editor's Save (the site, then the client's own share to their writer tab); nothing reaches the
 // sheet before it. This isn't ours clears out a song that was never ours
-function splitsToConfirm(db) {
+function splitsToConfirm(db, lum = null) {
   const assumed = [], look = [];
+  // a card in a possible duplicate pair waits for the merge card: confirming the kept one first would
+  // keep its even default and drop the other card's named split, and Save on the other one adds a sheet row
+  const held = dupeIds(db, lum);
   for (const g of splitsToFix(db)) {
     for (const p of g.songs) {
+      if (held.has(p.id)) continue;
       const r = evenSplit(p.splits);
       (r.status === "assumed" ? assumed : look).push({ p, client: g.client, r });
     }
@@ -5422,8 +5459,8 @@ const sheetRowOf = (p, rows, live) => rows.find((r) => r.syncId && r.syncId.spli
   || (p.luminateId && rows.find((r) => r.luminateId && r.luminateId === p.luminateId))
   || rows.find((r) => (!r.syncId || !live.has(r.syncId.split(":")[0])) && normalizeTitle(r.song) === normalizeTitle(p.song)) || null;
 const pctOf = (v) => `${splitPct([{ percent: v }])}%`;
-function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
-  const { assumed, look, all: flat } = useMemo(() => splitsToConfirm(db), [db]);
+function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo, dupes = [], onDupe }) {
+  const { assumed, look, all: flat } = useMemo(() => splitsToConfirm(db, lum), [db, lum]);
   const n = assumed.length + look.length;
   const [ask, setAsk] = useState(null);
   const [note, setNote] = useState(null);
@@ -5534,11 +5571,12 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
         <span className="hint">{n ? "The default is even: the artist side is 50% and the producer side is 50%, shared evenly. Confirm saves the split on the site and writes only the client's own share to their tab of the pub sheet; unnamed people stay on the site only. Biggest songs first." : "All splits add up."}</span>
       </div>
       <DropNote note={note} onShow={onGo && ((sec) => onGo("luminate", sec))} />
+      <HeldDupes dupes={dupes} onDupe={onDupe} />
       {n > 0 && (
         <div className="fix-group" data-group="all">
           {/* one flat list, biggest streams first: an even split has Confirm, one that needs a look has Fix */}
           <div className="fix-sub">
-            <span className="fix-client" data-split-counts>{[assumed.length && `${assumed.length} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} a look`].filter(Boolean).join(" · ")}</span>
+            <span className="fix-client" data-split-counts>{[assumed.length && `${assumed.length} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} review`].filter(Boolean).join(" · ")}</span>
             {assumed.length > 0 && <button className="btn sm" data-confirm-all disabled={!!busy} onClick={() => setAll(true)}>Confirm all {assumed.length}</button>}
           </div>
           {flat.map((x) => {
@@ -5584,27 +5622,55 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
   );
 }
 
+// Songs to update and Splits to confirm leave out the cards of a possible duplicate until it's reviewed: one line
+// says so and opens the merge card, the single place that pair is handled
+function HeldDupes({ dupes, onDupe }) {
+  if (!dupes?.length || !onDupe) return null;
+  return (
+    <p className="hint fix-held" data-held>
+      {dupes.length === 1 ? `${dupeName(dupes[0])} is a possible duplicate, so both of its cards are left out of this list until it's reviewed.` : `${dupes.length} possible duplicate songs are left out of this list until they're reviewed.`}
+      {" "}<button className="inline-link" data-held-review onClick={onDupe}>Review</button>
+    </p>
+  );
+}
+const UPDATE_FIRST = 8;
 // Publishing › Songs to update: what each song is missing, one button that opens the song at the first gap
-function SongsToUpdate({ db, lum, onFix, focus }) {
+function SongsToUpdate({ db, lum, onFix, focus, dupes = [], onDupe }) {
   const list = useMemo(() => songsToUpdate(db, lum), [db, lum]);
   const box = useRef(null);
   useEffect(() => { if (focus) landOn(box.current); }, [focus]);
+  // the biggest 8 first, so Overview's totals stay close; a gap chip narrows the list to that gap
+  const [gap, setGap] = useState(null);
+  const [more, setMore] = useState(false);
+  const counts = useMemo(() => { const n = {}; for (const x of list) for (const g of x.gaps) if (GAP_WORDS[g.k]) n[g.k] = (n[g.k] || 0) + 1; return n; }, [list]);
+  const shown = gap && counts[gap] ? list.filter((x) => x.gaps.some((g) => g.k === gap)) : list;
+  const rows = more ? shown : shown.slice(0, UPDATE_FIRST);
   return (
     <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="update">
       <div className="fix-head">
         <h3>{list.length ? `Songs to update (${list.length})` : "Songs to update"}</h3>
         <span className="hint">{list.length ? "What each song is missing on the pub sheet or on the site, from the last sheet pull. Update opens the song at the first missing field. Biggest songs first." : "Every song has its sheet row, writer share, release date, link and Luminate id."}</span>
       </div>
+      <HeldDupes dupes={dupes} onDupe={onDupe} />
+      {Object.keys(counts).length > 1 && (
+        <div className="upd-filters" data-upd-filters>
+          <button className={`upd-filter${gap ? "" : " on"}`} aria-pressed={!gap} onClick={() => setGap(null)}>All ({list.length})</button>
+          {Object.keys(GAP_WORDS).filter((k) => counts[k]).map((k) => (
+            <button key={k} className={`upd-filter${gap === k ? " on" : ""}`} aria-pressed={gap === k} data-filter={k} onClick={() => { setGap(gap === k ? null : k); setMore(false); }}>{SONG_GAPS.find(([g]) => g === k)?.[1]} ({counts[k]})</button>
+          ))}
+        </div>
+      )}
       {list.length > 0 && (
         <div className="fix-group" data-group="update">
-          {list.map((x) => (
+          {rows.map((x) => (
             <div className="fix-row" key={x.p.id} data-song={x.p.id}>
               <span className="fix-song"><span className="fix-who">{x.client?.name || "A deleted client"} · </span>{x.p.song || "Untitled"}</span>
-              <span className="fix-mid upd-gaps">{x.gaps.map((g) => <span key={g.k} className={`upd-gap${GAP_WORDS[g.k] ? "" : " split"}`} data-gap={g.k}>{g.label}</span>)}</span>
+              <span className="fix-mid upd-gaps">{x.gaps.map((g) => <span key={g.k} className={`upd-gap${GAP_WORDS[g.k] ? "" : " upd-split"}`} data-gap={g.k}>{g.label}</span>)}</span>
               <span className="fix-streams">{fmt(x.p.streams || 0)} streams</span>
               <span className="fix-acts"><button className="btn sm" data-update onClick={() => onFix(x.p.id, x.gaps[0].field)}>Update</button></span>
             </div>
           ))}
+          {shown.length > UPDATE_FIRST && <button className="inline-link upd-more" data-upd-more onClick={() => setMore(!more)}>{more ? `Show the first ${UPDATE_FIRST}` : `Show all ${shown.length}`}</button>}
         </div>
       )}
     </div>
@@ -5628,12 +5694,36 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
   const facts = db.sheetFacts?.songs || {};
   const merged = mergedCard(keep, drop);
   const tab = client?.sheetTabName?.trim() || client?.name || "";
-  const row = facts[keep.id]?.row ?? null;
+  // the client's tab as it is now, read when the card opens and again at Merge (a read only, as Splits to confirm
+  // does): the facts are from the last pull, and a row typed in, imported or added by a Save since then would make
+  // the card being removed one that has a row. null = reading; { ok, keepRow, dropRow, share }
+  const [fresh, setFresh] = useState(null);
+  const [blocked, setBlocked] = useState(null);
+  const readTab = async () => {
+    try {
+      const r = await fetch("/api/sheets-pull", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+        body: JSON.stringify({ clients: [{ id: client.id, name: client.name, sheetTabName: client.sheetTabName }] }),
+      });
+      const c = r.ok ? (await r.json())?.clients?.find((x) => x.clientId === client.id) : null;
+      if (!c?.tabFound) return { ok: false };
+      const live = new Set(db.placements.map((p) => p.id));
+      const k = sheetRowOf(keep, c.rows || [], live), d = sheetRowOf(drop, c.rows || [], live);
+      return { ok: true, keepRow: k?.row ?? null, dropRow: d?.row ?? null, share: k && Number(k.writerShare) > 0 ? Number(k.writerShare) : null };
+    } catch { return { ok: false }; }
+  };
+  useEffect(() => { let off = false; if (client) readTab().then((f) => { if (!off) setFresh(f); }); return () => { off = true; }; }, [keep.id, drop.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const row = fresh?.ok ? fresh.keepRow : facts[keep.id]?.row ?? null;
   // what the merge does to the client's writer share on their tab: only the kept card's row, and only on a change
   const own = client ? ownSplit(merged, client) : null;
-  const now = facts[keep.id]?.share ?? null, will = own ? Number(own.percent) : null;
-  const share = !own ? { kind: "none" } : row == null ? { kind: "norow" } : noSheetTab(lum, client) ? { kind: "tabless" }
-    : now != null && Math.abs(now - will) <= 0.05 ? { kind: "same", will } : { kind: "change", from: now, will };
+  const will = own ? Number(own.percent) : null;
+  const planFor = (f) => {
+    const r = f?.ok ? f.keepRow : facts[keep.id]?.row ?? null, now = f?.ok ? f.share : facts[keep.id]?.share ?? null;
+    return !own ? { kind: "none" } : r == null ? { kind: "norow" } : noSheetTab(lum, client) ? { kind: "tabless" }
+      : now != null && Math.abs(now - will) <= 0.05 ? { kind: "same", will } : { kind: "change", from: now, will };
+  };
+  const share = planFor(fresh), now = share.from ?? null;
   const shareText = {
     none: `${client?.name || "The client"} isn't on the merged split, so nothing is written to the pub sheet.`,
     norow: `Neither card has a row on the ${tab} tab, so nothing is written to the pub sheet.`,
@@ -5645,7 +5735,8 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
   const fields = (p, side) => [
     ["Title", p.song || "Untitled"],
     ["Streams", fmt(p.streams || 0)],
-    ["Pub sheet", side === "drop" ? "No row" : facts[p.id]?.row != null ? `Row ${facts[p.id].row} on the ${tab} tab` : "No row"],
+    ["Pub sheet", side === "drop" ? (!fresh ? "Checking…" : !fresh.ok ? "Couldn't be checked" : fresh.dropRow != null ? `Row ${fresh.dropRow} on the ${tab} tab` : "No row")
+      : row != null ? `Row ${row} on the ${tab} tab` : "No row"],
     ["Luminate id", p.luminateId || "None", side === "merged" && fromOther("luminateId")],
     ["Release date", p.releaseDate ? releaseDay(p.releaseDate) : "None", side === "merged" && fromOther("releaseDate")],
     ["Link", p.link ? <ExtLink className="inline-link" href={p.link}>Open track ↗</ExtLink> : "None", side === "merged" && fromOther("link")],
@@ -5655,10 +5746,18 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
   const col = (p, side, head) => (
     <div className={`dupe-col ${side}`} data-dupe-col={side}>
       <div className="dupe-col-head">{head}</div>
-      <dl>{fields(p, side).map(([k, v, filled]) => <div key={k} className="dupe-f"><dt>{k}</dt><dd>{v}{filled && <em className="dupe-from"> · from the other card</em>}</dd></div>)}</dl>
+      {/* the cover is an image on its own line: its note goes under it without the leading dot */}
+      <dl>{fields(p, side).map(([k, v, filled]) => <div key={k} className="dupe-f" data-f={k}><dt>{k}</dt><dd>{v}{filled && <em className="dupe-from">{k === "Cover" ? "From the other card" : " · from the other card"}</em>}</dd></div>)}</dl>
     </div>
   );
   const merge = async () => {
+    // the tab once more, right before anything changes: a card that has a row now is never removed
+    setBlocked(null);
+    const f = await readTab();
+    setFresh(f);
+    if (!f.ok) return setBlocked(`The ${tab} tab of the pub sheet couldn't be read just now, so nothing was changed. Try again.`);
+    if (f.dropRow != null) return setBlocked(`"${drop.song || "Untitled"}" now has its own row on the ${tab} tab (row ${f.dropRow}). Removing the card would leave that row counting on the sheet, so nothing was changed. Remove the row from the sheet first, or choose Not the same song.`);
+    const share = planFor(f);
     const done = await commit({ ...db, placements: db.placements.filter((p) => p.id !== drop.id).map((p) => (p.id === keep.id ? merged : p)) });
     if (!done) return; // the save's own error banner says why; nothing went to the sheet
     const saved = done.placements.find((p) => p.id === keep.id);
@@ -5679,13 +5778,18 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
   return (
     <AskCard title="Merge these two cards?" goLabel="Merge cards" busyLabel="Working…" plain wide go={merge} onClose={onClose} alt={{ label: "Not the same song", run: notSame }}>
       <p data-dupe-why>{client?.name ? `${client.name}'s page has` : "These are"} two cards with {pair.why}. After merging, one card is left.</p>
+      {/* what happens, above the columns so it's in view at 1280x800 before Merge cards */}
+      <p data-merge-drop>"{drop.song || "Untitled"}" is removed from the site and from Add to Luminate. {!fresh ? `Checking the ${tab} tab for its row…`
+        : !fresh.ok ? `The ${tab} tab couldn't be checked just now; Merge checks it again first.`
+        : fresh.dropRow != null ? `It has its own row on the ${tab} tab (row ${fresh.dropRow}), so it can't be merged here.`
+        : `It has no row on the ${tab} tab (checked just now), so nothing is written there for it.`}</p>
+      <p data-merge-share>{shareText}</p>
+      {blocked && <p className="warn-text" role="alert" data-merge-blocked>{blocked}</p>}
       <div className="dupe-cols">
         {col(keep, "keep", "Keeps this card")}
-        {col(drop, "drop", "Comes off the site")}
+        {col(drop, "drop", "Removed from the site")}
         {col(merged, "merged", "After merging")}
       </div>
-      <p data-merge-share>{shareText}</p>
-      <p data-merge-drop>"{drop.song || "Untitled"}" comes off the site and off Add to Luminate. It has no row on the pub sheet, so nothing is written there for it.</p>
     </AskCard>
   );
 }
@@ -5693,12 +5797,13 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
 function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onFix, focusSplits, focusUpdate, focusDupes }) {
   // Splits to confirm and Songs to update share one place: two tabs, the To do's own one open
   const nUpdate = useMemo(() => songsToUpdate(db, lum).length, [db, lum]);
-  const nSplits = useMemo(() => splitsToFix(db).reduce((a, g) => a + g.songs.length, 0), [db]);
+  const nSplits = useMemo(() => splitsToConfirm(db, lum).all.length, [db, lum]);
   // cards that look like the same song: the To do's Review opens the merge card at once, the line below reopens it
   const dupes = useMemo(() => likelyDupes(db, lum), [db, lum]);
   const [dupeKey, setDupeKey] = useState(null);
   const [dupeNote, setDupeNote] = useState(null);
   const dupeOpen = dupeKey && dupes.find((x) => x.key === dupeKey);
+  const openDupe = () => { setDupeNote(null); setDupeKey(dupes[0]?.key || null); };
   const askedDupes = useRef(false);
   useEffect(() => { if (focusDupes && !askedDupes.current && dupes.length) { askedDupes.current = true; setDupeKey(dupes[0].key); } }, [focusDupes, dupes]);
   const [fixTab, setFixTab] = useState(focusUpdate ? "update" : "splits");
@@ -5826,7 +5931,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
         <p className="pub-tasks"><AlertTriangle size={14} /> {pubTasks} {splitsToFix(db).length ? "more " : ""}publishing task{pubTasks === 1 ? "" : "s"} · <button className="inline-link" onClick={() => onGo("home")}>see the Dashboard</button></p>
       )}
       {dupes.length > 0 && (
-        <p className="pub-tasks dupe-line" data-dupe-line><AlertTriangle size={14} /> {dupeWords(dupes)} · <button className="inline-link" data-dupe-review onClick={() => { setDupeNote(null); setDupeKey(dupes[0].key); }}>Review</button></p>
+        <p className="pub-tasks dupe-line" data-dupe-line><AlertTriangle size={14} /> {dupeWords(dupes)} · <button className="inline-link" data-dupe-review onClick={openDupe}>Review</button></p>
       )}
       <DropNote note={dupeNote} />
       {dupeOpen && <DupeMerge db={db} commit={commit} lum={lum} reloadLum={reloadLum} pair={dupeOpen} onClose={() => setDupeKey(null)} onDone={(r) => { setDupeKey(null); setDupeNote(r); }} />}
@@ -5837,8 +5942,8 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
         </div>
       )}
       {fixTab === "update" && nUpdate > 0
-        ? <SongsToUpdate db={db} lum={lum} onFix={onFix} focus={focusUpdate} />
-        : <SplitsToFix db={db} commit={commit} lum={lum} reloadLum={reloadLum} onFix={onFix} focus={focusSplits} onGo={onGo} />}
+        ? <SongsToUpdate db={db} lum={lum} onFix={onFix} focus={focusUpdate} dupes={dupes} onDupe={openDupe} />
+        : <SplitsToFix db={db} commit={commit} lum={lum} reloadLum={reloadLum} onFix={onFix} focus={focusSplits} onGo={onGo} dupes={dupes} onDupe={openDupe} />}
 
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
@@ -5955,7 +6060,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
     if (!p) return;
     setSec("overview"); setClientIdOnly(p.clientId); onSub?.(`client:${p.clientId}`); setFix({ id, n: ++fixN.current, field });
   };
-  const toFix = useMemo(() => Object.fromEntries(splitsToFix(db).map((g) => [g.clientId, g.songs.length])), [db]);
+  const toFix = useMemo(() => splitsToConfirm(db, lum).all.reduce((a, x) => ({ ...a, [x.p.clientId]: (a[x.p.clientId] || 0) + 1 }), {}), [db, lum]);
   const client = db.clients.find((c) => c.id === clientId);
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;
   const [addingClient, setAddingClient] = useState(false);
@@ -6029,7 +6134,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
                 <Avatar src={c.photo} name={c.name} size={30} />
                 {/* under the name, so the name keeps its width at 1280 */}
                 <span className="cc-text"><span className="cc-name">{c.name}</span>
-                  {toFix[c.id] > 0 && <span className="cc-fix" title="Songs in Splits to confirm: an even split to confirm, or one that needs a look">{toFix[c.id]} to confirm</span>}</span>
+                  {toFix[c.id] > 0 && <span className="cc-fix" title="Songs in Splits to confirm: an even split to confirm, or one that needs review">{toFix[c.id]} to confirm</span>}</span>
                 <span className="cc-count">{count(c.id)}</span>
               </button>
             </div>
@@ -6038,7 +6143,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
         <div className="catalog-main">
           {clientId === null
             ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} onGo={onGo} onFix={openFix} focusSplits={sub === "splits"} focusUpdate={sub === "update"} focusDupes={sub === "dupes"} />
-            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={() => setClientId(null)} onGo={onGo} onDeleteClient={setDelAsk} />
+            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={(to) => { setClientIdOnly(null); onSub?.(to === "update" ? "update" : null); setFix(null); }} onGo={onGo} onDeleteClient={setDelAsk} />
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
         </div>
@@ -6860,8 +6965,12 @@ function songsToUpdate(db, lum) {
   const facts = db.sheetFacts || { songs: {}, clients: {} };
   const groups = lum ? lumGroups(db, lum) : null;
   const lumOf = new Map((groups || []).flatMap((g) => g.ids.map((id) => [id, g])));
+  // a card in a possible duplicate pair is left out until the merge card is answered: Update and Save on the
+  // card that would be removed adds a second row for the song to the pub sheet, and then the pair is never asked about
+  const held = dupeIds(db, lum);
   const out = [];
   for (const p of db.placements) {
+    if (held.has(p.id)) continue;
     const g = lumOf.get(p.id);
     // in Luminate: it has an id (or shares one with its other copy), or staff excluded it on purpose
     const inLuminate = groups ? !!(g?.luminateId || g?.status === "skipped") : !!p.luminateId;
@@ -6879,9 +6988,11 @@ function likelyDupes(db, lum) {
   return likelyDuplicates(db.placements, { facts: db.sheetFacts || {}, isrcOf: (id) => lum.tracking?.[id]?.isrc || "", dismissed: lum.notDuplicates || [] })
     .map((x) => ({ ...x, client: (db.clients || []).find((c) => c.id === x.clientId) || null }));
 }
+// every card in a pair, both the kept one and the other: Songs to update and Splits to confirm leave them out
+const dupeIds = (db, lum) => new Set(likelyDupes(db, lum).flatMap((x) => [x.keep.id, x.drop.id]));
 // "TRUST WHO (Stack!e)": the To do and Publishing's line name the song once, without its version tags
 const dupeName = (x) => `${plainTitle(x.keep.song) || "Untitled"} (${x.client?.name || "no client"})`;
-const dupeWords = (list) => (list.length === 1 ? `2 cards look like the same song: ${dupeName(list[0])}` : `${list.length} pairs of cards look like the same song`);
+const dupeWords = (list) => (list.length === 1 ? `Possible duplicate: ${dupeName(list[0])}` : `${list.length} possible duplicate songs`);
 // the To do's detail: the two most common gaps, counted
 function updateWords(list) {
   const n = {};
@@ -6890,11 +7001,11 @@ function updateWords(list) {
 }
 function dashTasks(db, lum) {
   // both groups of Splits to confirm, in plain words: the even default ready to confirm, and the ones to fix by hand
-  const { assumed, look } = splitsToConfirm(db);
+  const { assumed, look } = splitsToConfirm(db, lum);
   const nSplits = assumed.length + look.length;
   const splits = nSplits && {
     k: "splits", area: "roster", t: `${nSplits} song${nSplits === 1 ? "'s split needs" : "s' splits need"} confirming`,
-    d: [assumed.length && `${assumed.length} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} a look`].filter(Boolean).join(" · "),
+    d: [assumed.length && `${assumed.length} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} review`].filter(Boolean).join(" · "),
     tab: "catalog", sub: "splits", cta: "Review splits",
   };
   // one line for every song missing something on the sheet or the site (Publishing › Songs to update)
@@ -9589,7 +9700,10 @@ function StyleTag() {
     .app:not(.pub) .dupe-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 12px}
     .app:not(.pub) .dupe-col{min-width:0;padding:10px 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field);background:var(--d-s2)}
     .app:not(.pub) .dupe-col.merged{border-color:var(--d-pos-line)}
-    .app:not(.pub) .dupe-col.drop{opacity:.8}
+    .app:not(.pub) .dupe-col.drop{border-color:var(--d-neg-line)}
+    .app:not(.pub) .dupe-col.drop .dupe-col-head{color:var(--d-neg)}
+    .app:not(.pub) .dupe-col.drop .dupe-f:first-child dd{text-decoration:line-through;text-decoration-color:var(--d-neg);color:var(--d-ink-3)}
+    .app:not(.pub) .dupe-f[data-f=Cover] .dupe-from{display:block;margin-top:2px}
     .app:not(.pub) .dupe-col-head{margin-bottom:6px;font:400 10px/1.2 var(--d-display);letter-spacing:.14em;text-transform:uppercase;color:var(--d-ink-4)}
     .app:not(.pub) .dupe-col dl{margin:0}
     .app:not(.pub) .dupe-f{padding:4px 0;border-top:1px solid var(--d-line)}
@@ -9659,7 +9773,12 @@ function StyleTag() {
     @media (pointer:coarse){ .app:not(.pub) .fix-tab{height:44px} }
     .app:not(.pub) .upd-gaps{gap:4px 6px}
     .app:not(.pub) .upd-gap{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;border:1px solid var(--d-line-2);color:var(--d-warn);font-size:12px;line-height:18px;white-space:nowrap}
-    .app:not(.pub) .upd-gap.split{color:var(--d-ink-3)}
+    .app:not(.pub) .upd-gap.upd-split{color:var(--d-ink-3)}
+    .app:not(.pub) .upd-filters{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
+    .app:not(.pub) .upd-filter{display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid var(--d-line-2);border-radius:999px;background:none;color:var(--d-ink-3);font:400 12px/1 var(--d-body);cursor:pointer;white-space:nowrap}
+    .app:not(.pub) .upd-filter.on{background:var(--d-active);border-color:var(--d-line-3);color:var(--d-ink)}
+    .app:not(.pub) .upd-more{margin:8px 0 2px;font-size:13px}
+    .app:not(.pub) p.hint.fix-held{margin:8px 0 2px;font-size:12.5px;color:var(--d-ink-3)}
     .app:not(.pub) .ask-places .ask-change{font-weight:500;color:var(--d-warn)}
     .app:not(.pub) .pct-in.pct-blank input::placeholder{color:var(--d-ink-3);font-style:italic}
     .app:not(.pub) .song-info em > .split-chip.split-chip-even{border-color:var(--d-line-2);background:var(--d-s1);color:var(--d-ink-3)}
@@ -9695,6 +9814,10 @@ function StyleTag() {
       .app:not(.pub) .fix-group[data-group] .fix-row{grid-template-columns:minmax(0,1fr) auto}
       .app:not(.pub) .fix-group[data-group] .fix-mid{grid-column:1 / -1;grid-row:auto}
       .app:not(.pub) .fix-sub .btn{min-height:40px}
+      /* Songs to update on phones: streams and a compact Update share the last line */
+      .app:not(.pub) .fix-group[data-group=update] .fix-song{grid-column:1 / -1}
+      .app:not(.pub) .fix-group[data-group=update] .fix-acts{grid-column:auto}
+      .app:not(.pub) .fix-group[data-group=update] .fix-acts .btn{min-height:34px}
       /* thumb-sized taps: the segmented toggles, the A&R strip in two lines, Luminate's buttons under its title */
       .app:not(.pub) .gainer-tabs button{min-height:40px}
       .app:not(.pub) .ar-strip{flex-wrap:wrap;overflow-x:visible}
