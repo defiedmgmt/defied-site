@@ -820,6 +820,7 @@ export default function App() {
     const data = await res.json().catch(() => null);
     if (!res.ok || !data) return data?.error || (res.status >= 500 || res.ok ? "Sign-in isn't available right now — try again in a minute." : "Incorrect email or password.");
     // in the same render as the route change: the new dashboard never draws the last account's data
+    clearDashCaches();
     setDb(null); setSession(data.user); setAuthDown(false); setLoadErr(null); setSignIns((n) => n + 1);
     signedInHere.current = true; // this push goes on from the sign-in page; the effect below needn't
     go(data.user.role === "staff" ? "staff" : "client");
@@ -839,6 +840,7 @@ export default function App() {
       // "client" for one render and races router.replace("/login") against
       // this push, sometimes winning and landing back on the login page.
       await go("home");
+      clearDashCaches(); // the next account never sees this one's last answers
       setSession(null);
       setDb(null);
       setLoadErr(null); setAuthDown(false);
@@ -6705,6 +6707,8 @@ function TopGainers({ db, lum, onGo, arTop, arLoaded }) {
 // The Dashboard's last answers, kept while the app is open: coming back to it draws them at once and a
 // fresh copy loads quietly ("updated 7:34 PM" says how fresh the money is). Only good answers are kept.
 const dashCache = { cu: {} };
+// sign-in and sign-out start clean (the same tab can sign in as someone else)
+function clearDashCaches() { dashCache.home = null; dashCache.top = null; dashCache.cu = {}; arPgCache.d = null; arPgCache.at = 0; }
 function useHome() {
   const [home, setHome] = useState(() => dashCache.home || null);
   const [failed, setFailed] = useState(false);
