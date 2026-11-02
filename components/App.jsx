@@ -534,7 +534,7 @@ function DropNote({ note, onShow }) {
   return (
     <p className={note.warn ? "hint del-note warn" : "hint del-note"} role="status">
       {note.warn ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} <span>{note.text}
-        {note.go && onShow && <> <button className="inline-link" data-show-me onClick={() => onShow(note.go)}>Show me</button></>}</span>
+        {note.go && onShow && <> <button className="inline-link" data-show-me onClick={() => onShow(note.go)}>View</button></>}</span>
     </p>
   );
 }
@@ -3283,7 +3283,7 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
             </select>
             {linkErr && <span className="hint err-text" role="alert">{linkErr}</span>}
           </label>
-          <button className="btn ghost sm" onClick={() => onGo("catalog", `advance:${s.id}`)}>Work out an advance</button>
+          <button className="btn ghost sm" onClick={() => onGo("catalog", `advance:${s.id}`)}>Calculate an advance</button>
         </div>
       )} />
   );
@@ -3419,7 +3419,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   }
   // the same task and wording as the Dashboard's (lib/ar.js arToLuminateOf)
   const toLum = pg?.toLuminate;
-  if (toLum?.count) tasks.push({ k: "noNumbers", urg: "lum", t: toLum.text, cta: "See the list", go: () => setShowToLum(true) });
+  if (toLum?.count) tasks.push({ k: "noNumbers", urg: "lum", t: toLum.text, cta: "View list", go: () => setShowToLum(true) });
   if (old) tasks.push({ k: "stale", urg: "lum", t: `A&R numbers are from ${shortDay(to)}.`, cta: "Drop new exports", go: () => onGo("luminate", "drop") });
   // ClickUp's A&R Tasks, merged by urgency: urgent ones above the late follow-ups, high ones right
   // after them, the rest only while the list is short. Each opens the task in ClickUp.
@@ -3653,7 +3653,7 @@ function ArBoard({ ar, onGo }) {
         <div className="arb-card-note">
           <CheckCircle2 size={16} />
           <span>Brought in {data.firstRun.found} {data.firstRun.found === 1 ? "person" : "people"} from your OUTREACH tab. Nothing in the sheet changed.</span>
-          <button className="btn ghost sm" onClick={() => act(() => arPost({ action: "dismissFirstRun" }))} disabled={busy}>Got it</button>
+          <button className="btn ghost sm" onClick={() => act(() => arPost({ action: "dismissFirstRun" }))} disabled={busy}>Dismiss</button>
         </div>
       )}
       {(data?.givenMismatch || []).length > 0 && (
@@ -3663,7 +3663,7 @@ function ArBoard({ ar, onGo }) {
             <div key={g.prospectId} className="attn-row">
               <span>{g.name}: the sheet says "{g.sheet || "blank"}" for 'Advance given?', the dashboard last saved "{g.remembered || "blank"}".</span>
               <span className="arb-row-actions">
-                <button className="btn ghost sm" disabled={busy} onClick={() => act(() => arWrite({ action: "fixGiven", prospectIds: [g.prospectId], use: "sheet" }))}>Keep the sheet's</button>
+                <button className="btn ghost sm" disabled={busy} onClick={() => act(() => arWrite({ action: "fixGiven", prospectIds: [g.prospectId], use: "sheet" }))}>Keep the sheet version</button>
                 <button className="btn ghost sm" disabled={busy || !canSave} title={paused} onClick={() => act(() => arWrite({ action: "fixGiven", prospectIds: [g.prospectId], use: "remembered" }))}>Put back "{g.remembered || "blank"}"</button>
               </span>
             </div>
@@ -4324,8 +4324,8 @@ function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reloa
               ))}
             </div>
             <div className="modal-foot">
-              <button className="btn ghost sm" onClick={keepSheets}>Keep the sheet's</button>
-              <button className="btn sm" onClick={useMine}>Use mine</button>
+              <button className="btn ghost sm" onClick={keepSheets}>Keep the sheet version</button>
+              <button className="btn sm" onClick={useMine}>Keep my changes</button>
             </div>
           </div>
         </div>
@@ -4678,14 +4678,14 @@ function NotOursAsk({ db, commit, lum, target, client, onDone, onClose }) {
     try { await lumPost({ action: "notOurs", clientId: target.clientId, song: target.song, artist: target.artist, luminateId: target.luminateId || "", placementId: target.id }); } catch (e) { noted = e.message; }
     const sheetBad = out.sheet === "notFound" || out.sheet === "failed";
     const text = [
-      out.sheet === "cleared" ? "Removed from the site and the pub sheet." : sheetBad ? `Removed from the site, but its row on the ${out.tab} tab ${out.sheet === "failed" ? "couldn't be cleared" : "wasn't found"}. Delete that row in the pub sheet by hand.` : "Removed from the site.",
+      out.sheet === "cleared" ? "Removed from the catalog and the pub sheet." : sheetBad ? `Removed from the catalog, but its row on the ${out.tab} tab ${out.sheet === "failed" ? "couldn't be cleared" : "wasn't found"}. Delete that row in the pub sheet by hand.` : "Removed from the catalog.",
       lumPort && `1 thing left: take it out of ${lumPort.name} in Luminate.`,
-      noted && `It couldn't be noted as not ours (${noted}), so a numbers sync may bring it back.`,
+      noted && `It couldn't be recorded as removed (${noted}), so a numbers sync may bring it back.`,
     ].filter(Boolean).join(" ");
     onDone({ warn: sheetBad || !!noted, text, go: lumPort ? "gone" : null });
   };
   return (
-    <AskCard title={`This isn't ours: remove "${target.song || "Untitled"}"?`} goLabel="Remove it everywhere" busyLabel="Removing…" go={go} onClose={onClose}>
+    <AskCard title={`Remove "${target.song || "Untitled"}" from the catalog?`} goLabel="Remove from catalog" busyLabel="Removing…" go={go} onClose={onClose}>
       <p>This takes it out of everywhere the app can reach:</p>
       <ul className="ask-places">{places.map((x) => <li key={x}>{x}</li>)}</ul>
       {lumPort && <p className="hint">The app can't remove songs from Luminate. You'll get a To do to take it out of {lumPort.name} yourself.</p>}
@@ -4968,7 +4968,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               {/* streams but $0: the sheet row's Writer Share is blank (Spots. on the Stackie tab), so its earnings formulas
                   give nothing. Up here under the title, so it's read before anything else and never sits behind the buttons */}
               {isStaff && db.sheetSync?.lastSyncedAt && active.streams > 0 && !active.revenue && Number(ownSplit(active, client)?.percent) > 0 && (
-                <p className="hint song-sheet-warn"><AlertTriangle size={14} /> <span>The pub sheet has no writer share for this song ({client?.sheetTabName?.trim() || client?.name} tab), so it earns $0 there. Edit and Save to send the split to the sheet, or use This isn't ours.</span></p>
+                <p className="hint song-sheet-warn"><AlertTriangle size={14} /> <span>The pub sheet has no writer share for this song ({client?.sheetTabName?.trim() || client?.name} tab), so it earns $0 there. Edit and Save to send the split to the sheet, or use Remove from catalog.</span></p>
               )}
               <SplitsPie splits={active.splits} size={230} />
               <div className="split-list">
@@ -5009,7 +5009,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               )}
             </div>
             <div className="modal-foot">
-              {isStaff && <button className="btn ghost sm" data-not-ours onClick={() => setAsk({ kind: "notOurs", p: active })}>This isn't ours</button>}
+              {isStaff && <button className="btn ghost sm" data-not-ours onClick={() => setAsk({ kind: "notOurs", p: active })}>Remove from catalog</button>}
               <button className="btn ghost sm" data-del onClick={() => setAsk({ kind: "delete", p: active })}>Delete</button>
               <button className="btn sm" onClick={() => { editFrom.current = active; setEditing({ ...active }); }}>Edit</button>
             </div>
@@ -5060,7 +5060,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
         </div>
       )}
       {ask?.kind === "dup" && (
-        <AskCard title="Save as a separate song?" goLabel="Save it anyway" busyLabel="Saving…" plain onClose={() => setAsk(null)}
+        <AskCard title="Save as a separate song?" goLabel="Save anyway" busyLabel="Saving…" plain onClose={() => setAsk(null)}
           go={async () => { const f = ask.form; setAsk(null); await saveSong(f, true); }}>
           <p>This looks like it might already exist here: "{ask.dup.song}" by {ask.dup.artist || "—"} ({(ask.dup.splits || []).length} split{(ask.dup.splits || []).length === 1 ? "" : "s"}).</p>
         </AskCard>
@@ -5427,7 +5427,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
           <div className="fix-sub"><span className="fix-client">Needs a look · {look.length}</span></div>
           {look.map((x) => row(x, <>
             <button className="btn sm" onClick={() => onFix(x.p.id)}>Fix</button>
-            {x.client && <button className="quiet-act" data-not-ours onClick={() => { setNote(null); setAsk({ p: x.p, client: x.client }); }}>This isn't ours</button>}
+            {x.client && <button className="quiet-act" data-not-ours onClick={() => { setNote(null); setAsk({ p: x.p, client: x.client }); }}>Remove from catalog</button>}
           </>, <span className="fix-words fix-why"><span className="split-warn fix-pct">{splitPct(x.p.splits)}%</span> {x.r.reason}</span>))}
         </div>
       )}
@@ -5990,7 +5990,7 @@ function PortfolioForm({ initial, onClose, onSaved }) {
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
       <div className="modal-card">
-        <div className="modal-head"><h3>{f.ar ? `${f.name}'s link` : f.id ? "Edit portfolio" : "Add a portfolio"}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-head"><h3>{f.ar ? `The ${f.name} link` : f.id ? "Edit portfolio" : "Add a portfolio"}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
         <div className="modal-body">
           {f.ar ? <>
             <Field label="Link to it in Luminate" value={f.url} placeholder="https://…" onChange={(e) => setF({ ...f, url: e.target.value })}
@@ -6006,14 +6006,14 @@ function PortfolioForm({ initial, onClose, onSaved }) {
           </>}
         </div>
         <div className="modal-foot">
-          {canMove > 0 && <button className="btn ghost sm" onClick={() => save("move")} disabled={busy}>It's a clients' portfolio</button>}
+          {canMove > 0 && <button className="btn ghost sm" onClick={() => save("move")} disabled={busy}>Move to client portfolios</button>}
           {f.id && !f.ar && <button className="btn ghost sm" onClick={() => save("remove")} disabled={busy}>Remove</button>}
           <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn sm" onClick={() => save()} disabled={busy || !String(f.name).trim()}>{busy ? "Saving…" : "Save"}</button>
         </div>
       </div>
       {askMove && (
-        <AskCard title="Move it to your clients' portfolios?" goLabel="Move it" busyLabel="Moving…" plain go={() => save("move", true)} onClose={() => setAskMove(false)}>
+        <AskCard title="Move it to your clients' portfolios?" goLabel="Move" busyLabel="Moving…" plain go={() => save("move", true)} onClose={() => setAskMove(false)}>
           <p>Its {canMove} saved export{canMove === 1 ? "" : "s"} become{canMove === 1 ? "s" : ""} clients' numbers: the sheet and every client's page update now, and its songs show up to match and to add.</p>
         </AskCard>
       )}
@@ -6203,7 +6203,7 @@ function ExportDrop({ onDone, saved = [] }) {
         </div>
       )}
       {askBlocked && (
-        <AskCard title="Use the blocked file anyway?" goLabel="Use it anyway" busyLabel="Applying…" go={async () => { setAskBlocked(false); await apply(true); }} onClose={() => setAskBlocked(false)}>
+        <AskCard title="Use the blocked file anyway?" goLabel="Use anyway" busyLabel="Applying…" go={async () => { setAskBlocked(false); await apply(true); }} onClose={() => setAskBlocked(false)}>
           <p>Its lower numbers will replace the current ones for every song in that portfolio.</p>
         </AskCard>
       )}
@@ -6329,7 +6329,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
               {lum.portfolios.length === 0 && <span className="hint">Your portfolios appear here after the first drop.</span>}
               {allExports.map((p) => (p.url
                 ? <ExtLink key={p.id} href={p.url} className="btn ghost sm"><ExternalLink size={13} /> Open {p.name} ↗</ExtLink>
-                : <button key={p.id} className="btn ghost sm" onClick={() => setEditing({ ...p })}><Link2 size={13} /> Add {p.name}'s link</button>))}
+                : <button key={p.id} className="btn ghost sm" onClick={() => setEditing({ ...p })}><Link2 size={13} /> Add the {p.name} link</button>))}
             </div>
           </div>
         </li>
@@ -6382,8 +6382,8 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
                 <span className="lm-song-main"><strong>{r.name}</strong><span>In {r.portfolioName}{r.lumName && r.lumName !== r.name ? ` as "${r.lumName}"` : ""} · uses 1 slot</span></span>
                 <span className="lm-unl-acts">
                   {r.url ? <ExtLink href={r.url} className="btn ghost sm"><ExternalLink size={13} /> Open {r.portfolioName} ↗</ExtLink>
-                    : portOf(r.portfolioId) && <button className="btn ghost sm" onClick={() => setEditing({ ...portOf(r.portfolioId) })}><Link2 size={13} /> Add {r.portfolioName}'s link</button>}
-                  <button className="btn sm" disabled={!!busy} onClick={() => run(`out:${r.luminateId}`, () => lumPost({ action: "notOursOut", luminateId: r.luminateId }))}><Check size={13} /> I've taken it out</button>
+                    : portOf(r.portfolioId) && <button className="btn ghost sm" onClick={() => setEditing({ ...portOf(r.portfolioId) })}><Link2 size={13} /> Add the {r.portfolioName} link</button>}
+                  <button className="btn sm" disabled={!!busy} onClick={() => run(`out:${r.luminateId}`, () => lumPost({ action: "notOursOut", luminateId: r.luminateId }))}><Check size={13} /> Mark as removed</button>
                 </span>
               </div>
             ))}
@@ -6392,7 +6392,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
       )}
 
       {(plan.slots.length > 0 || plan.left.length > 0 || toLum?.count > 0) && <h3 className="lm-h3">Add to Luminate</h3>}
-      {plan.slots.length > 0 && <p className="hint lm-acts-hint">Don't track: it's ours, just leave it out of Luminate. This isn't ours: takes it off the site and the pub sheet too.</p>}
+      {plan.slots.length > 0 && <p className="hint lm-acts-hint">Exclude from Luminate: it's ours, it just stays out of Luminate. Remove from catalog: takes it off the site and the pub sheet too.</p>}
       {plan.slots.map((slot, i) => (
         <div key={slot.p.id} className={i === 0 && flash === "add" ? "lm-block lm-flash" : "lm-block"} data-sec={i === 0 ? "add" : undefined}>
           <div className="lm-block-head">
@@ -6432,8 +6432,8 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
                   )}
                 </span>
                 <span className="lm-row-acts">
-                  <button className="quiet-act lm-skip" title="Leave this song out of Luminate. It stays on the site." disabled={!!busy} onClick={() => run(`skip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: true }))}>Don't track</button>
-                  <button className="quiet-act lm-not-ours" data-not-ours disabled={!!busy} onClick={() => setAsk({ notOurs: db.placements.find((p) => p.id === g.ids[0]) })}>This isn't ours</button>
+                  <button className="quiet-act lm-skip" title="Leave this song out of Luminate. It stays on the site." disabled={!!busy} onClick={() => run(`skip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: true }))}>Exclude from Luminate</button>
+                  <button className="quiet-act lm-not-ours" data-not-ours disabled={!!busy} onClick={() => setAsk({ notOurs: db.placements.find((p) => p.id === g.ids[0]) })}>Remove from catalog</button>
                 </span>
               </div>
             ))}
@@ -6455,7 +6455,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
         <div className="lm-block lm-ar-add" data-sec="ar">
           <div className="lm-block-head">
             <div><strong>Add to your A&amp;R lists</strong><span className="hint"> {toLum.text}</span></div>
-            <div className="lm-block-acts"><button className="btn sm" onClick={() => setArList(true)}>See the list</button></div>
+            <div className="lm-block-acts"><button className="btn sm" onClick={() => setArList(true)}>View list</button></div>
           </div>
         </div>
       )}
@@ -6484,7 +6484,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
                         {candidates.map((g) => <option key={g.key} value={g.key}>{g.song} · {g.clientIds.map(clientName).join(", ")}</option>)}
                       </select>
                     )}
-                    <button className="btn ghost sm" disabled={!!busy} onClick={() => setAsk({ lumOnly: u })}>Not ours</button>
+                    <button className="btn ghost sm" disabled={!!busy} onClick={() => setAsk({ lumOnly: u })}>Not in our catalog</button>
                   </span>
                 </div>
               );
@@ -6502,7 +6502,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
               <div key={g.key} className="lm-song lm-wait">
                 <span className="lm-cover">{g.cover ? <Photo src={g.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
                 <span className="lm-song-main"><strong>{g.song}</strong><span>{pName(g.portfolioId)} · added {shortDay(g.addedAt)}{g.isrc ? ` · ${g.isrc}` : ""}</span></span>
-                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`un:${g.key}`, () => lumPost({ action: "unmark", placementIds: g.ids }))}>Not added after all</button>
+                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`un:${g.key}`, () => lumPost({ action: "unmark", placementIds: g.ids }))}>Mark as not added</button>
               </div>
             ))}
           </div>
@@ -6524,8 +6524,8 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
                     <span>{p ? `Marked as added to ${p.name} on ${shortDay(g.addedAt)}, but not in the ${shortDay(p.exportedAt || p.uploadedAt)} export. Add it again?` : "Marked as added to a portfolio that isn't on this page any more."}{g.isrc ? ` · ${g.isrc}` : ""}</span>
                   </span>
                   <span className="lm-unl-acts">
-                    {p && <button className="btn sm" disabled={!!busy} onClick={() => run(`re:${g.key}`, () => lumPost({ action: "markAdded", portfolioId: p.id, placementIds: g.ids }))}><Check size={13} /> I added it again</button>}
-                    <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`un:${g.key}`, () => lumPost({ action: "unmark", placementIds: g.ids }))}>Put it back on the to-add list</button>
+                    {p && <button className="btn sm" disabled={!!busy} onClick={() => run(`re:${g.key}`, () => lumPost({ action: "markAdded", portfolioId: p.id, placementIds: g.ids }))}><Check size={13} /> Mark as added again</button>}
+                    <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`un:${g.key}`, () => lumPost({ action: "unmark", placementIds: g.ids }))}>Return to the add list</button>
                   </span>
                 </div>
               );
@@ -6537,23 +6537,23 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
       {/* everything set aside, folded: Don't track and "Not ours" can be undone from here */}
       {(skipped.length + (lum.ignoredList || []).length + (lum.notOursList || []).length) > 0 && (
         <details className="lm-hidden" data-sec="hidden">
-          <summary>Not tracked ({skipped.length + (lum.ignoredList || []).length + (lum.notOursList || []).length})</summary>
+          <summary>Excluded from Luminate ({skipped.length + (lum.ignoredList || []).length + (lum.notOursList || []).length})</summary>
           <div className="lm-list">
             {skipped.map((g) => (
               <div key={g.key} className="lm-song lm-hidden-row">
-                <span className="lm-song-main"><strong>{g.song || "Untitled"}</strong><span>{g.clientIds.map(clientName).filter(Boolean).join(", ")} · not tracked in Luminate</span></span>
-                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`unskip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: false }))}>Track again</button>
+                <span className="lm-song-main"><strong>{g.song || "Untitled"}</strong><span>{g.clientIds.map(clientName).filter(Boolean).join(", ")} · excluded from Luminate</span></span>
+                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`unskip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: false }))}>Include in Luminate</button>
               </div>
             ))}
             {(lum.ignoredList || []).map((r) => (
               <div key={r.luminateId} className="lm-song lm-hidden-row">
-                <span className="lm-song-main"><strong>{r.name}</strong><span>In Luminate · set aside as not one of ours</span></span>
-                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`unign:${r.luminateId}`, () => lumPost({ action: "ignore", luminateId: r.luminateId, ignore: false }))}>Track again</button>
+                <span className="lm-song-main"><strong>{r.name}</strong><span>In Luminate · not in our catalog</span></span>
+                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`unign:${r.luminateId}`, () => lumPost({ action: "ignore", luminateId: r.luminateId, ignore: false }))}>Include in Luminate</button>
               </div>
             ))}
             {(lum.notOursList || []).map((r) => (
               <div key={`${r.clientId}:${r.song}:${r.luminateId}`} className="lm-song lm-hidden-row">
-                <span className="lm-song-main"><strong>{r.song}</strong><span>Removed as not ours · {shortDay(r.removedAt)}</span></span>
+                <span className="lm-song-main"><strong>{r.song}</strong><span>Removed from the catalog · {shortDay(r.removedAt)}</span></span>
               </div>
             ))}
           </div>
@@ -6565,7 +6565,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
           onDone={(n) => { setAsk(null); setNote(n); refresh(); }} />
       )}
       {ask?.lumOnly && (
-        <AskCard title={`"${ask.lumOnly.name}" isn't ours?`} goLabel="It isn't ours" busyLabel="Saving…" onClose={() => setAsk(null)}
+        <AskCard title={`Mark "${ask.lumOnly.name}" as not in our catalog?`} goLabel="Not in our catalog" busyLabel="Saving…" onClose={() => setAsk(null)}
           go={async () => { const u = ask.lumOnly; await run(`ign:${u.luminateId}`, () => lumPost({ action: "notOurs", song: u.name, luminateId: u.luminateId })); setAsk(null); }}>
           <p>The app stops asking about it. It's still in {pName(ask.lumOnly.portfolioId)} in Luminate and uses a slot; you'll get a To do to take it out.</p>
         </AskCard>
@@ -6618,10 +6618,10 @@ function dashTasks(db, lum) {
     stale === null ? { ...L, k: "none", t: "No Luminate export has been dropped in yet", cta: "Open Luminate" }
       : stale > 8 && { ...L, k: "stale", sub: "drop", t: staleT, d: staleD, cta: "Drop new exports" },
     (lum.notOursLeft || []).length && { ...L, k: "gone", sub: "gone", t: lum.notOursLeft.length === 1 ? `Take "${lum.notOursLeft[0].name}" out of ${lum.notOursLeft[0].portfolioName} in Luminate` : `Take ${lum.notOursLeft.length} songs that aren't ours out of Luminate`,
-      d: lum.notOursLeft.length === 1 ? `It's off the site but still uses a slot.${lum.notOursLeft[0].lumName && lum.notOursLeft[0].lumName !== lum.notOursLeft[0].name ? ` In Luminate it's "${lum.notOursLeft[0].lumName}".` : ""}` : "They're off the site but still use slots.", cta: "Show me" },
-    toAdd && { ...L, k: "add", sub: "add", t: `${toAdd} song${toAdd === 1 ? " needs" : "s need"} adding to Luminate`, d: noIsrc ? (toAdd === 1 ? "It still needs its ISRC typed in" : `${noIsrc} of them still need${noIsrc === 1 ? "s its" : " their"} ISRC typed in`) : undefined, cta: "See the list" },
+      d: lum.notOursLeft.length === 1 ? `It's off the site but still uses a slot.${lum.notOursLeft[0].lumName && lum.notOursLeft[0].lumName !== lum.notOursLeft[0].name ? ` In Luminate it's "${lum.notOursLeft[0].lumName}".` : ""}` : "They're off the site but still use slots.", cta: "View" },
+    toAdd && { ...L, k: "add", sub: "add", t: `${toAdd} song${toAdd === 1 ? " needs" : "s need"} adding to Luminate`, d: noIsrc ? (toAdd === 1 ? "It still needs its ISRC typed in" : `${noIsrc} of them still need${noIsrc === 1 ? "s its" : " their"} ISRC typed in`) : undefined, cta: "View list" },
     lum.unlinked.length && { ...L, k: "unlinked", sub: "match", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here`, cta: "Match them" },
-    missing && { ...L, k: "missing", sub: "missing", t: `${missing} song${missing === 1 ? "" : "s"} marked as added ${missing === 1 ? "isn't" : "aren't"} in the latest export`, d: "Check them in Luminate, then add them again or unmark them.", cta: "See the list" },
+    missing && { ...L, k: "missing", sub: "missing", t: `${missing} song${missing === 1 ? "" : "s"} marked as added ${missing === 1 ? "isn't" : "aren't"} in the latest export`, d: "Check them in Luminate, then add them again or unmark them.", cta: "View list" },
     splits,
     // the fix is each one's "Sheet tab name", which lives in Website › Roster
     // one client: its edit window opens on that field
@@ -6912,9 +6912,9 @@ function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum, arTop,
     const tests = (unlogged || []).filter((p) => p.test), testSum = tests.reduce((s, p) => s + p.amount, 0);
     const testD = !tests.length ? undefined : unlogged.length === 1 ? `It's a ${money(testSum)} test payment.`
       : tests.length === 1 ? `1 of them is a ${money(testSum)} test payment.` : `${tests.length} of them are test payments (${money(testSum)}).`;
-    if (unlogged?.length) list.push({ k: "unlogged", area: "money", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? "" : "s"} (${money(home.accounting.unloggedTotal)} paid) ${unlogged.length === 1 ? "isn't" : "aren't"} in the accounting sheet yet`, d: testD, cta: "See them",
+    if (unlogged?.length) list.push({ k: "unlogged", area: "money", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? "" : "s"} (${money(home.accounting.unloggedTotal)} paid) ${unlogged.length === 1 ? "isn't" : "aren't"} in the accounting sheet yet`, d: testD, cta: "Review",
       go: () => { setMoneyTab("unlogged"); requestAnimationFrame(() => document.getElementById("money")?.scrollIntoView({ behavior: "smooth", block: "start" })); } });
-    if (toLum?.count) list.push({ k: "arLuminate", area: "ar", t: toLum.text.replace(/\.$/, ""), cta: "See the list", go: () => setShowToLum(true) });
+    if (toLum?.count) list.push({ k: "arLuminate", area: "ar", t: toLum.text.replace(/\.$/, ""), cta: "View list", go: () => setShowToLum(true) });
     return list;
   }, [db, lum, unlogged, toLum]); // eslint-disable-line react-hooks/exhaustive-deps
   const m = home?.money;
