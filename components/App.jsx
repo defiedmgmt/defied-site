@@ -6658,7 +6658,8 @@ const WEEK_PCT_MIN = 1000;
 const SCROLL_ROWS = ".attn-row,.cu-row,.gainer,.pay-row,.acct-row:not(.acct-row-hd)";
 // section labels: one that reaches into the fade at the foot is hidden until it's scrolled fully into view,
 // so a half-cut "CLICKUP" never peeks above "1 more"
-const SCROLL_LABELS = ".todo-group,.todo-sub,.gainer-split,.acct-row-hd,.acct-unlogged-head";
+// (Money's "Not in the sheet" head is above its scroll box, never one of these)
+const SCROLL_LABELS = ".todo-group,.todo-sub,.gainer-split,.acct-row-hd";
 const LABEL_FADE = 24; // the mask's height (.home-scroll[data-more])
 function useScrollMore(ref) {
   const [hidden, setHidden] = useState(0);
@@ -7118,8 +7119,6 @@ function MoneyCard({ home, failed, retry, tab, setTab }) {
       : !U.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every Stripe payment is in the accounting sheet.</p>
       : (
         <div className="acct-unlogged">
-          <p className="acct-unlogged-head"><span>Add {U.length === 1 ? "this one" : `these ${U.length}`} to the accounting sheet · {money(A.unloggedTotal)} paid in total</span>
-            {U.length > 1 && <button className="btn sm acct-log-all" data-log-all onClick={() => setLogIds(U.map((p) => p.id))}>Log all {U.length}</button>}</p>
           <div className="acct-row acct-row-hd" aria-hidden="true"><span>Date</span><span>Who</span><span className="acct-amt">Paid</span><span /></div>
           {[...U].reverse().map((p, i) => (
             <div key={p.id} className={i >= HOME_ROWS ? "acct-row over" : "acct-row"} data-pay={p.id}><span>{shortDay(p.at)}</span><span className="acct-who">{p.client || p.payer || "Unknown payer"}{p.test && <> <TestChip /></>}</span><span className="acct-amt">{money(p.amount)}</span>
@@ -7144,6 +7143,14 @@ function MoneyCard({ home, failed, retry, tab, setTab }) {
         {/* a narrow card (one-screen Dashboard at 1280) drops the word "payments" so the head stays one line */}
         {P?.items?.length > 0 && <button className="inline-link pay-all" onClick={() => setAll(true)} title="All payments">All<span className="pay-all-w"> payments</span> ({fmt(P.total ?? P.items.length)}) ›</button>}
       </div>
+      {/* Not in the sheet's head sits above the scroll box, so "Log all N" never hides under the fade
+          and the first payment row starts at the top of the box (1280x800, 1366x768) */}
+      {tab === "unlogged" && U?.length > 0 && (
+        <div className="acct-unlogged acct-unlogged-top">
+          <p className="acct-unlogged-head"><span>Add {U.length === 1 ? "this one" : `these ${U.length}`}<span className="acct-hd-w"> to the accounting sheet</span> · {money(A.unloggedTotal)} paid<span className="acct-hd-w"> in total</span></span>
+            {U.length > 1 && <button className="btn sm acct-log-all" data-log-all onClick={() => setLogIds(U.map((p) => p.id))}>Log all {U.length}</button>}</p>
+        </div>
+      )}
       <div className={open ? "home-scroll open" : "home-scroll"} ref={body}>{content}</div>
       <ScrollFoot n={hidden} box={body} />
       {all && <PaymentsModal onClose={() => setAll(false)} onLog={(ids) => { setAll(false); setLogIds(ids); }} />}
@@ -9701,6 +9708,13 @@ function StyleTag() {
       .app:not(.pub) .home-money-card{container-type:inline-size}
       @container (max-width:560px){ .app:not(.pub) .pay-all-w{display:none} }
       @container (max-width:500px){ .app:not(.pub) .money-tabs .tab-the{display:none} }   /* "Not in sheet" keeps the head on one line at 1280 */
+      /* Not in the sheet's head stays one line above the list ("Add these 5 · $… paid", Log all 5); a
+         narrow card drops the column labels so a whole payment row shows without scrolling */
+      .app:not(.pub) .home-money-card .acct-unlogged-top{flex:none}
+      .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head{flex-wrap:nowrap}
+      .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head > span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .app:not(.pub) .home-money-card .acct-log-all{flex:none}
+      @container (max-width:600px){ .app:not(.pub) .acct-hd-w{display:none} .app:not(.pub) .home-money-card .acct-row-hd{display:none} }
     }
     /* below 1400 the two columns share evenly, so Money's head (tabs + "All (N) ›") fits on one line */
     @media (min-width:900px) and (max-width:1399px) and (min-height:640px){
