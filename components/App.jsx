@@ -9821,8 +9821,7 @@ function StyleTag() {
     .app:not(.pub) .arb-card .arb-card-top{flex-wrap:nowrap;align-items:baseline;justify-content:space-between;gap:10px;width:100%}
     .app:not(.pub) .arb-val{flex:none;font:600 13px/1.3 var(--d-body);color:var(--d-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
     @media (max-width:1366px){
-      /* laptops: five even columns with no sideways scroll; a name wraps to 2 lines and ≈ $value goes under it */
-      .app:not(.pub) .arb-board{grid-template-columns:repeat(5,minmax(0,1fr))}
+      /* laptops: a name wraps to 2 lines and ≈ $value goes under it (the columns: below, after the sideways row) */
       .app:not(.pub) .arb-card .arb-card-top{flex-direction:column;align-items:flex-start;gap:2px}
       .app:not(.pub) .arb-card-top .arb-name{white-space:normal;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     }
@@ -9841,6 +9840,11 @@ function StyleTag() {
         overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:6px;scrollbar-width:thin;scrollbar-color:#3a3a3c transparent}
       .app:not(.pub) .arb-col{scroll-snap-align:start}
       .app:not(.pub) .arb-cards{max-height:calc(100dvh - 320px);min-height:64px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#3a3a3c transparent}
+    }
+    @media (min-width:700px) and (max-width:1366px){
+      /* laptops: the stages share the width evenly, so Signed is always on screen (no sideways scroll) */
+      .app:not(.pub) .arb-board{grid-auto-flow:row;grid-template-columns:repeat(5,minmax(0,1fr));overflow-x:visible}
+      .app:not(.pub) .arb-board:has(.arb-col[data-col=other]){grid-template-columns:repeat(6,minmax(0,1fr))}
     }
     /* producer panel: the sheet's total first and full width, then two per row; roomier fields */
     .app:not(.pub) .modal-card .cat-summary-grid.ar-panel-tiles:has(> .cat-stat){grid-template-columns:repeat(2,minmax(0,1fr))}
