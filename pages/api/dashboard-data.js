@@ -9,6 +9,7 @@
 import bcrypt from "bcryptjs";
 import { sql, rowsOrNoneIfNoTable } from "../../lib/db";
 import { requireUser, requireSameOrigin, restampSession } from "../../lib/session";
+import { readSheetFacts } from "../../lib/sheet-facts-store";
 
 // photos are data: URIs inside the rows, so Next's default 1 MB body cap
 // turned every staff save into a 413 once ~5-8 had been uploaded. Vercel's
@@ -81,7 +82,7 @@ const insertPlacement = (r) => sql`
 
 // Everything a staff session's GET returns — and what the size guard weighs.
 async function staffPayload() {
-  const [clients, placements, staff, users, submissions, notableReleases, [settings], notOurs] = await Promise.all([
+  const [clients, placements, staff, users, submissions, notableReleases, [settings], notOurs, sheetFacts] = await Promise.all([
     sql`SELECT * FROM clients ORDER BY roster_order`,
     sql`SELECT * FROM placements`,
     sql`SELECT * FROM staff_bios`,
@@ -90,6 +91,7 @@ async function staffPayload() {
     sql`SELECT * FROM notable_releases`,
     sql`SELECT about_text, last_synced_at FROM site_settings WHERE id = 1`,
     rowsOrNoneIfNoTable(sql`SELECT client_id, song_key, song, luminate_id, removed_at FROM not_ours ORDER BY removed_at`),
+    readSheetFacts(),
   ]);
   return {
     role: "staff",
@@ -103,6 +105,8 @@ async function staffPayload() {
     sheetSync: { lastSyncedAt: settings.last_synced_at },
     // songs removed as "not ours": the browser's sheet sync skips their titles (staff only)
     notOurs: notOurs.map((r) => ({ clientId: r.client_id, songKey: r.song_key, song: r.song, luminateId: r.luminate_id || "", removedAt: r.removed_at })),
+    // what the pub sheet says per song and per client (lib/sheet-facts.js), from the last pull
+    sheetFacts,
   };
 }
 
@@ -127,10 +131,11 @@ async function handleGet(req, res, session) {
   if (role === "staff") return res.status(200).json(await staffPayload());
 
   // client: own record + own placements only, redacted
-  const [clients, placements, [settings]] = await Promise.all([
+  const [clients, placements, [settings], sheetFacts] = await Promise.all([
     sql`SELECT * FROM clients WHERE id = ${clientId}`,
     sql`SELECT * FROM placements WHERE client_id = ${clientId}`,
     sql`SELECT last_synced_at FROM site_settings WHERE id = 1`,
+    readSheetFacts(clientId),
   ]);
   if (!clients[0]) return res.status(404).json({ error: "Client record not found." });
   return res.status(200).json({
@@ -138,6 +143,8 @@ async function handleGet(req, res, session) {
     client: toClient(clients[0]),
     placements: placements.map((p) => toPlacement(p, { redact: true })),
     sheetSync: { lastSyncedAt: settings.last_synced_at },
+    // their own songs' rows and their own net streams on the sheet: streams and shares only, no money
+    sheetFacts,
   });
 }
 

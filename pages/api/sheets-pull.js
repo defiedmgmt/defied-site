@@ -7,6 +7,8 @@
 import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers, readTabRows } from "../../lib/sheets";
 import { ownerOf } from "../../lib/names";
 import { requireUser, requireSameOrigin } from "../../lib/session";
+import { sql } from "../../lib/db";
+import { sheetFactQueries, saveSheetFacts } from "../../lib/sheet-facts-store";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
@@ -31,7 +33,10 @@ export default async function handler(req, res) {
     const tabs = await listTabs(sheets, spreadsheetId);
     const known = await loadClientTabNames();
 
-    const out = [];
+    const out = [], facts = [];
+    // staff pulls also keep what the sheet says per song (lib/sheet-facts.js), matched to the songs as saved
+    const saved = isStaff ? await sql`SELECT id, client_id, song, luminate_id FROM placements` : [];
+    const live = new Set(saved.map((p) => p.id));
     for (const c of clients) {
       // a client's tab is the one their own record names — never one the request names (that could
       // be any tab nobody owns: MASTER, an empty WRITER slot, a former client's)
@@ -39,8 +44,12 @@ export default async function handler(req, res) {
       const tabName = (isStaff ? c.sheetTabName || c.name || "" : own ? own.sheet_tab_name || own.name || "" : "").trim();
       const me = known.find((k) => k.id === c.id) || ownerOf(known, tabName);
       const tab = findTab(tabs, tabName, tabsOfOthers(known, me));
-      if (!tab) { out.push({ clientId: c.id, tabFound: false, totalStreams: 0, rows: [] }); continue; }
+      if (!tab) {
+        if (isStaff && me?.id === c.id) facts.push(...sheetFactQueries(c.id, null, [], [], live));
+        out.push({ clientId: c.id, tabFound: false, totalStreams: 0, rows: [] }); continue;
+      }
       const rawRows = await readTabRows(sheets, spreadsheetId, tab.title);
+      if (isStaff && known.some((k) => k.id === c.id)) facts.push(...sheetFactQueries(c.id, tab.title, saved.filter((p) => p.client_id === c.id), rawRows, live));
       const totalStreams = rawRows.reduce((sum, r) => sum + r.grossStreams, 0);
       // matches dashboard-data.js's redaction policy: a client sees their own
       // streams, never revenue/admin fee — the UI never calls this route as
@@ -49,6 +58,7 @@ export default async function handler(req, res) {
       out.push({ clientId: c.id, tabFound: true, totalStreams, rows });
     }
 
+    await saveSheetFacts(facts);
     return res.status(200).json({ syncedAt: new Date().toISOString(), clients: out });
   } catch (err) {
     return res.status(502).json({ error: err.message || "Sheet pull failed." });
