@@ -4432,6 +4432,8 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
         </div>
       </div>
 
+      {/* wide screens: the result sits beside the form, so it shows in the first screen as you type */}
+      <div className="adv-cols">
       <div className="form-card" style={{ maxWidth: 560 }}>
         <label className="fld"><span>Prospect or signed client</span>
           <select value={scenario.kind === "new" ? "" : `${scenario.kind}:${scenario.key}`} onChange={(e) => selectScenario(e.target.value)}>
@@ -4494,9 +4496,11 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
         )}
       </div>
 
-      {/* nothing to work out yet: one line says what to do, instead of rows of $0.00 */}
-      {!selectedProspect && !selectedClient && !netStreams ? <p className="adv-empty">Pick a client or prospect, or type streams, to see an advance.</p> : <>
-      <div className="cat-summary" style={{ marginTop: 20 }}>
+      <div className="adv-out">
+      {/* nothing to work out yet: one line says what to do, instead of rows of $0.00; streams typed with no
+          writer % asks for the % */}
+      {!selectedProspect && !selectedClient && !netStreams ? <p className="adv-empty">{Number(scenario.grossStreams) > 0 && !(Number(scenario.writerShare) > 0) ? "Add their writer share (%) to see an advance." : "Pick a client or prospect, or type streams, to see an advance."}</p> : <>
+      <div className="cat-summary">
         <div className="cat-summary-grid">
           <div className="cat-stat"><span className="cat-stat-label">Recommended Advance</span><span className="cat-stat-val">{money(result.advance)}</span></div>
           <div className="cat-stat"><span className="cat-stat-label">Months to Recoup</span><span className="cat-stat-val">{result.monthsToRecoup != null ? `${result.monthsToRecoup.toFixed(1)} mo` : "—"}</span></div>
@@ -4518,6 +4522,8 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
         <div className="split-list-row split-list-total"><span>Our fee next 3 yrs</span><span>{money(result.admin3yr)}</span></div>
       </div>
       </>}
+      </div>
+      </div>
     </div>
   );
 }
@@ -9150,6 +9156,12 @@ function StyleTag() {
     .app:not(.pub) p.hint.del-note svg{flex:none;margin-top:3px;color:var(--d-pos)}
     .app:not(.pub) p.hint.del-note.warn{border-color:var(--d-warn-line);background:var(--d-warn-bg);color:var(--d-ban-warn-ink)}
     .app:not(.pub) p.hint.del-note.warn svg{color:var(--d-warn)}
+    .app:not(.pub) .adv-out > .cat-summary{margin-top:20px}
+    @media (min-width:1100px){
+      .app:not(.pub) .adv-cols{display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:24px;align-items:start}
+      .app:not(.pub) .adv-out{position:sticky;top:16px;min-width:0}
+      .app:not(.pub) .adv-out > .cat-summary,.app:not(.pub) .adv-out > .adv-empty{margin-top:0}
+    }
     .app:not(.pub) .adv-empty{margin:20px 0 0;padding:16px;border:1px dashed var(--d-line-3);border-radius:var(--d-r-md);color:var(--d-ink-3);font-size:13.5px;max-width:560px}
     /* Publishing: Splits to fix (one list, Fix opens the editor) and the strip after a Save */
     .app:not(.pub) .fix-panel{margin:0 0 18px;padding:14px 16px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1)}
