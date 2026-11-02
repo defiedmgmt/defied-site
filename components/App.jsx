@@ -3181,7 +3181,7 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
       ))}
     </span>
   );
-  const addTitle = open.prefill?.name ? `Add ${open.prefill.name}` : kind === "artist" ? "Add an artist" : kind === "song" ? "Add a song" : "Add a producer";
+  const addTitle = open.prefill?.name ? `Add details for ${open.prefill.name}` : kind === "artist" ? "Add an artist" : kind === "song" ? "Add a song" : "Add a producer";
   if (open.type === "add" && kind === "producer") {
     return (
       <ProspectForm title={addTitle} picker={picker} blendedRate={data?.assumptions?.blendedRate ?? 0} assume={data?.assumptions} canSave={canSave}
@@ -3229,7 +3229,9 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
   const [f, setF] = useState({ ...init, stage: init.stage || "" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  useEscape(onClose, !busy);
+  const dirty = ["name", "artist", "handle", "spotify", "isrc", "genre", "notes", "luminateId", "personId", "stage"].some((k) => String(f[k] ?? "") !== String((k === "stage" ? init.stage || "" : init[k]) ?? ""));
+  const guard = useDirtyGuard(dirty, onClose);
+  useEscape(guard.tryClose, !busy);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const type = kind === "song" ? "song" : "artist";
   // rows of that A&R list nobody has taken yet (plus this one's own)
@@ -3254,11 +3256,15 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
     try { await arPost({ action: "removeTracked", id: t.id }); await onSaved(); } catch (e) { setErr(e.message); setBusy(false); }
   };
   return (
-    <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && guard.tryClose()}>
       <div className="modal-card ar-tracked-form" data-kind={type}>
-        <div className="modal-head"><h3>{isNew ? title || "Add an artist" : t.name}</h3><button onClick={onClose} aria-label="Close" disabled={busy}><X size={18} /></button></div>
+        <div className="modal-head"><h3>{isNew ? title || "Add an artist" : t.name}</h3><button onClick={guard.tryClose} aria-label="Close" disabled={busy}><X size={18} /></button></div>
         <div className="modal-body">
           {picker}
+          {/* a Luminate-only row: its numbers first, from the row that was clicked */}
+          {isNew && prefill?.nums && (
+            <p className="ar-nums ar-prefill-nums">This week {fmt(prefill.nums.thisWeek ?? 0)}{prefill.nums.wowPct != null && ` · ${pctText(prefill.nums.wowPct)} vs last week`}{prefill.nums.atd != null && ` · ${bigNum(prefill.nums.atd)} all-time`}</p>
+          )}
           {isNew && prefill?.name && <p className="hint mb">Their numbers already come in from Luminate. Add a handle or Spotify link, or put them on the board.</p>}
           {err && <p className="hint err-text" role="alert">{err}</p>}
           <Field label={type === "song" ? "Song title" : "Name"} value={f.name} onChange={set("name")} />
@@ -3294,6 +3300,7 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
           <Area label="Notes" value={f.notes} onChange={set("notes")} />
           <p className="hint">Saved here in the dashboard only. Nothing goes into the pub sheet.</p>
         </div>
+        {guard.bar}
         <div className="modal-foot">
           {!isNew && <button className="btn ghost sm err-text arb-remove" onClick={remove} disabled={busy}>Stop tracking</button>}
           <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
@@ -3351,6 +3358,8 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   if (cu?.error) merged.push({ k: "cu:error", t: "Couldn't reach ClickUp, so its A&R tasks aren't listed here.", cta: "Try again", go: retryCu });
   const value = data?.totals?.totalValue;
   const stageN = (id) => cards.filter((c) => c.stage === id).length;
+  // never "All caught up" before both the database and ClickUp's A&R list have answered
+  const checking = (!pg && !pgErr) || !cu;
   // someone tracked here opens their panel on the Watchlist; a Luminate-only row is just shown there
   const openGainer = (r, kind) => goWatch(r.ref ? { pill: kind, open: r.key } : { pill: kind, flash: r.key });
   const Gainers = ({ list, kind }) => (
@@ -3384,9 +3393,9 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
       {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
       {/* the pipeline at a glance: one coloured pill per stage, and the sheet's total value; opens the Board */}
       <button className="ar-strip" onClick={goBoard} aria-label="Open the Board">
-        {AR_STAGES.map((st) => <StagePill key={st.id} id={st.id} n={stageN(st.id)} />)}
+        {AR_STAGES.map((st) => <StagePill key={st.id} id={st.id} n={pg ? stageN(st.id) : "–"} />)}
         {/* the sheet's total value: mostly the would-be cut of past earnings, so not "in play" money */}
-        <span className="ar-strip-val">{value != null ? `≈ ${wholeMoney(value)} est. value` : "Open the Board"} →</span>
+        <span className="ar-strip-val">{value != null ? `≈ ${wholeMoney(value)} est. value` : !data && !ar.err ? "…" : "Open the Board"} →</span>
       </button>
       <div className="ar-sum-head">
         <h3 className="ar-h3">{old ? "Latest week" : "This week"} <span className="ar-h3-sub">· biggest % rise first</span></h3>
@@ -3401,7 +3410,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
         {(!phone || gtab === "people") && <Gainers list={people} kind="people" />}
         {(!phone || gtab === "songs") && <Gainers list={songs} kind="songs" />}
       </div>
-      {merged.length ? (
+      {checking ? <h3 className="ar-h3 ar-todo-h ar-todo-wait">To do <span className="todo-done">· <RefreshCw size={14} className="spin" /> checking…</span></h3> : merged.length ? (
         <>
           <h3 className="ar-h3 ar-todo-h">To do <span className="attn-n">{merged.length}</span></h3>
           <div className="attn ar-tasks">
@@ -3758,7 +3767,7 @@ function ArWatch({ ar, onGo, at }) {
   });
   // a signed client's row opens their page on Publishing, not the add form
   const openRow = (r, e) => (r.clientId && !r.ref ? onGo("catalog", `client:${r.clientId}`)
-    : openPanel(r.ref ? { type: r.ref.type, id: r.ref.id } : { type: "add", kind: pill === "songs" ? "song" : "artist", prefill: { name: r.name, luminateId: r.luminateId } }, e));
+    : openPanel(r.ref ? { type: r.ref.type, id: r.ref.id } : { type: "add", kind: pill === "songs" ? "song" : "artist", prefill: { name: r.name, luminateId: r.luminateId, nums: r.current != null ? { thisWeek: r.current, wowPct: r.changePct ?? null, atd: r.atd ?? null } : null } }, e));
   // Summary's row click: open that person's panel once it has drawn, or (a Luminate-only row) light it up
   const jumped = useRef(false);
   useEffect(() => {
@@ -4021,7 +4030,13 @@ function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reloa
   const [ok, setOk] = useState(null);
   const [conflict, setConflict] = useState(null); // {list, send}
   const [events, setEvents] = useState(null);
-  useEscape(onClose, !busy && !conflict); // as Cancel, which is off while saving
+  const startSongsNow = base ? base.songs : BLANK_SONGS;
+  const dirty = isNew
+    ? !!(name.trim() || contact.trim() || notes.trim() || songs.some((s) => s.streams !== "" || s.writerShare !== ""))
+    : name !== base.name || contact !== (base.contact || "") || notes !== (base.notes || "") || lastContact !== (base.lastContact?.date || "")
+      || songs.some((s, i) => String(s.streams) !== String(startSongsNow[i]?.streams || "") || String(s.writerShare) !== String(startSongsNow[i]?.writerShare || ""));
+  const guard = useDirtyGuard(dirty, onClose);
+  useEscape(guard.tryClose, !busy && !conflict); // as Cancel, which is off while saving
   const loadEvents = () => !isNew && fetch(`/api/ar?events=${encodeURIComponent(prospect.id)}`).then((r) => r.json()).then((d) => setEvents(d.events || [])).catch(() => setEvents([]));
   useEffect(() => { loadEvents(); }, []);
   const setSong = (slot, patch) => setSongs(songs.map((s) => (s.slot === slot ? { ...s, ...patch } : s)));
@@ -4094,7 +4109,7 @@ function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reloa
   const adv = prospect?.advance;
 
   return (
-    <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && !conflict && onClose()}>
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && !conflict && guard.tryClose()}>
       <div className={`modal-card${isNew ? "" : " arb-panel"}`}>
         <div className="modal-head">
           <h3>{isNew ? title || "New prospect" : prospect.name}</h3>
@@ -4105,7 +4120,7 @@ function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reloa
               {[...AR_STAGES, { id: "passed", label: "Passed" }].map((st) => <option key={st.id} value={st.id}>{st.label}</option>)}
             </select>
           )}
-          <button onClick={onClose} aria-label="Close" disabled={busy}><X size={18} /></button>
+          <button onClick={guard.tryClose} aria-label="Close" disabled={busy}><X size={18} /></button>
         </div>
         <div className="modal-body">
           {picker}
@@ -4198,6 +4213,7 @@ function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reloa
             </div>
           </div>
         </div>
+        {guard.bar}
         <div className="modal-foot">
           {!isNew && <button className="btn ghost sm err-text arb-remove" onClick={deleteProspect} disabled={busy || !canSave} title={paused}>Remove from board</button>}
           <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
@@ -4488,6 +4504,21 @@ function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClo
       </div>
     </div>
   );
+}
+
+// A panel with typing in it never closes on a stray Esc, × or click outside: it asks first, in the
+// panel. Cancel still discards at once. A clean panel closes as before.
+function useDirtyGuard(dirty, onClose) {
+  const [asking, setAsking] = useState(false);
+  const tryClose = () => (dirty ? setAsking(true) : onClose());
+  const bar = asking && dirty && (
+    <div className="dirty-bar" role="alert">
+      <span>You have unsaved changes</span>
+      <button className="btn ghost sm" onClick={() => setAsking(false)} autoFocus>Keep editing</button>
+      <button className="btn sm" data-discard onClick={onClose}>Discard</button>
+    </div>
+  );
+  return { tryClose, bar };
 }
 
 // Delete and "This isn't ours": the song off the site, then its row off its client's pub sheet tab.
@@ -9260,7 +9291,7 @@ function StyleTag() {
     .app:not(.pub) .adv-rate{margin:-8px 0 16px}
     .app:not(.pub) .ar-given-none{color:var(--d-ink-4);letter-spacing:0}
     .app:not(.pub) .ar-tile-cut{font-size:12.5px;line-height:1.35;color:var(--d-ink-3)}
-    .app:not(.pub) .ar-client-tag{margin-left:6px;vertical-align:1px}
+    .app:not(.pub) .ar-client-tag{margin-left:6px;vertical-align:1px;align-self:flex-start}
     .app:not(.pub) .gainer[data-fall]{opacity:.62}   /* a fall under a "rise first" list: listed, not ranked */
     .app:not(.pub) .arb-err{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
     .app:not(.pub) .arb-history{list-style:none;margin:0;padding:0;border:1px solid var(--d-line-2);border-radius:10px;overflow:hidden}
@@ -9586,6 +9617,10 @@ function StyleTag() {
     .app:not(.pub) .ar-summary .ar-gainer-pair{align-items:start}
     .app:not(.pub) .ar-summary .ar-gainers{align-self:start;height:auto}
     .app:not(.pub) .ar-gainers .gainer{min-height:60px}
+    .app:not(.pub) .ar-summary .ar-gainers{min-height:341px}   /* about 5 rows, so nothing jumps when they load */
+    .app:not(.pub) .dirty-bar{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 22px;border-top:1px solid var(--d-warn-line);background:var(--d-warn-bg);font-size:13.5px;color:var(--d-ink)}
+    .app:not(.pub) .dirty-bar > span{margin-right:auto;font-weight:600}
+    .app:not(.pub) .ar-prefill-nums{margin:0 0 8px;font-size:13.5px;color:var(--d-ink-2);font-variant-numeric:tabular-nums}
     .app:not(.pub) .ar-gainers .gainer-n{color:var(--d-ink-4)} .app:not(.pub) .ar-gainers .gainer:not([data-ranked]) .gainer-n{color:var(--d-ink-off)}
     .app:not(.pub) .ar-g-sub{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px}
     .app:not(.pub) .ar-gainers .gainer-num em{font-style:normal;font-size:12px;color:var(--d-ink-4);white-space:nowrap}
