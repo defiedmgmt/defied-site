@@ -3046,14 +3046,20 @@ const ArDataError = ({ err, retry }) => <p className="hint err-text mb"><span>{e
 // Postgres (/api/ar) serve all three; the sub-page last opened is remembered for the session.
 const AR_SECS = [["summary", "Summary"], ["watch", "Watchlist"], ["board", "Board"]];
 const AR_SEC_KEY = "dm-ar-sec";
+// /api/ar's last answer: Summary, Watchlist and Board share it while it's under 30s old; a save
+// always reads it again (loadPg() with no argument)
+const arPgCache = { d: null, at: 0 };
 function useArAll() {
   const sheet = useArData(); // the sheet read: money, cells, rows free
-  const [pg, setPg] = useState(null); // /api/ar: Postgres only, so the pages draw before the sheet answers
+  const [pg, setPg] = useState(() => arPgCache.d); // /api/ar: Postgres only, so the pages draw before the sheet answers
   const [pgErr, setPgErr] = useState(null);
-  const loadPg = () => fetch("/api/ar").then((r) => r.json())
-    .then((d) => { if (d.error) throw new Error(d.error); setPg(d); setPgErr(null); })
-    .catch((e) => setPgErr(e.message || "Couldn't load the A&R data."));
-  useEffect(() => { loadPg(); }, []);
+  const loadPg = (force = true) => {
+    if (force === false && arPgCache.d && Date.now() - arPgCache.at < 30000) return Promise.resolve(setPg(arPgCache.d));
+    return fetch("/api/ar").then((r) => r.json())
+      .then((d) => { if (d.error) throw new Error(d.error); arPgCache.d = d; arPgCache.at = Date.now(); setPg(d); setPgErr(null); })
+      .catch((e) => setPgErr(e.message || "Couldn't load the A&R data."));
+  };
+  useEffect(() => { loadPg(false); }, []);
   // each sheet read can bring in or settle prospects (the first one imports them all), so the
   // Postgres side is read again once it lands
   useEffect(() => { if (sheet.data) loadPg(); }, [sheet.data]);
@@ -3073,7 +3079,7 @@ function ARAdmin({ onGo, sub }) {
   const ar = useArAll();
   // each page opens on the latest from Postgres (another page may have added someone)
   const opened = useRef(false);
-  useEffect(() => { if (opened.current) ar.loadPg(); opened.current = true; }, [sec]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (opened.current) ar.loadPg(false); opened.current = true; }, [sec]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="ar">
       {/* the page's title first, as on Publishing and Website; each section says only its one line */}
@@ -3314,9 +3320,10 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
 // Summary: the top gainers in the A&R lists, then what needs doing. Nothing else.
 // ClickUp's A&R Tasks list for the Summary's task list (read-only, /api/home?list=ar)
 function useArClickUp() {
-  const [cu, setCu] = useState(null);
+  const [cu, setCu] = useState(() => dashCache.cu.ar || null); // the Dashboard's copy of the same list, refreshed below
   const load = () => fetch("/api/home?list=ar", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-    .then((d) => setCu(d?.clickup || { error: "Couldn't reach ClickUp." })).catch(() => setCu({ error: "Couldn't reach ClickUp." }));
+    .then((d) => { if (d?.clickup && !d.clickup.error) dashCache.cu.ar = d.clickup; setCu(d?.clickup || { error: "Couldn't reach ClickUp." }); })
+    .catch(() => setCu({ error: "Couldn't reach ClickUp." }));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return { cu, retry: () => { setCu(null); load(); } };
 }
@@ -6508,13 +6515,13 @@ const GAINER_TABS = [["songs", "Songs"], ["artists", "Artists"], ["ar", "A&R"]];
 // "▲ 157.5%", "▼ 12.0%": the same as the A&R tab's
 const wowText = pctText;
 function useRosterTop() {
-  const [top, setTop] = useState(null);
+  const [top, setTop] = useState(() => dashCache.top || null);
   const [failed, setFailed] = useState(false);
   const loader = useRef(null);
   useEffect(() => {
     let alive = true;
     const load = () => { setFailed(false); return fetch("/api/growth?top=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!alive) return; if (d?.top) setTop(d.top); else setFailed(true); }).catch(() => alive && setFailed(true)); };
+      .then((d) => { if (!alive) return; if (d?.top) { dashCache.top = d.top; setTop(d.top); } else setFailed(true); }).catch(() => alive && setFailed(true)); };
     loader.current = load;
     load();
     window.addEventListener(STREAMS_EVENT, load);
@@ -6610,14 +6617,17 @@ function TopGainers({ db, lum, onGo, arTop, arLoaded }) {
 // then one Money card (payments, the accounting sheet, what the sheet doesn't have yet). Publishing's own detail (MASTER, the clients, their splits) stays on
 // Publishing. The money, accounting and ClickUp parts come from /api/home; each says on its own
 // when it can't load, so the rest of the page never waits on it.
+// The Dashboard's last answers, kept while the app is open: coming back to it draws them at once and a
+// fresh copy loads quietly ("updated 7:34 PM" says how fresh the money is). Only good answers are kept.
+const dashCache = { cu: {} };
 function useHome() {
-  const [home, setHome] = useState(null);
+  const [home, setHome] = useState(() => dashCache.home || null);
   const [failed, setFailed] = useState(false);
   const loader = useRef(null);
   useEffect(() => {
     let alive = true;
     const load = () => { setFailed(false); return fetch("/api/home", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!alive) return; if (d?.money) setHome(d); else setFailed(true); }).catch(() => alive && setFailed(true)); };
+      .then((d) => { if (!alive) return; if (d?.money) { dashCache.home = d; setHome(d); } else setFailed(true); }).catch(() => alive && setFailed(true)); };
     loader.current = load;
     load();
     return () => { alive = false; };
@@ -6634,7 +6644,9 @@ function useArSummary(tab) {
   useEffect(() => {
     if (tab !== "home" && t) return;
     let alive = true;
-    fetch("/api/ar?summary=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => alive && d && setT(d)).catch(() => {});
+    // a failed read keeps the last answer, or marks it answered so the To do count doesn't wait forever
+    const miss = () => alive && setT((x) => x || { failed: true });
+    fetch("/api/ar?summary=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => (d ? alive && setT(d) : miss())).catch(miss);
     return () => { alive = false; };
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   return t;
@@ -6717,7 +6729,8 @@ function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum, arTop,
       <div className="admin-head"><h2>Dashboard</h2>{m?.connected && !m.error && <span className="home-src">From Stripe · updated {clock(m.updatedAt)}</span>}</div>
       <MoneyRow money={m} failed={failed} retry={retry} />
       <div className="home-row">
-        <ToDoCard items={tasks} loading={!lum && !lumErr} failed={!lum && lumErr} onRetry={reloadLum} onGo={onGo} cuFirst={home?.clickup} homeFailed={failed} homeRetry={retry} />
+        <ToDoCard items={tasks} loading={!lum && !lumErr} failed={!lum && lumErr} onRetry={reloadLum} onGo={onGo} cuFirst={home?.clickup} homeFailed={failed} homeRetry={retry}
+          settled={(!!lum || lumErr) && (!!home || failed) && arLoaded} />
         <TopGainers db={db} lum={lum} onGo={onGo} arTop={arTop} arLoaded={arLoaded} />
       </div>
       <MoneyCard home={home} failed={failed} retry={retry} tab={moneyTab} setTab={(t) => { tabPicked.current = true; setMoneyTab(t); }} />
@@ -6953,15 +6966,17 @@ const OWN_CU = /^(Weekly dashboard sync:|Log new payments:)/;
 const PRIORITY = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
 const dueLate = (iso) => !!iso && new Date(iso).getTime() < new Date().setHours(0, 0, 0, 0);
 function useClickUpLists(first) {
-  const [lists, setLists] = useState({});
+  const [lists, setLists] = useState(() => ({ ...dashCache.cu }));
   const failed = (k) => ({ key: k, error: "Couldn't reach ClickUp." });
-  const load = (k) => {
-    setLists((x) => ({ ...x, [k]: null }));
+  // quiet: the list on screen (the last answer) stays until the fresh one lands
+  const load = (k, quiet = false) => {
+    if (!quiet) setLists((x) => ({ ...x, [k]: null }));
     return fetch(`/api/home?list=${k}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => setLists((x) => ({ ...x, [k]: d?.clickup || failed(k) }))).catch(() => setLists((x) => ({ ...x, [k]: failed(k) })));
+      .then((d) => { if (d?.clickup && !d.clickup.error) dashCache.cu[k] = d.clickup; setLists((x) => ({ ...x, [k]: d?.clickup || failed(k) })); })
+      .catch(() => setLists((x) => ({ ...x, [k]: failed(k) })));
   };
   // Internal Tasks comes with the Dashboard's own load; Pub and A&R right away beside it
-  useEffect(() => { load("pub"); load("ar"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load("pub", true); load("ar", true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return { lists: CU_LISTS.map(([k]) => (k in lists ? lists[k] : k === "internal" ? first || null : null)), load };
 }
 function CuTask({ t, over }) {
@@ -6985,7 +7000,7 @@ function CuTask({ t, over }) {
 // stops at 4 rows with "Show N more". failed = the Luminate data couldn't load: a plain line to try
 // again, never "All caught up" or a spinner that never stops.
 const TODO_GROUPS = [["luminate", "Luminate"], ["roster", "Publishing"], ["money", "Money"], ["ar", "A&R"], ["site", "Website"]];
-function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, homeRetry }) {
+function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, homeRetry, settled = true }) {
   const phone = useMedia("(max-width: 599px)");
   const [open, setOpen] = useState(false);
   const body = useRef(null);
@@ -7046,7 +7061,8 @@ function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, 
   if (cuWait) out.push(<p key="cuwait" className={over(true) ? "todo-line over" : "todo-line"}><RefreshCw size={14} className="spin" /> Loading ClickUp…</p>);
   return (
     <div className="attn home-card todo">
-      <div className="attn-head"><ListChecks size={15} /> To do {total > 0 && <span className="attn-n">{total}</span>}</div>
+      {/* no number until every group (Luminate, the Dashboard's own, ClickUp, A&R) has answered: it never counts up */}
+      <div className="attn-head"><ListChecks size={15} /> To do {total > 0 && settled && !cuWait && <span className="attn-n">{total}</span>}</div>
       <div className={open ? "home-scroll open" : "home-scroll"} ref={body}>
         {out}
         <HomeMore n={n - HOME_ROWS} open={open} onToggle={() => setOpen((o) => !o)} />
