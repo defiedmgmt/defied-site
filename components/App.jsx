@@ -6634,10 +6634,19 @@ function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum }) {
   // the Money card's tab lives here, so the "not in the sheet" task can open it on that list
   const [moneyTab, setMoneyTab] = useState("payments");
   const unlogged = home?.accounting?.unlogged;
+  const tabPicked = useRef(false);
+  useEffect(() => {
+    if (!home || tabPicked.current) return;
+    tabPicked.current = true;
+    if (unlogged?.length > 0) setMoneyTab("unlogged");
+  }, [home]); // eslint-disable-line react-hooks/exhaustive-deps
   const tasks = useMemo(() => {
     const list = dashTasks(db, lum);
     // phase 6 logs them in one click; until then the button shows the list on the Money card
-    if (unlogged?.length) list.push({ k: "unlogged", area: "money", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? "" : "s"} (${money(home.accounting.unloggedTotal)} paid) ${unlogged.length === 1 ? "isn't" : "aren't"} in the accounting sheet yet`, cta: "See them",
+    const tests = (unlogged || []).filter((p) => p.test), testSum = tests.reduce((s, p) => s + p.amount, 0);
+    const testD = !tests.length ? undefined : unlogged.length === 1 ? `It's a ${money(testSum)} test payment.`
+      : tests.length === 1 ? `1 of them is a ${money(testSum)} test payment.` : `${tests.length} of them are test payments (${money(testSum)}).`;
+    if (unlogged?.length) list.push({ k: "unlogged", area: "money", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? "" : "s"} (${money(home.accounting.unloggedTotal)} paid) ${unlogged.length === 1 ? "isn't" : "aren't"} in the accounting sheet yet`, d: testD, cta: "See them",
       go: () => { setMoneyTab("unlogged"); requestAnimationFrame(() => document.getElementById("money")?.scrollIntoView({ behavior: "smooth", block: "start" })); } });
     if (toLum?.count) list.push({ k: "arLuminate", area: "ar", t: toLum.text.replace(/\.$/, ""), cta: "See the list", go: () => setShowToLum(true) });
     return list;
@@ -6651,7 +6660,7 @@ function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum }) {
         <ToDoCard items={tasks} loading={!lum && !lumErr} failed={!lum && lumErr} onRetry={reloadLum} onGo={onGo} cuFirst={home?.clickup} homeFailed={failed} homeRetry={retry} />
         <TopGainers db={db} lum={lum} onGo={onGo} />
       </div>
-      <MoneyCard home={home} failed={failed} retry={retry} tab={moneyTab} setTab={setMoneyTab} />
+      <MoneyCard home={home} failed={failed} retry={retry} tab={moneyTab} setTab={(t) => { tabPicked.current = true; setMoneyTab(t); }} />
       {showToLum && toLum && <ArToLuminateModal t={toLum} onGo={onGo} onClose={() => setShowToLum(false)} />}
     </div>
   );
@@ -6670,14 +6679,14 @@ function MoneyRow({ money: m, failed, retry }) {
   if (!m || !m.connected || m.error) {
     return (
       <div className="home-money">
-        <span className="cat-stat-label">Commission</span>
+        <span className="cat-stat-label">Through Stripe</span>
         {!m ? <HomeWait failed={failed} retry={retry} what="the commission" />
           : !m.connected ? <p className="home-muted"><CircleDollarSign size={15} /> Connect Stripe to see your commission here.</p>
           : <p className="home-muted"><AlertTriangle size={15} /> {m.error}</p>}
       </div>
     );
   }
-  const stats = [["thisMonth", `Commission · ${m.month ? monthName(m.month) : monthWord(0)}`], ["lastMonth", monthWord(-1)], ["thisYear", "This year"]];
+  const stats = [["thisMonth", `Through Stripe · ${m.month ? monthName(m.month) : monthWord(0)}`], ["lastMonth", monthWord(-1)], ["thisYear", "This year"]];
   return (
     <div className="cat-summary home-money-row">
       <div className="cat-summary-grid">
@@ -6691,6 +6700,8 @@ function MoneyRow({ money: m, failed, retry }) {
   );
 }
 
+// a $2-or-less or "test" payment (the server's isTestPay): still counted and listed, only marked
+const TestChip = () => <span className="pay-test" title="A test payment: $2 or less, or &quot;test&quot; in its description">Test</span>;
 // "via Devin's link", or straight to Defied's own account (tests and deposits so far)
 const viaText = (p) => (p.direct ? "paid to Defied directly" : p.via ? `via ${p.via}'s link` : "via a payment link");
 // green = Defied's share; what they paid in all sits under it only when it's different
@@ -6698,7 +6709,7 @@ function PayRow({ p, over, onLog }) {
   return (
     <div className={over ? "pay-row over" : "pay-row"} data-pay={p.id}>
       <span className="pay-main"><strong>{p.client || p.payer || "Unknown payer"}</strong>
-        <span>{payDay(p.at)} · {viaText(p)}{p.logged === false && <> · <span className="pay-flag">Not in the sheet yet</span></>}</span></span>
+        <span>{payDay(p.at)} · {viaText(p)}{p.test && <> <TestChip /></>}{p.logged === false && <> · <span className="pay-flag">Not in the sheet yet</span></>}</span></span>
       {onLog && p.logged === false && <button className="btn ghost sm pay-log" data-log={p.id} onClick={() => onLog([p.id])}>Log it</button>}
       <span className="pay-amt"><b>{money(p.fee)}</b>{p.fee !== p.amount && <em>{money(p.amount)} paid</em>}</span>
     </div>
@@ -6712,6 +6723,7 @@ function LogConfirm({ ids, canLog, onClose, onDone }) {
   const [plan, setPlan] = useState(null); // {rows, skipped} | {error}
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null); // the write's answer
+  const [off, setOff] = useState(() => new Set()); // rows unticked: left out of this write, still to log
   const close = () => { if (busy) return; if (done) onDone(); onClose(); };
   useEscape(close);
   const post = (body) => fetch("/api/accounting-log", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify(body) })
@@ -6723,8 +6735,10 @@ function LogConfirm({ ids, canLog, onClose, onDone }) {
     post({ ids, dryRun: true }).then((d) => alive && setPlan(d));
     return () => { alive = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const go = async () => { setBusy(true); const d = await post({ ids }); setBusy(false); setDone(d); };
-  const n = plan?.rows?.length || 0;
+  const go = async () => { setBusy(true); const d = await post({ ids: ids.filter((id) => !off.has(id)) }); setBusy(false); setDone(d); };
+  const rowsN = plan?.rows?.length || 0;
+  const n = (plan?.rows || []).filter((r) => !off.has(r.id)).length; // the ticked ones
+  const tick = (id) => setOff((s) => { const x = new Set(s); x.has(id) ? x.delete(id) : x.add(id); return x; });
   const reasons = (list) => list?.length > 0 && <ul className="log-skipped">{list.map((x) => <li key={x.id} data-skip={x.id}>{x.reason}</li>)}</ul>;
   let body;
   if (!canLog) body = <p className="home-muted" data-log-off><AlertTriangle size={15} /> Logging from the dashboard isn't switched on yet. For now, add {ids.length === 1 ? "it" : "them"} in the sheet as a new row with the full amount paid.</p>;
@@ -6741,20 +6755,21 @@ function LogConfirm({ ids, canLog, onClose, onDone }) {
   else {
     body = (
       <>
-        {n > 0 && <p className="log-lead">{n === 1 ? "This row goes" : `These ${n} rows go`} on the Income tab, under its last row. The sheet works out the month, manager and shares, the same as a row typed by hand.</p>}
-        {n > 0 && (
+        {rowsN > 0 && <p className="log-lead">{rowsN === 1 ? "This row goes" : `These ${rowsN} rows go`} on the Income tab, under its last row. The sheet works out the month, manager and shares, the same as a row typed by hand.{rowsN > 1 ? " Untick one to leave it out for now." : ""}</p>}
+        {rowsN > 0 && (
           <div className="log-table" role="table" aria-label="Rows to add">
             <div className="log-tr log-th" role="row"><span role="columnheader">Date</span><span role="columnheader">Artist / Client</span><span role="columnheader">Revenue type</span><span role="columnheader" className="acct-amt">Gross commission</span></div>
             {plan.rows.map((r) => (
-              <div key={r.id} className="log-tr" role="row" data-row={r.id}>
-                <span role="cell">{r.date}</span><span role="cell" className="acct-who">{r.client}{r.notes ? <em> · {r.notes}</em> : null}</span><span role="cell">{r.type}</span><span role="cell" className="acct-amt">{money(r.amount)}</span>
-              </div>
+              <label key={r.id} className={off.has(r.id) ? "log-tr off" : "log-tr"} role="row" data-row={r.id}>
+                <span role="cell" className="log-date"><input type="checkbox" checked={!off.has(r.id)} disabled={busy} onChange={() => tick(r.id)} aria-label={`Add ${r.client}, ${money(r.amount)}`} />{r.date}</span>
+                <span role="cell" className="acct-who">{r.client}{r.test && <> <TestChip /></>}{r.notes ? <em> · {r.notes}</em> : null}</span><span role="cell">{r.type}</span><span role="cell" className="acct-amt">{money(r.amount)}</span>
+              </label>
             ))}
           </div>
         )}
-        {n > 0 && <p className="hint log-acct">Account: {plan.rows[0].account}. The full amount paid goes in Gross Commission, like the rows already there.</p>}
+        {rowsN > 0 && <p className="hint log-acct">Account: {plan.rows[0].account}. The full amount paid goes in Gross Commission, like the rows already there. Names are written the way the sheet already spells them.</p>}
         {reasons(plan.skipped)}
-        {n === 0 && !plan.skipped?.length && <p className="home-muted">Nothing to add.</p>}
+        {rowsN === 0 && !plan.skipped?.length && <p className="home-muted">Nothing to add.</p>}
       </>
     );
   }
@@ -6764,10 +6779,10 @@ function LogConfirm({ ids, canLog, onClose, onDone }) {
         <div className="modal-head"><h3>{done ? "Logged" : ids.length === 1 ? "Log this payment" : `Log ${ids.length} payments`}</h3><button onClick={close} aria-label="Close"><X size={18} /></button></div>
         <div className="modal-body">{body}</div>
         <div className="modal-foot">
-          {done || !canLog || !n ? <button className="btn sm" onClick={close}>{done ? "Done" : "Close"}</button> : (
+          {done || !canLog || !rowsN ? <button className="btn sm" onClick={close}>{done ? "Done" : "Close"}</button> : (
             <>
               <button className="btn ghost sm" onClick={close} disabled={busy}>Cancel</button>
-              <button className="btn sm" data-log-go onClick={go} disabled={busy}>{busy ? "Adding…" : n === 1 ? "Add 1 row to the sheet" : `Add ${n} rows to the sheet`}</button>
+              <button className="btn sm" data-log-go onClick={go} disabled={busy || !n}>{busy ? "Adding…" : !n ? "Nothing ticked" : n === 1 ? "Add 1 row to the sheet" : `Add ${n} rows to the sheet`}</button>
             </>
           )}
         </div>
@@ -6839,8 +6854,8 @@ function MoneyCard({ home, failed, retry, tab, setTab }) {
           <p className="acct-unlogged-head"><span>Add {U.length === 1 ? "this one" : `these ${U.length}`} to the accounting sheet · {money(A.unloggedTotal)} paid in total</span>
             {U.length > 1 && <button className="btn sm acct-log-all" data-log-all onClick={() => setLogIds(U.map((p) => p.id))}>Log all {U.length}</button>}</p>
           <div className="acct-row acct-row-hd" aria-hidden="true"><span>Date</span><span>Who</span><span className="acct-amt">Paid</span><span /></div>
-          {U.map((p, i) => (
-            <div key={p.id} className={i >= HOME_ROWS ? "acct-row over" : "acct-row"} data-pay={p.id}><span>{shortDay(p.at)}</span><span className="acct-who">{p.client || p.payer || "Unknown payer"}</span><span className="acct-amt">{money(p.amount)}</span>
+          {[...U].reverse().map((p, i) => (
+            <div key={p.id} className={i >= HOME_ROWS ? "acct-row over" : "acct-row"} data-pay={p.id}><span>{shortDay(p.at)}</span><span className="acct-who">{p.client || p.payer || "Unknown payer"}{p.test && <> <TestChip /></>}</span><span className="acct-amt">{money(p.amount)}</span>
               <button className="btn ghost sm acct-log" data-log={p.id} onClick={() => setLogIds([p.id])}>Log it</button></div>
           ))}
           {more(U.length)}
@@ -9460,8 +9475,16 @@ function StyleTag() {
     .app:not(.pub) .log-modal{max-width:640px}
     .app:not(.pub) .log-lead{margin:0 0 10px;font-size:13.5px;line-height:1.5;color:var(--d-ink-2)}
     .app:not(.pub) .log-table{border:1px solid var(--d-line);border-radius:var(--d-r-md);overflow:hidden}
-    .app:not(.pub) .log-tr{display:grid;grid-template-columns:92px minmax(0,1fr) minmax(0,1.1fr) 112px;gap:10px;padding:8px 12px;border-top:1px solid var(--d-line);font-size:13px;color:var(--d-ink)}
+    .app:not(.pub) .log-tr{display:grid;grid-template-columns:116px minmax(0,1fr) minmax(0,1.1fr) 112px;gap:10px;padding:8px 12px;border-top:1px solid var(--d-line);font-size:13px;color:var(--d-ink)}
     .app:not(.pub) .log-tr:first-child{border-top:0}
+    .app:not(.pub) label.log-tr{cursor:pointer;align-items:center}
+    .app:not(.pub) .log-tr .acct-who{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}   /* the Test chip stays in view */
+    .app:not(.pub) label.log-tr:hover{background:var(--d-hover)}
+    .app:not(.pub) .log-th > :first-child{padding-left:24px}   /* over the date, past the tick box */
+    .app:not(.pub) .log-date{display:flex;align-items:center;gap:8px;white-space:nowrap}
+    .app:not(.pub) .log-date input{flex:none;width:16px;height:16px;margin:0;accent-color:var(--d-ink)}
+    .app:not(.pub) .log-tr.off > :not(.log-date), .app:not(.pub) .log-tr.off .log-date{color:var(--d-ink-4);text-decoration:line-through;text-decoration-color:var(--d-line-3)}
+    .app:not(.pub) .pay-test{display:inline-block;padding:0 6px;border:1px solid var(--d-line-2);border-radius:999px;font-size:11px;font-weight:500;line-height:16px;letter-spacing:.02em;color:var(--d-ink-3);text-decoration:none;vertical-align:1px}
     .app:not(.pub) .log-tr em{font-style:normal;color:var(--d-ink-4)}
     .app:not(.pub) .log-th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-ink-4);background:var(--d-hover)}
     .app:not(.pub) .log-acct{margin:10px 0 0}
@@ -9469,7 +9492,7 @@ function StyleTag() {
     .app:not(.pub) .log-done{display:flex;align-items:flex-start;gap:8px;margin:0;font-size:14px;line-height:1.5;color:var(--d-ink)}
     .app:not(.pub) .log-done svg{flex:none;margin-top:3px;color:var(--d-pos)}
     @media (max-width:599px){
-      .app:not(.pub) .log-tr{grid-template-columns:76px minmax(0,1fr) 84px;row-gap:2px}
+      .app:not(.pub) .log-tr{grid-template-columns:100px minmax(0,1fr) 84px;row-gap:2px}
       .app:not(.pub) .log-tr > :nth-child(3){grid-row:2;grid-column:2;font-size:12px;color:var(--d-ink-3)}   /* the revenue type goes under who */
     }
     .app:not(.pub) .home-money-card > .home-scroll > .home-muted{padding:14px 16px}
