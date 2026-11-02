@@ -6150,7 +6150,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
             {lum.notOursLeft.map((r) => (
               <div key={r.luminateId} className="lm-song lm-gone-row">
                 <span className="lm-cover"><Radar size={16} /></span>
-                <span className="lm-song-main"><strong>{r.name}</strong><span>In {r.portfolioName} · uses 1 slot</span></span>
+                <span className="lm-song-main"><strong>{r.name}</strong><span>In {r.portfolioName}{r.lumName && r.lumName !== r.name ? ` as "${r.lumName}"` : ""} · uses 1 slot</span></span>
                 <span className="lm-unl-acts">
                   {r.url ? <ExtLink href={r.url} className="btn ghost sm"><ExternalLink size={13} /> Open {r.portfolioName} ↗</ExtLink>
                     : portOf(r.portfolioId) && <button className="btn ghost sm" onClick={() => setEditing({ ...portOf(r.portfolioId) })}><Link2 size={13} /> Add {r.portfolioName}'s link</button>}
@@ -6388,7 +6388,7 @@ function dashTasks(db, lum) {
     stale === null ? { ...L, k: "none", t: "No Luminate export has been dropped in yet", cta: "Open Luminate" }
       : stale > 8 && { ...L, k: "stale", sub: "drop", t: staleT, d: staleD, cta: "Drop new exports" },
     (lum.notOursLeft || []).length && { ...L, k: "gone", sub: "gone", t: lum.notOursLeft.length === 1 ? `Take "${lum.notOursLeft[0].name}" out of ${lum.notOursLeft[0].portfolioName} in Luminate` : `Take ${lum.notOursLeft.length} songs that aren't ours out of Luminate`,
-      d: lum.notOursLeft.length === 1 ? "It's off the site but still uses a slot." : "They're off the site but still use slots.", cta: "Show me" },
+      d: lum.notOursLeft.length === 1 ? `It's off the site but still uses a slot.${lum.notOursLeft[0].lumName && lum.notOursLeft[0].lumName !== lum.notOursLeft[0].name ? ` In Luminate it's "${lum.notOursLeft[0].lumName}".` : ""}` : "They're off the site but still use slots.", cta: "Show me" },
     toAdd && { ...L, k: "add", sub: "add", t: `${toAdd} song${toAdd === 1 ? " needs" : "s need"} adding to Luminate`, d: noIsrc ? (toAdd === 1 ? "It still needs its ISRC typed in" : `${noIsrc} of them still need${noIsrc === 1 ? "s its" : " their"} ISRC typed in`) : undefined, cta: "See the list" },
     lum.unlinked.length && { ...L, k: "unlinked", sub: "match", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here`, cta: "Match them" },
     missing && { ...L, k: "missing", sub: "missing", t: `${missing} song${missing === 1 ? "" : "s"} marked as added ${missing === 1 ? "isn't" : "aren't"} in the latest export`, d: "Check them in Luminate, then add them again or unmark them.", cta: "See the list" },
