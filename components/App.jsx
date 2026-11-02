@@ -5378,7 +5378,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
   useEffect(() => { if (focus) landOn(box.current); }, [focus]);
   // the songs that write a share: the client is on the split (otherwise Save sends nothing to the sheet either)
   const writes = (items) => items.filter((x) => x.client && ownSplit({ splits: x.r.splits }, x.client));
-  const confirm = async (items) => {
+  const confirmSplits = async (items) => { // (not "confirm": that reads like the browser dialog)
     setNote(null);
     const by = new Map(items.map((x) => [x.p.id, x.r.splits]));
     const done = await commit({ ...db, placements: db.placements.map((p) => (by.has(p.id) ? { ...p, splits: by.get(p.id) } : p)) });
@@ -5398,7 +5398,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
       ? { warn: true, text: `Confirmed on the site, but the pub sheet wasn't updated for ${failed.join(", ")}. Open the song and Save again.` }
       : { text: items.length === 1 ? `Confirmed "${items[0].p.song || "Untitled"}": ${splitWords(items[0].r.splits)}.${w ? " Its writer share is on the sheet." : ""}` : `Confirmed ${items.length} even splits.${w ? ` ${w} writer share${w === 1 ? " is" : "s are"} on the sheet.` : ""}` });
   };
-  const one = async (x) => { setBusy(x.p.id); try { await confirm([x]); } finally { setBusy(null); } };
+  const one = async (x) => { setBusy(x.p.id); try { await confirmSplits([x]); } finally { setBusy(null); } };
   const allWrites = writes(assumed);
   const tabs = new Set(allWrites.map((x) => x.client.id)).size;
   const row = (x, acts, mid) => (
@@ -5438,7 +5438,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
       )}
       {all && (
         <AskCard title={`Confirm ${assumed.length} even split${assumed.length === 1 ? "" : "s"}?`} goLabel={`Confirm all ${assumed.length}`} busyLabel="Confirming…" plain
-          go={async () => { await confirm(assumed); setAll(false); }} onClose={() => setAll(false)}>
+          go={async () => { await confirmSplits(assumed); setAll(false); }} onClose={() => setAll(false)}>
           <p data-ask-writes>{allWrites.length
             ? `Writes the writer share for ${allWrites.length} song${allWrites.length === 1 ? "" : "s"} on ${tabs} client${tabs === 1 ? "'s" : "s'"} sheet tab${tabs === 1 ? "" : "s"}.`
             : "Nothing is written to the pub sheet: none of these clients is on their own split."} Unnamed people are only kept on the site.</p>
