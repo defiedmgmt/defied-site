@@ -8,6 +8,7 @@ import { requireStaff } from "../../lib/session";
 import { moneyState, payerNamer, paymentRow, checkClickUpTasks } from "../../lib/money";
 import { listTasks, LISTS, clearTaskCache } from "../../lib/clickup-tasks";
 import { logWritesOn } from "../../lib/accounting-log";
+import { sectionChecks } from "../../lib/accounting-section";
 
 // a first Stripe fill reads ~3 things a payment (saved as it goes, lib/stripe.js)
 export const config = { maxDuration: 60 };
@@ -43,6 +44,9 @@ export default async function handler(req, res) {
       : { connected: true, total: pay.list.length, items: pay.list.slice(0, req.query.all ? 100 : 8).map((p) => paymentRow(p, nameOf, logged, acct?.year)) };
     if (req.query.all) return res.status(200).json({ payments });
 
+    // the Accounting section's To check count, for the To do line (the rows themselves are /api/accounting's)
+    let toCheck = null;
+    if (match && acct.rows) { try { toCheck = (await sectionChecks({ pay, acct, match, namer: nameOf })).toCheck.length; } catch (err) { console.error("home: accounting checks", err); } }
     const accounting = !acct.connected ? { connected: false }
       : acct.error ? { connected: true, error: acct.error }
       : {
@@ -54,6 +58,7 @@ export default async function handler(req, res) {
         unloggedTotal: match ? match.unloggedTotal / 100 : null,
         // the "Log it" buttons: off until ACCOUNTING_SHEET_WRITES=on
         canLog: logWritesOn(),
+        toCheck,
       };
 
     // keep the two ClickUp tasks in step with what was just read (debounced; never blocks the page)

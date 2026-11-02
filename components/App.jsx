@@ -2506,7 +2506,7 @@ async function saveRow(commit, next, key, id, thing) {
 // one the user has since chosen themselves
 const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d, users: d.users.map(({ password, ...u }) => u) } : d);
 
-const DASH_TABS = ["home", "catalog", "ar", "luminate", "website", "users", "subs"];
+const DASH_TABS = ["home", "catalog", "accounting", "ar", "luminate", "website", "users", "subs"];
 function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   // sub = where a Dashboard task or gainer points inside the tab it opens ("advance", "client:<id>",
   // "roster"): read once as the tab mounts, so the sidebar always opens a tab on its usual start
@@ -2575,9 +2575,16 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const arSum = useArSummary(tab);
   const toLum = arSum?.toLuminate || null;
   const pubCount = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster").length, [db, lum]);
+  // Accounting's badge: payments to log + rows to check. Read once here; the Dashboard and the section
+  // put in what they read later, so it follows a Log it or a Mark as OK
+  const [acctN, setAcctN] = useState(null);
+  useEffect(() => {
+    fetch("/api/accounting?counts=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => d?.counts && setAcctN((x) => x || d.counts)).catch(() => {});
+  }, []);
   // each tab's area colours its active icon and its badge (Dashboard, Users and Messages stay white)
   const tabs = [
     ["home", "Dashboard", LayoutDashboard], ["catalog", "Publishing", ListMusic, pubCount, "roster"],
+    ["accounting", "Accounting", Receipt, (acctN?.toLog || 0) + (acctN?.toCheck || 0), "money", "Money"],
     ["ar", "A&R", Handshake, (arSum?.followUpsDue || 0) + (toLum?.count || 0), "ar"], ["luminate", "Luminate", Radar, lumCount, "luminate"],
     ["website", "Website", Pencil, 0, "site"],
     ["users", "Users", UserCog], ["subs", "Messages", Inbox, unreadCount],
@@ -2587,9 +2594,10 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
       <aside className="dash-side">
         <div className="dash-brand"><Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link></div>
         <nav>
-          {tabs.map(([id, label, Icon, badge, area]) => (
+          {tabs.map(([id, label, Icon, badge, area, short]) => (
             <button key={id} className={tab === id ? "active" : ""} data-area={area} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
-              <Icon size={17} /> <span className="nav-label">{label}</span>
+              {/* short: the phone tab bar's word when the full one can't fit 8 tabs at 390 */}
+              <Icon size={17} /> <span className="nav-label">{short ? <><span className="nav-full">{label}</span><span className="nav-short" aria-hidden="true">{short}</span></> : label}</span>
               {!!badge && <span className="nav-badge">{badge}</span>}
             </button>
           ))}
@@ -2600,7 +2608,8 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         </div>
       </aside>
       <main className="dash-main">
-        {tab === "home" && <HomeDashboard db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} onGo={go} toLum={toLum} arTop={arSum?.top} arLoaded={!!arSum} />}
+        {tab === "home" && <HomeDashboard db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} onGo={go} toLum={toLum} arTop={arSum?.top} arLoaded={!!arSum} onAcct={setAcctN} />}
+        {tab === "accounting" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} />}
         {tab === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={setSub} lum={lum} />}
         {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} onSub={setSub} />}
         {tab === "luminate" && <LuminateAdmin db={db} commit={commit} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} toLum={toLum} onGo={go} />}
@@ -7399,7 +7408,7 @@ function ArToLuminateModal({ t, onGo, onClose }) {
   );
 }
 
-function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum, arTop, arLoaded }) {
+function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum, arTop, arLoaded, onAcct }) {
   const { home, failed, retry } = useHome();
   const [showToLum, setShowToLum] = useState(false);
   // the Money card's tab lives here, so the "not in the sheet" task can open it on that list
@@ -7411,17 +7420,21 @@ function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum, arTop,
     tabPicked.current = true;
     if (unlogged?.length > 0) setMoneyTab("unlogged");
   }, [home]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toCheck = home?.accounting?.toCheck || 0;
+  useEffect(() => { if (unlogged) onAcct?.({ toLog: unlogged.length, toCheck }); }, [unlogged, toCheck]); // eslint-disable-line react-hooks/exhaustive-deps
   const tasks = useMemo(() => {
     const list = dashTasks(db, lum);
     // phase 6 logs them in one click; until then the button shows the list on the Money card
     const tests = (unlogged || []).filter((p) => p.test), testSum = tests.reduce((s, p) => s + p.amount, 0);
     const testD = !tests.length ? undefined : unlogged.length === 1 ? `It's a ${money(testSum)} test payment.`
       : tests.length === 1 ? `1 of them is a ${money(testSum)} test payment.` : `${tests.length} of them are test payments (${money(testSum)}).`;
-    if (unlogged?.length) list.push({ k: "unlogged", area: "money", t: `${unlogged.length} Stripe payment${unlogged.length === 1 ? "" : "s"} (${money(home.accounting.unloggedTotal)} paid) ${unlogged.length === 1 ? "isn't" : "aren't"} in the accounting sheet yet`, d: testD, cta: "Review",
-      go: () => { setMoneyTab("unlogged"); requestAnimationFrame(() => document.getElementById("money")?.scrollIntoView({ behavior: "smooth", block: "start" })); } });
+    // both of Accounting's counts on one short line; Review opens the tab with the work
+    const nLog = unlogged?.length || 0;
+    if (nLog || toCheck) list.push({ k: "unlogged", area: "money", t: [nLog && `${nLog} payment${nLog === 1 ? "" : "s"} to log`, toCheck && `${toCheck} row${toCheck === 1 ? "" : "s"} to check`].filter(Boolean).join(" · "), d: nLog ? testD : undefined, cta: "Review",
+      go: () => onGo("accounting", nLog ? "log" : "check") });
     if (toLum?.count) list.push({ k: "arLuminate", area: "ar", t: toLum.text.replace(/\.$/, ""), cta: "View list", go: () => setShowToLum(true) });
     return list;
-  }, [db, lum, unlogged, toLum]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [db, lum, unlogged, toCheck, toLum]); // eslint-disable-line react-hooks/exhaustive-deps
   const m = home?.money;
   return (
     <div className="home">
@@ -7432,7 +7445,7 @@ function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum, arTop,
           settled={(!!lum || lumErr) && (!!home || failed) && arLoaded} />
         <TopGainers db={db} lum={lum} onGo={onGo} arTop={arTop} arLoaded={arLoaded} />
       </div>
-      <MoneyCard home={home} failed={failed} retry={retry} tab={moneyTab} setTab={(t) => { tabPicked.current = true; setMoneyTab(t); }} />
+      <MoneyCard home={home} failed={failed} retry={retry} tab={moneyTab} setTab={(t) => { tabPicked.current = true; setMoneyTab(t); }} onGo={onGo} />
       {showToLum && toLum && <ArToLuminateModal t={toLum} onGo={onGo} onClose={() => setShowToLum(false)} />}
     </div>
   );
@@ -7493,7 +7506,8 @@ function PayRow({ p, over, onLog }) {
 // ACCOUNTING_SHEET_WRITES is on, and then it only says so.
 // the confirm's title follows the ticked rows (every row starts ticked, test payments too)
 const logTitle = (n) => (n === 1 ? "Log this payment" : n === 0 ? "Log payments" : `Log ${n} payments`);
-function LogConfirm({ ids, canLog, onClose, onDone }) {
+// details: {[id]: {type, client}}, the owner's own picks (Accounting › To log's Log with details)
+function LogConfirm({ ids, canLog, onClose, onDone, details = null }) {
   const [plan, setPlan] = useState(null); // {rows, skipped} | {error}
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null); // the write's answer
@@ -7506,10 +7520,10 @@ function LogConfirm({ ids, canLog, onClose, onDone }) {
   useEffect(() => {
     if (!canLog) return;
     let alive = true;
-    post({ ids, dryRun: true }).then((d) => alive && setPlan(d));
+    post({ ids, dryRun: true, ...(details ? { details } : {}) }).then((d) => alive && setPlan(d));
     return () => { alive = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const go = async () => { setBusy(true); const d = await post({ ids: ids.filter((id) => !off.has(id)) }); setBusy(false); setDone(d); };
+  const go = async () => { setBusy(true); const d = await post({ ids: ids.filter((id) => !off.has(id)), ...(details ? { details } : {}) }); setBusy(false); setDone(d); };
   const rowsN = plan?.rows?.length || 0;
   const n = (plan?.rows || []).filter((r) => !off.has(r.id)).length; // the ticked ones
   const tick = (id) => setOff((s) => { const x = new Set(s); x.has(id) ? x.delete(id) : x.add(id); return x; });
@@ -7565,36 +7579,9 @@ function LogConfirm({ ids, canLog, onClose, onDone }) {
   );
 }
 
-function PaymentsModal({ onClose, onLog }) {
-  const [P, setP] = useState(null);
-  const [err, setErr] = useState(false);
-  useEscape(onClose);
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/home?all=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!alive) return; if (d?.payments?.items) setP(d.payments); else setErr(d?.payments?.error || true); }).catch(() => alive && setErr(true));
-    return () => { alive = false; };
-  }, []);
-  const title = !P ? "All payments" : P.total > P.items.length ? `Newest ${P.items.length} of ${fmt(P.total)} payments` : `All payments (${P.items.length})`;
-  return (
-    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-card pay-modal">
-        <div className="modal-head"><h3>{title}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
-        <div className="modal-body">
-          {err ? <p className="home-muted"><AlertTriangle size={15} /> {typeof err === "string" ? err : "Couldn't load the payments. Close this and try again."}</p>
-            : !P ? <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>
-            : <><p className="pay-legend">Green = Defied's share of each payment</p>{P.items.map((p) => <PayRow key={p.id} p={p} onLog={onLog} />)}</>}
-        </div>
-        <div className="modal-foot"><button className="btn sm" onClick={onClose}>Close</button></div>
-      </div>
-    </div>
-  );
-}
-
 // One Money card: Stripe's payments, the accounting sheet's numbers, and the payments the sheet
 // doesn't have yet (its count in amber on the tab: the one thing here that needs doing)
-function MoneyCard({ home, failed, retry, tab, setTab }) {
-  const [all, setAll] = useState(false);
+function MoneyCard({ home, failed, retry, tab, setTab, onGo }) {
   const [open, setOpen] = useState(false);
   const [logIds, setLogIds] = useState(null); // the payments the Log confirm is for
   const body = useRef(null);
@@ -7647,7 +7634,7 @@ function MoneyCard({ home, failed, retry, tab, setTab }) {
           ))}
         </span>
         {/* a narrow card (one-screen Dashboard at 1280) drops the word "payments" so the head stays one line */}
-        {P?.items?.length > 0 && <button className="inline-link pay-all" onClick={() => setAll(true)} title="All payments">All<span className="pay-all-w"> payments</span> ({fmt(P.total ?? P.items.length)}) ›</button>}
+        {P?.items?.length > 0 && <button className="inline-link pay-all" onClick={() => onGo?.("accounting", "payments")} title="All payments, in Accounting">All<span className="pay-all-w"> payments</span> ({fmt(P.total ?? P.items.length)}) ›</button>}
       </div>
       {/* Not in the sheet's head sits above the scroll box, so "Log all N" never hides under the fade
           and the first payment row starts at the top of the box (1280x800, 1366x768) */}
@@ -7659,8 +7646,164 @@ function MoneyCard({ home, failed, retry, tab, setTab }) {
       )}
       <div className={open ? "home-scroll open" : "home-scroll"} ref={body}>{content}</div>
       <ScrollFoot n={hidden} box={body} />
-      {all && <PaymentsModal onClose={() => setAll(false)} onLog={(ids) => { setAll(false); setLogIds(ids); }} />}
       {logIds && <LogConfirm ids={logIds} canLog={!!A?.canLog} onClose={() => setLogIds(null)} onDone={retry} />}
+    </div>
+  );
+}
+
+// Accounting (staff only, GET /api/accounting): Overview (the sheet's tiles and Stripe against the
+// sheet month by month), To log (every payment the sheet doesn't have, Log it or Log with details),
+// To check (rows worth a look, each with Open row ↗ and Mark as OK) and All payments. Nothing in the
+// sheet is ever edited from here: problems are shown with a link to the row.
+const ACCT_SECS = [["overview", "Overview"], ["log", "To log"], ["check", "To check"], ["payments", "All payments"]];
+function AccountingAdmin({ sub, onSub, onCounts }) {
+  const sec = ACCT_SECS.some(([k]) => k === sub) ? sub : "overview";
+  const [d, setD] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [logIds, setLogIds] = useState(null); // Log it / Log all
+  const [pick, setPick] = useState(null); // the payment Log with details is for
+  const [detail, setDetail] = useState(null); // {ids, details}: the confirm after the picks
+  const [okBusy, setOkBusy] = useState(null);
+  const [okErr, setOkErr] = useState(null);
+  const load = (fresh = false) => {
+    setFailed(false);
+    return fetch(`/api/accounting${fresh ? "?fresh=1" : ""}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((x) => { if (x?.connected !== undefined) { setD(x); if (x.counts) onCounts?.(x.counts); } else setFailed(true); }).catch(() => setFailed(true));
+  };
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const n = d?.counts || {};
+  const label = (k, l) => (k === "log" && n.toLog ? `${l} (${n.toLog})` : k === "check" && n.toCheck ? `${l} (${n.toCheck})` : l);
+  const markOk = async (key) => {
+    setOkBusy(key); setOkErr(null);
+    const r = await fetch("/api/accounting", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ ok: key }) }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
+    if (!r?.ok) setOkErr(j.error || "Couldn't reach the server. Try again in a minute.");
+    await load(true); setOkBusy(null);
+  };
+  let body;
+  if (!d) body = failed ? <p className="home-muted"><AlertTriangle size={15} /> <span>Couldn't load the accounting numbers. <button className="inline-link" onClick={() => load()}>Try again</button></span></p>
+    : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>;
+  else if (!d.connected) body = <p className="home-muted">Accounting sheet: not connected yet. Once it's shared with the dashboard, this section fills in.</p>;
+  else if (d.error) body = <p className="home-muted"><AlertTriangle size={15} /> {d.error}</p>;
+  else if (sec === "overview") body = <AcctOverview d={d} onSec={onSub} />;
+  else if (sec === "log") body = <AcctToLog d={d} onLog={setLogIds} onPick={setPick} />;
+  else if (sec === "check") body = <AcctToCheck d={d} busy={okBusy} err={okErr} onOk={markOk} />;
+  else body = !d.payments ? <p className="home-muted"><AlertTriangle size={15} /> {d.stripe?.error || "Stripe couldn't be read just now."}</p>
+    : <div className="acct-panel" data-acct="payments"><p className="pay-legend">Green = Defied's share of each payment · {fmt(d.payments.total)} payments</p>{d.payments.items.map((p) => <PayRow key={p.id} p={p} onLog={(ids) => setLogIds(ids)} />)}</div>;
+  return (
+    <div className="acct-page">
+      <div className="admin-head"><h2>Accounting</h2>{d?.readAt && <span className="home-src">Stripe and the {d.year} accounting sheet · read {clock(d.readAt)}</span>}
+        {d?.sheetUrl && <ExtLink className="btn ghost sm acct-sheet-link" href={d.sheetUrl}>Open the sheet ↗</ExtLink>}</div>
+      <div className="subnav" role="tablist" aria-label="Accounting">
+        {ACCT_SECS.map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} data-acct-tab={k} className={sec === k ? "subpill active" : "subpill"} onClick={() => onSub(k === "overview" ? null : k)}>{label(k, l)}</button>)}
+      </div>
+      {body}
+      {logIds && <LogConfirm ids={logIds} canLog={!!d?.toLog?.canLog} onClose={() => setLogIds(null)} onDone={() => load(true)} />}
+      {pick && <LogDetails p={pick} options={d?.options} canLog={!!d?.toLog?.canLog} onClose={() => setPick(null)} onNext={(details) => { setPick(null); setDetail({ ids: [pick.id], details }); }} />}
+      {detail && <LogConfirm ids={detail.ids} details={detail.details} canLog={!!d?.toLog?.canLog} onClose={() => setDetail(null)} onDone={() => load(true)} />}
+    </div>
+  );
+}
+
+// The four balance tiles (the Money card's Accounting tab), then Stripe against the sheet by month
+function AcctOverview({ d, onSec }) {
+  const t = d.tiles, month = monthName(d.month);
+  const stats = [["monthNet", `Net · ${month}`, `${money(t.monthRevenue)} in · ${money(t.monthExpenses)} out`], ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]];
+  return (
+    <>
+      <div className="cat-summary-grid acct-grid acct-tiles">
+        {stats.map(([k, label, note]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(t[k])}</span>{note && <span className="acct-note">{note}</span>}</div>)}
+      </div>
+      <div className="fix-panel acct-panel" data-acct="months">
+        <div className="fix-head"><h3>Stripe and the sheet, month by month</h3>
+          <span className="hint">Through Stripe is Defied's share, as on the Dashboard. In the sheet is the Income tab's DEFIED SHARE, added up by each row's date.</span></div>
+        {!d.months ? <p className="home-muted"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the months can't be compared.</p> : (
+          <div className="acct-mtable" role="table" aria-label="Stripe and the sheet by month">
+            <div className="acct-mrow acct-mhead" role="row"><span role="columnheader">Month</span><span role="columnheader" className="acct-amt">Through Stripe</span><span role="columnheader" className="acct-amt">In the sheet</span><span role="columnheader" className="acct-amt">Difference</span><span role="columnheader">Why</span></div>
+            {[...d.months].reverse().map((m) => (
+              <div key={m.month} className="acct-mrow" role="row" data-month={m.month} data-explained={m.explained ? "1" : "0"}>
+                <span role="cell" className="acct-mname">{m.label}</span>
+                <span role="cell" className="acct-amt" data-col="stripe">{money(m.stripe)}</span>
+                <span role="cell" className="acct-amt" data-col="sheet">{money(m.sheet)}</span>
+                <span role="cell" className={m.diff ? "acct-amt acct-diff" : "acct-amt"} data-col="diff">{m.diff ? money(m.diff).replace("$-", "-$") : "—"}</span>
+                <span role="cell" className="acct-why" data-col="why">
+                  {!m.diff && !m.parts.length ? <span className="acct-match"><CheckCircle2 size={14} /> Matches</span> : (
+                    <>{m.parts.map((x) => x.text).join(" · ")}
+                      {!m.explained && <>{m.parts.length ? " · " : ""}<span className="acct-unexplained">Not explained yet: {money(Math.abs(m.residual))} · <button className="inline-link" onClick={() => onSec("check")}>see To check</button></span></>}</>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// Every payment the sheet doesn't have: Log it (the dashboard places it) or Log with details (the
+// owner picks the Revenue Type and Artist / Client: studio work, a payer not on INFO, a first payment)
+function AcctToLog({ d, onLog, onPick }) {
+  const U = d.toLog?.items;
+  if (!U) return <p className="home-muted"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the payments missing from the sheet can't be checked.</p>;
+  if (!U.length) return <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every Stripe payment is in the accounting sheet.</p>;
+  return (
+    <div className="fix-panel acct-panel" data-acct="log">
+      <div className="fix-head"><h3>To log ({U.length})</h3>
+        <span className="hint">{d.toLog.canLog ? "Log it adds the row to the Income tab after showing it to you. When Log it can't tell the type or client (studio work, someone not on INFO), use Log with details. Newest first." : "Logging from the dashboard isn't switched on yet. For now, add each one in the sheet as a new row with the full amount paid."}</span></div>
+      <div className="fix-sub"><span className="fix-client">{money(d.toLog.total)} paid in total</span>
+        {U.length > 1 && <button className="btn sm" data-log-all onClick={() => onLog(U.map((p) => p.id))}>Log all {U.length}</button>}</div>
+      {U.map((p) => (
+        <div key={p.id} className="fix-row acct-lrow" data-pay={p.id}>
+          <span className="fix-song"><span className="fix-who">{shortDay(p.at)} · </span>{p.client || p.payer || "Unknown payer"}{p.test && <> <TestChip /></>}<span className="acct-via"> · {viaText(p)}</span></span>
+          <span className="fix-streams acct-paid">{money(p.amount)}</span>
+          <span className="fix-acts">
+            <button className="btn sm" data-log={p.id} onClick={() => onLog([p.id])}>Log it</button>
+            <button className="btn ghost sm" data-log-details={p.id} onClick={() => onPick(p)}>Log with details</button>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Log with details: the Revenue Type (the Income tab's own list) and Artist / Client (INFO's list, or
+// blank like the Other Income rows), then the same confirm, claim and read-back as Log it
+function LogDetails({ p, options, canLog, onClose, onNext }) {
+  const types = options?.types || [], clients = options?.clients || [];
+  const [type, setType] = useState(types.includes("Other Income") && !p.client ? "Other Income" : types[0] || "");
+  const [client, setClient] = useState(p.client && clients.includes(p.client) ? p.client : "");
+  const need = type === "Management Commission" && !client;
+  return (
+    <AskCard title="Log with details" goLabel="Check the row" plain onClose={onClose} go={() => { if (!need && type) onNext({ [p.id]: { type, client } }); }}>
+      <p>{shortDay(p.at)} · {p.client || p.payer || "Unknown payer"} · {money(p.amount)} paid. The full amount goes in Gross Commission; the sheet works out the shares.</p>
+      {!canLog && <p className="hint">Logging from the dashboard isn't switched on yet, so the next step only says so.</p>}
+      <label className="fld"><span>Revenue Type</span>
+        <select data-pick-type value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t} value={t}>{t}</option>)}</select></label>
+      <label className="fld"><span>Artist / Client</span>
+        <select data-pick-client value={client} onChange={(e) => setClient(e.target.value)}><option value="">(blank, as on Other Income rows)</option>{clients.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>
+      {need && <p className="hint warn-text" data-pick-need>A Management Commission row needs an Artist / Client.</p>}
+    </AskCard>
+  );
+}
+
+// To check: rows worth a look, each one sentence, Open row ↗ and Mark as OK (it comes back only if the row changes)
+function AcctToCheck({ d, busy, err, onOk }) {
+  const X = d.toCheck?.items || [];
+  return (
+    <div className="fix-panel acct-panel" data-acct="check">
+      <div className="fix-head"><h3>{X.length ? `To check (${X.length})` : "To check"}</h3>
+        <span className="hint">Read-only checks of the Income tab. Nothing here changes the sheet: open the row to fix it there, or mark it as OK if it's right.{d.toCheck?.okCount ? ` ${d.toCheck.okCount} marked as OK.` : ""}</span></div>
+      {err && <p className="hint err-text">{err}</p>}
+      {!X.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Nothing to check in the Income tab.</p> : X.map((x) => (
+        <div key={x.key} className="fix-row acct-crow" data-check={x.rule} data-row={x.row ?? ""}>
+          <span className="fix-song acct-ctext"><span className="fix-who">{x.row ? `Row ${x.row} · ` : ""}</span>{x.text}</span>
+          <span className="fix-acts">
+            <ExtLink className="btn ghost sm" href={x.url}>{x.row ? "Open row ↗" : "Open the sheet ↗"}</ExtLink>
+            <button className="quiet-act" data-ok={x.key} disabled={busy === x.key} onClick={() => onOk(x.key)}>{busy === x.key ? "Saving…" : "Mark as OK"}</button>
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -10003,7 +10146,10 @@ function StyleTag() {
       .app:not(.pub) .dash-side nav{padding-left:2px;padding-right:2px}
       .app:not(.pub) .dash-side nav button{padding:0 1px}
       .app:not(.pub) .dash-side nav button .nav-label{font-size:10px;letter-spacing:-.01em}
+      .app:not(.pub) .dash-side nav .nav-full{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+      .app:not(.pub) .dash-side nav .nav-short{display:inline}
     }
+    .app:not(.pub) .dash-side nav .nav-short{display:none}
     @media (max-width:599px){ .app:not(.pub) :is(.gainer-tabs,.cu-tabs){margin-left:0;width:100%} .app:not(.pub) :is(.gainer-tabs,.cu-tabs) button{flex:1} }
     /* Dashboard money (Stripe), payments, the accounting sheet and ClickUp's lists */
     .app:not(.pub) .home-money-row{margin:0 0 12px}
@@ -10020,6 +10166,40 @@ function StyleTag() {
     .app:not(.pub) .pay-amt b{font-size:15px;font-weight:600;color:var(--d-pos)} .app:not(.pub) .pay-amt em{font-style:normal;font-size:11.5px;color:var(--d-ink-4)}
     .app:not(.pub) .pay-modal{max-width:620px} .app:not(.pub) .pay-modal .modal-body{padding:0}
     .app:not(.pub) .acct-grid{margin:12px 16px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+    /* Accounting section: tiles, the month-by-month table, To log and To check in the Splits to confirm look */
+    .app:not(.pub) .acct-page .admin-head .home-src{margin:0;flex:1 1 auto}
+    .app:not(.pub) .acct-page .acct-tiles{margin:0 0 18px}
+    .app:not(.pub) .acct-mtable{display:flex;flex-direction:column}
+    .app:not(.pub) .acct-mrow{display:grid;grid-template-columns:96px 112px 112px 104px minmax(0,1fr);gap:12px;align-items:baseline;padding:8px 0;border-top:1px solid var(--d-line);font-size:13.5px;color:var(--d-ink-2)}
+    .app:not(.pub) .acct-mhead{border-top:0;padding-top:2px;font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .acct-mname{color:var(--d-ink);font-weight:500}
+    .app:not(.pub) .acct-mrow .acct-amt{text-align:right;font-variant-numeric:tabular-nums}
+    .app:not(.pub) .acct-diff{color:var(--d-warn)}
+    .app:not(.pub) .acct-why{min-width:0;color:var(--d-ink-3);font-size:13px;line-height:1.45}
+    .app:not(.pub) .acct-match{display:inline-flex;align-items:center;gap:6px;color:var(--d-pos)}
+    .app:not(.pub) .acct-unexplained{color:var(--d-warn)}
+    .app:not(.pub) .fix-row.acct-lrow{grid-template-columns:minmax(0,1fr) 96px auto}
+    .app:not(.pub) .acct-via{color:var(--d-ink-4)}
+    .app:not(.pub) .fix-row.acct-crow{grid-template-columns:minmax(0,1fr) auto}
+    .app:not(.pub) .acct-ctext{white-space:normal;overflow:visible;line-height:1.45}
+    .app:not(.pub) .acct-panel .pay-row:first-of-type{border-top:0}
+    .app:not(.pub) .ask-body .fld{margin-top:12px}
+    .app:not(.pub) .ask-body .fld select{height:var(--d-field-h);padding:0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field);background:var(--d-field);color:var(--d-ink);font:inherit;font-size:14px}
+    @media (max-width:899px){
+      .app:not(.pub) .acct-mrow{grid-template-columns:minmax(0,1fr) repeat(3,auto);row-gap:4px}
+      .app:not(.pub) .acct-mrow .acct-why{grid-column:1 / -1}
+      .app:not(.pub) .acct-mhead span:last-child{display:none}
+    }
+    @media (max-width:599px){
+      .app:not(.pub) .acct-mrow{grid-template-columns:minmax(0,1fr) auto;font-size:13px}
+      .app:not(.pub) .acct-mrow [data-col=stripe],.app:not(.pub) .acct-mrow [data-col=sheet]{display:none}
+      .app:not(.pub) .acct-mhead{display:none}
+      .app:not(.pub) .fix-row.acct-lrow{grid-template-columns:minmax(0,1fr) auto}
+      .app:not(.pub) .fix-row.acct-lrow .fix-acts{grid-column:1 / -1;justify-content:flex-start}
+      .app:not(.pub) .fix-row.acct-crow{grid-template-columns:minmax(0,1fr)}
+      .app:not(.pub) .fix-row.acct-crow .fix-acts{justify-content:flex-start}
+      .app:not(.pub) .acct-via{display:none}
+    }
     .app:not(.pub) .acct-card{margin:0 0 12px}
     .app:not(.pub) .acct-card > .home-muted{padding:14px 16px}
     .app:not(.pub) .acct-clear svg{color:var(--d-pos)}
