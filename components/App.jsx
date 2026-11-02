@@ -5406,7 +5406,8 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
 
   const links = state.data?.links || {};
   // the task list lives on the Dashboard now: here, only how many of them are this tab's to fix
-  const pubTasks = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster").length, [db, lum]);
+  // the splits task is the Splits to fix list right under this line: only the others point to the Dashboard
+  const pubTasks = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster" && t.k !== "splits").length, [db, lum]);
   const rate = state.data?.rate;
   // the writers' table: This week first (each writer's songs that have both weeks, added up, as
   // lib/weekly.js sumWeeks), biggest % first; any column head re-sorts. The 6 forecast columns wait
@@ -5461,7 +5462,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
       </p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
       {pubTasks > 0 && (
-        <p className="pub-tasks"><AlertTriangle size={14} /> {pubTasks} publishing task{pubTasks === 1 ? "" : "s"} · <button className="inline-link" onClick={() => onGo("home")}>see the Dashboard</button></p>
+        <p className="pub-tasks"><AlertTriangle size={14} /> {pubTasks} {splitsToFix(db).length ? "more " : ""}publishing task{pubTasks === 1 ? "" : "s"} · <button className="inline-link" onClick={() => onGo("home")}>see the Dashboard</button></p>
       )}
       <SplitsToFix db={db} commit={commit} lum={lum} reloadLum={reloadLum} onFix={onFix} focus={focusSplits} onGo={onGo} />
 
