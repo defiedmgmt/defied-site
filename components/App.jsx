@@ -2569,7 +2569,7 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
 }
 
 /* generic editable list ------------------------------------------------ */
-function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete }) {
+function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete, openId = null }) {
   const [editing, setEditing] = useState(null); // object or null
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState(null);
@@ -2582,6 +2582,8 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
     return () => { document.body.style.overflow = prev; };
   }, [editing]);
   const start = (obj) => { from.current = obj; setFormErr(null); setEditing(obj ? { ...obj } : { id: null, ...blank }); };
+  // a link to one row (To do's "Set X's sheet tab") opens its form
+  useEffect(() => { const it = openId && items.find((x) => x.id === openId); if (it) start(it); }, [openId]); // eslint-disable-line react-hooks/exhaustive-deps
   // only what was changed in the form goes onto the row as it is now, so a change that landed while
   // it was open (another tab's save, the Clients-tab sync) isn't put back. A failed save stays open:
   // onSave gives false (the banner says why) or a message for the form.
@@ -2715,7 +2717,7 @@ const NAME_TAKEN = "Another client already uses that name or sheet tab.";
 const nameTaken = (clients, id, value) => !!String(value || "").trim()
   && clients.some((o) => o.id !== id && [o.name, o.sheetTabName].some((s) => String(s || "").trim() && sameName(s, value)));
 
-function ClientsAdmin({ db, commit }) {
+function ClientsAdmin({ db, commit, openId = null }) {
   const cols = [
     { key: "name", label: "Name", render: (c) => <span className="cell-name"><Avatar src={c.photo} name={c.name} size={30} />{c.name}</span> },
     { key: "role", label: "Role" }, { key: "credit", label: "Credit" },
@@ -2748,7 +2750,7 @@ function ClientsAdmin({ db, commit }) {
     {deleteWarn && <p className="hint err-text mb">{deleteWarn}</p>}
     <Editor title="Clients" items={db.clients} columns={cols}
       blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "", sheetTabName: "", onRoster: false }}
-      onSave={save} onDelete={del} onReorder={reorder}
+      onSave={save} onDelete={del} onReorder={reorder} openId={openId}
       confirmDelete={(c) => {
         const n = db.placements.filter((p) => p.clientId === c.id).length;
         const hasLogin = db.users.some((u) => u.clientId === c.id);
@@ -2776,7 +2778,9 @@ function ClientsAdmin({ db, commit }) {
           <Field label="Instagram handle" value={e.instagram} onChange={(ev) => set({ ...e, instagram: ev.target.value })} />
           <Field label="TikTok handle" value={e.tiktok} onChange={(ev) => set({ ...e, tiktok: ev.target.value })} />
           <Field label="SoundCloud URL" value={e.soundcloud} onChange={(ev) => set({ ...e, soundcloud: ev.target.value })} />
-          <Field label="Sheet tab name" value={e.sheetTabName} onChange={(ev) => set({ ...e, sheetTabName: ev.target.value })} hint="Only needed if their tab on the pub sheet goes by a different name. Case, accents, punctuation and a “!” used as an i don't count — Stack!e already finds a tab named Stackie." />
+          {/* opened from To do's "Set X's sheet tab": this field has the focus and says what's wrong */}
+          <Field label="Sheet tab name" value={e.sheetTabName} onChange={(ev) => set({ ...e, sheetTabName: ev.target.value })} autoFocus={!!openId && e.id === openId} data-sheet-tab=""
+            hint={`${openId && e.id === openId ? `The pub sheet has no tab called ${db.clients.find((c) => c.id === openId)?.sheetTabName?.trim() || db.clients.find((c) => c.id === openId)?.name}. ` : ""}Only needed if their tab on the pub sheet goes by a different name. Case, accents, punctuation and a “!” used as an i don't count — Stack!e already finds a tab named Stackie.`} />
           {taken(e, "sheetTabName") && <p className="hint err-text">{NAME_TAKEN}</p>}
         </>
       )}
@@ -4717,7 +4721,9 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
           <Avatar src={client.photo} name={client.name} size={40} />
           <div className="client-head-text">
             <div className="client-head-name">{client.name}</div>
-            <div className="client-head-meta">{client.role || "Client"} · Sheet tab: {client.sheetTabName?.trim() || client.name}</div>
+            <div className="client-head-meta">{client.role || "Client"} · {!songs.length ? "No songs yet. Their pub sheet tab is made with their first song."
+              : noSheetTab(lum, client) ? <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span>
+              : `Sheet tab: ${client.sheetTabName?.trim() || client.name}`}</div>
           </div>
         </div>
       )}
@@ -6365,7 +6371,9 @@ function dashTasks(db, lum) {
   const byNumbers = made !== null && (at === null || made < at);
   const stale = byNumbers ? (Date.now() - made) / 86400000 : at !== null ? (Date.now() - at) / 86400000 : null;
   // only clients with songs: a brand-new client with no tab yet has no numbers to miss
-  const noTab = (lum.missingTabs || []).filter((n) => { const c = db.clients.find((x) => x.name === n); return !c || db.placements.some((p) => p.clientId === c.id); });
+  const tabClient = (n) => db.clients.find((x) => x.name === n || (x.sheetTabName || "").trim() === n);
+  const noTab = (lum.missingTabs || []).filter((n) => { const c = tabClient(n); return !c || db.placements.some((p) => p.clientId === c.id); });
+  const noTabOne = noTab.length === 1 ? tabClient(noTab[0]) : null;
   const L = { area: "luminate", tab: "luminate" };
   // which portfolio is behind, how big it is, and how to fix it (lib/sync-tasks.js says the same)
   const ports = lum.portfolios || [];
@@ -6386,11 +6394,16 @@ function dashTasks(db, lum) {
     missing && { ...L, k: "missing", sub: "missing", t: `${missing} song${missing === 1 ? "" : "s"} marked as added ${missing === 1 ? "isn't" : "aren't"} in the latest export`, d: "Check them in Luminate, then add them again or unmark them.", cta: "See the list" },
     splits,
     // the fix is each one's "Sheet tab name", which lives in Website › Roster
-    noTab.length && {
+    // one client: its edit window opens on that field
+    noTab.length && (noTabOne ? {
+      k: "tabs", area: "roster", t: `${noTab[0]}'s numbers can't sync`,
+      d: `The pub sheet has no tab called ${noTab[0]}. If theirs has another name, type it in.`,
+      tab: "website", sub: `roster:${noTabOne.id}`, cta: `Set ${noTabOne.name}'s sheet tab`,
+    } : {
       k: "tabs", area: "roster", t: noTab.length === 1 ? `${noTab[0]}'s numbers can't sync` : `${noTab.length} clients' numbers can't sync`,
       d: `The pub sheet has no tab called ${tabNames}. If ${noTab.length === 1 ? "it has another name, type it" : "theirs have other names, type them"} under Website › Roster › Sheet tab name.`,
       tab: "website", sub: "roster", cta: "Open the roster",
-    },
+    }),
   ].filter(Boolean);
 }
 
@@ -7018,7 +7031,9 @@ const WEB_SEC_KEY = "dm-web-sec";
 function WebsiteAdmin({ db, commit, sub, onSub }) {
   const secs = WEBSITE_SECS;
   // a Dashboard task's sub wins, then the last tab used in this browser tab, then Roster (the weekly work)
+  const openId = sub?.startsWith("roster:") ? sub.slice(7) : null; // To do's "Set X's sheet tab"
   const [sec, setSecOnly] = useState(() => {
+    if (openId) return "roster";
     if (secs.some(([id]) => id === sub)) return sub;
     try { const v = sessionStorage.getItem(WEB_SEC_KEY); if (secs.some(([id]) => id === v)) return v; } catch { /* storage blocked */ }
     return "roster";
@@ -7033,7 +7048,7 @@ function WebsiteAdmin({ db, commit, sub, onSub }) {
         ))}
       </div>
       {sec === "about" && <AboutEditor db={db} commit={commit} />}
-      {sec === "roster" && <ClientsAdmin db={db} commit={commit} />}
+      {sec === "roster" && <ClientsAdmin db={db} commit={commit} openId={openId} />}
       {sec === "staff" && <TeamAdmin db={db} commit={commit} />}
       {sec === "notable" && <NotableAdmin db={db} commit={commit} />}
     </div>
@@ -7683,6 +7698,7 @@ function StyleTag() {
     .app:not(.pub) .client-head-text{min-width:0}
     .app:not(.pub) .client-head-name{font-size:22px;font-weight:600;line-height:1.2;letter-spacing:-.01em;color:var(--d-ink);overflow-wrap:anywhere}
     .app:not(.pub) .client-head-meta{margin-top:4px;font-size:13px;color:var(--d-ink-3);overflow-wrap:anywhere}
+    .app:not(.pub) .client-head-meta .warn-text{color:var(--d-warn)}
     .app:not(.pub) .portal-block-head{gap:12px 16px;margin:0 0 20px}
     .app:not(.pub) .portal-block-head .muted{margin:0;font-size:13.5px;color:var(--d-ink-3)}
 
@@ -9430,7 +9446,7 @@ function StyleTag() {
     .app:not(.pub) .todo .cu-row{min-height:52px}
     .app:not(.pub) .attn-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
     .app:not(.pub) .attn-main b{font-size:14px;font-weight:500;line-height:1.35;color:var(--d-ink);white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}   /* two lines: the end ("since Oct 21") is often the point */
-    .app:not(.pub) .attn-main em{font-style:normal;font-size:12.5px;line-height:1.35;color:var(--d-ink-4);white-space:normal;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}   /* two lines: the detail is often the fix */
+    .app:not(.pub) .attn-main em{font-style:normal;font-size:12.5px;line-height:1.35;color:var(--d-ink-4);white-space:normal;overflow-wrap:anywhere}   /* wraps in full: the detail is often the fix (the card scrolls) */
     .app:not(.pub) .attn-chev{display:none}
     .app:not(.pub) .todo-sub{display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;padding:8px 16px 6px;font-size:12px;color:var(--d-ink-4)}
     .app:not(.pub) .todo-sub .inline-link{font-size:12px;color:var(--d-ink-3)}
