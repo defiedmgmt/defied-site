@@ -10137,19 +10137,19 @@ function StyleTag() {
     .app:not(.pub) .ar-tolum-acts{display:flex;gap:6px;flex:none}
     @media (max-width:899px){
       .app:not(.pub) .home-pair{grid-template-columns:minmax(0,1fr)}
-      /* 7 tabs: each as wide as its label plus an even share of what's left (never under 44px), so the
+      /* 8 tabs: each as wide as its label plus an even share of what's left (never under 44px), so the
          long labels ("Dashboard", "Publishing") get their room and a gap, instead of equal slices */
       .app:not(.pub) .dash-side nav{grid-auto-columns:minmax(44px,auto)}
     }
+    .app:not(.pub) .dash-side nav .nav-short{display:none}
     @media (max-width:420px){
-      /* phones: iOS-size labels (10px), so all 7 stay whole and apart down to 360px */
+      /* phones: iOS-size labels (10px), so all 8 stay whole and apart down to 360px ("Accounting" reads Money) */
       .app:not(.pub) .dash-side nav{padding-left:2px;padding-right:2px}
       .app:not(.pub) .dash-side nav button{padding:0 1px}
       .app:not(.pub) .dash-side nav button .nav-label{font-size:10px;letter-spacing:-.01em}
       .app:not(.pub) .dash-side nav .nav-full{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
       .app:not(.pub) .dash-side nav .nav-short{display:inline}
     }
-    .app:not(.pub) .dash-side nav .nav-short{display:none}
     @media (max-width:599px){ .app:not(.pub) :is(.gainer-tabs,.cu-tabs){margin-left:0;width:100%} .app:not(.pub) :is(.gainer-tabs,.cu-tabs) button{flex:1} }
     /* Dashboard money (Stripe), payments, the accounting sheet and ClickUp's lists */
     .app:not(.pub) .home-money-row{margin:0 0 12px}
