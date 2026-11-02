@@ -10,7 +10,7 @@ import {
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
   Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator, Copy,
   Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
-  LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight, Info,
+  LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight, Info, Eye,
 } from "lucide-react";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
@@ -377,6 +377,25 @@ function Socials({ c, size = 26 }) {
 /* ------------------------------------------------------------------ */
 const PIE_COLORS = ["#f5f5f5", "#8a8a8a", "#c8c8cc", "#5f5f61", "#a3a3a3", "#3a3a3c", "#e2e2e4", "#6e6e70"];
 const splitTotal = (splits) => (splits || []).reduce((a, s) => a + Number(s.percent || 0), 0);
+const splitPct = (splits) => Math.round(splitTotal(splits) * 10) / 10;
+// the songs whose splits don't add up to 100%, by client: the clients whose songs have the most streams
+// first, and in each the biggest songs first (Publishing's Splits to fix list, its Next →, the chips)
+function splitsToFix(db) {
+  const by = new Map();
+  for (const p of db.placements) if (splitTotal(p.splits) !== 100) by.set(p.clientId, [...(by.get(p.clientId) || []), p]);
+  const sum = (songs) => songs.reduce((a, p) => a + (p.streams || 0), 0);
+  return [...by.entries()]
+    .map(([clientId, songs]) => ({ clientId, client: (db.clients || []).find((c) => c.id === clientId) || null, songs: songs.sort((a, b) => (b.streams || 0) - (a.streams || 0)) }))
+    .sort((a, b) => sum(b.songs) - sum(a.songs) || (a.client?.name || "").localeCompare(b.client?.name || ""));
+}
+// one wording for how fresh the streams are (Publishing's subline, a client's page, a song window): the
+// day of the Luminate export they come from, and when the site last pulled the pub sheet
+function streamsAsOf({ luminateDay, pulledAt }) {
+  const pulled = pulledAt ? ` · sheet pulled ${new Date(pulledAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "";
+  return luminateDay
+    ? `Luminate numbers from ${new Date(`${luminateDay}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}${pulled}`
+    : `Not tracked in Luminate yet${pulled}`;
+}
 
 // recharts (~350KB min / ~90KB gzip) is only drawn in the song-splits view (staff Clients tab +
 // client portal) — loaded on demand so the public pages never carry it
@@ -569,6 +588,7 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [loadErr, setLoadErr] = useState(null); // the dashboard's own load / save errors
   const [signIns, setSignIns] = useState(0); // each sign-in reloads its data, even as the same account
+  const signedInHere = useRef(false); // login() is already on its way to the dashboard
   const [pubErr, setPubErr] = useState(null); // the public pages' data
   const [authDown, setAuthDown] = useState(false); // /api/auth/me couldn't check the sign-in (not "signed out")
   const [signingOut, setSigningOut] = useState(false); // sign-out is waiting for queued saves to land
@@ -776,6 +796,7 @@ export default function App() {
     if (!res.ok || !data) return data?.error || (res.status >= 500 || res.ok ? "Sign-in isn't available right now — try again in a minute." : "Incorrect email or password.");
     // in the same render as the route change: the new dashboard never draws the last account's data
     setDb(null); setSession(data.user); setAuthDown(false); setLoadErr(null); setSignIns((n) => n + 1);
+    signedInHere.current = true; // this push goes on from the sign-in page; the effect below needn't
     go(data.user.role === "staff" ? "staff" : "client");
     return null;
   };
@@ -809,6 +830,10 @@ export default function App() {
     if (session === undefined) return;
     if (route === "staff" && session?.role !== "staff") router.replace("/login");
     if (route === "client" && session?.role !== "client") router.replace("/login");
+    // already signed in: the sign-in page (Back from the dashboard, a bookmark) goes on to the
+    // dashboard or portal instead of asking again
+    if (route !== "login") signedInHere.current = false;
+    else if (session?.role && !signedInHere.current) router.replace(session.role === "staff" ? "/dashboard" : "/portal");
   }, [route, session]);
 
   const inPortal = route === "staff" || route === "client";
@@ -2414,12 +2439,36 @@ async function saveRow(commit, next, key, id, thing) {
 // one the user has since chosen themselves
 const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d, users: d.users.map(({ password, ...u }) => u) } : d);
 
+const DASH_TABS = ["home", "catalog", "ar", "luminate", "website", "users", "subs"];
 function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   // sub = where a Dashboard task or gainer points inside the tab it opens ("advance", "client:<id>",
   // "roster"): read once as the tab mounts, so the sidebar always opens a tab on its usual start
-  const [{ tab, sub }, setAt] = useState({ tab: "home", sub: null });
-  const setTab = (t) => setAt({ tab: t, sub: null });
-  const go = (t, s = null) => { setAt({ tab: t, sub: s }); window.scrollTo(0, 0); };
+  // The address bar carries {tab, sub} (/dashboard?tab=catalog&sub=splits), so the browser's Back and
+  // Forward step through sections instead of leaving the dashboard, and a reload stays where it was
+  const router = useRouter();
+  const fromQuery = (q) => {
+    const t = DASH_TABS.includes(q?.tab) ? q.tab : "home";
+    return { tab: t, sub: t !== "home" && typeof q?.sub === "string" && q.sub ? q.sub : null };
+  };
+  const [{ tab, sub }, setAt] = useState(() => fromQuery(router.query));
+  const toUrl = (t, s, how = "push") => {
+    const query = t === "home" && !s ? {} : { tab: t, ...(s ? { sub: s } : {}) };
+    const next = new URLSearchParams(query).toString();
+    if (next === new URLSearchParams(window.location.search).toString()) return; // the same place: no extra Back step
+    router[how]({ pathname: "/dashboard", query }, undefined, { shallow: true, scroll: false });
+  };
+  const setTab = (t) => { setAt({ tab: t, sub: null }); toUrl(t, null); };
+  const go = (t, s = null) => { setAt({ tab: t, sub: s }); toUrl(t, s); window.scrollTo(0, 0); };
+  // a page's own pickers (Publishing's client, Website's tab) update the address in place: one Back
+  // step per section, not one per chip
+  const setSub = (s) => { setAt((cur) => (cur.sub === s ? cur : { ...cur, sub: s })); toUrl(tab, s, "replace"); };
+  // Back / Forward (and a reload): the address says where to be
+  useEffect(() => {
+    if (!router.isReady) return;
+    const at = fromQuery(router.query);
+    setAt((cur) => (cur.tab === at.tab && cur.sub === at.sub ? cur : at));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router.isReady, router.query.tab, router.query.sub]);
   const unreadCount = db.submissions.filter((s) => !s.read).length;
   // the Luminate page's data (portfolios, ISRCs, songs to link): loaded first, then again whenever the
   // Dashboard opens (its tasks) and after anything that changes it (Luminate's actions, Publishing's
@@ -2485,8 +2534,8 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
       </aside>
       <main className="dash-main">
         {tab === "home" && <HomeDashboard db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} onGo={go} toLum={toLum} />}
-        {tab === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} />}
-        {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} />}
+        {tab === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={setSub} />}
+        {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} onSub={setSub} />}
         {tab === "luminate" && <LuminateAdmin db={db} commit={commit} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} toLum={toLum} onGo={go} />}
         {tab === "ar" && <ARAdmin onGo={go} />}
         {tab === "users" && <UsersAdmin db={db} commit={commit} />}
@@ -4468,7 +4517,7 @@ function NotOursAsk({ db, commit, lum, target, client, onDone, onClose }) {
   );
 }
 
-function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
+function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix, onFixList }) {
   // staff's db has a `clients` array; a client session's db has just their
   // own `client` record (no `clients` array — that's not sent to them).
   const client = db.clients ? db.clients.find((c) => c.id === clientId) : db.client;
@@ -4513,6 +4562,17 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
   const editFrom = useRef(null); // the song as it was when Edit was pressed
   const active = songs.find((p) => p.id === openId);
   const [pushWarn, setPushWarn] = useState(null);
+  // a "Fix" from the splits list opens that song's editor at once; after its Save, a strip says how many
+  // are left and offers the next one (on any client's page)
+  const fixing = useRef(null);
+  const [fixNote, setFixNote] = useState(null);
+  useEffect(() => {
+    const p = fix && db.placements.find((x) => x.id === fix.id);
+    if (!p || p.clientId !== clientId) return;
+    setOpenId(null); setFixNote(null); fixing.current = p.id;
+    editFrom.current = p; setEditing({ ...p });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fix?.n, clientId]);
   useEscape(() => (editing ? setEditing(null) : setOpenId(null)), !!(active || editing) && !saving);
   useEffect(() => {
     if (!active && !editing) return;
@@ -4561,6 +4621,11 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
     // elsewhere meanwhile gets nothing (a push would re-create its row for the next sync to bring back)
     const saved = done.placements.find((p) => p.id === placementId);
     if (!saved) return setFormErr(goneText(done.clients && !done.clients.some((c) => c.id === clientId) ? "client" : "song"));
+    if (isStaff && fixing.current === placementId) {
+      const left = splitsToFix(done).flatMap((g) => g.songs.map((p) => ({ p, client: g.client })));
+      setFixNote({ left: left.length, next: left.find((x) => x.p.id !== placementId) || null });
+    }
+    fixing.current = null;
     setEditing(null);
     // push to the pub sheet in the background — a slow/failed network call
     // should never block or undo the local save that already succeeded —
@@ -4596,7 +4661,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
   // the one-line outcome of a Delete / This isn't ours, under the header (staff only)
   const [delNote, setDelNote] = useState(null);
   const [ask, setAsk] = useState(null); // "delete" | "notOurs": the confirm card over the song window
-  useEffect(() => { setDelNote(null); setAsk(null); }, [clientId]);
+  useEffect(() => { setDelNote(null); setAsk(null); setFixNote(null); }, [clientId]);
   const removeSong = async (target) => {
     setDelNote(null);
     // not deleted on the site: its sheet row stays too
@@ -4619,6 +4684,13 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
             <div className="client-head-meta">{client.role || "Client"} · Sheet tab: {client.sheetTabName?.trim() || client.name}</div>
           </div>
         </div>
+      )}
+      {isStaff && fixNote && (
+        <p className="hint fix-strip" role="status">
+          <CheckCircle2 size={14} /> <span>Saved. {fixNote.left ? `${fixNote.left} left` : "All splits add up now."}</span>
+          {fixNote.next && <> · <button className="inline-link" onClick={() => onFix?.(fixNote.next.p.id)}>Next: {fixNote.next.p.song || "Untitled"} ({fixNote.next.client?.name || "a deleted client"}) →</button></>}
+          {" · "}<button className="inline-link" onClick={() => onFixList?.()}>Back to the list</button>
+        </p>
       )}
       {isStaff && delNote && <p className={delNote.warn ? "hint del-note warn" : "hint del-note"} role="status">{delNote.warn ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} <span>{delNote.text}</span></p>}
       <div className="portal-block-head">
@@ -4655,7 +4727,8 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
             )}
           </div>
           <p className="hint cat-asof">
-            Streams as of {new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+            {isStaff ? streamsAsOf({ luminateDay: numbersOn, pulledAt: db.sheetSync.lastSyncedAt })
+              : `Streams as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}
             {isStaff && weekGain != null && ` · ${signed(weekGain)} this week`}
           </p>
         </div>
@@ -4665,7 +4738,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
         <p className="muted">No songs yet — add the first one.</p>
       ) : (
         <div className="song-grid">
-          {songs.map((p) => (
+          {(isStaff ? [...songs].sort((a, b) => (splitTotal(a.splits) === 100) - (splitTotal(b.splits) === 100)) : songs).map((p) => (
             <button key={p.id} className="song-card" onClick={() => setOpenId(p.id)}>
               <div className="song-cover">
                 {p.cover ? <Photo src={p.cover} alt={p.song} /> : <div className="song-cover-empty"><Disc3 size={26} /></div>}
@@ -4673,7 +4746,10 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
               <div className="song-info">
                 <strong>{p.song || "Untitled"}</strong>
                 <span>{p.artist}</span>
-                <em>{(p.splits || []).length} {(p.splits || []).length === 1 ? "split" : "splits"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitTotal(p.splits)}%</span>{p.notable ? " · Featured" : ""}</em>
+                <em>{isStaff && splitTotal(p.splits) !== 100
+                  ? <span className="split-chip">Splits {splitPct(p.splits)}%</span>
+                  : <>{(p.splits || []).length} {(p.splits || []).length === 1 ? "split" : "splits"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitTotal(p.splits)}%</span></>}
+                  {p.notable && <span className="song-public"> · <Eye size={12} aria-hidden="true" /> On public page</span>}</em>
                 <GrowthChip g={growth?.[p.id]} />
               </div>
             </button>
@@ -4694,6 +4770,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
                   <div className="song-detail-artist">{active.artist}</div>
                   {active.releaseDate && <div className="song-detail-date">{releaseDay(active.releaseDate)}</div>}
                   {active.link && <ExtLink className="inline-link" href={active.link}>Open track ↗</ExtLink>}
+                  {active.notable && <div className="song-detail-public"><Eye size={13} aria-hidden="true" /> Shown on {client?.name}'s public page.</div>}
                 </div>
               </div>
               <SplitsPie splits={active.splits} size={230} />
@@ -4722,6 +4799,10 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
               )}
               {db.sheetSync?.lastSyncedAt && (
                 <div className="split-list">
+                  {/* streams but $0: the sheet row's Writer Share is blank (Spots. on the Stackie tab), so its earnings formulas give nothing */}
+                  {isStaff && active.streams > 0 && !active.revenue && Number(ownSplit(active, client)?.percent) > 0 && (
+                    <p className="hint song-sheet-warn"><AlertTriangle size={14} /> <span>The pub sheet has no writer share for this song ({client?.sheetTabName?.trim() || client?.name} tab), so it earns $0 there. Edit and Save to send the split to the sheet, or use This isn't ours.</span></p>
+                  )}
                   <div className="split-list-row"><span className="split-name">Streams</span><span className="split-pct">{fmt(active.streams)}</span></div>
                   {isStaff && (
                     <>
@@ -4729,7 +4810,8 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
                       <div className="split-list-row"><span className="split-name">Est. admin fee <em>(our commission)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
                     </>
                   )}
-                  <p className="hint">as of {new Date(growth?.[active.id]?.latestOn ? `${growth[active.id].latestOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</p>
+                  <p className="hint song-asof">{isStaff ? streamsAsOf({ luminateDay: growth?.[active.id]?.latestOn, pulledAt: db.sheetSync.lastSyncedAt })
+                    : `as of ${new Date(growth?.[active.id]?.latestOn ? `${growth[active.id].latestOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}</p>
                 </div>
               )}
             </div>
@@ -5066,7 +5148,48 @@ async function fullSiteSync(tabDb, commit) {
 // per-writer totals directly (rather than re-deriving them from placements)
 // so the numbers always match the sheet exactly, including the 3-year
 // forecast columns the site doesn't otherwise track anywhere.
-function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
+// every song whose splits don't add up, in one list: Fix opens its editor (and the next one after a
+// save), This isn't ours clears out a song that was never ours
+function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus }) {
+  const groups = useMemo(() => splitsToFix(db), [db]);
+  const n = groups.reduce((a, g) => a + g.songs.length, 0);
+  const [ask, setAsk] = useState(null);
+  const [note, setNote] = useState(null);
+  const box = useRef(null);
+  // opened from the Dashboard's "Fix splits": the list is what to look at
+  useEffect(() => { if (focus) box.current?.scrollIntoView({ block: "start" }); }, [focus]);
+  return (
+    <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="splits">
+      <div className="fix-head">
+        <h3>{n ? `Splits to fix (${n})` : "Splits"}</h3>
+        <span className="hint">{n ? "Each song's splits should add up to 100%. Biggest songs first." : "All splits add up."}</span>
+      </div>
+      {note && <p className={note.warn ? "hint del-note warn" : "hint del-note"} role="status">{note.warn ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} <span>{note.text}</span></p>}
+      {groups.map((g) => (
+        <div className="fix-group" key={g.clientId}>
+          <div className="fix-client">{g.client?.name || "A deleted client"}</div>
+          {g.songs.map((p) => (
+            <div className="fix-row" key={p.id}>
+              <span className="fix-song">{p.song || "Untitled"}</span>
+              <span className="split-warn fix-pct">{splitPct(p.splits)}%</span>
+              <span className="fix-streams">{fmt(p.streams || 0)} streams</span>
+              <span className="fix-acts">
+                <button className="btn sm" onClick={() => onFix(p.id)}>Fix</button>
+                {g.client && <button className="btn ghost sm" data-not-ours onClick={() => { setNote(null); setAsk({ p, client: g.client }); }}>This isn't ours</button>}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
+      {ask && (
+        <NotOursAsk db={db} commit={commit} lum={lum} target={ask.p} client={ask.client} onClose={() => setAsk(null)}
+          onDone={(r) => { setAsk(null); setNote(r); reloadLum?.(); }} />
+      )}
+    </div>
+  );
+}
+
+function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onFix, focusSplits }) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [streamSync, setStreamSync] = useState({ syncing: false, error: null });
   const dbNow = useRef(db); // the sheet pull below starts from the db as it is then, not at the click
@@ -5180,13 +5303,14 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
         </div>
       </div>
       <p className="hint overview-subhint">
-        From the pub sheet{db.sheetSync?.lastSyncedAt && ` · streams as of ${new Date(db.sheetSync.lastSyncedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+        From the pub sheet · {streamsAsOf({ luminateDay: growth ? Object.values(growth).map((g) => g?.latestOn).filter(Boolean).sort().pop() : null, pulledAt: db.sheetSync?.lastSyncedAt })}
         {span && <span className="overview-week"> · This week = {dayRange(span.from, span.to)} vs the week before</span>}
       </p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
       {pubTasks > 0 && (
         <p className="pub-tasks"><AlertTriangle size={14} /> {pubTasks} publishing task{pubTasks === 1 ? "" : "s"} · <button className="inline-link" onClick={() => onGo("home")}>see the Dashboard</button></p>
       )}
+      <SplitsToFix db={db} commit={commit} lum={lum} reloadLum={reloadLum} onFix={onFix} focus={focusSplits} />
 
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
@@ -5285,10 +5409,21 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo }) {
 
 // Publishing: the clients, their songs and splits, the MASTER totals, and the Advance calculator.
 // A Dashboard task can open it on a client ("client:<id>") or on the calculator ("advance").
-function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo }) {
+function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
   const [sec, setSec] = useState(sub === "advance" || sub?.startsWith("advance:") ? "advance" : "overview");
+  const editSong = sub?.startsWith("edit:") ? db.placements.find((p) => p.id === sub.slice(5)) : null;
   // null clientId = the read-only Overview landing page, not "no selection"
-  const [clientId, setClientId] = useState(sub?.startsWith("client:") ? sub.slice(7) : null);
+  const [clientId, setClientIdOnly] = useState(sub?.startsWith("client:") ? sub.slice(7) : editSong ? editSong.clientId : null);
+  // the address bar follows the client picked (in place: Back leaves Publishing, not chip by chip)
+  const setClientId = (id) => { setClientIdOnly(id); onSub?.(id ? `client:${id}` : null); };
+  // "Fix" (the Splits to fix list, a Next →): that song's client page with its editor open; n re-opens the same song
+  const [fix, setFix] = useState(editSong ? { id: editSong.id, n: 1 } : null);
+  const openFix = (id) => {
+    const p = db.placements.find((x) => x.id === id);
+    if (!p) return;
+    setSec("overview"); setClientId(p.clientId); setFix((f) => ({ id, n: (f?.n || 0) + 1 }));
+  };
+  const toFix = useMemo(() => Object.fromEntries(splitsToFix(db).map((g) => [g.clientId, g.songs.length])), [db]);
   const client = db.clients.find((c) => c.id === clientId);
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;
   const [addingClient, setAddingClient] = useState(false);
@@ -5338,7 +5473,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo }) {
   };
 
   // (a stale copy of the numbers catches up in the background: StaffDashboard starts it)
-  const pick = (id) => (e) => { setSec(id); revealChip(e.currentTarget); };
+  const pick = (id) => (e) => { setSec(id); revealChip(e.currentTarget); onSub?.(id === "advance" ? "advance" : clientId ? `client:${clientId}` : null); };
   return (
     <div>
       <div className="admin-head">
@@ -5346,7 +5481,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo }) {
       </div>
       <div className="subnav">
         <button className={sec === "overview" ? "subpill active" : "subpill"} onClick={pick("overview")}>Overview &amp; clients</button>
-        <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={pick("advance")}>Advance calculator</button>
+        <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={pick("advance")}>Advance<span className="pill-long"> calculator</span></button>
       </div>
       {sec === "advance" && <AdvanceTab pick={sub?.startsWith("advance:") ? sub.slice(8) : null} />}
       {sec === "overview" && <div className="catalog-wrap">
@@ -5362,6 +5497,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo }) {
               <button className={c.id === clientId ? "cc active" : "cc"} onClick={() => setClientId(c.id)}>
                 <Avatar src={c.photo} name={c.name} size={30} />
                 <span className="cc-name">{c.name}</span>
+                {toFix[c.id] > 0 && <span className="cc-fix" title="Songs whose splits don't add up to 100%">{toFix[c.id]} to fix</span>}
                 <span className="cc-count">{count(c.id)}</span>
               </button>
               <button className="cc-del" onClick={() => removeClient(c)} title={`Delete ${c.name}`}><Trash2 size={13} /></button>
@@ -5370,8 +5506,8 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo }) {
         </div>
         <div className="catalog-main">
           {clientId === null
-            ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} onGo={onGo} />
-            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} />
+            ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} onGo={onGo} onFix={openFix} focusSplits={sub === "splits"} />
+            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={() => setClientId(null)} />
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
         </div>
@@ -6147,7 +6283,7 @@ function dashTasks(db, lum) {
   const splits = badSplits.length && {
     k: "splits", area: "roster", t: `${badSplits.length} song${badSplits.length === 1 ? "'s splits don't" : "s' splits don't"} add up to 100%`,
     d: `${badSplits.slice(0, 2).map((p) => `${p.song || "Untitled"} ${Math.round(splitTotal(p.splits) * 10) / 10}%`).join(" · ")}${badSplits.length > 2 ? ` · +${badSplits.length - 2} more` : ""}`,
-    tab: "catalog", sub: `client:${badSplits[0].clientId}`, cta: "Fix splits",
+    tab: "catalog", sub: "splits", cta: "Fix splits",
   };
   if (!lum) return [splits].filter(Boolean);
   const groups = lumGroups(db, lum);
@@ -6782,10 +6918,17 @@ function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, 
 }
 
 /* staff: website content (about, roster, staff, notable) -------------- */
-const WEBSITE_SECS = [["about", "About page"], ["roster", "Roster"], ["staff", "Team"], ["notable", "Notable releases"]];
-function WebsiteAdmin({ db, commit, sub }) {
+const WEBSITE_SECS = [["roster", "Roster"], ["notable", "Notable releases"], ["staff", "Team"], ["about", "About page"]];
+const WEB_SEC_KEY = "dm-web-sec";
+function WebsiteAdmin({ db, commit, sub, onSub }) {
   const secs = WEBSITE_SECS;
-  const [sec, setSec] = useState(secs.some(([id]) => id === sub) ? sub : "about"); // a Dashboard task can open Roster
+  // a Dashboard task's sub wins, then the last tab used in this browser tab, then Roster (the weekly work)
+  const [sec, setSecOnly] = useState(() => {
+    if (secs.some(([id]) => id === sub)) return sub;
+    try { const v = sessionStorage.getItem(WEB_SEC_KEY); if (secs.some(([id]) => id === v)) return v; } catch { /* storage blocked */ }
+    return "roster";
+  });
+  const setSec = (id) => { setSecOnly(id); onSub?.(id); try { sessionStorage.setItem(WEB_SEC_KEY, id); } catch { /* storage blocked */ } };
   return (
     <div className="website-main">
       <div className="admin-head website-head"><h2>Website</h2></div>
@@ -8766,6 +8909,33 @@ function StyleTag() {
     .app:not(.pub) p.hint.del-note svg{flex:none;margin-top:3px;color:var(--d-pos)}
     .app:not(.pub) p.hint.del-note.warn{border-color:var(--d-warn-line);background:var(--d-warn-bg);color:var(--d-ban-warn-ink)}
     .app:not(.pub) p.hint.del-note.warn svg{color:var(--d-warn)}
+    /* Publishing: Splits to fix (one list, Fix opens the editor) and the strip after a Save */
+    .app:not(.pub) .fix-panel{margin:0 0 18px;padding:14px 16px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1)}
+    .app:not(.pub) .fix-panel.flash{animation:lm-flash 1.2s ease-out;outline:2px solid transparent}
+    .app:not(.pub) .fix-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;margin-bottom:8px}
+    .app:not(.pub) .fix-head h3{margin:0;font:600 14px/1.3 var(--d-body);color:var(--d-ink)}
+    .app:not(.pub) .fix-head .hint{margin:0;font-size:12.5px}
+    .app:not(.pub) .fix-client{margin:10px 0 2px;font:500 12px/1.3 var(--d-body);color:var(--d-ink-3)}
+    .app:not(.pub) .fix-row{display:grid;grid-template-columns:minmax(0,1fr) 56px 120px auto;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--d-line);font-size:13.5px}
+    .app:not(.pub) .fix-song{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--d-ink)}
+    .app:not(.pub) .fix-pct,.app:not(.pub) .fix-streams{font-variant-numeric:tabular-nums;text-align:right;color:var(--d-ink-3)}
+    .app:not(.pub) .fix-row .fix-pct{color:var(--d-warn)}
+    .app:not(.pub) .fix-acts{display:flex;gap:6px;justify-content:flex-end}
+    .app:not(.pub) p.hint.fix-strip{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--d-pos-line);border-radius:var(--d-r-md);background:var(--d-pos-bg);color:var(--d-ink-2);font-size:13px}
+    .app:not(.pub) p.hint.fix-strip svg{color:var(--d-pos)}
+    .app:not(.pub) .cc-fix{flex:none;padding:1px 7px;border:1px solid var(--d-warn-line);border-radius:100px;background:var(--d-warn-bg);color:var(--d-warn);font-size:11px;line-height:1.5;white-space:nowrap}
+    .app:not(.pub) .song-info em > .split-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border:1px solid var(--d-warn-line);border-radius:100px;background:var(--d-warn-bg);color:var(--d-warn);font-style:normal}
+    .app:not(.pub) .song-public{display:inline-flex;align-items:center;gap:4px}
+    .app:not(.pub) .song-detail-public{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12.5px;color:var(--d-ink-3)}
+    .app:not(.pub) p.hint.song-sheet-warn{display:flex;align-items:flex-start;gap:8px;margin:0 0 10px;padding:10px 12px;border:1px solid var(--d-warn-line);border-radius:var(--d-r-md);background:var(--d-warn-bg);color:var(--d-ban-warn-ink);font-size:13px;line-height:1.5}
+    .app:not(.pub) p.hint.song-sheet-warn svg{flex:none;margin-top:3px;color:var(--d-warn)}
+    @media (max-width:700px){
+      .app:not(.pub) .subpill .pill-long{display:none}  /* the phone pill reads "Advance" */
+      .app:not(.pub) .fix-row{grid-template-columns:minmax(0,1fr) auto;row-gap:6px}
+      .app:not(.pub) .fix-streams{text-align:left}
+      .app:not(.pub) .fix-acts{grid-column:1 / -1;justify-content:flex-start}
+      .app:not(.pub) .fix-acts .btn{min-height:40px}
+    }
     .app:not(.pub) .lm-unl-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:none;max-width:60%}
     .app:not(.pub) .lm-pick{height:var(--d-ctl-sm);max-width:260px;padding:0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:400 13.5px/1 var(--d-body)}
     .app:not(.pub) .attn,.app:not(.pub) .gainers{display:flex;flex-direction:column;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden;align-self:start}
