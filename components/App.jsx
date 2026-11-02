@@ -483,9 +483,32 @@ function jumpIntoView(el, { ifNeeded = false } = {}) {
 function revealChip(el) {
   const row = el?.closest(".subnav, .catalog-clients");
   if (!row) return;
+  // the row's own scroll only: scrollIntoView would move the whole page to reach a chip low in a tall list
   const r = el.getBoundingClientRect(), box = row.getBoundingClientRect();
-  const cut = r.left < box.left || r.right > box.right;
-  el.scrollIntoView({ inline: cut && getComputedStyle(row).scrollSnapType !== "none" ? "start" : "nearest", block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+  let left = row.scrollLeft, top = row.scrollTop;
+  if (r.left < box.left || r.right > box.right) left += getComputedStyle(row).scrollSnapType !== "none" || r.left < box.left ? r.left - box.left : r.right - box.right;
+  if (r.top < box.top || r.bottom > box.bottom) top += r.top < box.top ? r.top - box.top : r.bottom - box.bottom;
+  if (left !== row.scrollLeft || top !== row.scrollTop) row.scrollTo({ left, top, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+}
+
+// a block the user was sent to: scrolled to only when it starts low on the screen or above it, so a
+// section that's already in view keeps its page header and pills on screen
+function landOn(el) {
+  if (!el) return;
+  const top = el.getBoundingClientRect().top;
+  if (top >= 0 && top <= window.innerHeight * 0.6) return;
+  el.scrollIntoView({ block: "start" });
+}
+
+// the line a Delete or "This isn't ours" leaves, with its one next step when there is one
+function DropNote({ note, onShow }) {
+  if (!note) return null;
+  return (
+    <p className={note.warn ? "hint del-note warn" : "hint del-note"} role="status">
+      {note.warn ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} <span>{note.text}
+        {note.go && onShow && <> <button className="inline-link" data-show-me onClick={() => onShow(note.go)}>Show me</button></>}</span>
+    </p>
+  );
 }
 
 // next/link that navigates inside a page View Transition. router.push only
@@ -4479,6 +4502,8 @@ async function dropSong(db, commit, target, client) {
     return { sheet: "failed", tab, error: err.message };
   }
 }
+// the last sheet sync found no tab for this client: a Delete or "This isn't ours" has no row to clear
+const noSheetTab = (lum, client) => !!client && (lum?.missingTabs || []).includes(client.name);
 // the one line a Delete leaves under the client's header: what happened on the pub sheet
 const dropNote = (o) => ({
   cleared: { text: `Deleted. Its row on the ${o.tab} tab is cleared.` },
@@ -4492,10 +4517,12 @@ const dropNote = (o) => ({
 // To do. Luminate itself can't be changed from here. onDone gets the result line.
 function NotOursAsk({ db, commit, lum, target, client, onDone, onClose }) {
   const tab = client?.sheetTabName?.trim() || client?.name || "";
-  const lumPort = target.luminateId && lum?.inPortfolio?.[target.luminateId] && (lum.portfolios || []).find((p) => p.id === lum.inPortfolio[target.luminateId]);
+  // another client's page still linked to the same Luminate song keeps it in the portfolio: its numbers come from there
+  const sharedLum = target.luminateId && db.placements.some((p) => p.id !== target.id && p.luminateId === target.luminateId);
+  const lumPort = !sharedLum && target.luminateId && lum?.inPortfolio?.[target.luminateId] && (lum.portfolios || []).find((p) => p.id === lum.inPortfolio[target.luminateId]);
   const places = [
     target.notable ? `On ${client?.name}'s public page (Featured)` : `On ${client?.name}'s page here (not public)`,
-    ownSplit(target, client) && `Its row on the ${tab} tab of the pub sheet`,
+    ownSplit(target, client) && (noSheetTab(lum, client) ? `Not on the pub sheet (there's no ${tab} tab)` : `Its row on the ${tab} tab of the pub sheet`),
     lumPort && `In Luminate: ${lumPort.name} (uses 1 of ${lumPort.capacity || lum.cap} slots)`,
   ].filter(Boolean);
   const go = async () => {
@@ -4506,21 +4533,22 @@ function NotOursAsk({ db, commit, lum, target, client, onDone, onClose }) {
     const sheetBad = out.sheet === "notFound" || out.sheet === "failed";
     const text = [
       out.sheet === "cleared" ? "Removed from the site and the pub sheet." : sheetBad ? `Removed from the site, but its row on the ${out.tab} tab ${out.sheet === "failed" ? "couldn't be cleared" : "wasn't found"}. Delete that row in the pub sheet by hand.` : "Removed from the site.",
-      lumPort && "1 thing left to do in Luminate.",
+      lumPort && `1 thing left: take it out of ${lumPort.name} in Luminate.`,
       noted && `It couldn't be noted as not ours (${noted}), so a numbers sync may bring it back.`,
     ].filter(Boolean).join(" ");
-    onDone({ warn: sheetBad || !!noted, text });
+    onDone({ warn: sheetBad || !!noted, text, go: lumPort ? "gone" : null });
   };
   return (
     <AskCard title={`This isn't ours: remove "${target.song || "Untitled"}"?`} goLabel="Remove it everywhere" busyLabel="Removing…" go={go} onClose={onClose}>
       <p>This takes it out of everywhere the app can reach:</p>
       <ul className="ask-places">{places.map((x) => <li key={x}>{x}</li>)}</ul>
       {lumPort && <p className="hint">The app can't remove songs from Luminate. You'll get a To do to take it out of {lumPort.name} yourself.</p>}
+      {sharedLum && <p className="hint">It stays in Luminate: another client's page uses the same Luminate song.</p>}
     </AskCard>
   );
 }
 
-function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix, onFixList }) {
+function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix, onFixList, onGo }) {
   // staff's db has a `clients` array; a client session's db has just their
   // own `client` record (no `clients` array — that's not sent to them).
   const client = db.clients ? db.clients.find((c) => c.id === clientId) : db.client;
@@ -4695,7 +4723,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
           {" · "}<button className="inline-link" onClick={() => onFixList?.()}>Back to the list</button>
         </p>
       )}
-      {isStaff && delNote && <p className={delNote.warn ? "hint del-note warn" : "hint del-note"} role="status">{delNote.warn ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} <span>{delNote.text}</span></p>}
+      {isStaff && <DropNote note={delNote} onShow={onGo && ((sec) => onGo("luminate", sec))} />}
       <div className="portal-block-head">
         <div>
           <h2>Songs &amp; Splits</h2>
@@ -4830,7 +4858,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
 
       {ask?.kind === "delete" && (
         <AskCard title={`Delete "${ask.p.song || "Untitled"}"?`} goLabel="Delete song" busyLabel="Deleting…" go={() => removeSong(ask.p)} onClose={() => setAsk(null)}>
-          <p>It comes off {client?.name}'s page here.{ownSplit(ask.p, client) ? ` Its row on the ${client?.sheetTabName?.trim() || client?.name} tab of the pub sheet is cleared too.` : ""} This can't be undone.</p>
+          <p>It comes off {client?.name}'s page here.{ownSplit(ask.p, client) && !noSheetTab(lum, client) ? ` Its row on the ${client?.sheetTabName?.trim() || client?.name} tab of the pub sheet is cleared too.` : ""} This can't be undone.</p>
           {ask.p.notable && <p>It's also shown on {client?.name}'s public page; it goes from there too.</p>}
         </AskCard>
       )}
@@ -5154,21 +5182,21 @@ async function fullSiteSync(tabDb, commit) {
 // forecast columns the site doesn't otherwise track anywhere.
 // every song whose splits don't add up, in one list: Fix opens its editor (and the next one after a
 // save), This isn't ours clears out a song that was never ours
-function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus }) {
+function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
   const groups = useMemo(() => splitsToFix(db), [db]);
   const n = groups.reduce((a, g) => a + g.songs.length, 0);
   const [ask, setAsk] = useState(null);
   const [note, setNote] = useState(null);
   const box = useRef(null);
   // opened from the Dashboard's "Fix splits": the list is what to look at
-  useEffect(() => { if (focus) box.current?.scrollIntoView({ block: "start" }); }, [focus]);
+  useEffect(() => { if (focus) landOn(box.current); }, [focus]);
   return (
     <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="splits">
       <div className="fix-head">
         <h3>{n ? `Splits to fix (${n})` : "Splits"}</h3>
         <span className="hint">{n ? "Each song's splits should add up to 100%. Biggest songs first." : "All splits add up."}</span>
       </div>
-      {note && <p className={note.warn ? "hint del-note warn" : "hint del-note"} role="status">{note.warn ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} <span>{note.text}</span></p>}
+      <DropNote note={note} onShow={onGo && ((sec) => onGo("luminate", sec))} />
       {groups.map((g) => (
         <div className="fix-group" key={g.clientId}>
           <div className="fix-client">{g.client?.name || "A deleted client"}</div>
@@ -5314,7 +5342,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
       {pubTasks > 0 && (
         <p className="pub-tasks"><AlertTriangle size={14} /> {pubTasks} publishing task{pubTasks === 1 ? "" : "s"} · <button className="inline-link" onClick={() => onGo("home")}>see the Dashboard</button></p>
       )}
-      <SplitsToFix db={db} commit={commit} lum={lum} reloadLum={reloadLum} onFix={onFix} focus={focusSplits} />
+      <SplitsToFix db={db} commit={commit} lum={lum} reloadLum={reloadLum} onFix={onFix} focus={focusSplits} onGo={onGo} />
 
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
@@ -5419,13 +5447,16 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
   // null clientId = the read-only Overview landing page, not "no selection"
   const [clientId, setClientIdOnly] = useState(sub?.startsWith("client:") ? sub.slice(7) : editSong ? editSong.clientId : null);
   // the address bar follows the client picked (in place: Back leaves Publishing, not chip by chip)
-  const setClientId = (id) => { setClientIdOnly(id); onSub?.(id ? `client:${id}` : null); };
+  const setClientId = (id) => { setClientIdOnly(id); onSub?.(id ? `client:${id}` : null); setFix(null); };
   // "Fix" (the Splits to fix list, a Next →): that song's client page with its editor open; n re-opens the same song
+  // One-shot: a chip, Back to the list or any other pick clears it, so an old Fix never reopens its song.
+  // n only counts up (a ref), so the same song asked for again still opens.
   const [fix, setFix] = useState(editSong ? { id: editSong.id, n: 1 } : null);
+  const fixN = useRef(fix ? 1 : 0);
   const openFix = (id) => {
     const p = db.placements.find((x) => x.id === id);
     if (!p) return;
-    setSec("overview"); setClientId(p.clientId); setFix((f) => ({ id, n: (f?.n || 0) + 1 }));
+    setSec("overview"); setClientIdOnly(p.clientId); onSub?.(`client:${p.clientId}`); setFix({ id, n: ++fixN.current });
   };
   const toFix = useMemo(() => Object.fromEntries(splitsToFix(db).map((g) => [g.clientId, g.songs.length])), [db]);
   const client = db.clients.find((c) => c.id === clientId);
@@ -5441,9 +5472,10 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
   const chips = useRef(null), picked = useRef(clientId !== null);
   useEffect(() => {
     if (picked.current) {
-      // picked from deep in the taller Overview: start the client's page at its header, not cut above it
+      // picked from deep in the taller Overview: back to the top, so Publishing's title, pills and the
+      // client's header are all in view (not the client's page started under a cut-off header)
       const m = document.querySelector(".catalog-main");
-      if (m && m.getBoundingClientRect().top < 0) m.scrollIntoView({ block: "start" });
+      if (m && m.getBoundingClientRect().top < 0) window.scrollTo({ top: 0, behavior: "instant" });
       revealChip(chips.current?.querySelector(".cc.active"));
     }
     picked.current = true;
@@ -5512,7 +5544,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
         <div className="catalog-main">
           {clientId === null
             ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} onGo={onGo} onFix={openFix} focusSplits={sub === "splits"} />
-            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={() => setClientId(null)} />
+            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={() => setClientId(null)} onGo={onGo} />
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
         </div>
@@ -6073,7 +6105,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
         </div>
       )}
 
-      {note && <p className={note.warn ? "hint del-note warn" : "hint del-note"} role="status">{note.warn ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} <span>{note.text}</span></p>}
+      <DropNote note={note} onShow={jumpTo} />
       {/* removed as "not ours" but still in a portfolio: the app can't take it out of Luminate */}
       {lum.notOursLeft?.length > 0 && (
         <div className={flash === "gone" ? "lm-block lm-gone lm-flash" : "lm-block lm-gone"} data-sec="gone">
@@ -6095,6 +6127,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
       )}
 
       {(plan.slots.length > 0 || plan.left.length > 0 || toLum?.count > 0) && <h3 className="lm-h3">Add to Luminate</h3>}
+      {plan.slots.length > 0 && <p className="hint lm-acts-hint">Don't track: it's ours, just leave it out of Luminate. This isn't ours: takes it off the site and the pub sheet too.</p>}
       {plan.slots.map((slot, i) => (
         <div key={slot.p.id} className={i === 0 && flash === "add" ? "lm-block lm-flash" : "lm-block"} data-sec={i === 0 ? "add" : undefined}>
           <div className="lm-block-head">
@@ -6135,7 +6168,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
                 </span>
                 <span className="lm-row-acts">
                   <button className="btn ghost sm lm-skip" title="Leave this song out of Luminate. It stays on the site." disabled={!!busy} onClick={() => run(`skip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: true }))}>Don't track</button>
-                  <button className="btn ghost sm lm-not-ours" disabled={!!busy} onClick={() => setAsk({ notOurs: db.placements.find((p) => p.id === g.ids[0]) })}>This isn't ours</button>
+                  <button className="btn ghost sm lm-not-ours" data-not-ours disabled={!!busy} onClick={() => setAsk({ notOurs: db.placements.find((p) => p.id === g.ids[0]) })}>This isn't ours</button>
                 </span>
               </div>
             ))}
@@ -6301,7 +6334,8 @@ function dashTasks(db, lum) {
   const up = lum.lastUpload, at = up?.at ? new Date(up.at).getTime() : null, made = up?.numbersFrom ? new Date(up.numbersFrom).getTime() : null;
   const byNumbers = made !== null && (at === null || made < at);
   const stale = byNumbers ? (Date.now() - made) / 86400000 : at !== null ? (Date.now() - at) / 86400000 : null;
-  const noTab = lum.missingTabs || [];
+  // only clients with songs: a brand-new client with no tab yet has no numbers to miss
+  const noTab = (lum.missingTabs || []).filter((n) => { const c = db.clients.find((x) => x.name === n); return !c || db.placements.some((p) => p.clientId === c.id); });
   const L = { area: "luminate", tab: "luminate" };
   // which portfolio is behind, how big it is, and how to fix it (lib/sync-tasks.js says the same)
   const ports = lum.portfolios || [];
@@ -8910,6 +8944,9 @@ function StyleTag() {
     .app:not(.pub) .ask-body > p.hint{font-size:12.5px;color:var(--d-ink-3);margin-bottom:0}
     .app:not(.pub) .ask-places{margin:0 0 12px;padding-left:18px;font-size:13.5px;line-height:1.6;color:var(--d-ink)}
     .app:not(.pub) .btn.ask-go{background:var(--d-neg);border-color:var(--d-neg);color:#160606}
+    .app:not(.pub) .btn[data-not-ours]{color:var(--d-neg);border-color:var(--d-neg-line)}   /* it removes the song: reads apart from Don't track */
+    .app:not(.pub) .del-note [data-show-me]{margin-left:4px;font-weight:600}
+    .app:not(.pub) .fix-panel{scroll-margin-top:16px}
     .app:not(.pub) p.hint.del-note{display:flex;align-items:flex-start;gap:8px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--d-pos-line);border-radius:var(--d-r-md);background:var(--d-pos-bg);color:var(--d-ink-2);font-size:13px;line-height:1.5;max-width:80ch}
     .app:not(.pub) p.hint.del-note svg{flex:none;margin-top:3px;color:var(--d-pos)}
     .app:not(.pub) p.hint.del-note.warn{border-color:var(--d-warn-line);background:var(--d-warn-bg);color:var(--d-ban-warn-ink)}

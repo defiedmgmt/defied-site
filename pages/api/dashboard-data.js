@@ -7,7 +7,7 @@
 // which is exactly the gap this closes). Nothing here is reachable without
 // a valid session.
 import bcrypt from "bcryptjs";
-import { sql } from "../../lib/db";
+import { sql, rowsOrNoneIfNoTable } from "../../lib/db";
 import { requireUser, requireSameOrigin, restampSession } from "../../lib/session";
 
 // photos are data: URIs inside the rows, so Next's default 1 MB body cap
@@ -89,7 +89,7 @@ async function staffPayload() {
     sql`SELECT * FROM submissions ORDER BY created_at DESC`,
     sql`SELECT * FROM notable_releases`,
     sql`SELECT about_text, last_synced_at FROM site_settings WHERE id = 1`,
-    sql`SELECT client_id, song_key, song, luminate_id, removed_at FROM not_ours ORDER BY removed_at`,
+    rowsOrNoneIfNoTable(sql`SELECT client_id, song_key, song, luminate_id, removed_at FROM not_ours ORDER BY removed_at`),
   ]);
   return {
     role: "staff",

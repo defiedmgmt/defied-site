@@ -131,10 +131,13 @@ async function act(body, session) {
     const lumId = String(body.luminateId || "").trim().slice(0, 80);
     const clientId = String(body.clientId || "").trim().slice(0, 40) || null;
     if (!key && !lumId) return [400, { error: "Missing the song's title." }];
-    const [cur] = await sql`
-      SELECT id FROM not_ours WHERE (${!!key} AND coalesce(client_id, '') = ${clientId || ""} AND song_key = ${key})
-        OR (${!!lumId} AND luminate_id = ${lumId}) LIMIT 1
-    `;
+    // a client's song: that client + title only (the same Luminate id on another client's page is that
+    // client's own note). A Luminate-only song: its id, or its title when it has none
+    const [cur] = clientId
+      ? await sql`SELECT id FROM not_ours WHERE client_id = ${clientId} AND song_key = ${key} LIMIT 1`
+      : await sql`
+        SELECT id FROM not_ours WHERE client_id IS NULL AND (CASE WHEN ${!!lumId} THEN luminate_id = ${lumId} ELSE song_key = ${key} END) LIMIT 1
+      `;
     const q = [cur
       ? sql`UPDATE not_ours SET luminate_id = coalesce(nullif(${lumId}, ''), luminate_id), placement_id = coalesce(${body.placementId || null}, placement_id) WHERE id = ${cur.id}`
       : sql`INSERT INTO not_ours (id, client_id, song, song_key, artist, luminate_id, placement_id)
