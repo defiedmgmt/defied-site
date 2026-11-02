@@ -12,6 +12,7 @@ import {
   Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
   LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight, Info, Eye,
 } from "lucide-react";
+import { evenSplit, splitWords, filledSplits } from "../lib/splits";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
    this bundle instead of inside it). The chrome wordmark + D live in /public/brand as transparent
@@ -404,15 +405,21 @@ function streamsAsOf({ luminateDay, pulledAt }) {
 const SplitsPieChart = dynamic(() => import("./SplitsPieChart"), { ssr: false });
 function SplitsPie({ splits, size = 220 }) {
   const data = (splits || []).filter((s) => Number(s.percent) > 0)
-    .map((s) => ({ name: s.name || s.role || "—", value: Number(s.percent) || 0 }));
+    .map((s) => ({ name: s.name || s.label || s.role || "—", value: Number(s.percent) || 0 }));
   if (data.length === 0) return <p className="muted">No splits entered yet.</p>;
   return <div style={{ height: size }}><SplitsPieChart data={data} size={size} colors={PIE_COLORS} /></div>;
 }
 
 function SplitsEditor({ splits, onChange, focusPct = 0 }) {
-  const rows = splits || [];
+  const all = splits || [];
+  // the even default (lib/splits.js), live: a 25 typed for a producer shows the unnamed producer at 25 and the
+  // artist side at once, and Save writes exactly these rows. While the total is off the unnamed people are the
+  // rule's own, so only the named ones are typed into
+  const fill = evenSplit(all);
+  const rows = fill.status === "ok" ? all : all.filter((r) => !r.unnamed);
+  const shown = fill.status === "assumed" ? fill.splits : rows;
   const box = useRef(null);
-  // a Fix from Splits to fix (focusPct = its n) opens on this block, the reason it opened, with the first % ready to type.
+  // a Fix from Splits to confirm (focusPct = its n) opens on this block, the reason it opened, with the first % ready to type.
   // Only the window's own scroll moves, never the page behind it
   useEffect(() => {
     const el = box.current, body = el?.closest(".modal-body");
@@ -423,21 +430,30 @@ function SplitsEditor({ splits, onChange, focusPct = 0 }) {
   const update = (id, key, val) => onChange(rows.map((r) => r.id === id ? { ...r, [key]: val } : r));
   const add = () => onChange([...rows, { id: uid(), name: "", role: "", percent: 50 }]);
   const remove = (id) => onChange(rows.filter((r) => r.id !== id));
-  const total = splitTotal(rows);
+  const total = splitTotal(shown);
   return (
     <div className="splits-ed" ref={box}>
       {/* shown to one decimal like everywhere else (1/3 is 33.3%, not 33.333333333333336%); the saved % is unchanged */}
-      <div className="splits-ed-head"><span>Splits</span><span className={total === 100 ? "split-ok" : "split-warn"}>{splitPct(rows)}%</span></div>
-      {rows.map((r) => (
+      <div className="splits-ed-head"><span>Splits</span><span className={total === 100 ? "split-ok" : "split-warn"}>{splitPct(shown)}%</span></div>
+      {shown.map((r) => r.unnamed ? (
+        <div key={r.id} className="splits-ed-row split-assumed" data-unnamed>
+          <input value="" placeholder={r.label || `${r.role} (unnamed)`} readOnly tabIndex={-1} aria-label={r.label || "Unnamed"} />
+          <input value={r.role} readOnly tabIndex={-1} aria-label="Role" />
+          <span className="pct-in pct-assumed">{splitPct([r])}%</span>
+          <span aria-hidden="true" />
+        </div>
+      ) : (
         <div key={r.id} className="splits-ed-row">
           <input placeholder="Name" value={r.name} onChange={(e) => update(r.id, "name", e.target.value)} />
           <input placeholder="Role" value={r.role} onChange={(e) => update(r.id, "role", e.target.value)} />
-          <span className="pct-in"><input type="number" min="0" max="100" value={r.percent} onChange={(e) => update(r.id, "percent", Number(e.target.value))} />%</span>
+          {/* a listed person with no share shows the even share they'll get */}
+          <span className="pct-in"><input type="number" min="0" max="100" value={r.percent} placeholder={fill.status === "assumed" && !(Number(rows.find((x) => x.id === r.id)?.percent) > 0) ? String(splitPct([r])) : undefined} onChange={(e) => update(r.id, "percent", Number(e.target.value))} />%</span>
           <button type="button" className="split-del" onClick={() => remove(r.id)} aria-label="Remove"><Trash2 size={14} /></button>
         </div>
       ))}
       <button type="button" className="btn ghost sm" onClick={add}><Plus size={14} /> Add split</button>
-      {total !== 100 && rows.length > 0 && <p className="split-hint">Splits should total 100% (currently {splitPct(rows)}%).</p>}
+      {fill.status === "assumed" && <p className="split-hint split-even" data-even>Even split assumed: {splitWords(fill.splits)}. Save keeps it.</p>}
+      {fill.status === "look" && rows.length > 0 && <p className="split-hint">Splits should total 100% (currently {splitPct(rows)}%). {fill.reason}.</p>}
     </div>
   );
 }
@@ -2847,7 +2863,8 @@ function PlacementsAdmin({ db, commit }) {
     { key: "splits", label: "Splits", w: "0.8fr", render: (p) => `${(p.splits || []).length} · ${splitTotal(p.splits)}%` },
     { key: "notable", label: "Featured", w: "0.8fr", render: (p) => p.notable ? <span className="badge-yes"><Check size={12} /> Notable</span> : <span className="badge-no">—</span> },
   ];
-  const save = async (o) => {
+  const save = async (o0) => {
+    const o = { ...o0, splits: filledSplits(o0.splits) }; // what the splits editor shows: the even default filled in
     const placements = o.id ? db.placements.map((p) => p.id === o.id ? o : p) : [...db.placements, { ...o, id: uid() }];
     return commit({ ...db, placements });
   };
@@ -4677,6 +4694,34 @@ function NotOursAsk({ db, commit, lum, target, client, onDone, onClose }) {
   );
 }
 
+// Save's sheet step (the song editor, and Splits to confirm's Confirm): only the split that belongs to
+// whoever's catalog page this is goes to the pub sheet. A co-writer typed into another split, or an
+// unnamed person from the even default, is just a name on the site, never someone we provision sheet
+// tracking for. Resolves null, or what went wrong (a slow or failed push never undoes the site save)
+async function pushOwnShare(saved, client, liveIds) {
+  const mine = ownSplit(saved, client);
+  const splits = mine ? [{ name: client?.sheetTabName || client?.name, percent: mine.percent }] : [];
+  try {
+    const res = await fetch("/api/sheets-push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+      body: JSON.stringify({
+        placementId: saved.id, song: saved.song, artist: saved.artist, luminateId: saved.luminateId, splits,
+        // lets the push route tell a genuinely-still-claimed sheet row apart
+        // from one whose syncId belongs to a placement that no longer
+        // exists on this browser — see findUnclaimedRowByTitle.
+        liveIds,
+      }),
+    });
+    if (res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Sheet sync failed (${res.status})`);
+  } catch (err) {
+    console.error("Sheet push failed:", err);
+    return err.message || "Sheet sync failed — the local save is fine, but the pub sheet wasn't updated.";
+  }
+}
+
 function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix, onFixList, onGo, onDeleteClient }) {
   // staff's db has a `clients` array; a client session's db has just their
   // own `client` record (no `clients` array — that's not sent to them).
@@ -4743,7 +4788,9 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
     return () => { document.body.style.overflow = prev; };
   }, [active, editing]);
 
-  const saveSong = async (form, anyway = false) => {
+  const saveSong = async (form0, anyway = false) => {
+    // the split as the editor shows it: the even default filled in (lib/splits.js), or exactly what was typed
+    const form = { ...form0, splits: filledSplits(form0.splits) };
     // only what was changed in the form goes onto the song as it is now — streams the sync
     // brought in while it was open aren't put back (see Editor)
     const cur = form.id && db.placements.find((p) => p.id === form.id);
@@ -4795,25 +4842,8 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
     // not someone we auto-provision sheet tracking for. If that person is
     // also a client, their own row comes from adding this same song under
     // their own page, the same way this one did.
-    const mine = ownSplit(saved, client);
-    const splits = mine ? [{ name: client?.sheetTabName || client?.name, percent: mine.percent }] : [];
-    fetch("/api/sheets-push", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-      body: JSON.stringify({
-        placementId, song: saved.song, artist: saved.artist, luminateId: saved.luminateId, splits,
-        // lets the push route tell a genuinely-still-claimed sheet row apart
-        // from one whose syncId belongs to a placement that no longer
-        // exists on this browser — see findUnclaimedRowByTitle.
-        liveIds: done.placements.map((p) => p.id),
-      }),
-    }).then(async (res) => {
-      if (res.ok) return;
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || `Sheet sync failed (${res.status})`);
-    }).catch((err) => {
-      console.error("Sheet push failed:", err);
-      if (isStaff) setPushWarn(err.message || "Sheet sync failed — the local save is fine, but the pub sheet wasn't updated.");
+    pushOwnShare(saved, client, done.placements.map((p) => p.id)).then((err) => {
+      if (err && isStaff) setPushWarn(err);
     });
   };
   // the one-line outcome of a Delete / This isn't ours, under the header (staff only)
@@ -4944,7 +4974,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               <div className="split-list">
                 {(active.splits || []).map((s) => (
                   <div key={s.id} className="split-list-row">
-                    <span className="split-name">{s.name || "—"}{s.role && <em> · {s.role}</em>}</span>
+                    <span className="split-name">{s.name || s.label || "—"}{s.role && !s.unnamed && <em> · {s.role}</em>}</span>
                     <span className="split-pct">{s.percent}%</span>
                   </div>
                 ))}
@@ -5317,39 +5347,99 @@ async function fullSiteSync(tabDb, commit) {
 // per-writer totals directly (rather than re-deriving them from placements)
 // so the numbers always match the sheet exactly, including the 3-year
 // forecast columns the site doesn't otherwise track anywhere.
-// every song whose splits don't add up, in one list: Fix opens its editor (and the next one after a
-// save), This isn't ours clears out a song that was never ours
+// every song whose splits don't add up, in two groups (lib/splits.js): "Assumed (even split)" is the owner's
+// even default, ready to Confirm; "Needs a look" can't be completed evenly, so Fix opens its editor. Confirm is
+// the song editor's Save (the site, then the client's own share to their writer tab); nothing reaches the
+// sheet before it. This isn't ours clears out a song that was never ours
+function splitsToConfirm(db) {
+  const assumed = [], look = [];
+  for (const g of splitsToFix(db)) {
+    for (const p of g.songs) {
+      const r = evenSplit(p.splits);
+      (r.status === "assumed" ? assumed : look).push({ p, client: g.client, r });
+    }
+  }
+  return { assumed, look };
+}
 function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
-  const groups = useMemo(() => splitsToFix(db), [db]);
-  const n = groups.reduce((a, g) => a + g.songs.length, 0);
+  const { assumed, look } = useMemo(() => splitsToConfirm(db), [db]);
+  const n = assumed.length + look.length;
   const [ask, setAsk] = useState(null);
   const [note, setNote] = useState(null);
+  const [all, setAll] = useState(false); // the Confirm all card
+  const [busy, setBusy] = useState(null); // the song being confirmed
   const box = useRef(null);
-  // opened from the Dashboard's "Fix splits": the list is what to look at
+  // opened from the Dashboard's To do: the list is what to look at
   useEffect(() => { if (focus) landOn(box.current); }, [focus]);
+  // the songs that write a share: the client is on the split (otherwise Save sends nothing to the sheet either)
+  const writes = (items) => items.filter((x) => x.client && ownSplit({ splits: x.r.splits }, x.client));
+  const confirm = async (items) => {
+    setNote(null);
+    const by = new Map(items.map((x) => [x.p.id, x.r.splits]));
+    const done = await commit({ ...db, placements: db.placements.map((p) => (by.has(p.id) ? { ...p, splits: by.get(p.id) } : p)) });
+    if (!done) return; // the save's own error banner says why, and nothing went to the sheet
+    const live = done.placements.map((p) => p.id);
+    const failed = [];
+    // one at a time: two pushes to the same tab at once could both pick the same empty row
+    for (const x of items) {
+      const saved = done.placements.find((p) => p.id === x.p.id);
+      const client = done.clients?.find((c) => c.id === x.p.clientId) || x.client;
+      if (!saved || !client) continue;
+      const err = await pushOwnShare(saved, client, live);
+      if (err) failed.push(`${saved.song || "Untitled"} (${err})`);
+    }
+    const w = writes(items).length;
+    setNote(failed.length
+      ? { warn: true, text: `Confirmed on the site, but the pub sheet wasn't updated for ${failed.join(", ")}. Open the song and Save again.` }
+      : { text: items.length === 1 ? `Confirmed "${items[0].p.song || "Untitled"}": ${splitWords(items[0].r.splits)}.${w ? " Its writer share is on the sheet." : ""}` : `Confirmed ${items.length} even splits.${w ? ` ${w} writer share${w === 1 ? " is" : "s are"} on the sheet.` : ""}` });
+  };
+  const one = async (x) => { setBusy(x.p.id); try { await confirm([x]); } finally { setBusy(null); } };
+  const allWrites = writes(assumed);
+  const tabs = new Set(allWrites.map((x) => x.client.id)).size;
+  const row = (x, acts, mid) => (
+    <div className="fix-row" key={x.p.id} data-song={x.p.id}>
+      <span className="fix-song"><span className="fix-who">{x.client?.name || "A deleted client"} · </span>{x.p.song || "Untitled"}</span>
+      {mid}
+      <span className="fix-streams">{fmt(x.p.streams || 0)} streams</span>
+      <span className="fix-acts">{acts}</span>
+    </div>
+  );
   return (
     <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="splits">
       <div className="fix-head">
-        <h3>{n ? `Splits to fix (${n})` : "Splits"}</h3>
-        <span className="hint">{n ? "Each song's splits should add up to 100%. Biggest songs first." : "All splits add up."}</span>
+        <h3>{n ? `Splits to confirm (${n})` : "Splits"}</h3>
+        <span className="hint">{n ? "The default is even: the artist side is 50% and the producer side is 50%, shared evenly. Biggest songs first." : "All splits add up."}</span>
       </div>
       <DropNote note={note} onShow={onGo && ((sec) => onGo("luminate", sec))} />
-      {groups.map((g) => (
-        <div className="fix-group" key={g.clientId}>
-          <div className="fix-client">{g.client?.name || "A deleted client"}</div>
-          {g.songs.map((p) => (
-            <div className="fix-row" key={p.id}>
-              <span className="fix-song">{p.song || "Untitled"}</span>
-              <span className="split-warn fix-pct">{splitPct(p.splits)}%</span>
-              <span className="fix-streams">{fmt(p.streams || 0)} streams</span>
-              <span className="fix-acts">
-                <button className="btn sm" onClick={() => onFix(p.id)}>Fix</button>
-                {g.client && <button className="quiet-act" data-not-ours onClick={() => { setNote(null); setAsk({ p, client: g.client }); }}>This isn't ours</button>}
-              </span>
-            </div>
-          ))}
+      {assumed.length > 0 && (
+        <div className="fix-group" data-group="assumed">
+          <div className="fix-sub">
+            <span className="fix-client">Assumed (even split) · {assumed.length}</span>
+            <button className="btn sm" data-confirm-all disabled={!!busy} onClick={() => setAll(true)}>Confirm all {assumed.length}</button>
+          </div>
+          {assumed.map((x) => row(x,
+            <button className="btn sm" data-confirm disabled={!!busy} onClick={() => one(x)}>{busy === x.p.id ? "Confirming…" : "Confirm"}</button>,
+            <span className="fix-words" title={splitWords(x.r.splits)}>{splitWords(x.r.splits)}</span>))}
         </div>
-      ))}
+      )}
+      {look.length > 0 && (
+        <div className="fix-group" data-group="look">
+          <div className="fix-sub"><span className="fix-client">Needs a look · {look.length}</span></div>
+          {look.map((x) => row(x, <>
+            <button className="btn sm" onClick={() => onFix(x.p.id)}>Fix</button>
+            {x.client && <button className="quiet-act" data-not-ours onClick={() => { setNote(null); setAsk({ p: x.p, client: x.client }); }}>This isn't ours</button>}
+          </>, <span className="fix-words fix-why"><span className="split-warn fix-pct">{splitPct(x.p.splits)}%</span> {x.r.reason}</span>))}
+        </div>
+      )}
+      {all && (
+        <AskCard title={`Confirm ${assumed.length} even split${assumed.length === 1 ? "" : "s"}?`} goLabel={`Confirm all ${assumed.length}`} busyLabel="Confirming…" plain
+          go={async () => { await confirm(assumed); setAll(false); }} onClose={() => setAll(false)}>
+          <p data-ask-writes>{allWrites.length
+            ? `Writes the writer share for ${allWrites.length} song${allWrites.length === 1 ? "" : "s"} on ${tabs} client${tabs === 1 ? "'s" : "s'"} sheet tab${tabs === 1 ? "" : "s"}.`
+            : "Nothing is written to the pub sheet: none of these clients is on their own split."} Unnamed people are only kept on the site.</p>
+          <ul className="ask-places">{assumed.map((x) => <li key={x.p.id}>{x.p.song || "Untitled"} ({x.client?.name || "no client"}): {splitWords(x.r.splits)}</li>)}</ul>
+        </AskCard>
+      )}
       {ask && (
         <NotOursAsk db={db} commit={commit} lum={lum} target={ask.p} client={ask.client} onClose={() => setAsk(null)}
           onDone={(r) => { setAsk(null); setNote(r); reloadLum?.(); }} />
@@ -6491,12 +6581,13 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
 // alone shows, until then. Every task has an area for its colour: luminate | roster | money | ar |
 // clickup | site.
 function dashTasks(db, lum) {
-  const badSplits = db.placements.filter((p) => splitTotal(p.splits) !== 100);
-  // the button opens the first song's client, so it never names a client (the others may be someone else's)
-  const splits = badSplits.length && {
-    k: "splits", area: "roster", t: `${badSplits.length} song${badSplits.length === 1 ? "'s splits don't" : "s' splits don't"} add up to 100%`,
-    d: `${badSplits.slice(0, 2).map((p) => `${p.song || "Untitled"} ${Math.round(splitTotal(p.splits) * 10) / 10}%`).join(" · ")}${badSplits.length > 2 ? ` · +${badSplits.length - 2} more` : ""}`,
-    tab: "catalog", sub: "splits", cta: "Fix splits",
+  // both groups of Splits to confirm, in plain words: the even default ready to confirm, and the ones to fix by hand
+  const { assumed, look } = splitsToConfirm(db);
+  const nSplits = assumed.length + look.length;
+  const splits = nSplits && {
+    k: "splits", area: "roster", t: `${nSplits} song${nSplits === 1 ? "'s split needs" : "s' splits need"} confirming`,
+    d: [assumed.length && `${assumed.length} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} a look`].filter(Boolean).join(" · "),
+    tab: "catalog", sub: "splits", cta: "Review splits",
   };
   if (!lum) return [splits].filter(Boolean);
   const groups = lumGroups(db, lum);
@@ -9201,6 +9292,16 @@ function StyleTag() {
     .app:not(.pub) .fix-pct,.app:not(.pub) .fix-streams{font-variant-numeric:tabular-nums;text-align:right;color:var(--d-ink-3)}
     .app:not(.pub) .fix-row .fix-pct{color:var(--d-warn)}
     .app:not(.pub) .fix-acts{display:flex;align-items:center;gap:6px;justify-content:flex-end}
+    /* Splits to confirm: the two groups' heads, the assumed split in words, and the unnamed rows in the editor */
+    .app:not(.pub) .fix-sub{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0 4px}
+    .app:not(.pub) .fix-sub .fix-client{margin:0}
+    .app:not(.pub) .fix-group[data-group] .fix-row{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) 120px auto}
+    .app:not(.pub) .fix-who{color:var(--d-ink-3)}
+    .app:not(.pub) .fix-words{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--d-ink-2);font-size:13px}
+    .app:not(.pub) .fix-why .fix-pct{margin-right:6px}
+    .app:not(.pub) .splits-ed-row.split-assumed input{border-style:dashed;color:var(--d-ink-3)}
+    .app:not(.pub) .pct-in.pct-assumed{padding-left:10px;color:var(--d-ink-3);font-variant-numeric:tabular-nums}
+    .app:not(.pub) .split-hint.split-even{color:var(--d-ink-3)}
     .app:not(.pub) p.hint.fix-strip{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--d-pos-line);border-radius:var(--d-r-md);background:var(--d-pos-bg);color:var(--d-ink-2);font-size:13px}
     .app:not(.pub) p.hint.fix-strip svg{color:var(--d-pos)}
     .app:not(.pub) .cc-text{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:3px}
@@ -9218,6 +9319,10 @@ function StyleTag() {
       .app:not(.pub) .fix-streams{text-align:left}
       .app:not(.pub) .fix-acts{grid-column:1 / -1;justify-content:flex-start}
       .app:not(.pub) .fix-acts .btn{min-height:40px}
+      /* Splits to confirm on phones: song, then the split in words on its own full line, then streams and the button */
+      .app:not(.pub) .fix-group[data-group] .fix-row{grid-template-columns:minmax(0,1fr) auto}
+      .app:not(.pub) .fix-group[data-group] .fix-words{grid-column:1 / -1;white-space:normal}
+      .app:not(.pub) .fix-sub .btn{min-height:40px}
       /* thumb-sized taps: the segmented toggles, the A&R strip in two lines, Luminate's buttons under its title */
       .app:not(.pub) .gainer-tabs button{min-height:40px}
       .app:not(.pub) .ar-strip{flex-wrap:wrap;overflow-x:visible}
