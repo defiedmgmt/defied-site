@@ -4530,7 +4530,7 @@ function NotOursAsk({ db, commit, lum, target, client, onDone, onClose }) {
   const sharedLum = target.luminateId && db.placements.some((p) => p.id !== target.id && p.luminateId === target.luminateId);
   const lumPort = !sharedLum && target.luminateId && lum?.inPortfolio?.[target.luminateId] && (lum.portfolios || []).find((p) => p.id === lum.inPortfolio[target.luminateId]);
   const places = [
-    target.notable ? `On ${client?.name}'s public page (Featured)` : `On ${client?.name}'s page here (not public)`,
+    target.notable ? `On public page (${client?.name}'s page on the site)` : `On ${client?.name}'s page here (not public)`,
     ownSplit(target, client) && (noSheetTab(lum, client) ? `Not on the pub sheet (there's no ${tab} tab)` : `Its row on the ${tab} tab of the pub sheet`),
     lumPort && `In Luminate: ${lumPort.name} (uses 1 of ${lumPort.capacity || lum.cap} slots)`,
   ].filter(Boolean);
