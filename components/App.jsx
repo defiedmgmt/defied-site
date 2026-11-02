@@ -6130,7 +6130,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
   // a Dashboard task can point at a list further down ("add", "match", "missing", "gone"): shown once
   // it has drawn, lit up for a moment so the eye finds it
   const jumpTo = (sec) => {
-    const el = document.querySelector(`.lm [data-sec="${sec}"]`);
+    const el = document.querySelector(`.lm [data-sec="${CSS.escape(String(sec))}"]`); // sec comes from the address bar
     if (!el) return;
     el.scrollIntoView({ block: "start" });
     setFlash(sec); setTimeout(() => setFlash((f) => (f === sec ? null : f)), 1200);
