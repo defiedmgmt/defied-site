@@ -1,5 +1,5 @@
 // Staff-only one-click logging of Stripe payments into the accounting sheet's Income tab
-// (lib/accounting-log.js). POST {ids:[…], dryRun?:true}: the dry run says the exact rows that would be
+// (lib/accounting-log.js). POST {ids:[…], dryRun?:true, details?:{[id]:{type, client}}}: the dry run says the exact rows that would be
 // added (and why any can't be); without it the rows are added, each payment at most once. Writes are
 // off unless ACCOUNTING_SHEET_WRITES=on (503 with a plain line).
 import { requireStaff, requireSameOrigin } from "../../lib/session";
@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   const body = req.body || {};
   try {
     const by = session.user.name || session.user.email || "staff";
-    return res.status(200).json(await logPayments({ ids: body.ids, by, dryRun: !!body.dryRun }));
+    return res.status(200).json(await logPayments({ ids: body.ids, by, dryRun: !!body.dryRun, details: body.details }));
   } catch (err) {
     if (err instanceof LogError) return res.status(err.status).json({ error: err.message });
     console.error("accounting-log failed:", err);
