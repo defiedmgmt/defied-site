@@ -4751,8 +4751,9 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
                 <span>{p.artist}</span>
                 <em>{isStaff && splitTotal(p.splits) !== 100
                   ? <span className="split-chip">Splits {splitPct(p.splits)}%</span>
-                  : <>{(p.splits || []).length} {(p.splits || []).length === 1 ? "split" : "splits"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitTotal(p.splits)}%</span></>}
-                  {p.notable && <span className="song-public"> · <Eye size={12} aria-hidden="true" /> On public page</span>}</em>
+                  : <>{(p.splits || []).length} {(p.splits || []).length === 1 ? "split" : "splits"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitTotal(p.splits)}%</span></>}</em>
+                {/* its own line: on the splits line it was cut off by the card's width */}
+                {p.notable && <span className="song-public"><Eye size={12} aria-hidden="true" /> On public page</span>}
                 <GrowthChip g={growth?.[p.id]} />
               </div>
             </button>
@@ -5499,8 +5500,9 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
             <div key={c.id} className="cc-row">
               <button className={c.id === clientId ? "cc active" : "cc"} onClick={() => setClientId(c.id)}>
                 <Avatar src={c.photo} name={c.name} size={30} />
-                <span className="cc-name">{c.name}</span>
-                {toFix[c.id] > 0 && <span className="cc-fix" title="Songs whose splits don't add up to 100%">{toFix[c.id]} to fix</span>}
+                {/* under the name, so the name keeps its width at 1280 */}
+                <span className="cc-text"><span className="cc-name">{c.name}</span>
+                  {toFix[c.id] > 0 && <span className="cc-fix" title="Songs whose splits don't add up to 100%">{toFix[c.id]} to fix</span>}</span>
                 <span className="cc-count">{count(c.id)}</span>
               </button>
               <button className="cc-del" onClick={() => removeClient(c)} title={`Delete ${c.name}`}><Trash2 size={13} /></button>
@@ -8927,9 +8929,12 @@ function StyleTag() {
     .app:not(.pub) .fix-acts{display:flex;gap:6px;justify-content:flex-end}
     .app:not(.pub) p.hint.fix-strip{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--d-pos-line);border-radius:var(--d-r-md);background:var(--d-pos-bg);color:var(--d-ink-2);font-size:13px}
     .app:not(.pub) p.hint.fix-strip svg{color:var(--d-pos)}
+    .app:not(.pub) .cc-text{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+    .app:not(.pub) .cc-text .cc-name{max-width:100%}
+    @media (max-width:1199px){ .app:not(.pub) .catalog-clients .cc-text{flex:none;width:100%;align-items:center} }
     .app:not(.pub) .cc-fix{flex:none;padding:1px 7px;border:1px solid var(--d-warn-line);border-radius:100px;background:var(--d-warn-bg);color:var(--d-warn);font-size:11px;line-height:1.5;white-space:nowrap}
     .app:not(.pub) .song-info em > .split-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border:1px solid var(--d-warn-line);border-radius:100px;background:var(--d-warn-bg);color:var(--d-warn);font-style:normal}
-    .app:not(.pub) .song-public{display:inline-flex;align-items:center;gap:4px}
+    .app:not(.pub) .song-info .song-public{display:flex;align-items:center;gap:4px;margin-top:3px;font-size:12px;color:var(--d-ink-3)}
     .app:not(.pub) .song-detail-public{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12.5px;color:var(--d-ink-3)}
     .app:not(.pub) p.hint.song-sheet-warn{display:flex;align-items:flex-start;gap:8px;margin:0 0 10px;padding:10px 12px;border:1px solid var(--d-warn-line);border-radius:var(--d-r-md);background:var(--d-warn-bg);color:var(--d-ban-warn-ink);font-size:13px;line-height:1.5}
     .app:not(.pub) p.hint.song-sheet-warn svg{flex:none;margin-top:3px;color:var(--d-warn)}
