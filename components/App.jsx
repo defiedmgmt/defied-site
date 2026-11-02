@@ -12,7 +12,7 @@ import {
   Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
   LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight, Info, Eye,
 } from "lucide-react";
-import { evenSplit, splitWords, filledSplits } from "../lib/splits";
+import { evenSplit, splitWords, filledSplits, orderSplits } from "../lib/splits";
 import { songGaps, netStreamsOf } from "../lib/sheet-facts";
 import { likelyDuplicates, mergedCard, plainTitle } from "../lib/duplicates";
 
@@ -425,7 +425,12 @@ function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, owner = n
   // a blank share stays blank in its box (the even share is only its placeholder), so typing replaces it and
   // never adds to it. Named people keep the order they were typed in; the rule's unnamed people come after
   const blankShare = (r) => fill.status === "assumed" && !(Number(r.percent) > 0);
-  const list = fill.status === "assumed" ? [...rows, ...fill.added.map((r, i) => ({ ...r, key: `unnamed-${i}` }))] : rows;
+  // listed in the song window's order (orderSplits), taken once when the editor opens, so a row never jumps
+  // while its role is typed; rows added after that stay at the end
+  const [order] = useState(() => orderSplits(all).map((r) => r.id));
+  const at = (r) => { const i = order.indexOf(r.id); return i === -1 ? order.length : i; };
+  const named = rows.map((r, i) => [r, i]).sort((a, b) => at(a[0]) - at(b[0]) || a[1] - b[1]).map(([r]) => r);
+  const list = fill.status === "assumed" ? [...named, ...orderSplits(fill.added).map((r, i) => ({ ...r, key: `unnamed-${i}` }))] : named;
   const box = useRef(null);
   // a Fix from Splits to confirm (focusPct = its n) opens on this block, the reason it opened, with the first % ready to type.
   // Only the window's own scroll moves, never the page behind it
@@ -446,8 +451,8 @@ function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, owner = n
       <div className="splits-ed-head"><span>Splits</span><span className={total === 100 ? "split-ok" : "split-warn"}>{splitPct(shown)}%</span></div>
       {list.map((r) => r.unnamed ? (
         <div key={r.key || r.id} className="splits-ed-row split-assumed" data-unnamed>
-          <input value="" placeholder={r.label || `${r.role} (unnamed)`} readOnly tabIndex={-1} aria-label={r.label || "Unnamed"} />
-          <input value={r.role} readOnly tabIndex={-1} aria-label="Role" />
+          {/* one box over the name and role columns: "Producer 2 (unnamed)" already says the role, and is never cut */}
+          <span className="split-unnamed" title={r.label || `${r.role} (unnamed)`}>{r.label || `${r.role} (unnamed)`}</span>
           <span className="pct-in pct-assumed">{splitPct([r])}%</span>
           <span aria-hidden="true" />
         </div>
@@ -4860,7 +4865,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
     const saved = done.placements.find((p) => p.id === placementId);
     if (!saved) return setFormErr(goneText(done.clients && !done.clients.some((c) => c.id === clientId) ? "client" : "song"));
     if (isStaff && fixing.current === placementId) {
-      const left = splitsToFix(done).flatMap((g) => g.songs.map((p) => ({ p, client: g.client })));
+      const left = splitsToConfirm(done).all; // the list's own order: biggest streams first
       setFixNote({ left: left.length, next: left.find((x) => x.p.id !== placementId) || null });
     }
     fixing.current = null;
@@ -5010,7 +5015,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               )}
               <SplitsPie splits={activeEven ? activeEven.splits : active.splits} size={230} />
               <div className="split-list">
-                {(activeEven ? activeEven.splits : active.splits || []).map((s, i) => (
+                {orderSplits(activeEven ? activeEven.splits : active.splits || []).map((s, i) => (
                   <div key={s.unnamed ? `u${i}` : s.id} className="split-list-row">
                     <span className="split-name">{s.name || s.label || "—"}{s.role && !s.unnamed && <em> · {s.role}</em>}{activeEven && (s.unnamed || !(Number((active.splits || []).find((t) => t.id === s.id)?.percent) > 0)) && <em> · assumed</em>}</span>
                     {/* one decimal, as the editor shows it (a third is 16.7%, not 16.666666666666668%); the saved % is unchanged */}
@@ -5406,7 +5411,10 @@ function splitsToConfirm(db) {
       (r.status === "assumed" ? assumed : look).push({ p, client: g.client, r });
     }
   }
-  return { assumed, look };
+  // one flat list, biggest streams first across every client (the client is named on each row)
+  const byStreams = (a, b) => (b.p.streams || 0) - (a.p.streams || 0) || (a.client?.name || "").localeCompare(b.client?.name || "") || (a.p.song || "").localeCompare(b.p.song || "");
+  assumed.sort(byStreams); look.sort(byStreams);
+  return { assumed, look, all: [...assumed, ...look].sort(byStreams) };
 }
 // a song's row on its client's tab, in the same order the sheet pull matches them (pullAndMergeSheetData):
 // its own Site Sync ID, then its Luminate ID, then a row with its title that no live song has claimed
@@ -5415,7 +5423,7 @@ const sheetRowOf = (p, rows, live) => rows.find((r) => r.syncId && r.syncId.spli
   || rows.find((r) => (!r.syncId || !live.has(r.syncId.split(":")[0])) && normalizeTitle(r.song) === normalizeTitle(p.song)) || null;
 const pctOf = (v) => `${splitPct([{ percent: v }])}%`;
 function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
-  const { assumed, look } = useMemo(() => splitsToConfirm(db), [db]);
+  const { assumed, look, all: flat } = useMemo(() => splitsToConfirm(db), [db]);
   const n = assumed.length + look.length;
   const [ask, setAsk] = useState(null);
   const [note, setNote] = useState(null);
@@ -5500,7 +5508,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
       const sheet = !wrote.length ? "" : pl.kind === "change" ? ` ${x.client.name}'s writer share on the ${tabOf(x.client)} tab went from ${pl.from == null ? "blank" : pctOf(pl.from)} to ${pctOf(pl.will)}.`
         : pl.kind === "new" ? ` It was added to the ${tabOf(x.client)} tab with ${x.client.name}'s writer share at ${pctOf(pl.will)}.`
         : ` ${x.client.name}'s writer share on the ${tabOf(x.client)} tab is ${pctOf(pl.will)}.`;
-      return setNote({ warn: !!tabless.length, text: `Confirmed "${x.p.song || "Untitled"}": ${splitWords(x.r.splits, x.p.splits)}.${sheet}${tabNote}` });
+      return setNote({ warn: !!tabless.length, text: `Confirmed "${x.p.song || "Untitled"}": ${splitWords(x.r.splits, null, { confirmed: true })}.${sheet}${tabNote}` });
     }
     const w = wrote.length;
     setNote({ warn: !!tabless.length, text: `Confirmed ${items.length} even splits.${w ? ` ${w} writer share${w === 1 ? " is" : "s are"} on the sheet${changed.length ? `; ${changed.length} changed (${changed.join(", ")})` : ""}.` : ""}${tabNote}` });
@@ -5511,7 +5519,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
   const allTabless = assumed.filter((x) => plan(x).kind === "tabless");
   const tabs = new Set(allWrites.map((x) => x.client.id)).size;
   const row = (x, acts, mid) => (
-    <div className="fix-row" key={x.p.id} data-song={x.p.id}>
+    <div className="fix-row" key={x.p.id} data-song={x.p.id} data-kind={x.r.status === "assumed" ? "assumed" : "look"}>
       <span className="fix-song"><span className="fix-who">{x.client?.name || "A deleted client"} · </span>{x.p.song || "Untitled"}</span>
       {mid}
       <span className="fix-streams">{fmt(x.p.streams || 0)} streams</span>
@@ -5526,25 +5534,24 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
         <span className="hint">{n ? "The default is even: the artist side is 50% and the producer side is 50%, shared evenly. Confirm saves the split on the site and writes only the client's own share to their tab of the pub sheet; unnamed people stay on the site only. Biggest songs first." : "All splits add up."}</span>
       </div>
       <DropNote note={note} onShow={onGo && ((sec) => onGo("luminate", sec))} />
-      {assumed.length > 0 && (
-        <div className="fix-group" data-group="assumed">
+      {n > 0 && (
+        <div className="fix-group" data-group="all">
+          {/* one flat list, biggest streams first: an even split has Confirm, one that needs a look has Fix */}
           <div className="fix-sub">
-            <span className="fix-client">Assumed (even split) · {assumed.length}</span>
-            <button className="btn sm" data-confirm-all disabled={!!busy} onClick={() => setAll(true)}>Confirm all {assumed.length}</button>
+            <span className="fix-client" data-split-counts>{[assumed.length && `${assumed.length} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} a look`].filter(Boolean).join(" · ")}</span>
+            {assumed.length > 0 && <button className="btn sm" data-confirm-all disabled={!!busy} onClick={() => setAll(true)}>Confirm all {assumed.length}</button>}
           </div>
-          {assumed.map((x) => { const pl = plan(x), cw = changeWords(pl); return row(x,
-            <button className="btn sm" data-confirm disabled={!!busy} onClick={() => (asks(pl) ? setAskOne(x) : one(x))}>{busy === x.p.id ? "Confirming…" : "Confirm"}</button>,
-            <span className="fix-mid"><span className="fix-words">{splitWords(x.r.splits, x.p.splits)}</span>
-              {cw && <span className={`fix-sheet${pl.kind === "tabless" ? " tabless" : ""}`} data-sheet-change={pl.kind}>{cw}</span>}</span>); })}
-        </div>
-      )}
-      {look.length > 0 && (
-        <div className="fix-group" data-group="look">
-          <div className="fix-sub"><span className="fix-client">Needs a look · {look.length}</span></div>
-          {look.map((x) => row(x, <>
-            <button className="btn sm" onClick={() => onFix(x.p.id)}>Fix</button>
-            {x.client && <button className="quiet-act" data-not-ours onClick={() => { setNote(null); setAsk({ p: x.p, client: x.client }); }}>Remove from catalog</button>}
-          </>, <span className="fix-mid"><span className="fix-words fix-why"><span className="split-warn fix-pct">{splitPct(x.p.splits)}%</span> {x.r.reason}</span></span>))}
+          {flat.map((x) => {
+            if (x.r.status !== "assumed") return row(x, <>
+              <button className="btn sm" onClick={() => onFix(x.p.id)}>Fix</button>
+              {x.client && <button className="quiet-act" data-not-ours onClick={() => { setNote(null); setAsk({ p: x.p, client: x.client }); }}>Remove from catalog</button>}
+            </>, <span className="fix-mid"><span className="fix-words fix-why"><span className="split-warn fix-pct">{splitPct(x.p.splits)}%</span> {x.r.reason}</span></span>);
+            const pl = plan(x), cw = changeWords(pl);
+            return row(x,
+              <button className="btn sm" data-confirm disabled={!!busy} onClick={() => (asks(pl) ? setAskOne(x) : one(x))}>{busy === x.p.id ? "Confirming…" : "Confirm"}</button>,
+              <span className="fix-mid"><span className="fix-words">{splitWords(x.r.splits, x.p.splits)}</span>
+                {cw && <span className={`fix-sheet${pl.kind === "tabless" ? " tabless" : ""}`} data-sheet-change={pl.kind}>{cw}</span>}</span>);
+          })}
         </div>
       )}
       {all && (
@@ -5611,7 +5618,7 @@ function SongsToUpdate({ db, lum, onFix, focus }) {
 // card's row is written only when the client's own share changes (the song editor's Save step, pushOwnShare).
 // "Not the same song" is kept (app_state, /api/luminate) so the pair never comes back.
 const splitLine = (splits) => {
-  const list = splits || [];
+  const list = orderSplits(splits || []);
   if (!list.length) return "No split yet";
   const t = splitTotal(list);
   return `${list.map((x) => `${x.name || x.label || "Unnamed"} ${splitPct([x])}%`).join(" · ")}${t === 100 ? "" : ` (adds up to ${splitPct(list)}%)`}`;
@@ -8694,6 +8701,7 @@ function StyleTag() {
       .app:not(.pub) .modal-card .modal-foot .btn.ghost.err-text{order:1;flex-basis:100%;height:var(--d-ctl);margin-right:0;border-color:transparent}
       .app:not(.pub) .splits-ed-row{grid-template-columns:minmax(0,1fr) 96px var(--d-icon)}
       .app:not(.pub) .splits-ed-row > input:first-child{grid-column:1 / -1}
+      .app:not(.pub) .splits-ed-row > .split-unnamed{grid-column:1 / 2}
       .app:not(.pub) .splits-ed-row input:nth-child(2){grid-column:auto}
       .app:not(.pub) .splits-ed-row + .splits-ed-row{margin-top:4px;padding-top:12px;border-top:1px solid var(--d-line)}
       .app:not(.pub) .form-card{padding:16px}
@@ -9663,6 +9671,7 @@ function StyleTag() {
     .app:not(.pub) .fix-words{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--d-ink-2);font-size:13px}
     .app:not(.pub) .fix-why .fix-pct{margin-right:6px}
     .app:not(.pub) .splits-ed-row.split-assumed input{border-style:dashed;color:var(--d-ink-3)}
+    .app:not(.pub) .split-unnamed{grid-column:1 / 3;display:flex;align-items:center;min-height:var(--d-ctl);padding:4px 9px;border:1px dashed var(--d-line-2);border-radius:7px;font-size:13px;line-height:1.3;color:var(--d-ink-3);overflow-wrap:anywhere}
     .app:not(.pub) .pct-in.pct-assumed{padding-left:10px;color:var(--d-ink-3);font-variant-numeric:tabular-nums}
     .app:not(.pub) .split-hint.split-even{color:var(--d-ink-3)}
     .app:not(.pub) p.hint.fix-strip{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--d-pos-line);border-radius:var(--d-r-md);background:var(--d-pos-bg);color:var(--d-ink-2);font-size:13px}
