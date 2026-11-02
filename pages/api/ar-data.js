@@ -86,8 +86,11 @@ export default async function handler(req, res) {
 
     const rec = await reconcile(read, { readAtDb });
     const changesToCheck = await settlePending(read);
+    // what the last Sheet check found, so the Board's "N sheet problems" counts what the check lists
+    const lastCheck = await getState("arSheetCheck");
+    const checkProblems = (lastCheck?.checks || []).filter((c) => !c.ok).map((c) => ({ id: c.id, text: c.text, ...(c.fix ? { fix: c.fix } : {}) }));
     return res.status(200).json({
-      sheet: { ok: true, readAt: read.readAt, stale: false, links: read.links, layout: read.layout, problems: [...read.problems, ...rec.problems] },
+      sheet: { ok: true, readAt: read.readAt, stale: false, links: read.links, layout: read.layout, problems: [...read.problems, ...rec.problems], checkProblems },
       firstRun: await firstRun(),
       assumptions: read.assumptions, recoupTargetMonths: read.recoupTargetMonths, budget: read.budget,
       totals: read.totals, // OUTREACH's row 1-2: the pipeline's totals as the sheet works them out

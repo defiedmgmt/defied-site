@@ -3581,7 +3581,8 @@ function ArBoard({ ar, onGo }) {
   };
   const openCard = (c, e) => openPanel(c.role === "producer" ? { type: "prospect", id: c.id } : { type: "tracked", id: c.id }, e);
   const menuDo = (fn) => () => { setMore(false); fn(); };
-  const notes = (data?.sheet?.problems || []).map((pr) => pr.text || String(pr));
+  // the sheet read's problems plus what the last Sheet check found: the link counts what the check lists
+  const notes = sheetProblems(data?.sheet?.problems, data?.sheet?.checkProblems);
 
   return (
     <div className="arb">
@@ -3611,7 +3612,7 @@ function ArBoard({ ar, onGo }) {
         <p className="arb-status">
           {sheetOk === null ? <span className="muted">Reading the OUTREACH tab…</span> : `Saved to your OUTREACH sheet · ${clock(data.sheet.readAt)}`}
           {/* what the sheet read flagged (a status dropdown it couldn't read…) is one quiet link; Sheet check has the full sentence */}
-          {notes.length > 0 && <> · <button className="inline-link arb-notes" onClick={() => setShowCheck(true)}>{notes.length === 1 ? "1 sheet note" : `${notes.length} sheet notes`}</button></>}
+          {notes.length > 0 && <> · <button className="inline-link arb-notes" onClick={() => setShowCheck(true)}>{notes.length === 1 ? "1 sheet problem" : `${notes.length} sheet problems`}</button></>}
         </p>
       )}
       {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
@@ -3663,7 +3664,7 @@ function ArBoard({ ar, onGo }) {
                 <div className="arb-cards">
                   {c.id === "reach" && (
                     <form onSubmit={quickAdd} className="arb-quick">
-                      <input placeholder="Add a producer, press Enter" value={quick} onChange={(e) => setQuick(e.target.value)} disabled={!canSave || busy} title={paused} aria-label="Add a producer" />
+                      <input placeholder="Add a producer…" value={quick} onChange={(e) => setQuick(e.target.value)} disabled={!canSave || busy} title={paused} aria-label="Add a producer" />
                     </form>
                   )}
                   {c.cards.map((card) => (
@@ -3693,7 +3694,7 @@ function ArBoard({ ar, onGo }) {
 
       <ArPanels ar={ar} open={open} openPanel={openPanel} closePanel={closePanel} onGo={onGo} />
       {showOff && <OffBoardList items={offBoard} live={live} canSave={canSave} onClose={() => setShowOff(false)} reload={reload} />}
-      {showCheck && <SheetCheck notes={notes} onClose={() => setShowCheck(false)} />}
+      {showCheck && <SheetCheck readProblems={data?.sheet?.problems} onClose={() => setShowCheck(false)} onRan={load} />}
     </div>
   );
 }
@@ -4013,35 +4014,46 @@ function OffBoardList({ items, live, canSave, onClose, reload }) {
   );
 }
 
-// Sheet check (spec 5.7): read-only, so it's safe to run against the real sheet before any save
-function SheetCheck({ notes = [], onClose }) {
+// A check that failed and a sheet-read problem about the same thing are one problem (the read's words win)
+const CHECK_TWIN = { statuses: "statusesBuiltIn", advanceRows: "advanceUnmapped", assumptions: "assumptionsOdd", totalRow: "noTotalRow" };
+function sheetProblems(read = [], checks = []) {
+  const ids = new Set((read || []).map((p) => p.id));
+  return [...(read || []).map((p) => p.text || String(p)), ...(checks || []).filter((c) => !ids.has(CHECK_TWIN[c.id])).map((c) => c.fix || c.text)];
+}
+// Sheet check (spec 5.7): read-only, so it's safe to run against the real sheet before any save.
+// What needs fixing comes first, in plain words; every check it ran sits under Technical details.
+function SheetCheck({ readProblems = [], onClose, onRan }) {
   const [res, setRes] = useState(null);
   const [err, setErr] = useState(null);
   const run = () => {
     setRes(null); setErr(null);
     fetch("/api/ar-data?check=1").then((r) => r.json())
-      .then((d) => { if (d.error) throw new Error(d.error); setRes(d); })
+      .then((d) => { if (d.error) throw new Error(d.error); setRes(d); onRan?.(); })
       .catch((e) => setErr(e.message || "Couldn't check the pub sheet just now."));
   };
-  useEffect(run, []);
+  useEffect(run, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEscape(onClose);
-  const bad = (res?.checks || []).filter((c) => !c.ok).length;
+  const notes = sheetProblems(readProblems, (res?.checks || []).filter((c) => !c.ok));
+  const bad = notes.length;
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-card arb-sheetcheck">
         <div className="modal-head"><h3>Sheet check</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
         <div className="modal-body">
           <p className="muted mb">Reads the OUTREACH, ADVANCE CALCULATOR and ASSUMPTIONS tabs and checks they're laid out the way the dashboard expects. It doesn't change anything in the sheet.</p>
-          {notes.map((t) => <p key={t} className="arb-banner warn arb-note"><AlertTriangle size={16} /><span>{t}</span></p>)}
           {err && <ArDataError err={err} retry={run} />}
           {!res && !err && <p className="muted">Checking the sheet…</p>}
-          {res && <p className={`hint ${bad ? "err-text" : "ok-text"} mb`}>{bad ? `${bad} thing${bad === 1 ? "" : "s"} to look at before saving from here.` : "Everything looks right."}</p>}
+          {res && <p className={`hint ${bad ? "err-text" : "ok-text"} mb`}>{bad ? `${bad === 1 ? "1 thing" : `${bad} things`} to fix in the sheet before saving from here:` : "Everything looks right."}</p>}
+          {res && notes.map((t) => <p key={t} className="arb-banner warn arb-note ar-sheet-problem"><AlertTriangle size={16} /><span>{t}</span></p>)}
           {res && (
-            <ul className="arb-checks">
-              {res.checks.map((c) => (
-                <li key={c.id} className={c.ok ? "ok" : "bad"}>{c.ok ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}<span>{c.text}</span></li>
-              ))}
-            </ul>
+            <details className="arb-tech">
+              <summary>Technical details</summary>
+              <ul className="arb-checks">
+                {res.checks.map((c) => (
+                  <li key={c.id} className={c.ok ? "ok" : "bad"}>{c.ok ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}<span>{c.text}</span></li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
         <div className="modal-foot"><button className="btn ghost sm" onClick={run} disabled={!res && !err}>Check again</button><button className="btn sm" onClick={onClose}>Close</button></div>
@@ -9793,6 +9805,13 @@ function StyleTag() {
     .app:not(.pub) .arb-card-open{width:100%}
     .app:not(.pub) .arb-card .arb-card-top{flex-wrap:nowrap;align-items:baseline;justify-content:space-between;gap:10px;width:100%}
     .app:not(.pub) .arb-val{flex:none;font:600 13px/1.3 var(--d-body);color:var(--d-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+    @media (max-width:1366px){
+      /* laptops: five even columns with no sideways scroll; a name wraps to 2 lines and ≈ $value goes under it */
+      .app:not(.pub) .arb-board{grid-template-columns:repeat(5,minmax(0,1fr))}
+      .app:not(.pub) .arb-card .arb-card-top{flex-direction:column;align-items:flex-start;gap:2px}
+      .app:not(.pub) .arb-card-top .arb-name{white-space:normal;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    }
+    .app:not(.pub) .arb-tech{margin-top:12px} .app:not(.pub) .arb-tech summary{cursor:pointer;font-size:13px;color:var(--d-ink-3);padding:8px 0}
     .app:not(.pub) .arb-contact .tag{margin-left:2px;vertical-align:1px}
     .app:not(.pub) .arb-money{color:var(--d-ink-3)}
     .app:not(.pub) .arb-next[data-stage]{color:var(--st);border-color:color-mix(in srgb,var(--st) 45%,transparent);background:color-mix(in srgb,var(--st) 8%,transparent)}
