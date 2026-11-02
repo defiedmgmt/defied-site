@@ -3,7 +3,7 @@
 // takes one { action, ... } at a time.
 import { sql } from "../../lib/db";
 import { requireStaff, requireSameOrigin } from "../../lib/session";
-import { lumState, portfolioIdOf, writeLuminateIds, knownAreas, isAR, isRoster, moveHeldToClients } from "../../lib/luminate";
+import { lumState, portfolioIdOf, writeLuminateIds, knownAreas, isAR, isRoster, moveHeldToClients, getState, setState } from "../../lib/luminate";
 import { afterExports } from "../../lib/luminate-run";
 import { syncSiteFromSheet } from "../../lib/site-sync";
 import { findIsrc, cleanIsrc, ISRC_RE } from "../../lib/isrc";
@@ -65,6 +65,18 @@ async function act(body, session) {
     // its files are clients' exports now: put their numbers in the sheet and on the site, as a drop does
     const run = await afterExports({ by: session.user.name || session.user.email || "staff" });
     return [run.error ? 502 : 200, { ok: !run.error, moved, error: run.error ? `Moved ${moved} export${moved === 1 ? "" : "s"}, but the sheet didn't update: ${run.error} Press "Update the sheet again".` : undefined }];
+  }
+  // an A&R portfolio's Open link (step 2): it has no record on this page, so the link is kept by POR id
+  if (action === "arLink") {
+    const id = String(body.portfolioId || "");
+    const url = String(body.url || "").trim().slice(0, 600);
+    if (!isAR((await knownAreas()).get(id)?.area)) return [400, { error: "That isn't one of the A&R portfolios." }];
+    if (url && !/^https:\/\//i.test(url)) return [400, { error: "The link should start with https://" }];
+    if (url && portfolioIdOf(url) && portfolioIdOf(url) !== id) return [400, { error: "That link opens a different portfolio." }];
+    const links = { ...((await getState("arLinks")) || {}) };
+    if (url) links[id] = url; else delete links[id];
+    await setState("arLinks", links);
+    return [200, { ok: true }];
   }
   if (action === "removePortfolio") {
     const [p] = await sql`SELECT * FROM luminate_portfolios WHERE id = ${body.id || ""}`;

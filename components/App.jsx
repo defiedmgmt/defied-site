@@ -5646,6 +5646,8 @@ const ago = (iso) => {
   return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`;
 };
 // a bare date ("2026-10-14", a snapshot's day) is that day wherever this is read, not UTC midnight
+// "all four" on the Luminate page's step 2 (digits past ten)
+const countWord = (n) => ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"][n] || String(n);
 const shortDay = (iso) => (iso ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00` : iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
 // a payment's day, with its year when it isn't this year's ("Dec 19, 2025" in a list of 2026 rows)
 const payDay = (iso) => (iso && new Date(iso).getFullYear() !== new Date().getFullYear()
@@ -5747,24 +5749,34 @@ function PortfolioForm({ initial, onClose, onSaved }) {
     // "It's a clients' portfolio": a wrong "What's in it?" answer, taken back on purpose
     if (action === "move" && !window.confirm(`Move this portfolio to your clients' portfolios? Its ${canMove} saved export${canMove === 1 ? "" : "s"} become${canMove === 1 ? "s" : ""} clients' numbers: the sheet and every client's page update now, and its songs show up to match and to add.`)) return;
     setBusy(true); setErr(null);
-    try { await lumPost(action === "remove" ? { action: "removePortfolio", id: f.id } : { action: "savePortfolio", ...f, fromAR: action === "move" }); onSaved(); }
+    try {
+      await lumPost(f.ar ? { action: "arLink", portfolioId: f.luminateId, url: f.url }
+        : action === "remove" ? { action: "removePortfolio", id: f.id } : { action: "savePortfolio", ...f, fromAR: action === "move" });
+      onSaved();
+    }
     catch (e) { setErr(e.message); setCanMove(e.data?.canMove ? e.data.heldFiles || 1 : 0); setBusy(false); }
   };
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
       <div className="modal-card">
-        <div className="modal-head"><h3>{f.id ? "Edit portfolio" : "Add a portfolio"}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-head"><h3>{f.ar ? `${f.name}'s link` : f.id ? "Edit portfolio" : "Add a portfolio"}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
         <div className="modal-body">
+          {f.ar ? <>
+            <Field label="Link to it in Luminate" value={f.url} placeholder="https://…" onChange={(e) => setF({ ...f, url: e.target.value })}
+              hint="Open the portfolio in Luminate and copy the address bar. Used for its Open button." />
+            {err && <p className="hint err-text" role="alert">{err}</p>}
+          </> : <>
           <Field label="Name" value={f.name} placeholder="Portfolio C" onChange={(e) => setF({ ...f, name: e.target.value })} />
           <Field label="Link to it in Luminate" value={f.url} placeholder="https://…" onChange={(e) => setF({ ...f, url: e.target.value })}
             hint="Open the portfolio in Luminate and copy the address bar. Used for the Open buttons, and to recognize its exports." />
           <Field label="Slots it holds (songs, artists and releases)" type="number" min={1} max={1000} value={f.capacity} onChange={(e) => setF({ ...f, capacity: e.target.value })}
             hint="For your clients' songs. A&R portfolios aren't added here: their exports are recognized by themselves." />
           {err && <p className="hint err-text" role="alert">{err}</p>}
+          </>}
         </div>
         <div className="modal-foot">
           {canMove > 0 && <button className="btn ghost sm" onClick={() => save("move")} disabled={busy}>It's a clients' portfolio</button>}
-          {f.id && <button className="btn ghost sm" onClick={() => save("remove")} disabled={busy}>Remove</button>}
+          {f.id && !f.ar && <button className="btn ghost sm" onClick={() => save("remove")} disabled={busy}>Remove</button>}
           <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="btn sm" onClick={() => save()} disabled={busy || !String(f.name).trim()}>{busy ? "Saving…" : "Save"}</button>
         </div>
@@ -5806,7 +5818,7 @@ const DROP_MAX_FILES = 60, DROP_MAX_CHARS = 3_500_000;
 // portfolio this page has never seen asks "What's in it?": one that looks like A&R (only artists,
 // or weekly numbers) has no answer picked for it, so it's never taken by accident. A&R files are
 // only kept for the A&R tab; they never touch STREAM DATA or the clients' numbers.
-function ExportDrop({ onDone }) {
+function ExportDrop({ onDone, saved = [] }) {
   const [over, setOver] = useState(false);
   const [busy, setBusy] = useState(null); // "checking" | "applying"
   const [out, setOut] = useState(null);
@@ -5869,6 +5881,8 @@ function ExportDrop({ onDone }) {
     r.releases && `${r.releases} release${r.releases === 1 ? "" : "s"}`, r.otherTypes && `${r.otherTypes} other (${(r.otherNames || []).join(", ")})`].filter(Boolean).join(" + ") || "nothing";
   const areaOf = (r) => (r.unknown ? areas[r.portfolioId] || "" : r.area);
   const unanswered = lumByPortfolio(results).filter(({ r }) => r.unknown && r.status === "ready" && !areas[r.portfolioId]);
+  // a saved portfolio (either area) with no file in this drop: easy to forget one of the four
+  const notIn = results.length ? saved.filter((p) => p.luminateId && !results.some((r) => r.portfolioId === p.luminateId)).map((p) => p.name) : [];
   return (
     <div className="lm-drop-wrap" data-sec="drop">
       <label
@@ -5879,8 +5893,8 @@ function ExportDrop({ onDone }) {
       >
         <input type="file" accept=".csv,text/csv" multiple disabled={!!busy} onChange={(e) => { take(e.target.files); e.target.value = ""; }} />
         {busy ? <RefreshCw size={22} className="spin" /> : <UploadCloud size={22} />}
-        <strong>{busy === "checking" ? "Checking the files…" : busy === "applying" ? "Updating the sheet and every client's numbers…" : "Drop this week's portfolio exports here"}</strong>
-        <span>{busy ? "This takes a few seconds." : "or click to choose them. All of them at once is fine. Nothing changes until you press Apply."}</span>
+        <strong>{busy === "checking" ? "Checking the files…" : busy === "applying" ? "Updating the sheet and every client's numbers…" : saved.length > 1 ? `Drop all ${saved.length} of this week's exports here` : "Drop this week's portfolio exports here"}</strong>
+        <span>{busy ? "This takes a few seconds." : "or click to choose them. The A&R ones go to the A&R tab by themselves. Nothing changes until you press Apply."}</span>
       </label>
       {out && (
         <div className={`lm-result${out.preview ? " lm-preview" : ""}`} role="status">
@@ -5925,6 +5939,7 @@ function ExportDrop({ onDone }) {
           {(out.errors || []).map((e) => (
             <div key={e.fileName || e.message} className="lm-result-row blocked"><AlertTriangle size={15} /><span>{e.message}</span></div>
           ))}
+          {notIn.length > 0 && <div className="lm-result-row lm-notin"><Clock size={15} /><span>Not in this drop: {notIn.join(", ")}.</span></div>}
           {out.preview && out.links?.length > 0 && <p className="hint">Would link {out.links.length} song{out.links.length === 1 ? "" : "s"} you marked as added: {[...new Set(out.links.map((l) => l.song))].join(", ")}.</p>}
           {out.preview && out.copied?.length > 0 && <p className="hint">Would also give {out.copied.length === 1 ? "a co-writer's copy" : `${out.copied.length} co-writers' copies`} the Luminate id the same song already has on another page, so {out.copied.length === 1 ? "that share counts" : "those shares count"} in the sheet: {[...new Set(out.copied.map((l) => l.song))].join(", ")}.</p>}
           {out.applied && out.updated && (
@@ -6027,6 +6042,9 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
     ? <p className="hint err-text"><span>Couldn't load the Luminate page.</span> <button className="btn ghost sm" onClick={reloadLum}>Try again</button></p>
     : <p className="muted">Loading…</p>;
   const roster = lum.portfolios.filter((p) => p.kind === "roster");
+  // every weekly export, the clients' portfolios first, then A&R (an A&R one's link form saves by POR id)
+  const arPorts = (lum.arPortfolios || []).map((p) => ({ ...p, ar: true }));
+  const allExports = [...lum.portfolios, ...arPorts];
   const waiting = groups.filter((g) => g.status === "waiting");
   const missing = groups.filter((g) => g.status === "missing");
   const portOf = (id) => lum.portfolios.find((p) => p.id === id);
@@ -6066,11 +6084,11 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
         </li>
         <li>
           <span className="lm-step-n">2</span>
-          <div><strong>Export each portfolio</strong><span>Set the period to 1 week · Worldwide, then Export CSV</span>
+          <div><strong>{allExports.length > 1 ? `Export all ${countWord(allExports.length)} with 1 week · Worldwide` : "Export each portfolio with 1 week · Worldwide"}</strong><span>Open each one, then Export CSV.</span>
             <div className="lm-step-links">
               {lum.portfolios.length === 0 && <span className="hint">Your portfolios appear here after the first drop.</span>}
-              {lum.portfolios.map((p) => (p.url
-                ? <ExtLink key={p.id} href={p.url} className="btn ghost sm"><ExternalLink size={13} /> {p.name}</ExtLink>
+              {allExports.map((p) => (p.url
+                ? <ExtLink key={p.id} href={p.url} className="btn ghost sm"><ExternalLink size={13} /> Open {p.name} ↗</ExtLink>
                 : <button key={p.id} className="btn ghost sm" onClick={() => setEditing({ ...p })}><Link2 size={13} /> Add {p.name}'s link</button>))}
             </div>
           </div>
@@ -6081,9 +6099,9 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
         </li>
       </ol>
 
-      <ExportDrop onDone={refresh} />
+      <ExportDrop onDone={refresh} saved={allExports} />
 
-      {lum.portfolios.length > 0 && (
+      {allExports.length > 0 && (
         <div className="lm-ports">
           {lum.portfolios.map((p) => {
             const used = (p.usedCount ?? p.songCount) + p.pendingCount, pct = Math.min(100, (used / p.capacity) * 100);
@@ -6102,6 +6120,13 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
               </button>
             );
           })}
+          {/* the A&R ones, read-only: their numbers go to the A&R tab */}
+          {arPorts.map((p) => (
+            <div key={p.id} className="lm-arcard">
+              <strong>{p.name}</strong>
+              <span className="lm-port-meta">{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}` : "No export yet"} · for the A&amp;R tab</span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -8888,6 +8913,8 @@ function StyleTag() {
     .app:not(.pub) .lm-port-top strong{font-size:14.5px;font-weight:600;color:var(--d-ink)}
     .app:not(.pub) .lm-port-count{font-size:13px} .app:not(.pub) .lm-port-count b{font-size:20px;font-weight:600;color:var(--d-ink);letter-spacing:-.01em}
     .app:not(.pub) .lm-port-meta{font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .lm-arcard{display:flex;flex-direction:column;gap:8px;padding:16px;border:1px dashed var(--d-line-2);border-radius:var(--d-r-card);color:var(--d-ink-3)}
+    .app:not(.pub) .lm-arcard strong{font-size:14px;font-weight:600;color:var(--d-ink-2)}
     .app:not(.pub) .lm-bar{display:block;height:6px;border-radius:100px;background:var(--d-s3);overflow:hidden}
     .app:not(.pub) .lm-bar i{display:block;height:100%;border-radius:inherit;background:var(--d-ink-3);transition:width .5s cubic-bezier(.2,.8,.2,1)}
     .app:not(.pub) .lm-bar.near i{background:var(--d-warn)} .app:not(.pub) .lm-bar.full i{background:var(--d-warn)}
