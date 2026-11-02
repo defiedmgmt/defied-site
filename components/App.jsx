@@ -6987,6 +6987,8 @@ function PayRow({ p, over, onLog }) {
 // "Log it" / "Log all": the exact rows first (a dry run on the server, fresh from Stripe and the
 // sheet), then one click adds them to the accounting sheet's Income tab. Off until the server's
 // ACCOUNTING_SHEET_WRITES is on, and then it only says so.
+// the confirm's title follows the ticked rows (every row starts ticked, test payments too)
+const logTitle = (n) => (n === 1 ? "Log this payment" : n === 0 ? "Log payments" : `Log ${n} payments`);
 function LogConfirm({ ids, canLog, onClose, onDone }) {
   const [plan, setPlan] = useState(null); // {rows, skipped} | {error}
   const [busy, setBusy] = useState(false);
@@ -7023,7 +7025,7 @@ function LogConfirm({ ids, canLog, onClose, onDone }) {
   else {
     body = (
       <>
-        {rowsN > 0 && <p className="log-lead">{rowsN === 1 ? "This row goes" : `These ${rowsN} rows go`} on the Income tab, under its last row. The sheet works out the month, manager and shares, the same as a row typed by hand.{rowsN > 1 ? " Untick one to leave it out for now." : ""}</p>}
+        {rowsN > 0 && <p className="log-lead">{n === 0 ? "No rows are ticked, so nothing goes" : n === 1 ? "This row goes" : `These ${n} rows go`} on the Income tab, under its last row. The sheet works out the month, manager and shares, the same as a row typed by hand.{rowsN > 1 ? " Untick one to leave it out for now." : ""}</p>}
         {rowsN > 0 && (
           <div className="log-table" role="table" aria-label="Rows to add">
             <div className="log-tr log-th" role="row"><span role="columnheader">Date</span><span role="columnheader">Artist / Client</span><span role="columnheader">Revenue type</span><span role="columnheader" className="acct-amt">Gross commission</span></div>
@@ -7044,7 +7046,7 @@ function LogConfirm({ ids, canLog, onClose, onDone }) {
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && close()}>
       <div className="modal-card log-modal" role="dialog" aria-label="Log to the accounting sheet">
-        <div className="modal-head"><h3>{done ? "Logged" : ids.length === 1 ? "Log this payment" : `Log ${ids.length} payments`}</h3><button onClick={close} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-head"><h3>{done ? "Logged" : logTitle(plan?.rows ? n : ids.length)}</h3><button onClick={close} aria-label="Close"><X size={18} /></button></div>
         <div className="modal-body">{body}</div>
         <div className="modal-foot">
           {done || !canLog || !rowsN ? <button className="btn sm" onClick={close}>{done ? "Done" : "Close"}</button> : (
