@@ -7060,13 +7060,13 @@ const dupeIds = (db, lum) => new Set(likelyDupes(db, lum).flatMap((x) => [x.keep
 const dupeName = (x) => `${plainTitle(x.keep.song) || "Untitled"} (${x.client?.name || "no client"})`;
 const dupeWords = (list) => (list.length === 1 ? `Possible duplicate: ${dupeName(list[0])}` : `${list.length} possible duplicate songs`);
 // the To do's detail (build I3): the gaps that matter for money first (no writer share, not on the sheet, not in
-// Luminate), then a missing date or link counted once per song; trimmed to fit the line
-const UPDATE_WORDS_MAX = 84;
+// Luminate), then a missing date or link counted once per song; short words so it stays one line on a laptop
+const UPDATE_WORDS_MAX = 60;
 function updateWords(list) {
   const n = (f) => list.filter((x) => x.gaps.some(f)).length;
   const share = n((g) => g.k === "share"), sheet = n((g) => g.k === "sheet"), lum = n((g) => g.k === "lum"), dl = n((g) => g.k === "date" || g.k === "link");
-  const parts = [share && `${share} ${share === 1 ? "has" : "have"} no writer share in the sheet`, sheet && `${sheet} ${sheet === 1 ? "isn't" : "aren't"} on the pub sheet`,
-    lum && `${lum} not in Luminate`, dl && `${dl} missing a date or link`].filter(Boolean);
+  const parts = [share && `${share} no writer share`, sheet && `${sheet} not on the sheet`,
+    lum && `${lum} not in Luminate`, dl && `${dl} no date or link`].filter(Boolean);
   let out = parts[0] || "";
   for (const x of parts.slice(1)) if (`${out} · ${x}`.length <= UPDATE_WORDS_MAX) out = `${out} · ${x}`; else break;
   return out;
@@ -9906,7 +9906,11 @@ function StyleTag() {
       .app:not(.pub) .fix-group[data-group=update] .fix-acts .btn{min-height:34px}
       .app:not(.pub) .fix-group[data-group=update] .upd-gap-x{display:none}
       .app:not(.pub) .fix-group[data-group=update] .upd-gap-more{display:inline-flex}
-      .app:not(.pub) .fix-group[data-group=update] .upd-gaps{flex-wrap:nowrap;overflow:hidden}
+      /* the "+N" never gets cut: the chips before it shrink and clip instead, and its tap area is 40px tall */
+      .app:not(.pub) .fix-group[data-group=update] .upd-gaps{flex-wrap:nowrap;overflow:visible;min-width:0}
+      .app:not(.pub) .fix-group[data-group=update] .upd-gap:not(.upd-gap-more){min-width:0;overflow:hidden}
+      .app:not(.pub) .fix-group[data-group=update] .upd-gap-more{flex:none;position:relative}
+      .app:not(.pub) .fix-group[data-group=update] .upd-gap-more::after{content:"";position:absolute;inset:-10px -6px}
       .app:not(.pub) .fix-group[data-group=update] .upd-open .upd-gap-x{display:inline-flex}
       .app:not(.pub) .fix-group[data-group=update] .upd-open .upd-gaps{flex-wrap:wrap}
       /* thumb-sized taps: the segmented toggles, the A&R strip in two lines, Luminate's buttons under its title */
