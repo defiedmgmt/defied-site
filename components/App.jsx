@@ -2587,7 +2587,7 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
       </aside>
       <main className="dash-main">
         {tab === "home" && <HomeDashboard db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} onGo={go} toLum={toLum} arTop={arSum?.top} arLoaded={!!arSum} />}
-        {tab === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={setSub} />}
+        {tab === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={setSub} lum={lum} />}
         {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} onSub={setSub} />}
         {tab === "luminate" && <LuminateAdmin db={db} commit={commit} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} toLum={toLum} onGo={go} />}
         {tab === "ar" && <ARAdmin onGo={go} sub={sub} />}
@@ -2786,9 +2786,12 @@ const NAME_TAKEN = "Another client already uses that name or sheet tab.";
 const nameTaken = (clients, id, value) => !!String(value || "").trim()
   && clients.some((o) => o.id !== id && [o.name, o.sheetTabName].some((s) => String(s || "").trim() && sameName(s, value)));
 
-function ClientsAdmin({ db, commit, openId = null }) {
+function ClientsAdmin({ db, commit, openId = null, lum = null }) {
+  // the clients the "numbers can't sync" To do names: each row says so, and its form says why
+  const noTab = noTabNames(db, lum).map((n) => findTabClient(db, n)).filter(Boolean);
+  const noTabIds = new Set(noTab.map((c) => c.id));
   const cols = [
-    { key: "name", label: "Name", render: (c) => <span className="cell-name"><Avatar src={c.photo} name={c.name} size={30} />{c.name}</span> },
+    { key: "name", label: "Name", render: (c) => <span className="cell-name"><Avatar src={c.photo} name={c.name} size={30} />{c.name}{noTabIds.has(c.id) && <span className="tab-missing" data-tab-missing title="The pub sheet has no tab by this name">No sheet tab</span>}</span> },
     { key: "role", label: "Role" }, { key: "credit", label: "Credit" },
     { key: "onRoster", label: "Public", render: (c) => c.onRoster !== false ? <span className="badge-yes"><Check size={12} /> Live</span> : <span className="badge-no">Hidden</span> },
   ];
@@ -2817,6 +2820,7 @@ function ClientsAdmin({ db, commit, openId = null }) {
     <div>
     <p className="muted mb">Order here is the order they appear on the public Roster page — use the arrows to move someone up or down.</p>
     {deleteWarn && <p className="hint err-text mb">{deleteWarn}</p>}
+    {noTab.length > 1 && <p className="hint warn-text mb" data-tab-missing-note><AlertTriangle size={14} /> {noTab.length} clients have no tab on the pub sheet, so their numbers can't sync. They're marked "No sheet tab" below: open each one and type its tab name under Sheet tab name.</p>}
     <Editor title="Clients" items={db.clients} columns={cols}
       blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "", sheetTabName: "", onRoster: false }}
       onSave={save} onDelete={del} onReorder={reorder} openId={openId}
@@ -2845,7 +2849,7 @@ function ClientsAdmin({ db, commit, openId = null }) {
           <Field label="SoundCloud URL" value={e.soundcloud} onChange={(ev) => set({ ...e, soundcloud: ev.target.value })} />
           {/* opened from To do's "Set X's sheet tab": this field has the focus and says what's wrong */}
           <Field label="Sheet tab name" value={e.sheetTabName} onChange={(ev) => set({ ...e, sheetTabName: ev.target.value })} autoFocus={!!openId && e.id === openId} data-sheet-tab=""
-            hint={`${openId && e.id === openId ? `The pub sheet has no tab called ${db.clients.find((c) => c.id === openId)?.sheetTabName?.trim() || db.clients.find((c) => c.id === openId)?.name}. ` : ""}Only needed if their tab on the pub sheet goes by a different name. Case, accents, punctuation and a “!” used as an i don't count — Stack!e already finds a tab named Stackie.`} />
+            hint={`${(openId && e.id === openId) || noTabIds.has(e.id) ? `The pub sheet has no tab called ${db.clients.find((c) => c.id === e.id)?.sheetTabName?.trim() || db.clients.find((c) => c.id === e.id)?.name}. ` : ""}Only needed if their tab on the pub sheet goes by a different name. Case, accents, punctuation and a “!” used as an i don't count — Stack!e already finds a tab named Stackie.`} />
           {taken(e, "sheetTabName") && <p className="hint err-text">{NAME_TAKEN}</p>}
         </>
       )}
@@ -4590,17 +4594,18 @@ const releaseDay = (s) => {
 function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClose, plain = false, typeName = null }) {
   const [busy, setBusy] = useState(false);
   const [typed, setTyped] = useState("");
+  const running = useRef(false); // set at once: a double click lands before the busy re-render
   const typedOk = !typeName || typed.trim() === typeName.trim();
   const close = () => { if (!busy) onClose(); };
   useEscape(close, true, true); // ahead of the window it opened over, so Esc closes only this
-  const run = async () => { if (!typedOk) return; setBusy(true); try { await go(); } finally { setBusy(false); } };
+  const run = async () => { if (!typedOk || running.current) return; running.current = true; setBusy(true); try { await go(); } finally { running.current = false; setBusy(false); } };
   return (
     <div className="modal ask-modal" onClick={(e) => e.target === e.currentTarget && close()}>
       <div className="modal-card ask-card" role="alertdialog" aria-modal="true" aria-label={title}>
         <div className="modal-head"><h3>{title}</h3><button onClick={close} aria-label="Close"><X size={18} /></button></div>
         <div className="modal-body ask-body">
           {children}
-          {typeName && <input className="ask-type" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Enter" && run()} aria-label={`Type ${typeName} to confirm`} placeholder={typeName} autoComplete="off" spellCheck={false} autoFocus />}
+          {typeName && <input className="ask-type" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Enter" && run()} disabled={busy} aria-label={`Type ${typeName} to confirm`} placeholder={typeName} autoComplete="off" spellCheck={false} autoFocus />}
         </div>
         <div className="modal-foot">
           {/* Cancel has the focus: Enter never deletes by accident */}
@@ -4620,8 +4625,8 @@ function useDirtyGuard(dirty, onClose) {
   const bar = asking && dirty && (
     <div className="dirty-bar" role="alert">
       <span>You have unsaved changes</span>
-      <button className="btn ghost sm" onClick={() => setAsking(false)} autoFocus>Keep editing</button>
-      <button className="btn sm" data-discard onClick={onClose}>Discard</button>
+      <button className="btn sm" data-keep-editing onClick={() => setAsking(false)} autoFocus>Keep editing</button>
+      <button className="btn ghost sm" data-discard onClick={onClose}>Discard</button>
     </div>
   );
   return { tryClose, bar };
@@ -6580,6 +6585,10 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
 // its own share (area "roster"). lum = null while the Luminate page's data loads: only what the db
 // alone shows, until then. Every task has an area for its colour: luminate | roster | money | ar |
 // clickup | site.
+// the sheet-tab To do's names: tabs the last sync didn't find, only clients with songs (a brand-new
+// client with no tab yet has no numbers to miss). Website › Roster marks the same clients.
+const findTabClient = (db, n) => db.clients.find((x) => x.name === n || (x.sheetTabName || "").trim() === n);
+const noTabNames = (db, lum) => (lum?.missingTabs || []).filter((n) => { const c = findTabClient(db, n); return !c || db.placements.some((p) => p.clientId === c.id); });
 function dashTasks(db, lum) {
   // both groups of Splits to confirm, in plain words: the even default ready to confirm, and the ones to fix by hand
   const { assumed, look } = splitsToConfirm(db);
@@ -6600,9 +6609,8 @@ function dashTasks(db, lum) {
   const up = lum.lastUpload, at = up?.at ? new Date(up.at).getTime() : null, made = up?.numbersFrom ? new Date(up.numbersFrom).getTime() : null;
   const byNumbers = made !== null && (at === null || made < at);
   const stale = byNumbers ? (Date.now() - made) / 86400000 : at !== null ? (Date.now() - at) / 86400000 : null;
-  // only clients with songs: a brand-new client with no tab yet has no numbers to miss
-  const tabClient = (n) => db.clients.find((x) => x.name === n || (x.sheetTabName || "").trim() === n);
-  const noTab = (lum.missingTabs || []).filter((n) => { const c = tabClient(n); return !c || db.placements.some((p) => p.clientId === c.id); });
+  const tabClient = (n) => findTabClient(db, n);
+  const noTab = noTabNames(db, lum);
   const noTabOne = noTab.length === 1 ? tabClient(noTab[0]) : null;
   const L = { area: "luminate", tab: "luminate" };
   // which portfolio is behind, how big it is, and how to fix it (lib/sync-tasks.js says the same)
@@ -7262,7 +7270,7 @@ function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, 
   const empty = cu.filter((l) => l?.tasks && !l.tasks.length).map((l) => `${l.name}: nothing open`);
   if (empty.length) out.push(<p key="cuempty" className={over(true) ? "todo-line over" : "todo-line"}>{empty.join(" · ")}</p>);
   if (homeFailed && !cu[0]) out.push(<p key="cuhome" className={over(true) ? "todo-line over" : "todo-line"}>Couldn't load ClickUp. <button className="inline-link" onClick={homeRetry}>Try again</button></p>);
-  if (cuErr.length) out.push(<p key="cuerr" className={over(true) ? "todo-line over" : "todo-line"}><AlertTriangle size={14} /> Couldn't reach ClickUp. <button className="inline-link" onClick={() => cuErr.forEach(load)}>Try again</button></p>);
+  if (cuErr.length) out.push(<p key="cuerr" className={over(true) ? "todo-line over" : "todo-line"}><AlertTriangle size={14} /> Couldn't reach ClickUp. <button className="inline-link" onClick={() => cuErr.forEach((k) => load(k))}>Try again</button></p>);
   if (cuWait) out.push(<p key="cuwait" className={over(true) ? "todo-line over" : "todo-line"}><RefreshCw size={14} className="spin" /> Loading ClickUp…</p>);
   return (
     <div className="attn home-card todo">
@@ -7280,7 +7288,7 @@ function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, 
 /* staff: website content (about, roster, staff, notable) -------------- */
 const WEBSITE_SECS = [["roster", "Roster"], ["notable", "Notable releases"], ["staff", "Team"], ["about", "About page"]];
 const WEB_SEC_KEY = "dm-web-sec";
-function WebsiteAdmin({ db, commit, sub, onSub }) {
+function WebsiteAdmin({ db, commit, sub, onSub, lum = null }) {
   const secs = WEBSITE_SECS;
   // a Dashboard task's sub wins, then the last tab used in this browser tab, then Roster (the weekly work)
   const openId = sub?.startsWith("roster:") ? sub.slice(7) : null; // To do's "Set X's sheet tab"
@@ -7300,7 +7308,7 @@ function WebsiteAdmin({ db, commit, sub, onSub }) {
         ))}
       </div>
       {sec === "about" && <AboutEditor db={db} commit={commit} />}
-      {sec === "roster" && <ClientsAdmin db={db} commit={commit} openId={openId} />}
+      {sec === "roster" && <ClientsAdmin db={db} commit={commit} openId={openId} lum={lum} />}
       {sec === "staff" && <TeamAdmin db={db} commit={commit} />}
       {sec === "notable" && <NotableAdmin db={db} commit={commit} />}
     </div>
@@ -7538,6 +7546,7 @@ function StyleTag() {
     .admin-hd{background:var(--panel2);color:var(--mut);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase}
     .cell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
     .cell-name{display:flex;align-items:center;gap:10px}
+    .app:not(.pub) .tab-missing{margin-left:8px;padding:1px 7px;border-radius:999px;font-size:11.5px;font-weight:500;color:var(--d-warn);border:1px solid currentColor;vertical-align:1px}
     .admin-act{display:flex;gap:6px;justify-content:flex-end}
     .admin-act button{background:var(--panel2);border:1px solid var(--line);color:var(--mut);border-radius:7px;padding:6px;display:flex}
     .admin-act button:disabled{opacity:.35;cursor:not-allowed}
@@ -9304,7 +9313,8 @@ function StyleTag() {
     /* Splits to confirm: the two groups' heads, the assumed split in words, and the unnamed rows in the editor */
     .app:not(.pub) .fix-sub{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0 4px}
     .app:not(.pub) .fix-sub .fix-client{margin:0}
-    .app:not(.pub) .fix-group[data-group] .fix-row{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) 120px auto}
+    .app:not(.pub) .fix-group[data-group] .fix-row{grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) max-content auto}
+    .app:not(.pub) .fix-streams{white-space:nowrap}   /* "2,022,098 streams" never wraps */
     .app:not(.pub) .fix-who{color:var(--d-ink-3)}
     .app:not(.pub) .fix-words{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--d-ink-2);font-size:13px}
     .app:not(.pub) .fix-why .fix-pct{margin-right:6px}
