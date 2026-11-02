@@ -9708,13 +9708,17 @@ function StyleTag() {
       .app:not(.pub) .home-money-card{container-type:inline-size}
       @container (max-width:560px){ .app:not(.pub) .pay-all-w{display:none} }
       @container (max-width:500px){ .app:not(.pub) .money-tabs .tab-the{display:none} }   /* "Not in sheet" keeps the head on one line at 1280 */
-      /* Not in the sheet's head stays one line above the list ("Add these 5 · $… paid", Log all 5); a
-         narrow card drops the column labels so a whole payment row shows without scrolling */
+      /* Not in the sheet's head sits above the list. On a short window (1366x768, 1280x800) the card is
+         small: the head is one line ("Add these 5 · $… paid", Log all 5) and the column labels go, so a
+         whole payment row shows without scrolling */
       .app:not(.pub) .home-money-card .acct-unlogged-top{flex:none}
-      .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head{flex-wrap:nowrap}
-      .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head > span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .app:not(.pub) .home-money-card .acct-log-all{flex:none}
-      @container (max-width:600px){ .app:not(.pub) .acct-hd-w{display:none} .app:not(.pub) .home-money-card .acct-row-hd{display:none} }
+      @media (max-height:820px){
+        .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head{flex-wrap:nowrap}
+        .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head > span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .app:not(.pub) .acct-hd-w{display:none}
+        .app:not(.pub) .home-money-card .acct-row-hd{display:none}
+      }
     }
     /* below 1400 the two columns share evenly, so Money's head (tabs + "All (N) ›") fits on one line */
     @media (min-width:900px) and (max-width:1399px) and (min-height:640px){
