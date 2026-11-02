@@ -4615,7 +4615,7 @@ const releaseDay = (s) => {
 // red button and Cancel. Esc, ×, Cancel or a click outside cancel; the red button waits for go().
 // plain: a normal button for a step that loses nothing; typeName: the button stays off until that is typed.
 // alt: { label, run } a second answer beside the red one (the merge card's "Not the same song"); wide: room for columns
-function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClose, plain = false, typeName = null, alt = null, wide = false }) {
+function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClose, plain = false, typeName = null, alt = null, wide = false, goDisabled = false }) {
   const [busy, setBusy] = useState(false);
   const [typed, setTyped] = useState("");
   const running = useRef(false); // set at once: a double click lands before the busy re-render
@@ -4635,7 +4635,7 @@ function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClo
           {/* Cancel has the focus: Enter never deletes by accident */}
           <button className="btn ghost sm" onClick={close} disabled={busy} autoFocus={!typeName}>Cancel</button>
           {alt && <button className="btn ghost sm" data-ask-alt onClick={() => run(alt.run)} disabled={busy}>{alt.label}</button>}
-          <button className={plain ? "btn sm" : "btn sm ask-go"} data-ask-go onClick={() => run()} disabled={busy || !typedOk}>{busy ? busyLabel : goLabel}</button>
+          <button className={plain ? "btn sm" : "btn sm ask-go"} data-ask-go onClick={() => run()} disabled={busy || !typedOk || goDisabled}>{busy ? busyLabel : goLabel}</button>
         </div>
       </div>
     </div>
@@ -7506,8 +7506,9 @@ function PayRow({ p, over, onLog }) {
 // ACCOUNTING_SHEET_WRITES is on, and then it only says so.
 // the confirm's title follows the ticked rows (every row starts ticked, test payments too)
 const logTitle = (n) => (n === 1 ? "Log this payment" : n === 0 ? "Log payments" : `Log ${n} payments`);
-// details: {[id]: {type, client}}, the owner's own picks (Accounting › To log's Log with details)
-function LogConfirm({ ids, canLog, onClose, onDone, details = null }) {
+// details: {[id]: {type, client}}, the owner's own picks (Accounting › To log's Log with details);
+// pay: the payment they're for, named above the row. onDetails(id): a skipped payment's Log with details.
+function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay = null, onDetails = null }) {
   const [plan, setPlan] = useState(null); // {rows, skipped} | {error}
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null); // the write's answer
@@ -7527,7 +7528,11 @@ function LogConfirm({ ids, canLog, onClose, onDone, details = null }) {
   const rowsN = plan?.rows?.length || 0;
   const n = (plan?.rows || []).filter((r) => !off.has(r.id)).length; // the ticked ones
   const tick = (id) => setOff((s) => { const x = new Set(s); x.has(id) ? x.delete(id) : x.add(id); return x; });
-  const reasons = (list) => list?.length > 0 && <ul className="log-skipped">{list.map((x) => <li key={x.id} data-skip={x.id}>{x.reason}</li>)}</ul>;
+  // each skipped line names its payment ("Oct 6 · Payer · $X:"), and offers Log with details where that's the way
+  const reasons = (list) => list?.length > 0 && <ul className="log-skipped">{list.map((x) => (
+    <li key={x.id} data-skip={x.id}>{x.what && <strong>{x.what}: </strong>}{x.reason}
+      {x.details && onDetails && !done && <> <button className="inline-link" data-skip-details={x.id} onClick={() => { onClose(); onDetails(x.id); }}>Log with details</button></>}</li>
+  ))}</ul>;
   let body;
   if (!canLog) body = <p className="home-muted" data-log-off><AlertTriangle size={15} /> Logging from the dashboard isn't switched on yet. For now, add {ids.length === 1 ? "it" : "them"} in the sheet as a new row with the full amount paid.</p>;
   else if (done) {
@@ -7543,6 +7548,7 @@ function LogConfirm({ ids, canLog, onClose, onDone, details = null }) {
   else {
     body = (
       <>
+        {pay && <p className="log-for" data-log-for>For the {shortDay(pay.at)} payment from {pay.client || pay.payer || "an unknown payer"}, {money(pay.amount)} paid.</p>}
         {rowsN > 0 && <p className="log-lead">{n === 0 ? "No rows are ticked, so nothing goes" : n === 1 ? "This row goes" : `These ${n} rows go`} on the Income tab, under its last row. The sheet works out the month, manager and shares, the same as a row typed by hand.{rowsN > 1 ? " Untick one to leave it out for now." : ""}</p>}
         {rowsN > 0 && (
           <div className="log-table" role="table" aria-label="Rows to add">
@@ -7550,7 +7556,7 @@ function LogConfirm({ ids, canLog, onClose, onDone, details = null }) {
             {plan.rows.map((r) => (
               <label key={r.id} className={off.has(r.id) ? "log-tr off" : "log-tr"} role="row" data-row={r.id}>
                 <span role="cell" className="log-date"><input type="checkbox" checked={!off.has(r.id)} disabled={busy} onChange={() => tick(r.id)} aria-label={`Add ${r.client}, ${money(r.amount)}`} />{r.date}</span>
-                <span role="cell" className="acct-who">{r.client}{r.test && <> <TestChip /></>}{r.notes ? <em> · {r.notes}</em> : null}</span><span role="cell">{r.type}</span><span role="cell" className="acct-amt">{money(r.amount)}</span>
+                <span role="cell" className="acct-who">{r.client || <span className="acct-blank">(blank)</span>}{r.test && <> <TestChip /></>}{r.notes ? <em> · {r.notes}</em> : null}</span><span role="cell">{r.type}</span><span role="cell" className="acct-amt">{money(r.amount)}</span>
               </label>
             ))}
           </div>
@@ -7618,7 +7624,7 @@ function MoneyCard({ home, failed, retry, tab, setTab, onGo }) {
               <button className="btn ghost sm acct-log" data-log={p.id} onClick={() => setLogIds([p.id])}>Log it</button></div>
           ))}
           {more(U.length)}
-          <p className="hint">{A.canLog ? "Log it adds the row to the sheet's Income tab for you, after showing you the row. They leave this list once the sheet has them." : "Add each one as a new row in the sheet with the full amount paid. They leave this list once the sheet has them."}</p>
+          <p className="hint">{A.canLog ? <>Log it adds the row to the sheet's Income tab for you, after showing you the row. When it can't tell the type or client (studio work, someone not on INFO), use Log with details in <button className="inline-link" data-go-to-log onClick={() => onGo?.("accounting", "log")}>Accounting › To log</button>.</> : "Add each one as a new row in the sheet with the full amount paid. They leave this list once the sheet has them."}</p>
         </div>
       );
   }
@@ -7646,7 +7652,7 @@ function MoneyCard({ home, failed, retry, tab, setTab, onGo }) {
       )}
       <div className={open ? "home-scroll open" : "home-scroll"} ref={body}>{content}</div>
       <ScrollFoot n={hidden} box={body} />
-      {logIds && <LogConfirm ids={logIds} canLog={!!A?.canLog} onClose={() => setLogIds(null)} onDone={retry} />}
+      {logIds && <LogConfirm ids={logIds} canLog={!!A?.canLog} onClose={() => setLogIds(null)} onDone={retry} onDetails={() => onGo?.("accounting", "log")} />}
     </div>
   );
 }
@@ -7662,7 +7668,7 @@ function AccountingAdmin({ sub, onSub, onCounts }) {
   const [failed, setFailed] = useState(false);
   const [logIds, setLogIds] = useState(null); // Log it / Log all
   const [pick, setPick] = useState(null); // the payment Log with details is for
-  const [detail, setDetail] = useState(null); // {ids, details}: the confirm after the picks
+  const [detail, setDetail] = useState(null); // {ids, details, p}: the confirm after the picks
   const [okBusy, setOkBusy] = useState(null);
   const [okErr, setOkErr] = useState(null);
   const load = (fresh = false) => {
@@ -7673,6 +7679,8 @@ function AccountingAdmin({ sub, onSub, onCounts }) {
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const n = d?.counts || {};
   const label = (k, l) => (k === "log" && n.toLog ? `${l} (${n.toLog})` : k === "check" && n.toCheck ? `${l} (${n.toCheck})` : l);
+  // a payment Log it skipped: straight to Log with details for it
+  const pickById = (id) => { const p = d?.toLog?.items?.find((x) => x.id === id); if (p) setPick(p); };
   const markOk = async (key) => {
     setOkBusy(key); setOkErr(null);
     const r = await fetch("/api/accounting", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ ok: key }) }).catch(() => null);
@@ -7698,42 +7706,73 @@ function AccountingAdmin({ sub, onSub, onCounts }) {
         {ACCT_SECS.map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} data-acct-tab={k} className={sec === k ? "subpill active" : "subpill"} onClick={() => onSub(k === "overview" ? null : k)}>{label(k, l)}</button>)}
       </div>
       {body}
-      {logIds && <LogConfirm ids={logIds} canLog={!!d?.toLog?.canLog} onClose={() => setLogIds(null)} onDone={() => load(true)} />}
-      {pick && <LogDetails p={pick} options={d?.options} canLog={!!d?.toLog?.canLog} onClose={() => setPick(null)} onNext={(details) => { setPick(null); setDetail({ ids: [pick.id], details }); }} />}
-      {detail && <LogConfirm ids={detail.ids} details={detail.details} canLog={!!d?.toLog?.canLog} onClose={() => setDetail(null)} onDone={() => load(true)} />}
+      {logIds && <LogConfirm ids={logIds} canLog={!!d?.toLog?.canLog} onClose={() => setLogIds(null)} onDone={() => load(true)} onDetails={pickById} />}
+      {pick && <LogDetails p={pick} options={d?.options} canLog={!!d?.toLog?.canLog} onClose={() => setPick(null)} onNext={(details) => { setPick(null); setDetail({ ids: [pick.id], details, p: pick }); }} />}
+      {detail && <LogConfirm ids={detail.ids} details={detail.details} pay={detail.p} canLog={!!d?.toLog?.canLog} onClose={() => setDetail(null)} onDone={() => load(true)} />}
     </div>
   );
 }
 
-// The four balance tiles (the Money card's Accounting tab), then Stripe against the sheet by month
+// What's wrong first (one line: the year's gap, payments to log, rows to check), then the four balance
+// tiles (the Money card's Accounting tab), then Stripe against the sheet by month with a This year row
+const cents2 = (x) => Math.round(x * 100) / 100;
 function AcctOverview({ d, onSec }) {
-  const t = d.tiles, month = monthName(d.month);
+  const t = d.tiles, month = monthName(d.month), M = d.months;
   const stats = [["monthNet", `Net · ${month}`, `${money(t.monthRevenue)} in · ${money(t.monthExpenses)} out`], ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]];
+  const yr = M && { stripe: cents2(M.reduce((a, m) => a + m.stripe, 0)), sheet: cents2(M.reduce((a, m) => a + m.sheet, 0)) };
+  if (yr) yr.diff = cents2(yr.stripe - yr.sheet);
+  const nLog = d.counts?.toLog || 0, nCheck = d.counts?.toCheck || 0;
+  const rounding = M ? cents2(M.flatMap((m) => m.parts).filter((x) => x.kind === "rounding").reduce((a, x) => a + x.amount, 0)) : 0;
+  const checkRow = new Set((d.toCheck?.items || []).map((x) => x.row).filter(Boolean)); // rows with an open To check line
+  const diffText = (v) => (v ? money(v).replace("$-", "-$") : "—");
+  const clean = yr && !yr.diff && !nLog && !nCheck;
   return (
     <>
+      {yr && (
+        <p className={clean ? "acct-status ok" : "acct-status"} data-acct-status>
+          {clean ? <><CheckCircle2 size={15} /> Stripe and the sheet match for {d.year}.</> : (
+            <><AlertTriangle size={15} /> <span>{yr.diff ? `${money(Math.abs(yr.diff))} apart for ${d.year}` : `Stripe and the sheet add up the same for ${d.year}`}
+              {nLog > 0 && <>: {nLog === 1 ? "1 payment" : `${nLog} payments`} to log (<button className="inline-link" data-status-log onClick={() => onSec("log")}>log {nLog === 1 ? "it" : "them"}</button>)</>}
+              {nCheck > 0 && <>{nLog ? " · " : ": "}{nCheck === 1 ? "1 row" : `${nCheck} rows`} to check (<button className="inline-link" data-status-check onClick={() => onSec("check")}>see why</button>)</>}
+              {rounding ? <span className="acct-round">{nLog || nCheck ? " · " : ": "}{money(Math.abs(rounding))} is rounding</span> : null}.</span></>
+          )}
+        </p>
+      )}
       <div className="cat-summary-grid acct-grid acct-tiles">
         {stats.map(([k, label, note]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(t[k])}</span>{note && <span className="acct-note">{note}</span>}</div>)}
       </div>
       <div className="fix-panel acct-panel" data-acct="months">
         <div className="fix-head"><h3>Stripe and the sheet, month by month</h3>
           <span className="hint">Through Stripe is Defied's share, as on the Dashboard. In the sheet is the Income tab's DEFIED SHARE, added up by each row's date.</span></div>
-        {!d.months ? <p className="home-muted"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the months can't be compared.</p> : (
+        {!M ? <p className="home-muted"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the months can't be compared.</p> : (
           <div className="acct-mtable" role="table" aria-label="Stripe and the sheet by month">
             <div className="acct-mrow acct-mhead" role="row"><span role="columnheader">Month</span><span role="columnheader" className="acct-amt">Through Stripe</span><span role="columnheader" className="acct-amt">In the sheet</span><span role="columnheader" className="acct-amt">Difference</span><span role="columnheader">Why</span></div>
-            {[...d.months].reverse().map((m) => (
+            {[...M].reverse().map((m) => (
               <div key={m.month} className="acct-mrow" role="row" data-month={m.month} data-explained={m.explained ? "1" : "0"}>
                 <span role="cell" className="acct-mname">{m.label}</span>
                 <span role="cell" className="acct-amt" data-col="stripe">{money(m.stripe)}</span>
                 <span role="cell" className="acct-amt" data-col="sheet">{money(m.sheet)}</span>
-                <span role="cell" className={m.diff ? "acct-amt acct-diff" : "acct-amt"} data-col="diff">{m.diff ? money(m.diff).replace("$-", "-$") : "—"}</span>
+                <span role="cell" className={m.diff ? "acct-amt acct-diff" : "acct-amt"} data-col="diff">{diffText(m.diff)}</span>
                 <span role="cell" className="acct-why" data-col="why">
                   {!m.diff && !m.parts.length ? <span className="acct-match"><CheckCircle2 size={14} /> Matches</span> : (
-                    <>{m.parts.map((x) => x.text).join(" · ")}
+                    <>{m.parts.map((x, i) => (
+                      <React.Fragment key={i}>{i ? " · " : ""}<span className={x.kind === "rounding" ? "acct-round" : undefined} data-part={x.kind}>{x.text}</span>
+                        {x.kind === "unlogged" && <> (<button className="inline-link" data-part-log onClick={() => onSec("log")}>log them</button>)</>}
+                        {(x.kind === "share" || x.kind === "extra") && x.url && <> (<ExtLink className="inline-link" href={x.url}>open row ↗</ExtLink>{checkRow.has(x.row) && <>, <button className="inline-link" onClick={() => onSec("check")}>see To check</button></>})</>}
+                      </React.Fragment>
+                    ))}
                       {!m.explained && <>{m.parts.length ? " · " : ""}<span className="acct-unexplained">Not explained yet: {money(Math.abs(m.residual))} · <button className="inline-link" onClick={() => onSec("check")}>see To check</button></span></>}</>
                   )}
                 </span>
               </div>
             ))}
+            <div className="acct-mrow acct-mtotal" role="row" data-total="year">
+              <span role="cell" className="acct-mname">This year</span>
+              <span role="cell" className="acct-amt" data-col="stripe">{money(yr.stripe)}</span>
+              <span role="cell" className="acct-amt" data-col="sheet">{money(yr.sheet)}</span>
+              <span role="cell" className={yr.diff ? "acct-amt acct-diff" : "acct-amt"} data-col="diff">{diffText(yr.diff)}</span>
+              <span role="cell" className="acct-why" data-col="why">{!yr.diff ? <span className="acct-match"><CheckCircle2 size={14} /> Matches</span> : "The months above explain it."}</span>
+            </div>
           </div>
         )}
       </div>
@@ -7747,19 +7786,23 @@ function AcctToLog({ d, onLog, onPick }) {
   const U = d.toLog?.items;
   if (!U) return <p className="home-muted"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the payments missing from the sheet can't be checked.</p>;
   if (!U.length) return <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every Stripe payment is in the accounting sheet.</p>;
+  // Log all takes only the ones Log it can place; the rest wait for Log with details
+  const easy = U.filter((p) => !p.needsDetails), need = U.length - easy.length;
   return (
     <div className="fix-panel acct-panel" data-acct="log">
       <div className="fix-head"><h3>To log ({U.length})</h3>
         <span className="hint">{d.toLog.canLog ? "Log it adds the row to the Income tab after showing it to you. When Log it can't tell the type or client (studio work, someone not on INFO), use Log with details. Newest first." : "Logging from the dashboard isn't switched on yet. For now, add each one in the sheet as a new row with the full amount paid."}</span></div>
-      <div className="fix-sub"><span className="fix-client">{money(d.toLog.total)} paid in total</span>
-        {U.length > 1 && <button className="btn sm" data-log-all onClick={() => onLog(U.map((p) => p.id))}>Log all {U.length}</button>}</div>
+      <div className="fix-sub"><span className="fix-client">{money(d.toLog.total)} paid in total{need ? <span className="acct-via"> · {need} {need === 1 ? "needs" : "need"} details</span> : null}</span>
+        {easy.length > 1 && <button className="btn sm" data-log-all onClick={() => onLog(easy.map((p) => p.id))}>Log all {easy.length}</button>}</div>
       {U.map((p) => (
         <div key={p.id} className="fix-row acct-lrow" data-pay={p.id}>
           <span className="fix-song"><span className="fix-who">{shortDay(p.at)} · </span>{p.client || p.payer || "Unknown payer"}{p.test && <> <TestChip /></>}<span className="acct-via"> · {viaText(p)}</span></span>
           <span className="fix-streams acct-paid">{money(p.amount)}</span>
           <span className="fix-acts">
-            <button className="btn sm" data-log={p.id} onClick={() => onLog([p.id])}>Log it</button>
-            <button className="btn ghost sm" data-log-details={p.id} onClick={() => onPick(p)}>Log with details</button>
+            {/* Log it can't place this one (the server's own check): only Log with details, and why */}
+            {p.needsDetails ? <span className="acct-need" data-needs-details={p.id} title={p.needsDetails}>Needs details</span>
+              : <button className="btn sm" data-log={p.id} onClick={() => onLog([p.id])}>Log it</button>}
+            <button className={p.needsDetails ? "btn sm" : "btn ghost sm"} data-log-details={p.id} onClick={() => onPick(p)}>Log with details</button>
           </span>
         </div>
       ))}
@@ -7774,15 +7817,19 @@ function LogDetails({ p, options, canLog, onClose, onNext }) {
   const [type, setType] = useState(types.includes("Other Income") && !p.client ? "Other Income" : types[0] || "");
   const [client, setClient] = useState(p.client && clients.includes(p.client) ? p.client : "");
   const need = type === "Management Commission" && !client;
+  // a payer who is a client on INFO: their commission goes in as Management Commission with their name
+  const onInfo = clients.find((c) => c.toLowerCase() === String(p.client || p.payer || "").trim().toLowerCase());
+  const offInfo = onInfo && (type !== "Management Commission" || !client);
   return (
-    <AskCard title="Log with details" goLabel="Check the row" plain onClose={onClose} go={() => { if (!need && type) onNext({ [p.id]: { type, client } }); }}>
+    <AskCard title="Log with details" goLabel="Check the row" plain goDisabled={need || !type} onClose={onClose} go={() => { if (!need && type) onNext({ [p.id]: { type, client } }); }}>
       <p>{shortDay(p.at)} · {p.client || p.payer || "Unknown payer"} · {money(p.amount)} paid. The full amount goes in Gross Commission; the sheet works out the shares.</p>
       {!canLog && <p className="hint">Logging from the dashboard isn't switched on yet, so the next step only says so.</p>}
       <label className="fld"><span>Revenue Type</span>
         <select data-pick-type value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t} value={t}>{t}</option>)}</select></label>
       <label className="fld"><span>Artist / Client</span>
         <select data-pick-client value={client} onChange={(e) => setClient(e.target.value)}><option value="">(blank, as on Other Income rows)</option>{clients.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>
-      {need && <p className="hint warn-text" data-pick-need>A Management Commission row needs an Artist / Client.</p>}
+      {need ? <p className="hint warn-text" data-pick-need>A Management Commission row needs an Artist / Client.</p>
+        : offInfo && <p className="hint warn-text" data-pick-info>{onInfo} is a client on INFO: commission payments are Management Commission, with {onInfo} as Artist / Client.</p>}
     </AskCard>
   );
 }
@@ -10184,7 +10231,18 @@ function StyleTag() {
     .app:not(.pub) .acct-ctext{white-space:normal;overflow:visible;line-height:1.45}
     .app:not(.pub) .acct-panel .pay-row:first-of-type{border-top:0}
     .app:not(.pub) .ask-body .fld{margin-top:12px}
-    .app:not(.pub) .ask-body .fld select{height:var(--d-field-h);padding:0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field);background:var(--d-field);color:var(--d-ink);font:inherit;font-size:14px}
+    /* background-color, not the shorthand: the shorthand would wipe the shared --d-chev arrow */
+    .app:not(.pub) .ask-body .fld select{height:var(--d-field-h);padding:0 40px 0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field);background-color:var(--d-field);color:var(--d-ink);font:inherit;font-size:14px}
+    .app:not(.pub) .ask-body .hint.warn-text{color:var(--d-warn)}
+    .app:not(.pub) .acct-status{display:flex;align-items:flex-start;gap:8px;margin:0 0 14px;font-size:14px;line-height:1.45;color:var(--d-warn)}
+    .app:not(.pub) .acct-status>svg{flex:none;margin-top:2px}
+    .app:not(.pub) .acct-status.ok{color:var(--d-ink-2)}
+    .app:not(.pub) .acct-status.ok>svg{color:var(--d-pos)}
+    .app:not(.pub) .acct-round{color:var(--d-ink-4)}
+    .app:not(.pub) .acct-mrow.acct-mtotal{border-top:1px solid var(--d-line-2);font-weight:500;color:var(--d-ink)}
+    .app:not(.pub) .acct-blank{color:var(--d-ink-4)}
+    .app:not(.pub) .acct-need{align-self:center;font-size:12.5px;color:var(--d-warn);white-space:nowrap}
+    .app:not(.pub) .log-for{margin:0 0 8px;font-size:13.5px;color:var(--d-ink)}
     @media (max-width:899px){
       .app:not(.pub) .acct-mrow{grid-template-columns:minmax(0,1fr) repeat(3,auto);row-gap:4px}
       .app:not(.pub) .acct-mrow .acct-why{grid-column:1 / -1}
