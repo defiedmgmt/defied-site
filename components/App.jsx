@@ -13,6 +13,7 @@ import {
   LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight, Info, Eye,
 } from "lucide-react";
 import { evenSplit, splitWords, filledSplits } from "../lib/splits";
+import { songGaps, netStreamsOf } from "../lib/sheet-facts";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
    this bundle instead of inside it). The chrome wordmark + D live in /public/brand as transparent
@@ -4776,8 +4777,16 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState(null);
   const [splitsFirst, setSplitsFirst] = useState(0); // a Fix's n while its editor is open: it opens on the Splits
+  const [fieldFirst, setFieldFirst] = useState(null); // Songs to update's Update: { f: the field to open on, n }
   // a closed form takes its message with it, and a Fix's "open on the Splits" with it
-  useEffect(() => { if (!editing) { setFormErr(null); setSplitsFirst(0); } }, [editing]);
+  useEffect(() => { if (!editing) { setFormErr(null); setSplitsFirst(0); setFieldFirst(null); } }, [editing]);
+  // an Update from Songs to update opens on its first missing field (the window's own scroll only)
+  useEffect(() => {
+    const el = fieldFirst && document.querySelector(`.modal-body [data-field="${fieldFirst.f}"]`), body = el?.closest(".modal-body");
+    if (!el) return;
+    if (body) body.scrollTop += el.getBoundingClientRect().top - body.getBoundingClientRect().top - 40;
+    el.focus({ preventScroll: true });
+  }, [fieldFirst?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   const editFrom = useRef(null); // the song as it was when Edit was pressed
   const active = songs.find((p) => p.id === openId);
   // the song window shows an even split the rule can fill as it would be confirmed (lib/splits.js); staff only
@@ -4790,8 +4799,10 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
   useEffect(() => {
     const p = fix && db.placements.find((x) => x.id === fix.id);
     if (!p || p.clientId !== clientId) return;
-    setOpenId(null); setFixNote(null); fixing.current = p.id;
-    editFrom.current = p; setEditing({ ...p }); setSplitsFirst(fix.n);
+    // a split Fix says what's left after Save; an Update from Songs to update just opens the song
+    const onSplits = !fix.field || fix.field === "splits";
+    setOpenId(null); setFixNote(null); fixing.current = fix.field ? null : p.id;
+    editFrom.current = p; setEditing({ ...p }); setSplitsFirst(onSplits ? fix.n : 0); setFieldFirst(onSplits ? null : { f: fix.field, n: fix.n });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fix?.n, clientId]);
   useEscape(() => (editing ? setEditing(null) : setOpenId(null)), !!(active || editing) && !saving);
@@ -5061,11 +5072,11 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               <PhotoUpload label="Cover art" value={editing.cover} onChange={(v) => setEditing({ ...editing, cover: v })} />
               <Field label="Song" value={editing.song} onChange={(ev) => setEditing({ ...editing, song: ev.target.value })} />
               <Field label="Artist" value={editing.artist} onChange={(ev) => setEditing({ ...editing, artist: ev.target.value })} />
-              <Field label="Release date" type="date" value={editing.releaseDate} onChange={(ev) => setEditing({ ...editing, releaseDate: ev.target.value })} />
-              <Field label="Streaming link" value={editing.link} onChange={(ev) => setEditing({ ...editing, link: ev.target.value })} />
+              <Field label="Release date" type="date" data-field="releaseDate" value={editing.releaseDate} onChange={(ev) => setEditing({ ...editing, releaseDate: ev.target.value })} />
+              <Field label="Streaming link" data-field="link" value={editing.link} onChange={(ev) => setEditing({ ...editing, link: ev.target.value })} />
               <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} focusPct={splitsFirst} assume={!!isStaff} owner={client} />
               {isStaff && (
-                <Field label="Luminate ID" value={editing.luminateId || ""} onChange={(ev) => setEditing({ ...editing, luminateId: ev.target.value })} hint="Leave blank if you haven't looked it up yet — the pub sheet row will just come through blank until you fill it in there." />
+                <Field label="Luminate ID" data-field="luminateId" value={editing.luminateId || ""} onChange={(ev) => setEditing({ ...editing, luminateId: ev.target.value })} hint="Leave blank if you haven't looked it up yet — the pub sheet row will just come through blank until you fill it in there." />
               )}
               <label className="check-row">
                 <input type="checkbox" checked={!!editing.notable} onChange={(ev) => setEditing({ ...editing, notable: ev.target.checked })} />
@@ -5554,7 +5565,40 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
   );
 }
 
-function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onFix, focusSplits }) {
+// Publishing › Songs to update: what each song is missing, one button that opens the song at the first gap
+function SongsToUpdate({ db, lum, onFix, focus }) {
+  const list = useMemo(() => songsToUpdate(db, lum), [db, lum]);
+  const box = useRef(null);
+  useEffect(() => { if (focus) landOn(box.current); }, [focus]);
+  return (
+    <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="update">
+      <div className="fix-head">
+        <h3>{list.length ? `Songs to update (${list.length})` : "Songs to update"}</h3>
+        <span className="hint">{list.length ? "What each song is missing on the pub sheet or on the site, from the last sheet pull. Update opens the song at the first missing field. Biggest songs first." : "Every song has its sheet row, writer share, release date, link and Luminate id."}</span>
+      </div>
+      {list.length > 0 && (
+        <div className="fix-group" data-group="update">
+          {list.map((x) => (
+            <div className="fix-row" key={x.p.id} data-song={x.p.id}>
+              <span className="fix-song"><span className="fix-who">{x.client?.name || "A deleted client"} · </span>{x.p.song || "Untitled"}</span>
+              <span className="fix-mid upd-gaps">{x.gaps.map((g) => <span key={g.k} className={`upd-gap${GAP_WORDS[g.k] ? "" : " split"}`} data-gap={g.k}>{g.label}</span>)}</span>
+              <span className="fix-streams">{fmt(x.p.streams || 0)} streams</span>
+              <span className="fix-acts"><button className="btn sm" data-update onClick={() => onFix(x.p.id, x.gaps[0].field)}>Update</button></span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onFix, focusSplits, focusUpdate }) {
+  // Splits to confirm and Songs to update share one place: two tabs, the To do's own one open
+  const nUpdate = useMemo(() => songsToUpdate(db, lum).length, [db, lum]);
+  const nSplits = useMemo(() => splitsToFix(db).reduce((a, g) => a + g.songs.length, 0), [db]);
+  const [fixTab, setFixTab] = useState(focusUpdate ? "update" : "splits");
+  useEffect(() => { if (focusUpdate) setFixTab("update"); }, [focusUpdate]);
+  useEffect(() => { if (focusSplits) setFixTab("splits"); }, [focusSplits]);
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [streamSync, setStreamSync] = useState({ syncing: false, error: null });
   const dbNow = useRef(db); // the sheet pull below starts from the db as it is then, not at the click
@@ -5619,7 +5663,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
   const links = state.data?.links || {};
   // the task list lives on the Dashboard now: here, only how many of them are this tab's to fix
   // the splits task is the Splits to fix list right under this line: only the others point to the Dashboard
-  const pubTasks = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster" && t.k !== "splits").length, [db, lum]);
+  const pubTasks = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster" && t.k !== "splits" && t.k !== "update").length, [db, lum]);
   const rate = state.data?.rate;
   // the writers' table: This week first (each writer's songs that have both weeks, added up, as
   // lib/weekly.js sumWeeks), biggest % first; any column head re-sorts. The 6 forecast columns wait
@@ -5676,7 +5720,15 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
       {pubTasks > 0 && (
         <p className="pub-tasks"><AlertTriangle size={14} /> {pubTasks} {splitsToFix(db).length ? "more " : ""}publishing task{pubTasks === 1 ? "" : "s"} · <button className="inline-link" onClick={() => onGo("home")}>see the Dashboard</button></p>
       )}
-      <SplitsToFix db={db} commit={commit} lum={lum} reloadLum={reloadLum} onFix={onFix} focus={focusSplits} onGo={onGo} />
+      {nUpdate > 0 && (
+        <div className="fix-tabs" role="tablist">
+          <button role="tab" aria-selected={fixTab === "splits"} className={fixTab === "splits" ? "subpill active" : "subpill"} data-fix-tab="splits" onClick={() => setFixTab("splits")}>{nSplits ? `Splits to confirm (${nSplits})` : "Splits"}</button>
+          <button role="tab" aria-selected={fixTab === "update"} className={fixTab === "update" ? "subpill active" : "subpill"} data-fix-tab="update" onClick={() => setFixTab("update")}>Songs to update ({nUpdate})</button>
+        </div>
+      )}
+      {fixTab === "update" && nUpdate > 0
+        ? <SongsToUpdate db={db} lum={lum} onFix={onFix} focus={focusUpdate} />
+        : <SplitsToFix db={db} commit={commit} lum={lum} reloadLum={reloadLum} onFix={onFix} focus={focusSplits} onGo={onGo} />}
 
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
@@ -5788,10 +5840,10 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
   // n only counts up (a ref), so the same song asked for again still opens.
   const [fix, setFix] = useState(editSong ? { id: editSong.id, n: 1 } : null);
   const fixN = useRef(fix ? 1 : 0);
-  const openFix = (id) => {
+  const openFix = (id, field = null) => {
     const p = db.placements.find((x) => x.id === id);
     if (!p) return;
-    setSec("overview"); setClientIdOnly(p.clientId); onSub?.(`client:${p.clientId}`); setFix({ id, n: ++fixN.current });
+    setSec("overview"); setClientIdOnly(p.clientId); onSub?.(`client:${p.clientId}`); setFix({ id, n: ++fixN.current, field });
   };
   const toFix = useMemo(() => Object.fromEntries(splitsToFix(db).map((g) => [g.clientId, g.songs.length])), [db]);
   const client = db.clients.find((c) => c.id === clientId);
@@ -5875,7 +5927,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
         </div>
         <div className="catalog-main">
           {clientId === null
-            ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} onGo={onGo} onFix={openFix} focusSplits={sub === "splits"} />
+            ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} onGo={onGo} onFix={openFix} focusSplits={sub === "splits"} focusUpdate={sub === "update"} />
             : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={() => setClientId(null)} onGo={onGo} onDeleteClient={setDelAsk} />
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
@@ -6690,6 +6742,32 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
 // client with no tab yet has no numbers to miss). Website › Roster marks the same clients.
 const findTabClient = (db, n) => db.clients.find((x) => x.name === n || (x.sheetTabName || "").trim() === n);
 const noTabNames = (db, lum) => (lum?.missingTabs || []).filter((n) => { const c = findTabClient(db, n); return !c || db.placements.some((p) => p.clientId === c.id); });
+// Songs to update (build G2): every song the pub sheet or the site is missing something for, from what the
+// last sheet pull read (db.sheetFacts, lib/sheet-facts.js). A split alone doesn't list a song (Splits to
+// confirm has those); on a listed song its split shows as one more chip. Biggest streams first.
+const GAP_WORDS = { share: "no writer share in the sheet", sheet: "not on the pub sheet", date: "no release date", link: "no link", lum: "not in Luminate" };
+function songsToUpdate(db, lum) {
+  const facts = db.sheetFacts || { songs: {}, clients: {} };
+  const groups = lum ? lumGroups(db, lum) : null;
+  const lumOf = new Map((groups || []).flatMap((g) => g.ids.map((id) => [id, g])));
+  const out = [];
+  for (const p of db.placements) {
+    const g = lumOf.get(p.id);
+    // in Luminate: it has an id (or shares one with its other copy), or staff excluded it on purpose
+    const inLuminate = groups ? !!(g?.luminateId || g?.status === "skipped") : !!p.luminateId;
+    const split = splitTotal(p.splits) === 100 ? "ok" : evenSplit(p.splits).status;
+    const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split, inLuminate });
+    if (!gaps.some((x) => GAP_WORDS[x.k])) continue;
+    out.push({ p, client: (db.clients || []).find((c) => c.id === p.clientId) || null, gaps });
+  }
+  return out.sort((a, b) => (b.p.streams || 0) - (a.p.streams || 0));
+}
+// the To do's detail: the two most common gaps, counted
+function updateWords(list) {
+  const n = {};
+  for (const x of list) for (const g of x.gaps) if (GAP_WORDS[g.k]) n[g.k] = (n[g.k] || 0) + 1;
+  return Object.keys(GAP_WORDS).filter((k) => n[k]).sort((a, b) => n[b] - n[a]).slice(0, 2).map((k) => `${n[k]} ${GAP_WORDS[k]}`).join(" · ");
+}
 function dashTasks(db, lum) {
   // both groups of Splits to confirm, in plain words: the even default ready to confirm, and the ones to fix by hand
   const { assumed, look } = splitsToConfirm(db);
@@ -6699,7 +6777,13 @@ function dashTasks(db, lum) {
     d: [assumed.length && `${assumed.length} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} a look`].filter(Boolean).join(" · "),
     tab: "catalog", sub: "splits", cta: "Review splits",
   };
-  if (!lum) return [splits].filter(Boolean);
+  // one line for every song missing something on the sheet or the site (Publishing › Songs to update)
+  const upd = songsToUpdate(db, lum);
+  const update = upd.length > 0 && {
+    k: "update", area: "roster", t: `${upd.length} song${upd.length === 1 ? " needs" : "s need"} updating`,
+    d: updateWords(upd), tab: "catalog", sub: "update", cta: "Review",
+  };
+  if (!lum) return [splits, update].filter(Boolean);
   const groups = lumGroups(db, lum);
   // one row for every song that still has to go into a portfolio (the Luminate badge counts the same)
   const toAdd = groups.filter((g) => g.status === "toAdd" || g.status === "unplaced").length;
@@ -6732,6 +6816,7 @@ function dashTasks(db, lum) {
     lum.unlinked.length && { ...L, k: "unlinked", sub: "match", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here`, cta: "Match them" },
     missing && { ...L, k: "missing", sub: "missing", t: `${missing} song${missing === 1 ? "" : "s"} marked as added ${missing === 1 ? "isn't" : "aren't"} in the latest export`, d: "Check them in Luminate, then add them again or unmark them.", cta: "View list" },
     splits,
+    update,
     // the fix is each one's "Sheet tab name", which lives in Website › Roster
     // one client: its edit window opens on that field
     noTab.length && (noTabOne ? {
@@ -9421,6 +9506,10 @@ function StyleTag() {
     .app:not(.pub) .fix-group[data-group] .fix-words{white-space:normal;overflow:visible}
     .app:not(.pub) .fix-sheet{color:var(--d-warn);font-size:12.5px;font-variant-numeric:tabular-nums}
     .app:not(.pub) .fix-sheet.tabless{color:var(--d-ink-3)}
+    .app:not(.pub) .fix-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+    .app:not(.pub) .upd-gaps{gap:4px 6px}
+    .app:not(.pub) .upd-gap{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;border:1px solid var(--d-line-2);color:var(--d-warn);font-size:12px;line-height:18px;white-space:nowrap}
+    .app:not(.pub) .upd-gap.split{color:var(--d-ink-3)}
     .app:not(.pub) .ask-places .ask-change{font-weight:500;color:var(--d-warn)}
     .app:not(.pub) .pct-in.pct-blank input::placeholder{color:var(--d-ink-3);font-style:italic}
     .app:not(.pub) .song-info em > .split-chip.split-chip-even{border-color:var(--d-line-2);background:var(--d-s1);color:var(--d-ink-3)}
