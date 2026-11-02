@@ -3,7 +3,7 @@
 // takes one { action, ... } at a time.
 import { sql } from "../../lib/db";
 import { requireStaff, requireSameOrigin } from "../../lib/session";
-import { lumState, portfolioIdOf, writeLuminateIds, knownAreas, isAR, isRoster, moveHeldToClients, getState, setState } from "../../lib/luminate";
+import { lumState, portfolioIdOf, writeLuminateIds, knownAreas, isAR, isRoster, moveHeldToClients, getState, setState, portfolioName } from "../../lib/luminate";
 import { afterExports } from "../../lib/luminate-run";
 import { syncSiteFromSheet } from "../../lib/site-sync";
 import { findIsrc, cleanIsrc, ISRC_RE } from "../../lib/isrc";
@@ -50,7 +50,7 @@ async function act(body, session) {
         }];
       }
       const [other] = await sql`SELECT id, name FROM luminate_portfolios WHERE luminate_id = ${lumId} AND id <> ${body.id || ""}`;
-      if (other) return [400, { error: `That's the same Luminate portfolio as "${other.name}".` }];
+      if (other) return [400, { error: `That's the same Luminate portfolio as "${portfolioName(lumId, other.name)}".` }];
     }
     if (body.id) {
       const [cur] = await sql`SELECT * FROM luminate_portfolios WHERE id = ${body.id}`;

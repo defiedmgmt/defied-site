@@ -4,6 +4,10 @@
 // writes back to the sheet.
 import { getSheetsClient, getSheetId, readMasterRollup, readMasterLinks, readAssumptions } from "../../lib/sheets";
 import { requireStaff } from "../../lib/session";
+import { portfolioName } from "../../lib/luminate";
+
+// the POR id in one of MASTER's ↗A / ↗B links, so the button reads Luminate's name for it ("Admin Catalog 1")
+const porIn = (url) => (/POR[0-9A-F]{16,}/i.exec(String(url || "")) || [])[0] || "";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
@@ -13,6 +17,7 @@ export default async function handler(req, res) {
     const spreadsheetId = getSheetId();
     const rollup = await readMasterRollup(sheets, spreadsheetId);
     const links = await readMasterLinks(sheets, spreadsheetId);
+    links.names = { portfolioA: portfolioName(porIn(links.portfolioA), null), portfolioB: portfolioName(porIn(links.portfolioB), null) };
     // the $ a stream every estimate uses (ASSUMPTIONS!B7), for the overview's one line explaining
     // the money; without it the line just says "the sheet's blended rate"
     const a = await readAssumptions(sheets, spreadsheetId).catch(() => ({}));

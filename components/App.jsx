@@ -3294,8 +3294,8 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
           {mine?.current != null
             ? <p className="ar-nums">{fmt(mine.current)} streams this week <UpDown r={mine} /> · {fmt(mine.atd ?? 0)} all-time</p>
             : <p className="muted ar-nums">No numbers yet. Add them to your A&amp;R list in Luminate, then pick their row here.</p>}
-          <label className="fld"><span>Their row in your Luminate A&amp;R Artists list</span>
-            <select value={link} onChange={(e) => { setLinkErr(null); arPost({ action: "linkLuminate", prospectId: s.id, luminateId: e.target.value }).then(() => loadPg()).catch((e2) => setLinkErr(e2.message)); }} aria-label="Their row in your Luminate A&R Artists list">
+          <label className="fld"><span>Their row in your Artist Tracker list in Luminate</span>
+            <select value={link} onChange={(e) => { setLinkErr(null); arPost({ action: "linkLuminate", prospectId: s.id, luminateId: e.target.value }).then(() => loadPg()).catch((e2) => setLinkErr(e2.message)); }} aria-label="Their row in your Artist Tracker list in Luminate">
               <option value="">{mine?.luminateId && !link ? `Matched by name: ${artistRows.find((r) => r.id === mine.luminateId)?.name || ""}` : "None yet"}</option>
               {artistRows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
@@ -3367,7 +3367,7 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
           {type === "artist" && <Field label="Instagram or TikTok" value={f.handle} onChange={set("handle")} />}
           <Field label="Spotify link" value={f.spotify} onChange={set("spotify")} />
           {type === "song" && <Field label="ISRC (if you have it)" value={f.isrc} onChange={set("isrc")} />}
-          <label className="fld"><span>Their row in your Luminate A&amp;R {type === "song" ? "Songs" : "Artists"} list</span>
+          <label className="fld"><span>Their row in your {type === "song" ? "Song Tracker" : "Artist Tracker"} list in Luminate</span>
             <select value={f.luminateId} onChange={set("luminateId")} aria-label="Their row in Luminate">
               <option value="">None yet</option>
               {rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -5918,8 +5918,8 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
             <RefreshCw size={14} className={streamSync.syncing ? "spin" : ""} /> {streamSync.syncing ? "Refreshing numbers…" : "Refresh numbers"}
           </button>
           {links.folder && <ExtLink href={links.folder} className="btn ghost sm" title="Open the pub sheet's Drive folder"><Folder size={14} /> Folder</ExtLink>}
-          {links.portfolioA && <ExtLink href={links.portfolioA} className="btn ghost sm" title="Open Luminate Portfolio 1"><ExternalLink size={14} /> Portfolio 1</ExtLink>}
-          {links.portfolioB && <ExtLink href={links.portfolioB} className="btn ghost sm" title="Open Luminate Portfolio 2"><ExternalLink size={14} /> Portfolio 2</ExtLink>}
+          {links.portfolioA && <ExtLink href={links.portfolioA} className="btn ghost sm" title={`Open ${links.names?.portfolioA || "Portfolio 1"} in Luminate`}><ExternalLink size={14} /> {links.names?.portfolioA || "Portfolio 1"}</ExtLink>}
+          {links.portfolioB && <ExtLink href={links.portfolioB} className="btn ghost sm" title={`Open ${links.names?.portfolioB || "Portfolio 2"} in Luminate`}><ExternalLink size={14} /> {links.names?.portfolioB || "Portfolio 2"}</ExtLink>}
         </div>
       </div>
       <p className="hint overview-subhint">
@@ -6738,6 +6738,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
             <div key={p.id} className="lm-arcard">
               <strong>{p.name}</strong>
               <span className="lm-port-meta">{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}` : "No export yet"} · for the A&amp;R tab</span>
+              {p.url && <ExtLink href={p.url} className="inline-link lm-open" data-open-lum>Open in Luminate ↗</ExtLink>}
             </div>
           ))}
         </div>
@@ -9639,6 +9640,7 @@ function StyleTag() {
     .app:not(.pub) .lm-port-meta{font-size:12px;color:var(--d-ink-4)}
     .app:not(.pub) .lm-arcard{display:flex;flex-direction:column;gap:8px;padding:16px;border:1px dashed var(--d-line-2);border-radius:var(--d-r-card);color:var(--d-ink-3)}
     .app:not(.pub) .lm-arcard strong{font-size:14px;font-weight:600;color:var(--d-ink-2)}
+    .app:not(.pub) .lm-arcard .lm-open{align-self:flex-start;font-size:13px}
     .app:not(.pub) .lm-bar{display:block;height:6px;border-radius:100px;background:var(--d-s3);overflow:hidden}
     .app:not(.pub) .lm-bar i{display:block;height:100%;border-radius:inherit;background:var(--d-ink-3);transition:width .5s cubic-bezier(.2,.8,.2,1)}
     .app:not(.pub) .lm-bar.near i{background:var(--d-warn)} .app:not(.pub) .lm-bar.full i{background:var(--d-warn)}
