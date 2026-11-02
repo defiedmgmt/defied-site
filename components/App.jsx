@@ -3410,7 +3410,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   // someone tracked here opens their panel on the Watchlist; a Luminate-only row is just shown there
   const openGainer = (r, kind) => goWatch(r.ref ? { pill: kind, open: r.key } : { pill: kind, flash: r.key });
   const Gainers = ({ list, kind }) => (
-    <div className="gainers ar-gainers" data-list={kind}>
+    <div className="gainers ar-gainers" data-list={kind} data-wait={!pg ? "" : undefined}>
       <div className="attn-head"><TrendingUp size={15} /> {kind === "people" ? "People" : "Songs"}{watch?.periods?.[kind] && <span className="ar-dates"> · {dayRange(watch.periods[kind].from, watch.periods[kind].to)}</span>}</div>
       {!pg ? <p className="gainers-empty">Loading…</p> : !list.length ? (
         <p className="gainers-empty">{kind === "people" ? "Nobody" : "No songs"} with numbers yet. <button className="btn ghost sm" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></p>
@@ -9166,6 +9166,8 @@ function StyleTag() {
       .app:not(.pub) .adv-cols{display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:24px;align-items:start}
       .app:not(.pub) .adv-out{position:sticky;top:16px;min-width:0}
       .app:not(.pub) .adv-out > .cat-summary,.app:not(.pub) .adv-out > .adv-empty{margin-top:0}
+      /* the side column is narrow: the 4 result tiles go 2 by 2 so no number is cut off */
+      .app:not(.pub) .adv-out .cat-summary-grid:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:repeat(2,minmax(0,1fr))}
     }
     .app:not(.pub) .adv-empty{margin:20px 0 0;padding:16px;border:1px dashed var(--d-line-3);border-radius:var(--d-r-md);color:var(--d-ink-3);font-size:13.5px;max-width:560px}
     /* Publishing: Splits to fix (one list, Fix opens the editor) and the strip after a Save */
@@ -9721,7 +9723,9 @@ function StyleTag() {
     .app:not(.pub) .ar-summary .ar-gainer-pair{align-items:start}
     .app:not(.pub) .ar-summary .ar-gainers{align-self:start;height:auto}
     .app:not(.pub) .ar-gainers .gainer{min-height:60px}
-    .app:not(.pub) .ar-summary .ar-gainers{min-height:341px}   /* about 5 rows, so nothing jumps when they load */
+    /* while loading, side by side: about 5 rows, so To do doesn't jump down when they arrive (once loaded each card is
+       its own height: no empty space under a short list; a phone shows one list at a time) */
+    @media (min-width:700px){ .app:not(.pub) .ar-summary .ar-gainers[data-wait]{min-height:341px} }
     .app:not(.pub) .dirty-bar{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 22px;border-top:1px solid var(--d-warn-line);background:var(--d-warn-bg);font-size:13.5px;color:var(--d-ink)}
     .app:not(.pub) .dirty-bar > span{margin-right:auto;font-weight:600}
     @media (max-width:700px){
