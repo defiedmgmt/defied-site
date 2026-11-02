@@ -5731,8 +5731,8 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
       )}
       {nUpdate > 0 && (
         <div className="fix-tabs" role="tablist">
-          <button role="tab" aria-selected={fixTab === "splits"} className={fixTab === "splits" ? "subpill active" : "subpill"} data-fix-tab="splits" onClick={() => setFixTab("splits")}>{nSplits ? `Splits to confirm (${nSplits})` : "Splits"}</button>
-          <button role="tab" aria-selected={fixTab === "update"} className={fixTab === "update" ? "subpill active" : "subpill"} data-fix-tab="update" onClick={() => setFixTab("update")}>Songs to update ({nUpdate})</button>
+          <button role="tab" aria-selected={fixTab === "splits"} className={fixTab === "splits" ? "fix-tab active" : "fix-tab"} data-fix-tab="splits" onClick={() => setFixTab("splits")}>{nSplits ? `Splits to confirm (${nSplits})` : "Splits"}</button>
+          <button role="tab" aria-selected={fixTab === "update"} className={fixTab === "update" ? "fix-tab active" : "fix-tab"} data-fix-tab="update" onClick={() => setFixTab("update")}>Songs to update ({nUpdate})</button>
         </div>
       )}
       {fixTab === "update" && nUpdate > 0
@@ -9516,6 +9516,12 @@ function StyleTag() {
     .app:not(.pub) .fix-sheet{color:var(--d-warn);font-size:12.5px;font-variant-numeric:tabular-nums}
     .app:not(.pub) .fix-sheet.tabless{color:var(--d-ink-3)}
     .app:not(.pub) .fix-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+    /* the subpill look, but not a page sub-tab: two lists inside Overview */
+    .app:not(.pub) .fix-tab{flex:none;height:32px;padding:0 14px;border:1px solid transparent;border-radius:100px;background:none;color:var(--d-ink-3);cursor:pointer;
+      font:400 10.5px/1 var(--d-display);font-synthesis:none;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;transition:background-color var(--d-t-fast) ease,color var(--d-t-fast) ease}
+    @media (hover:hover){ .app:not(.pub) .fix-tab:hover{color:var(--d-ink)} }
+    .app:not(.pub) .fix-tab.active{background:var(--d-active);border-color:var(--d-line-3);color:var(--d-ink)}
+    @media (pointer:coarse){ .app:not(.pub) .fix-tab{height:44px} }
     .app:not(.pub) .upd-gaps{gap:4px 6px}
     .app:not(.pub) .upd-gap{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;border:1px solid var(--d-line-2);color:var(--d-warn);font-size:12px;line-height:18px;white-space:nowrap}
     .app:not(.pub) .upd-gap.split{color:var(--d-ink-3)}
