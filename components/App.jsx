@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { evenSplit, splitWords, filledSplits, orderSplits } from "../lib/splits";
 import { songGaps, netStreamsOf, SONG_GAPS } from "../lib/sheet-facts";
-import { likelyDuplicates, mergedCard, plainTitle } from "../lib/duplicates";
+import { likelyDuplicates, mergedCard, mergedTitle, plainTitle } from "../lib/duplicates";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
    this bundle instead of inside it). The chrome wordmark + D live in /public/brand as transparent
@@ -4719,9 +4719,10 @@ function NotOursAsk({ db, commit, lum, target, client, onDone, onClose }) {
 // whoever's catalog page this is goes to the pub sheet. A co-writer typed into another split, or an
 // unnamed person from the even default, is just a name on the site, never someone we provision sheet
 // tracking for. Resolves null, or what went wrong (a slow or failed push never undoes the site save)
-async function pushOwnShare(saved, client, liveIds) {
+async function pushOwnShare(saved, client, liveIds, keepPercent = null) {
   const mine = ownSplit(saved, client);
-  const splits = mine ? [{ name: client?.sheetTabName || client?.name, percent: mine.percent }] : [];
+  // keepPercent: the share as the sheet has it, for a write that only renames the row (a merge, build I2)
+  const splits = mine ? [{ name: client?.sheetTabName || client?.name, percent: keepPercent ?? mine.percent }] : [];
   try {
     const res = await fetch("/api/sheets-push", {
       method: "POST",
@@ -5692,7 +5693,11 @@ const splitLine = (splits) => {
 function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
   const { keep, drop, client } = pair;
   const facts = db.sheetFacts?.songs || {};
-  const merged = mergedCard(keep, drop);
+  // the title it keeps (build I2): Luminate's for the kept id when that's the same song, which staff can switch
+  const lumT = lum?.lumTitles?.[keep.luminateId || drop.luminateId] || null;
+  const pick = mergedTitle(keep, drop, lumT?.name);
+  const [title, setTitle] = useState(pick.title);
+  const merged = { ...mergedCard(keep, drop), song: title };
   const tab = client?.sheetTabName?.trim() || client?.name || "";
   // the client's tab as it is now, read when the card opens and again at Merge (a read only, as Splits to confirm
   // does): the facts are from the last pull, and a row typed in, imported or added by a Save since then would make
@@ -5710,7 +5715,7 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
       if (!c?.tabFound) return { ok: false };
       const live = new Set(db.placements.map((p) => p.id));
       const k = sheetRowOf(keep, c.rows || [], live), d = sheetRowOf(drop, c.rows || [], live);
-      return { ok: true, keepRow: k?.row ?? null, dropRow: d?.row ?? null, share: k && Number(k.writerShare) > 0 ? Number(k.writerShare) : null };
+      return { ok: true, keepRow: k?.row ?? null, keepSong: k ? String(k.song ?? "") : null, dropRow: d?.row ?? null, share: k && Number(k.writerShare) > 0 ? Number(k.writerShare) : null };
     } catch { return { ok: false }; }
   };
   useEffect(() => { let off = false; if (client) readTab().then((f) => { if (!off) setFresh(f); }); return () => { off = true; }; }, [keep.id, drop.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -5724,16 +5729,27 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
       : now != null && Math.abs(now - will) <= 0.05 ? { kind: "same", will } : { kind: "change", from: now, will };
   };
   const share = planFor(fresh), now = share.from ?? null;
+  // the kept row's song name changes with the title (the column Save writes); never with no own share to write back
+  const renames = (f, kind) => (kind === "same" || kind === "change") && f?.ok && f.keepRow != null && f.keepSong != null && f.keepSong.trim() !== title.trim();
+  const rename = renames(fresh, share.kind);
   const shareText = {
     none: `${client?.name || "The client"} isn't on the merged split, so nothing is written to the pub sheet.`,
     norow: `Neither card has a row on the ${tab} tab, so nothing is written to the pub sheet.`,
     tabless: `${client?.name}'s sheet tab isn't set, so nothing is written to the pub sheet.`,
-    same: `${client?.name}'s writer share on the ${tab} tab stays ${pctOf(will)} (no change). Nothing is written to the pub sheet.`,
+    same: `${client?.name}'s writer share on the ${tab} tab stays ${pctOf(will)} (no change).${rename ? "" : " Nothing is written to the pub sheet."}`,
     change: `${client?.name}'s writer share on the ${tab} tab changes from ${now == null ? "blank" : pctOf(now)} to ${pctOf(will)}, and the song's earnings on the sheet change with it.`,
   }[share.kind];
   const fromOther = (k) => !keep[k] && !!drop[k];
+  // the merged card's title: two choices, the rule's first (Luminate's title for this song when it has one)
+  const titleChoice = pick.other ? (
+    <span className="dupe-title-pick" role="radiogroup" aria-label="Title after merging">
+      {[[pick.title, pick.fromLuminate ? "Luminate's title for this song" : "The kept card's title"],
+        [pick.other, pick.other === (keep.song || "").trim() ? "The kept card's title" : "The other card's title"]].map(([t, why]) => (
+        <label key={t} className={title === t ? "on" : ""}><input type="radio" name="dupe-title" checked={title === t} onChange={() => setTitle(t)} /><span><b>{t}</b><small>{why}</small></span></label>
+      ))}
+    </span>) : title || "Untitled";
   const fields = (p, side) => [
-    ["Title", p.song || "Untitled"],
+    ["Title", side === "merged" ? titleChoice : p.song || "Untitled"],
     ["Streams", fmt(p.streams || 0)],
     ["Pub sheet", side === "drop" ? (!fresh ? "Checking…" : !fresh.ok ? "Couldn't be checked" : fresh.dropRow != null ? `Row ${fresh.dropRow} on the ${tab} tab` : "No row")
       : row != null ? `Row ${row} on the ${tab} tab` : "No row"],
@@ -5742,6 +5758,8 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
     ["Link", p.link ? <ExtLink className="inline-link" href={p.link}>Open track ↗</ExtLink> : "None", side === "merged" && fromOther("link")],
     ["Cover", p.cover ? <span className="dupe-cover"><Photo src={p.cover} alt="" /></span> : "None", side === "merged" && fromOther("cover")],
     ["Split", splitLine(p.splits), side === "merged" && p.splits !== keep.splits],
+    // Luminate's release group rows of this song ("TRUST WHO (SLOWED & REVERB)"): a note here, never a card
+    ...(side === "merged" && lumT?.releases?.length ? [["Also in Luminate", `${lumT.releases.map((r) => `"${r}"`).join(", ")}, a release group of this song. It stays a note on this card, not a second card.`]] : []),
   ];
   const col = (p, side, head) => (
     <div className={`dupe-col ${side}`} data-dupe-col={side}>
@@ -5758,17 +5776,20 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
     if (!f.ok) return setBlocked(`The ${tab} tab of the pub sheet couldn't be read just now, so nothing was changed. Try again.`);
     if (f.dropRow != null) return setBlocked(`"${drop.song || "Untitled"}" now has its own row on the ${tab} tab (row ${f.dropRow}). Removing the card would leave that row counting on the sheet, so nothing was changed. Remove the row from the sheet first, or choose Not the same song.`);
     const share = planFor(f);
+    const renameNow = renames(f, share.kind);
     const done = await commit({ ...db, placements: db.placements.filter((p) => p.id !== drop.id).map((p) => (p.id === keep.id ? merged : p)) });
     if (!done) return; // the save's own error banner says why; nothing went to the sheet
     const saved = done.placements.find((p) => p.id === keep.id);
     const c = done.clients?.find((x) => x.id === keep.clientId) || client;
     let err = null;
     if (share.kind === "change" && saved && ownSplit(saved, c)) err = await pushOwnShare(saved, c, done.placements.map((p) => p.id));
+    // only the song name changes: the share goes back exactly as the sheet has it
+    else if (renameNow && saved && ownSplit(saved, c)) err = await pushOwnShare(saved, c, done.placements.map((p) => p.id), f.share);
     reloadLum?.();
     const n = done.placements.filter((p) => p.clientId === keep.clientId).length;
     onDone(err
-      ? { warn: true, text: `Merged into "${keep.song}", but the pub sheet wasn't updated (${err}). Open the song and Save again.` }
-      : { text: `Merged "${drop.song || "Untitled"}" into "${keep.song || "Untitled"}". ${client?.name || "The client"} has ${n} song${n === 1 ? "" : "s"}.${share.kind === "change" ? ` The writer share on the ${tab} tab is now ${pctOf(share.will)}.` : ""}` });
+      ? { warn: true, text: `Merged into "${title}", but the pub sheet wasn't updated (${err}). Open the song and Save again.` }
+      : { text: `${title === keep.song ? `Merged "${drop.song || "Untitled"}" into "${keep.song || "Untitled"}".` : `Merged "${keep.song || "Untitled"}" and "${drop.song || "Untitled"}" into one card, "${title || "Untitled"}".`} ${client?.name || "The client"} has ${n} song${n === 1 ? "" : "s"}.${share.kind === "change" ? ` The writer share on the ${tab} tab is now ${pctOf(share.will)}.` : ""}${renameNow ? ` Row ${f.keepRow} on the ${tab} tab is now "${title}".` : ""}` });
   };
   const notSame = async () => {
     try { await lumPost({ action: "notDuplicate", ids: [keep.id, drop.id] }); } catch (e) { onDone({ warn: true, text: `Couldn't save that: ${e.message}` }); return; }
@@ -5783,7 +5804,7 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
         : !fresh.ok ? `The ${tab} tab couldn't be checked just now; Merge checks it again first.`
         : fresh.dropRow != null ? `It has its own row on the ${tab} tab (row ${fresh.dropRow}), so it can't be merged here.`
         : `It has no row on the ${tab} tab (checked just now), so nothing is written there for it.`}</p>
-      <p data-merge-share>{shareText}</p>
+      <p data-merge-share>{shareText}{rename && <> <span data-merge-rename>Row {fresh.keepRow} on the {tab} tab is renamed to "{title}".</span></>}</p>
       {blocked && <p className="warn-text" role="alert" data-merge-blocked>{blocked}</p>}
       <div className="dupe-cols">
         {col(keep, "keep", "Keeps this card")}
@@ -9713,6 +9734,14 @@ function StyleTag() {
     .app:not(.pub) .dupe-f dt{font-size:11.5px;color:var(--d-ink-3)}
     .app:not(.pub) .dupe-f dd{margin:0;font-size:13px;line-height:1.4;color:var(--d-ink);overflow-wrap:anywhere}
     .app:not(.pub) .dupe-from{font-style:normal;color:var(--d-pos)}
+    /* the merged card's title: two choices (I2), the rule's first */
+    .app:not(.pub) .dupe-title-pick{display:flex;flex-direction:column;gap:4px;margin-top:2px}
+    .app:not(.pub) .dupe-title-pick label{display:flex;gap:6px;align-items:flex-start;padding:4px 6px;border:1px solid var(--d-line);border-radius:6px;cursor:pointer}
+    .app:not(.pub) .dupe-title-pick label.on{border-color:var(--d-ink-3)}
+    .app:not(.pub) .dupe-title-pick input{margin:2px 0 0;flex:none}
+    .app:not(.pub) .dupe-title-pick span{display:flex;flex-direction:column;min-width:0}
+    .app:not(.pub) .dupe-title-pick b{font-weight:600}
+    .app:not(.pub) .dupe-title-pick small{font-size:11.5px;color:var(--d-ink-3)}
     .app:not(.pub) .dupe-cover{display:block;position:relative;width:40px;height:40px;border-radius:6px;overflow:hidden}
     .app:not(.pub) .dupe-cover img{width:100%;height:100%;object-fit:cover}
     @media (max-width:699px){.app:not(.pub) .dupe-cols{grid-template-columns:minmax(0,1fr)}}
