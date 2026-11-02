@@ -9723,7 +9723,7 @@ function StyleTag() {
     @media (max-width:700px){
       /* phones: every tap target at least 40px tall, and nothing moves for it (easy-spec B9): text links grow
          an invisible 12px above and below, the Luminate tick gets a 44px box over the same 28px slot */
-      .app:not(.pub) .dash-main button.inline-link{padding-block:12px;margin-block:-12px}
+      .app:not(.pub) .dash-main .inline-link:not(.song-detail-top .inline-link){padding-block:12px;margin-block:-12px}
       .app:not(.pub) .lm-tick{width:44px;height:44px;margin:-8px}
       .app:not(.pub) .arb-find,.app:not(.pub) .dash-main input[type=search]{height:40px}
     }
