@@ -2437,7 +2437,7 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   }, [tab]);
   const lumCount = useMemo(() => {
     if (!lum) return 0;
-    return lumGroups(db, lum).filter((g) => g.status === "toAdd" || g.status === "unplaced" || g.status === "missing").length + lum.unlinked.length;
+    return lumGroups(db, lum).filter((g) => g.status === "toAdd" || g.status === "unplaced" || g.status === "missing").length + lum.unlinked.length + (lum.notOursLeft?.length || 0);
   }, [db, lum]);
   // db.sheetSync lives in this browser's localStorage, not on a server — a
   // device whose local copy is stale (never synced, or synced a while ago,
@@ -2487,7 +2487,7 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {tab === "home" && <HomeDashboard db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} onGo={go} toLum={toLum} />}
         {tab === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} />}
         {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} />}
-        {tab === "luminate" && <LuminateAdmin db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} toLum={toLum} onGo={go} />}
+        {tab === "luminate" && <LuminateAdmin db={db} commit={commit} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} toLum={toLum} onGo={go} />}
         {tab === "ar" && <ARAdmin onGo={go} />}
         {tab === "users" && <UsersAdmin db={db} commit={commit} />}
         {tab === "subs" && <SubsAdmin db={db} commit={commit} />}
@@ -4384,7 +4384,91 @@ const releaseDay = (s) => {
   const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   return (ymd ? new Date(+ymd[1], ymd[2] - 1, +ymd[3]) : new Date(s)).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
 };
-function SongManager({ db, commit, clientId, isStaff }) {
+// An in-app "are you sure?" in place of the browser's own confirm box: a title, what will happen, a
+// red button and Cancel. Esc, ×, Cancel or a click outside cancel; the red button waits for go().
+function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClose }) {
+  const [busy, setBusy] = useState(false);
+  const close = () => { if (!busy) onClose(); };
+  useEscape(close, true, true); // ahead of the window it opened over, so Esc closes only this
+  const run = async () => { setBusy(true); try { await go(); } finally { setBusy(false); } };
+  return (
+    <div className="modal ask-modal" onClick={(e) => e.target === e.currentTarget && close()}>
+      <div className="modal-card ask-card" role="alertdialog" aria-modal="true" aria-label={title}>
+        <div className="modal-head"><h3>{title}</h3><button onClick={close} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-body ask-body">{children}</div>
+        <div className="modal-foot">
+          {/* Cancel has the focus: Enter never deletes by accident */}
+          <button className="btn ghost sm" onClick={close} disabled={busy} autoFocus>Cancel</button>
+          <button className="btn sm ask-go" data-ask-go onClick={run} disabled={busy}>{busy ? busyLabel : goLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Delete and "This isn't ours": the song off the site, then its row off its client's pub sheet tab.
+// Resolves what happened on the sheet, once both are done; null when the site save failed.
+async function dropSong(db, commit, target, client) {
+  if (!(await commit({ ...db, placements: db.placements.filter((p) => p.id !== target.id) }))) return null;
+  const tab = client?.sheetTabName?.trim() || client?.name || "";
+  if (!ownSplit(target, client)) return { sheet: "none", tab }; // nothing was ever pushed under this client for this song
+  try {
+    const res = await fetch("/api/sheets-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+      body: JSON.stringify({ placementId: target.id, splits: [{ name: client?.sheetTabName || client?.name }] }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Sheet delete failed (${res.status})`);
+    const r = (data.results || [])[0] || {};
+    return { sheet: r.cleared ? "cleared" : r.found === false ? "noTab" : "notFound", tab: r.tab || tab };
+  } catch (err) {
+    console.error("Sheet delete failed:", err);
+    return { sheet: "failed", tab, error: err.message };
+  }
+}
+// the one line a Delete leaves under the client's header: what happened on the pub sheet
+const dropNote = (o) => ({
+  cleared: { text: `Deleted. Its row on the ${o.tab} tab is cleared.` },
+  notFound: { warn: true, text: `Deleted here, but its row on the ${o.tab} tab wasn't found. Delete that row in the pub sheet by hand, or the next numbers sync brings the song back.` },
+  noTab: { text: `Deleted. The pub sheet has no ${o.tab} tab, so there was no row to clear.` },
+  failed: { warn: true, text: `Deleted here, but the pub sheet couldn't be updated (${o.error || "no answer"}). Delete its row on the ${o.tab} tab by hand.` },
+}[o.sheet] || { text: "Deleted. It had no row on the pub sheet." });
+
+// "This isn't ours": every place the app knows the song is, then one step takes it out of all of
+// them (site, its sheet row) and notes it, so the sheet never brings it back and Luminate gets a
+// To do. Luminate itself can't be changed from here. onDone gets the result line.
+function NotOursAsk({ db, commit, lum, target, client, onDone, onClose }) {
+  const tab = client?.sheetTabName?.trim() || client?.name || "";
+  const lumPort = target.luminateId && lum?.inPortfolio?.[target.luminateId] && (lum.portfolios || []).find((p) => p.id === lum.inPortfolio[target.luminateId]);
+  const places = [
+    target.notable ? `On ${client?.name}'s public page (Featured)` : `On ${client?.name}'s page here (not public)`,
+    ownSplit(target, client) && `Its row on the ${tab} tab of the pub sheet`,
+    lumPort && `In Luminate: ${lumPort.name} (uses 1 of ${lumPort.capacity || lum.cap} slots)`,
+  ].filter(Boolean);
+  const go = async () => {
+    const out = await dropSong(db, commit, target, client);
+    if (!out) return onClose(); // the save's own error banner says why
+    let noted = null;
+    try { await lumPost({ action: "notOurs", clientId: target.clientId, song: target.song, artist: target.artist, luminateId: target.luminateId || "", placementId: target.id }); } catch (e) { noted = e.message; }
+    const sheetBad = out.sheet === "notFound" || out.sheet === "failed";
+    const text = [
+      out.sheet === "cleared" ? "Removed from the site and the pub sheet." : sheetBad ? `Removed from the site, but its row on the ${out.tab} tab ${out.sheet === "failed" ? "couldn't be cleared" : "wasn't found"}. Delete that row in the pub sheet by hand.` : "Removed from the site.",
+      lumPort && "1 thing left to do in Luminate.",
+      noted && `It couldn't be noted as not ours (${noted}), so a numbers sync may bring it back.`,
+    ].filter(Boolean).join(" ");
+    onDone({ warn: sheetBad || !!noted, text });
+  };
+  return (
+    <AskCard title={`This isn't ours: remove "${target.song || "Untitled"}"?`} goLabel="Remove it everywhere" busyLabel="Removing…" go={go} onClose={onClose}>
+      <p>This takes it out of everywhere the app can reach:</p>
+      <ul className="ask-places">{places.map((x) => <li key={x}>{x}</li>)}</ul>
+      {lumPort && <p className="hint">The app can't remove songs from Luminate. You'll get a To do to take it out of {lumPort.name} yourself.</p>}
+    </AskCard>
+  );
+}
+
+function SongManager({ db, commit, clientId, isStaff, lum, reloadLum }) {
   // staff's db has a `clients` array; a client session's db has just their
   // own `client` record (no `clients` array — that's not sent to them).
   const client = db.clients ? db.clients.find((c) => c.id === clientId) : db.client;
@@ -4509,27 +4593,18 @@ function SongManager({ db, commit, clientId, isStaff }) {
       if (isStaff) setPushWarn(err.message || "Sheet sync failed — the local save is fine, but the pub sheet wasn't updated.");
     });
   };
-  const removeSong = async (id) => {
-    const target = songs.find((p) => p.id === id);
+  // the one-line outcome of a Delete / This isn't ours, under the header (staff only)
+  const [delNote, setDelNote] = useState(null);
+  const [ask, setAsk] = useState(null); // "delete" | "notOurs": the confirm card over the song window
+  useEffect(() => { setDelNote(null); setAsk(null); }, [clientId]);
+  const removeSong = async (target) => {
+    setDelNote(null);
     // not deleted on the site: its sheet row stays too
-    if (!(await commit({ ...db, placements: db.placements.filter((p) => p.id !== id) }))) return;
+    const out = await dropSong(db, commit, target, client);
+    setAsk(null);
+    if (!out) return;
     setOpenId(null); setEditing(null);
-    if (!target) return;
-    const mine = ownSplit(target, client);
-    if (!mine) return; // nothing was ever pushed under this client for this song
-    const splits = [{ name: client?.sheetTabName || client?.name }];
-    fetch("/api/sheets-delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-      body: JSON.stringify({ placementId: id, splits }),
-    }).then(async (res) => {
-      if (res.ok) return;
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || `Sheet delete failed (${res.status})`);
-    }).catch((err) => {
-      console.error("Sheet delete failed:", err);
-      if (isStaff) setPushWarn(err.message || "Deleted locally, but the pub sheet row wasn't cleared.");
-    });
+    if (isStaff) setDelNote(dropNote(out));
   };
   const startAdd = () => setEditing({ id: null, clientId, song: "", artist: client?.name || "", releaseDate: "", link: "", cover: "", notable: false, luminateId: "", splits: [{ id: uid(), name: client?.name || "", role: client?.role || "", percent: 0 }] });
 
@@ -4545,6 +4620,7 @@ function SongManager({ db, commit, clientId, isStaff }) {
           </div>
         </div>
       )}
+      {isStaff && delNote && <p className={delNote.warn ? "hint del-note warn" : "hint del-note"} role="status">{delNote.warn ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} <span>{delNote.text}</span></p>}
       <div className="portal-block-head">
         <div>
           <h2>Songs &amp; Splits</h2>
@@ -4658,11 +4734,23 @@ function SongManager({ db, commit, clientId, isStaff }) {
               )}
             </div>
             <div className="modal-foot">
-              <button className="btn ghost sm" onClick={() => { if (window.confirm(`Delete "${active.song || "this song"}"? This can't be undone.`)) removeSong(active.id); }}>Delete</button>
+              {isStaff && <button className="btn ghost sm" data-not-ours onClick={() => setAsk({ kind: "notOurs", p: active })}>This isn't ours</button>}
+              <button className="btn ghost sm" data-del onClick={() => setAsk({ kind: "delete", p: active })}>Delete</button>
               <button className="btn sm" onClick={() => { editFrom.current = active; setEditing({ ...active }); }}>Edit</button>
             </div>
           </div>
         </div>
+      )}
+
+      {ask?.kind === "delete" && (
+        <AskCard title={`Delete "${ask.p.song || "Untitled"}"?`} goLabel="Delete song" busyLabel="Deleting…" go={() => removeSong(ask.p)} onClose={() => setAsk(null)}>
+          <p>It comes off {client?.name}'s page here.{ownSplit(ask.p, client) ? ` Its row on the ${client?.sheetTabName?.trim() || client?.name} tab of the pub sheet is cleared too.` : ""} This can't be undone.</p>
+          {ask.p.notable && <p>It's also shown on {client?.name}'s public page; it goes from there too.</p>}
+        </AskCard>
+      )}
+      {ask?.kind === "notOurs" && (
+        <NotOursAsk db={db} commit={commit} lum={lum} target={ask.p} client={client} onClose={() => setAsk(null)}
+          onDone={(n) => { setAsk(null); setOpenId(null); setDelNote(n); reloadLum?.(); }} />
       )}
 
       {editing && (
@@ -4912,9 +5000,10 @@ async function fullSiteSync(tabDb, commit) {
   // track every title a client already has on the site and skip the
   // rest rather than importing each leftover duplicate as a new song.
   const existingTitles = new Map(); // clientId -> Set(normalizedTitle)
-  for (const p of db.placements) {
+  // a title removed as "not ours" counts as already there, so its leftover row is never imported again
+  for (const p of [...db.placements.map((x) => ({ clientId: x.clientId, key: normalizeTitle(x.song) })), ...(db.notOurs || []).map((x) => ({ clientId: x.clientId, key: x.songKey }))]) {
     const set = existingTitles.get(p.clientId) || new Set();
-    set.add(normalizeTitle(p.song));
+    set.add(p.key);
     existingTitles.set(p.clientId, set);
   }
 
@@ -5282,7 +5371,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo }) {
         <div className="catalog-main">
           {clientId === null
             ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} onGo={onGo} />
-            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff />
+            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} />
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
         </div>
@@ -5694,7 +5783,7 @@ function ExportDrop({ onDone }) {
   );
 }
 
-function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo }) {
+function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo }) {
   const groups = useMemo(() => lumGroups(db, lum), [db, lum]);
   const plan = useMemo(() => lumPlan(groups, lum), [groups, lum]);
   const clientName = (id) => db.clients.find((c) => c.id === id)?.name || "";
@@ -5705,6 +5794,9 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo 
   const [typed, setTyped] = useState({}); // group key -> ISRC being typed
   const [busy, setBusy] = useState(null), [err, setErr] = useState(null);
   const [arList, setArList] = useState(false); // the A&R names to add (the same list the Dashboard opens)
+  const [ask, setAsk] = useState(null); // a confirm card: { notOurs: placement } | { lumOnly: unlinked row }
+  const [note, setNote] = useState(null); // what the last "This isn't ours" did
+  const [flash, setFlash] = useState(null); // the block a jump landed on, lit up for a moment
   const refresh = async () => { await reloadLum(); await reloadDb(); };
   const run = async (what, fn) => {
     setBusy(what); setErr(null);
@@ -5713,12 +5805,19 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo 
 
   // songs still needing an ISRC are looked up in the background, a few at a time: one run at a
   // time, picking up whatever still needs one after each batch (the list moves as it goes)
-  // a Dashboard task can point at a list further down ("match", "missing"): shown once it has drawn
+  // a Dashboard task can point at a list further down ("add", "match", "missing", "gone"): shown once
+  // it has drawn, lit up for a moment so the eye finds it
+  const jumpTo = (sec) => {
+    const el = document.querySelector(`.lm [data-sec="${sec}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: "start" });
+    setFlash(sec); setTimeout(() => setFlash((f) => (f === sec ? null : f)), 1200);
+  };
   const jumped = useRef(false);
   useEffect(() => {
     if (!sub || !lum || jumped.current) return;
     jumped.current = true;
-    document.querySelector(`.lm [data-sec="${sub}"]`)?.scrollIntoView({ block: "start" });
+    jumpTo(sub);
   }, [sub, lum]);
   const looked = useRef(new Set()), looking = useRef(false), latest = useRef(groups);
   latest.current = groups;
@@ -5764,6 +5863,7 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo 
   const last = lum.lastUpload;
   const pName = (id) => lum.portfolios.find((p) => p.id === id)?.name || "a portfolio";
   const candidates = groups.filter((g) => !g.luminateId && !g.skip);
+  const skipped = groups.filter((g) => g.status === "skipped");
 
   return (
     <div className="lm">
@@ -5787,7 +5887,9 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo 
       <ol className="lm-steps">
         <li className={plan.slots.length || plan.left.length ? "todo" : "done"}>
           <span className="lm-step-n">1</span>
-          <div><strong>Add new songs to Luminate</strong><span>{plan.slots.length || plan.left.length ? `${plan.slots.reduce((a, s) => a + s.songs.length, 0) + plan.left.length} to add, listed below with their ISRCs` : "Nothing new to add"}</span></div>
+          <div><strong>Add new songs to Luminate</strong>{plan.slots.length || plan.left.length
+            ? <span><button className="inline-link lm-show-add" onClick={() => jumpTo(plan.slots.length ? "add" : "full")}>Show the {plan.slots.reduce((a, s) => a + s.songs.length, 0) + plan.left.length} ↓</button> with their ISRCs</span>
+            : <span>Nothing new to add</span>}</div>
         </li>
         <li>
           <span className="lm-step-n">2</span>
@@ -5830,9 +5932,30 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo 
         </div>
       )}
 
+      {note && <p className={note.warn ? "hint del-note warn" : "hint del-note"} role="status">{note.warn ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} <span>{note.text}</span></p>}
+      {/* removed as "not ours" but still in a portfolio: the app can't take it out of Luminate */}
+      {lum.notOursLeft?.length > 0 && (
+        <div className={flash === "gone" ? "lm-block lm-gone lm-flash" : "lm-block lm-gone"} data-sec="gone">
+          <div className="lm-block-head"><div><strong>Taken off the site, still in Luminate</strong><span className="hint"> The next export after you take it out clears this by itself.</span></div></div>
+          <div className="lm-list">
+            {lum.notOursLeft.map((r) => (
+              <div key={r.luminateId} className="lm-song lm-gone-row">
+                <span className="lm-cover"><Radar size={16} /></span>
+                <span className="lm-song-main"><strong>{r.name}</strong><span>In {r.portfolioName} · uses 1 slot</span></span>
+                <span className="lm-unl-acts">
+                  {r.url ? <ExtLink href={r.url} className="btn ghost sm"><ExternalLink size={13} /> Open {r.portfolioName} ↗</ExtLink>
+                    : portOf(r.portfolioId) && <button className="btn ghost sm" onClick={() => setEditing({ ...portOf(r.portfolioId) })}><Link2 size={13} /> Add {r.portfolioName}'s link</button>}
+                  <button className="btn sm" disabled={!!busy} onClick={() => run(`out:${r.luminateId}`, () => lumPost({ action: "notOursOut", luminateId: r.luminateId }))}><Check size={13} /> I've taken it out</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {(plan.slots.length > 0 || plan.left.length > 0 || toLum?.count > 0) && <h3 className="lm-h3">Add to Luminate</h3>}
-      {plan.slots.map((slot) => (
-        <div key={slot.p.id} className="lm-block">
+      {plan.slots.map((slot, i) => (
+        <div key={slot.p.id} className={i === 0 && flash === "add" ? "lm-block lm-flash" : "lm-block"} data-sec={i === 0 ? "add" : undefined}>
           <div className="lm-block-head">
             <div>
               <strong>Add {slot.songs.length === 1 ? "this song" : `these ${slot.songs.length}`} to {slot.p.name}</strong>
@@ -5869,14 +5992,17 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo 
                     </span>
                   )}
                 </span>
-                <button className="lm-skip" title="Don't track this song in Luminate (unreleased, not ours to track…)" onClick={() => run(`skip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: true }))}><X size={14} /></button>
+                <span className="lm-row-acts">
+                  <button className="btn ghost sm lm-skip" title="Leave this song out of Luminate. It stays on the site." disabled={!!busy} onClick={() => run(`skip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: true }))}>Don't track</button>
+                  <button className="btn ghost sm lm-not-ours" disabled={!!busy} onClick={() => setAsk({ notOurs: db.placements.find((p) => p.id === g.ids[0]) })}>This isn't ours</button>
+                </span>
               </div>
             ))}
           </div>
         </div>
       ))}
       {plan.left.length > 0 && (
-        <div className="lm-block lm-full">
+        <div className="lm-block lm-full" data-sec={plan.slots.length ? undefined : "full"}>
           <AlertTriangle size={16} />
           <div>
             <strong>{roster.length ? `Every portfolio is full: ${plan.left.length} more song${plan.left.length === 1 ? " needs" : "s need"} a new one.` : `${plan.left.length} songs to add, and no portfolio yet.`}</strong>
@@ -5919,7 +6045,7 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo 
                         {candidates.map((g) => <option key={g.key} value={g.key}>{g.song} · {g.clientIds.map(clientName).join(", ")}</option>)}
                       </select>
                     )}
-                    <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`ign:${u.luminateId}`, () => lumPost({ action: "ignore", luminateId: u.luminateId }))}>Not ours</button>
+                    <button className="btn ghost sm" disabled={!!busy} onClick={() => setAsk({ lumOnly: u })}>Not ours</button>
                   </span>
                 </div>
               );
@@ -5969,6 +6095,42 @@ function LuminateAdmin({ db, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo 
         </>
       )}
 
+      {/* everything set aside, folded: Don't track and "Not ours" can be undone from here */}
+      {(skipped.length + (lum.ignoredList || []).length + (lum.notOursList || []).length) > 0 && (
+        <details className="lm-hidden" data-sec="hidden">
+          <summary>Not tracked ({skipped.length + (lum.ignoredList || []).length + (lum.notOursList || []).length})</summary>
+          <div className="lm-list">
+            {skipped.map((g) => (
+              <div key={g.key} className="lm-song lm-hidden-row">
+                <span className="lm-song-main"><strong>{g.song || "Untitled"}</strong><span>{g.clientIds.map(clientName).filter(Boolean).join(", ")} · not tracked in Luminate</span></span>
+                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`unskip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: false }))}>Track again</button>
+              </div>
+            ))}
+            {(lum.ignoredList || []).map((r) => (
+              <div key={r.luminateId} className="lm-song lm-hidden-row">
+                <span className="lm-song-main"><strong>{r.name}</strong><span>In Luminate · set aside as not one of ours</span></span>
+                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`unign:${r.luminateId}`, () => lumPost({ action: "ignore", luminateId: r.luminateId, ignore: false }))}>Track again</button>
+              </div>
+            ))}
+            {(lum.notOursList || []).map((r) => (
+              <div key={`${r.clientId}:${r.song}:${r.luminateId}`} className="lm-song lm-hidden-row">
+                <span className="lm-song-main"><strong>{r.song}</strong><span>Removed as not ours · {shortDay(r.removedAt)}</span></span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
+      {ask?.notOurs && (
+        <NotOursAsk db={db} commit={commit} lum={lum} target={ask.notOurs} client={db.clients.find((c) => c.id === ask.notOurs.clientId)} onClose={() => setAsk(null)}
+          onDone={(n) => { setAsk(null); setNote(n); refresh(); }} />
+      )}
+      {ask?.lumOnly && (
+        <AskCard title={`"${ask.lumOnly.name}" isn't ours?`} goLabel="It isn't ours" busyLabel="Saving…" onClose={() => setAsk(null)}
+          go={async () => { const u = ask.lumOnly; await run(`ign:${u.luminateId}`, () => lumPost({ action: "notOurs", song: u.name, luminateId: u.luminateId })); setAsk(null); }}>
+          <p>The app stops asking about it. It's still in {pName(ask.lumOnly.portfolioId)} in Luminate and uses a slot; you'll get a To do to take it out.</p>
+        </AskCard>
+      )}
       {editing && <PortfolioForm initial={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reloadLum(); }} />}
     </div>
   );
@@ -6012,7 +6174,9 @@ function dashTasks(db, lum) {
   return [
     stale === null ? { ...L, k: "none", t: "No Luminate export has been dropped in yet", cta: "Open Luminate" }
       : stale > 8 && { ...L, k: "stale", sub: "drop", t: staleT, d: staleD, cta: "Drop new exports" },
-    toAdd && { ...L, k: "add", t: `${toAdd} song${toAdd === 1 ? " needs" : "s need"} adding to Luminate`, d: noIsrc ? (toAdd === 1 ? "It still needs its ISRC typed in" : `${noIsrc} of them still need${noIsrc === 1 ? "s its" : " their"} ISRC typed in`) : undefined, cta: "See the list" },
+    (lum.notOursLeft || []).length && { ...L, k: "gone", sub: "gone", t: lum.notOursLeft.length === 1 ? `Take "${lum.notOursLeft[0].name}" out of ${lum.notOursLeft[0].portfolioName} in Luminate` : `Take ${lum.notOursLeft.length} songs that aren't ours out of Luminate`,
+      d: lum.notOursLeft.length === 1 ? "It's off the site but still uses a slot." : "They're off the site but still use slots.", cta: "Show me" },
+    toAdd && { ...L, k: "add", sub: "add", t: `${toAdd} song${toAdd === 1 ? " needs" : "s need"} adding to Luminate`, d: noIsrc ? (toAdd === 1 ? "It still needs its ISRC typed in" : `${noIsrc} of them still need${noIsrc === 1 ? "s its" : " their"} ISRC typed in`) : undefined, cta: "See the list" },
     lum.unlinked.length && { ...L, k: "unlinked", sub: "match", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here`, cta: "Match them" },
     missing && { ...L, k: "missing", sub: "missing", t: `${missing} song${missing === 1 ? "" : "s"} marked as added ${missing === 1 ? "isn't" : "aren't"} in the latest export`, d: "Check them in Luminate, then add them again or unmark them.", cta: "See the list" },
     splits,
@@ -8578,8 +8742,30 @@ function StyleTag() {
     .app:not(.pub) .lm-isrc-in input::placeholder{color:var(--d-ph);text-transform:none;font-family:var(--d-body)}
     .app:not(.pub) .lm-isrc-in input:focus{outline:none;border-color:#f5f5f5}
     .app:not(.pub) .lm-find{font-size:12.5px;white-space:nowrap}
-    .app:not(.pub) .lm-skip{border:0;background:none;padding:0;cursor:pointer;flex:none;display:grid;place-items:center;width:var(--d-icon);height:var(--d-icon);border-radius:var(--d-r-sm);color:var(--d-ink-off);transition:color var(--d-t-fast) ease,background-color var(--d-t-fast) ease}
-    .app:not(.pub) .lm-skip:hover{color:var(--d-ink);background:var(--d-hover)}
+    /* Don't track / This isn't ours: words, not an unlabelled × */
+    .app:not(.pub) .lm-row-acts{display:flex;gap:6px;flex:none}
+    .app:not(.pub) .lm-row-acts .btn{white-space:nowrap}
+    .app:not(.pub) .lm-show-add{font:inherit;color:var(--d-info)}
+    /* a Dashboard task's jump lands here: a short outline so the eye finds it */
+    .app:not(.pub) .lm [data-sec]{scroll-margin-top:16px}   /* a jump leaves the block's top edge (and its outline) in view */
+    .app:not(.pub) .lm-flash{outline:2px solid var(--d-info-line);outline-offset:2px;animation:lm-flash 1.2s ease-out}
+    @keyframes lm-flash{0%{outline-color:var(--d-info)}100%{outline-color:var(--d-info-line)}}
+    @media (prefers-reduced-motion:reduce){.app:not(.pub) .lm-flash{animation:none}}
+    .app:not(.pub) .lm-gone{border-color:var(--d-warn-line)}
+    .app:not(.pub) .lm-hidden{margin:28px 0 0}
+    .app:not(.pub) .lm-hidden summary{cursor:pointer;font:600 14px/1.3 var(--d-body);color:var(--d-ink-3);padding:10px 0;min-height:40px}
+    .app:not(.pub) .lm-hidden .lm-list{margin-top:6px}
+    .app:not(.pub) .lm-hidden-row .lm-song-main{flex:1}
+    /* the in-app confirm card, and the one line a Delete / This isn't ours leaves behind */
+    .app:not(.pub) .ask-card{max-width:480px}
+    .app:not(.pub) .ask-body > p{margin:0 0 10px;font-size:13.5px;line-height:1.5;color:var(--d-ink-2)}
+    .app:not(.pub) .ask-body > p.hint{font-size:12.5px;color:var(--d-ink-3);margin-bottom:0}
+    .app:not(.pub) .ask-places{margin:0 0 12px;padding-left:18px;font-size:13.5px;line-height:1.6;color:var(--d-ink)}
+    .app:not(.pub) .btn.ask-go{background:var(--d-neg);border-color:var(--d-neg);color:#160606}
+    .app:not(.pub) p.hint.del-note{display:flex;align-items:flex-start;gap:8px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--d-pos-line);border-radius:var(--d-r-md);background:var(--d-pos-bg);color:var(--d-ink-2);font-size:13px;line-height:1.5;max-width:80ch}
+    .app:not(.pub) p.hint.del-note svg{flex:none;margin-top:3px;color:var(--d-pos)}
+    .app:not(.pub) p.hint.del-note.warn{border-color:var(--d-warn-line);background:var(--d-warn-bg);color:var(--d-ban-warn-ink)}
+    .app:not(.pub) p.hint.del-note.warn svg{color:var(--d-warn)}
     .app:not(.pub) .lm-unl-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:none;max-width:60%}
     .app:not(.pub) .lm-pick{height:var(--d-ctl-sm);max-width:260px;padding:0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:400 13.5px/1 var(--d-body)}
     .app:not(.pub) .attn,.app:not(.pub) .gainers{display:flex;flex-direction:column;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden;align-self:start}
@@ -8609,8 +8795,10 @@ function StyleTag() {
       .app:not(.pub) .lm-steps{grid-template-columns:minmax(0,1fr)}
     }
     @media (max-width:599px){
-      .app:not(.pub) .lm-song{flex-wrap:wrap;row-gap:8px;position:relative;padding-right:44px}
-      .app:not(.pub) .lm-skip{position:absolute;top:12px;right:6px}
+      .app:not(.pub) .lm-song{flex-wrap:wrap;row-gap:8px;position:relative;padding-right:12px}
+      .app:not(.pub) .lm-row-acts{flex-basis:100%;padding-left:40px}
+      .app:not(.pub) .lm-tick + .lm-cover ~ .lm-row-acts{padding-left:80px}
+      .app:not(.pub) .lm-row-acts .btn,.app:not(.pub) .lm-unl-acts .btn,.app:not(.pub) .lm-hidden-row .btn{min-height:40px}
       .app:not(.pub) .lm-song-main{flex-basis:calc(100% - 140px)}
       .app:not(.pub) .lm-isrc,.app:not(.pub) .lm-unl-acts{flex-basis:100%;max-width:none;justify-content:flex-start;padding-left:40px}
       .app:not(.pub) .lm-tick + .lm-cover + .lm-song-main + .lm-isrc{padding-left:80px}
