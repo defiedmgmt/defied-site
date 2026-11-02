@@ -7,6 +7,7 @@ import { lumState, portfolioIdOf, writeLuminateIds, knownAreas, isAR, isRoster, 
 import { afterExports } from "../../lib/luminate-run";
 import { syncSiteFromSheet } from "../../lib/site-sync";
 import { findIsrc, cleanIsrc, ISRC_RE } from "../../lib/isrc";
+import { normalizeTitle } from "../../lib/sheets";
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 const ids = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x).slice(0, 500) : []);
@@ -120,6 +121,33 @@ async function act(body, session) {
     if (!lumId) return [400, { error: "Missing Luminate id." }];
     if (body.ignore === false) await sql`DELETE FROM luminate_ignored WHERE luminate_id = ${lumId}`;
     else await sql`INSERT INTO luminate_ignored (luminate_id) VALUES (${lumId}) ON CONFLICT DO NOTHING`;
+    return [200, { ok: true }];
+  }
+  if (action === "notOurs") {
+    // "This isn't ours": noted once per client + title (or per Luminate id for a Luminate-only song),
+    // so the sheet sync never brings it back; its Luminate id is set aside like "Not ours"
+    const song = String(body.song || "").trim().slice(0, 300);
+    const key = normalizeTitle(song);
+    const lumId = String(body.luminateId || "").trim().slice(0, 80);
+    const clientId = String(body.clientId || "").trim().slice(0, 40) || null;
+    if (!key && !lumId) return [400, { error: "Missing the song's title." }];
+    const [cur] = await sql`
+      SELECT id FROM not_ours WHERE (${!!key} AND coalesce(client_id, '') = ${clientId || ""} AND song_key = ${key})
+        OR (${!!lumId} AND luminate_id = ${lumId}) LIMIT 1
+    `;
+    const q = [cur
+      ? sql`UPDATE not_ours SET luminate_id = coalesce(nullif(${lumId}, ''), luminate_id), placement_id = coalesce(${body.placementId || null}, placement_id) WHERE id = ${cur.id}`
+      : sql`INSERT INTO not_ours (id, client_id, song, song_key, artist, luminate_id, placement_id)
+          VALUES (${newId()}, ${clientId}, ${song || lumId}, ${key}, ${String(body.artist || "").slice(0, 300)}, ${lumId || null}, ${body.placementId ? String(body.placementId).slice(0, 40) : null})`];
+    if (lumId) q.push(sql`INSERT INTO luminate_ignored (luminate_id) VALUES (${lumId}) ON CONFLICT DO NOTHING`);
+    await sql.transaction(q);
+    return [200, { ok: true }];
+  }
+  if (action === "notOursOut") {
+    // staff took it out of the portfolio in Luminate: the reminder waits for an export that still has it
+    const lumId = String(body.luminateId || "").trim();
+    if (!lumId) return [400, { error: "Missing Luminate id." }];
+    await sql`UPDATE not_ours SET out_of_luminate_at = now() WHERE luminate_id = ${lumId}`;
     return [200, { ok: true }];
   }
   if (action === "link") {

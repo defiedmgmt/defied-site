@@ -81,7 +81,7 @@ const insertPlacement = (r) => sql`
 
 // Everything a staff session's GET returns — and what the size guard weighs.
 async function staffPayload() {
-  const [clients, placements, staff, users, submissions, notableReleases, [settings]] = await Promise.all([
+  const [clients, placements, staff, users, submissions, notableReleases, [settings], notOurs] = await Promise.all([
     sql`SELECT * FROM clients ORDER BY roster_order`,
     sql`SELECT * FROM placements`,
     sql`SELECT * FROM staff_bios`,
@@ -89,6 +89,7 @@ async function staffPayload() {
     sql`SELECT * FROM submissions ORDER BY created_at DESC`,
     sql`SELECT * FROM notable_releases`,
     sql`SELECT about_text, last_synced_at FROM site_settings WHERE id = 1`,
+    sql`SELECT client_id, song_key, song, luminate_id, removed_at FROM not_ours ORDER BY removed_at`,
   ]);
   return {
     role: "staff",
@@ -100,6 +101,8 @@ async function staffPayload() {
     notableReleases: notableReleases.map(toNotable),
     site: { about: settings.about_text },
     sheetSync: { lastSyncedAt: settings.last_synced_at },
+    // songs removed as "not ours": the browser's sheet sync skips their titles (staff only)
+    notOurs: notOurs.map((r) => ({ clientId: r.client_id, songKey: r.song_key, song: r.song, luminateId: r.luminate_id || "", removedAt: r.removed_at })),
   };
 }
 
