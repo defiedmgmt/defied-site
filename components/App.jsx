@@ -4483,7 +4483,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
             <option value="">— someone new (type their streams) —</option>
             {signedClients.length > 0 && (
               <optgroup label="Our clients">
-                {signedClients.map((c) => <option key={c.id} value={`client:${c.id}`}>{c.name} ({fmt(c.netStreams)} net streams)</option>)}
+                {signedClients.map((c) => <option key={c.id} value={`client:${c.id}`}>{c.name} ({fmt(c.netStreams)} net streams{c.netFromSheet === false ? ", estimate" : ""})</option>)}
               </optgroup>
             )}
             {prospects.length > 0 && (
@@ -4495,7 +4495,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
         </label>
         {selectedProspect || selectedClient ? (
           <p className="hint">
-            Net Streams ({fmt(Math.round(netStreams))}) comes from {scenario.name}'s {selectedClient ? "catalog" : "songs in Outreach"} —
+            Net Streams ({fmt(Math.round(netStreams))}) comes from {selectedClient ? (selectedClient.netFromSheet === false ? `an estimate from ${scenario.name}'s catalog (no sheet tab read yet)` : `${scenario.name}'s tab of the pub sheet`) : `${scenario.name}'s songs in Outreach`} —
             edit {selectedClient ? "their songs on Overview & clients" : "those on the A&R tab"} to change this.
           </p>
         ) : (
@@ -4758,6 +4758,9 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
     }
     return { gross, net, revenue, adminFee };
   }, [songs, client?.name]);
+  // the net streams shown are the sheet's own (MASTER's writer table, from the last pull); the sum above is
+  // only an estimate, used where the sheet has no tab read for this client yet (build G3)
+  const netShown = netStreamsOf(db.sheetFacts?.clients?.[clientId], summary.net);
   const growth = useGrowth();
   // this week = Luminate's own This Period from the export, as the Publishing table says (the songs
   // whose week ends last); an older all-time export's songs fall back to the gain between snapshots
@@ -4930,7 +4933,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
         <div className="cat-summary">
           <div className="cat-summary-grid">
             <div className="cat-stat"><span className="cat-stat-label">Gross Streams</span><span className="cat-stat-val">{fmt(summary.gross)}</span></div>
-            <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(Math.round(summary.net))}</span></div>
+            <div className="cat-stat" data-net={netShown.fromSheet ? "sheet" : "estimate"}><span className="cat-stat-label">Net Streams{!netShown.fromSheet && <span className="cat-stat-note"> (estimate)</span>}</span><span className="cat-stat-val">{fmt(netShown.value)}</span></div>
             {isStaff ? (
               <>
                 {/* estimates, not cash we hold: clients are paid their publishing directly, our commission is billed through Stripe */}
@@ -5030,6 +5033,12 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               {db.sheetSync?.lastSyncedAt && (
                 <div className="split-list">
                   <div className="split-list-row"><span className="split-name">Streams</span><span className="split-pct">{fmt(active.streams)}</span></div>
+                  {/* the song's row on the sheet gives its net streams (gross × the sheet's writer share); without a row, the site's split estimates it */}
+                  {(() => {
+                    const f = db.sheetFacts?.songs?.[active.id];
+                    const net = f ? f.net : Math.round((active.streams || 0) * ((Number(ownSplit(active, client)?.percent) || 0) / 100));
+                    return <div className="split-list-row" data-song-net={f ? "sheet" : "estimate"}><span className="split-name">Net streams{!f && <em> (estimate)</em>}</span><span className="split-pct">{fmt(net)}</span></div>;
+                  })()}
                   {isStaff && (
                     <>
                       <div className="split-list-row"><span className="split-name">Their earnings <em>(est., paid to them directly)</em></span><span className="split-pct">{money(active.revenue)}</span></div>

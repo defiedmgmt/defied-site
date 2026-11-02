@@ -11,15 +11,17 @@ import { readArSheet, readChecks, sheetCheck, sheetProspect, seenProspect, settl
 import { reconcile, OUTREACH_STATUSES, OUTREACH_TAB, ADVANCE_TAB } from "../../lib/ar";
 import { getState } from "../../lib/luminate";
 import { tabLink, getSheetId } from "../../lib/sheets";
+import { readSheetFacts } from "../../lib/sheet-facts-store";
+import { netStreamsOf } from "../../lib/sheet-facts";
 
-// Same math as SongManager's own catalog summary (components/App.jsx) —
-// net streams is each placement's streams × that client's own split %,
-// summed across their whole catalog. Kept in sync by hand since one lives
-// server-side (Postgres) and the other client-side (already-loaded db).
+// The same net streams a client's page shows (components/App.jsx SongManager): the sheet's own figure
+// from the last pull (MASTER's writer table, build G3), else the estimate — each placement's streams ×
+// that client's own split %, summed across their whole catalog (netFromSheet false).
 async function readSignedClientsWithNetStreams() {
-  const [clients, placements] = await Promise.all([
+  const [clients, placements, facts] = await Promise.all([
     sql`SELECT id, name FROM clients ORDER BY roster_order`,
     sql`SELECT client_id, streams, splits FROM placements`,
+    readSheetFacts(),
   ]);
   const byClient = new Map(clients.map((c) => [c.id, { id: c.id, name: c.name, grossStreams: 0, netStreams: 0 }]));
   for (const p of placements) {
@@ -30,7 +32,10 @@ async function readSignedClientsWithNetStreams() {
     const mine = findByName(p.splits || [], entry.name); // same rule as SongManager's ownSplit
     entry.netStreams += streams * ((Number(mine?.percent) || 0) / 100);
   }
-  return Array.from(byClient.values()).map((c) => ({ ...c, netStreams: Math.round(c.netStreams) }));
+  return Array.from(byClient.values()).map((c) => {
+    const net = netStreamsOf(facts.clients[c.id], c.netStreams);
+    return { ...c, netStreams: net.value, netFromSheet: net.fromSheet };
+  });
 }
 
 async function offBoard() {
