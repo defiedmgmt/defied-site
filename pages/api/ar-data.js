@@ -7,7 +7,7 @@
 import { sql } from "../../lib/db";
 import { requireStaff } from "../../lib/session";
 import { findByName } from "../../lib/names";
-import { readArSheet, sheetCheck, sheetProspect, seenProspect, settlePending } from "../../lib/ar-sheet";
+import { readArSheet, readChecks, sheetCheck, sheetProspect, seenProspect, settlePending } from "../../lib/ar-sheet";
 import { reconcile, OUTREACH_STATUSES, OUTREACH_TAB, ADVANCE_TAB } from "../../lib/ar";
 import { getState } from "../../lib/luminate";
 import { tabLink, getSheetId } from "../../lib/sheets";
@@ -86,9 +86,16 @@ export default async function handler(req, res) {
 
     const rec = await reconcile(read, { readAtDb });
     const changesToCheck = await settlePending(read);
-    // what the last Sheet check found, so the Board's "N sheet problems" counts what the check lists
+    // what the last Sheet check found, so the Board's "N sheet problems" counts what the check lists. That
+    // check is only as fresh as its last run, so each problem it found is asked again of this read where
+    // it can be: a cell fixed in the sheet stops counting at once. Tabs (this read found them) and the
+    // checks the read's own problems repeat are left to the read. Headers and formulas need cells this
+    // read doesn't fetch: they keep the check's answer and its time (the link re-runs the check).
     const lastCheck = await getState("arSheetCheck");
-    const checkProblems = (lastCheck?.checks || []).filter((c) => !c.ok).map((c) => ({ id: c.id, text: c.text, ...(c.fix ? { fix: c.fix } : {}) }));
+    const again = readChecks(read, read.raw.adv);
+    const LEFT_TO_READ = new Set(["tabs", "statuses", "advanceRows", "assumptions", "totalRow"]);
+    const checkProblems = (lastCheck?.checks || []).filter((c) => !c.ok && !LEFT_TO_READ.has(c.id)).map((c) => again[c.id] || c).filter((c) => !c.ok)
+      .map((c) => ({ id: c.id, text: c.text, ...(c.fix ? { fix: c.fix } : {}), ...(!again[c.id] && lastCheck.checkedAt ? { checkedAt: lastCheck.checkedAt } : {}) }));
     return res.status(200).json({
       sheet: { ok: true, readAt: read.readAt, stale: false, links: read.links, layout: read.layout, problems: [...read.problems, ...rec.problems], checkProblems },
       firstRun: await firstRun(),

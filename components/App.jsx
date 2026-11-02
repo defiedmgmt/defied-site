@@ -409,15 +409,25 @@ function SplitsPie({ splits, size = 220 }) {
   return <div style={{ height: size }}><SplitsPieChart data={data} size={size} colors={PIE_COLORS} /></div>;
 }
 
-function SplitsEditor({ splits, onChange }) {
+function SplitsEditor({ splits, onChange, focusPct = 0 }) {
   const rows = splits || [];
+  const box = useRef(null);
+  // a Fix from Splits to fix (focusPct = its n) opens on this block, the reason it opened, with the first % ready to type.
+  // Only the window's own scroll moves, never the page behind it
+  useEffect(() => {
+    const el = box.current, body = el?.closest(".modal-body");
+    if (!focusPct || !el) return;
+    if (body) body.scrollTop += el.getBoundingClientRect().top - body.getBoundingClientRect().top - 12;
+    el.querySelector(".pct-in input")?.focus({ preventScroll: true });
+  }, [focusPct]);
   const update = (id, key, val) => onChange(rows.map((r) => r.id === id ? { ...r, [key]: val } : r));
   const add = () => onChange([...rows, { id: uid(), name: "", role: "", percent: 50 }]);
   const remove = (id) => onChange(rows.filter((r) => r.id !== id));
   const total = splitTotal(rows);
   return (
-    <div className="splits-ed">
-      <div className="splits-ed-head"><span>Splits</span><span className={total === 100 ? "split-ok" : "split-warn"}>{total}%</span></div>
+    <div className="splits-ed" ref={box}>
+      {/* shown to one decimal like everywhere else (1/3 is 33.3%, not 33.333333333333336%); the saved % is unchanged */}
+      <div className="splits-ed-head"><span>Splits</span><span className={total === 100 ? "split-ok" : "split-warn"}>{splitPct(rows)}%</span></div>
       {rows.map((r) => (
         <div key={r.id} className="splits-ed-row">
           <input placeholder="Name" value={r.name} onChange={(e) => update(r.id, "name", e.target.value)} />
@@ -427,7 +437,7 @@ function SplitsEditor({ splits, onChange }) {
         </div>
       ))}
       <button type="button" className="btn ghost sm" onClick={add}><Plus size={14} /> Add split</button>
-      {total !== 100 && rows.length > 0 && <p className="split-hint">Splits should total 100% (currently {total}%).</p>}
+      {total !== 100 && rows.length > 0 && <p className="split-hint">Splits should total 100% (currently {splitPct(rows)}%).</p>}
     </div>
   );
 }
@@ -3585,6 +3595,8 @@ function ArBoard({ ar, onGo }) {
   const menuDo = (fn) => () => { setMore(false); fn(); };
   // the sheet read's problems plus what the last Sheet check found: the link counts what the check lists
   const notes = sheetProblems(data?.sheet?.problems, data?.sheet?.checkProblems);
+  // the problems this read couldn't ask again (headers, formulas) say when the Sheet check found them
+  const checkedOn = shortDay((data?.sheet?.checkProblems || []).find((c) => c.checkedAt)?.checkedAt);
 
   return (
     <div className="arb">
@@ -3614,7 +3626,7 @@ function ArBoard({ ar, onGo }) {
         <p className="arb-status">
           {sheetOk === null ? <span className="muted">Reading the OUTREACH tab…</span> : `Saved to your OUTREACH sheet · ${clock(data.sheet.readAt)}`}
           {/* what the sheet read flagged (a status dropdown it couldn't read…) is one quiet link; Sheet check has the full sentence */}
-          {notes.length > 0 && <> · <button className="inline-link arb-notes" onClick={() => setShowCheck(true)}>{notes.length === 1 ? "1 sheet problem" : `${notes.length} sheet problems`}</button></>}
+          {notes.length > 0 && <> · <button className="inline-link arb-notes" onClick={() => setShowCheck(true)} title={checkedOn ? `Some of these are from the Sheet check on ${checkedOn}. Opening it checks the sheet again.` : undefined}>{notes.length === 1 ? "1 sheet problem" : `${notes.length} sheet problems`}</button></>}
         </p>
       )}
       {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
@@ -4463,7 +4475,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
             <Field label="Contact or Handle" value={scenario.contact} onChange={(e) => setField({ contact: e.target.value })} />
             <Field label="Gross Streams" type="number" value={scenario.grossStreams} onChange={(e) => setField({ grossStreams: e.target.value })} />
             <Field label="Writer %" type="number" value={scenario.writerShare} onChange={(e) => setField({ writerShare: e.target.value })} />
-            {netStreams > 0 && <p className="hint">Net Streams: {fmt(Math.round(netStreams))} · Est. publishing earnings: {money(estRevenue)}</p>}
+            {netStreams > 0 && <p className="hint">Net streams: {fmt(Math.round(netStreams))} · Their earnings so far: {money(estRevenue)}</p>}
           </>
         )}
         <Field
@@ -4706,7 +4718,9 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState(null);
-  useEffect(() => { if (!editing) setFormErr(null); }, [editing]); // a closed form takes its message with it
+  const [splitsFirst, setSplitsFirst] = useState(0); // a Fix's n while its editor is open: it opens on the Splits
+  // a closed form takes its message with it, and a Fix's "open on the Splits" with it
+  useEffect(() => { if (!editing) { setFormErr(null); setSplitsFirst(0); } }, [editing]);
   const editFrom = useRef(null); // the song as it was when Edit was pressed
   const active = songs.find((p) => p.id === openId);
   const [pushWarn, setPushWarn] = useState(null);
@@ -4718,7 +4732,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
     const p = fix && db.placements.find((x) => x.id === fix.id);
     if (!p || p.clientId !== clientId) return;
     setOpenId(null); setFixNote(null); fixing.current = p.id;
-    editFrom.current = p; setEditing({ ...p });
+    editFrom.current = p; setEditing({ ...p }); setSplitsFirst(fix.n);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fix?.n, clientId]);
   useEscape(() => (editing ? setEditing(null) : setOpenId(null)), !!(active || editing) && !saving);
@@ -4863,8 +4877,8 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
             {isStaff ? (
               <>
                 {/* estimates, not cash we hold: clients are paid their publishing directly, our commission is billed through Stripe */}
-                <div className="cat-stat"><span className="cat-stat-label">Est. publishing earnings <span className="cat-stat-note">(paid to the client directly)</span></span><span className="cat-stat-val">{money(summary.revenue)}</span></div>
-                <div className="cat-stat"><span className="cat-stat-label">Est. admin fee <span className="cat-stat-note">(our commission)</span></span><span className="cat-stat-val">{money(summary.adminFee)}</span></div>
+                <div className="cat-stat"><span className="cat-stat-label">Their earnings <span className="cat-stat-note">(est., paid to them directly)</span></span><span className="cat-stat-val">{money(summary.revenue)}</span></div>
+                <div className="cat-stat"><span className="cat-stat-label">Our fee so far <span className="cat-stat-note">(est. admin fee)</span></span><span className="cat-stat-val">{money(summary.adminFee)}</span></div>
               </>
             ) : (
               <>
@@ -4955,8 +4969,8 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
                   <div className="split-list-row"><span className="split-name">Streams</span><span className="split-pct">{fmt(active.streams)}</span></div>
                   {isStaff && (
                     <>
-                      <div className="split-list-row"><span className="split-name">Est. publishing earnings <em>(paid to the client directly)</em></span><span className="split-pct">{money(active.revenue)}</span></div>
-                      <div className="split-list-row"><span className="split-name">Est. admin fee <em>(our commission)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
+                      <div className="split-list-row"><span className="split-name">Their earnings <em>(est., paid to them directly)</em></span><span className="split-pct">{money(active.revenue)}</span></div>
+                      <div className="split-list-row"><span className="split-name">Our fee so far <em>(est. admin fee)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
                     </>
                   )}
                   <p className="hint song-asof">{isStaff ? streamsAsOf({ luminateDay: growth?.[active.id]?.latestOn, pulledAt: db.sheetSync.lastSyncedAt })
@@ -4995,7 +5009,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               <Field label="Artist" value={editing.artist} onChange={(ev) => setEditing({ ...editing, artist: ev.target.value })} />
               <Field label="Release date" type="date" value={editing.releaseDate} onChange={(ev) => setEditing({ ...editing, releaseDate: ev.target.value })} />
               <Field label="Streaming link" value={editing.link} onChange={(ev) => setEditing({ ...editing, link: ev.target.value })} />
-              <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} />
+              <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} focusPct={splitsFirst} />
               {isStaff && (
                 <Field label="Luminate ID" value={editing.luminateId || ""} onChange={(ev) => setEditing({ ...editing, luminateId: ev.target.value })} hint="Leave blank if you haven't looked it up yet — the pub sheet row will just come through blank until you fill it in there." />
               )}
@@ -7055,13 +7069,15 @@ const OWN_CU = /^(Weekly dashboard sync:|Log new payments:)/;
 const PRIORITY = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
 const dueLate = (iso) => !!iso && new Date(iso).getTime() < new Date().setHours(0, 0, 0, 0);
 function useClickUpLists(first) {
-  const [lists, setLists] = useState(() => ({ ...dashCache.cu }));
+  // Pub and A&R start from the saved copy; Internal always from this visit's /api/home (first), which
+  // is fresh on every Dashboard visit; a saved Internal would win over it and never refresh
+  const [lists, setLists] = useState(() => { const { internal, ...rest } = dashCache.cu; return rest; }); // eslint-disable-line no-unused-vars
   const failed = (k) => ({ key: k, error: "Couldn't reach ClickUp." });
   // quiet: the list on screen (the last answer) stays until the fresh one lands
   const load = (k, quiet = false) => {
     if (!quiet) setLists((x) => ({ ...x, [k]: null }));
     return fetch(`/api/home?list=${k}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.clickup && !d.clickup.error) dashCache.cu[k] = d.clickup; setLists((x) => ({ ...x, [k]: d?.clickup || failed(k) })); })
+      .then((d) => { if (d?.clickup && !d.clickup.error && k !== "internal") dashCache.cu[k] = d.clickup; setLists((x) => ({ ...x, [k]: d?.clickup || failed(k) })); })
       .catch(() => setLists((x) => ({ ...x, [k]: failed(k) })));
   };
   // Internal Tasks comes with the Dashboard's own load; Pub and A&R right away beside it
@@ -7973,9 +7989,12 @@ function StyleTag() {
     /* quiet: outbound links (Open in sheet / Folder / Portfolio A/B), Mark read/unread */
     .app:not(.pub) :is(.overview-links a.btn,.admin-head a.btn,.sub-top .btn){padding:0 10px;border-color:transparent;border-radius:var(--d-r-md);background:transparent;color:var(--d-ink-3)}
     @media (hover:hover){ .app:not(.pub) :is(.overview-links a.btn,.admin-head a.btn,.sub-top .btn):hover{background:var(--d-active);border-color:transparent;color:var(--d-ink)} }
-    /* destructive: Delete prospect (.btn.err-text) and song-detail Delete (the footer's first ghost) — pushed left */
-    .app:not(.pub) :is(.modal-foot .btn.err-text,.song-detail .modal-foot .btn.ghost:first-child){margin-right:auto;border-color:var(--d-neg-line);color:var(--d-neg)}
-    @media (hover:hover){ .app:not(.pub) :is(.modal-foot .btn.err-text,.song-detail .modal-foot .btn.ghost:first-child):hover{background:var(--d-neg-bg);border-color:var(--d-neg)} }
+    /* destructive: Delete prospect (.btn.err-text) and the song window's Delete ([data-del]). The song window's
+       first button (This isn't ours for staff) is pushed left but stays a plain ghost: its red is in its confirm */
+    .app:not(.pub) .song-detail .modal-foot .btn:first-child{margin-right:auto}
+    .app:not(.pub) .modal-foot .btn.err-text{margin-right:auto}
+    .app:not(.pub) :is(.modal-foot .btn.err-text,.song-detail .modal-foot .btn[data-del]){border-color:var(--d-neg-line);color:var(--d-neg)}
+    @media (hover:hover){ .app:not(.pub) :is(.modal-foot .btn.err-text,.song-detail .modal-foot .btn[data-del]):hover{background:var(--d-neg-bg);border-color:var(--d-neg)} }
     /* Advance "Advance given?" Yes/No = a selected toggle, not two primary pills */
     .app:not(.pub) .ar-given-row{gap:6px}
     .app:not(.pub) .ar-given-row .fld-label{margin-right:6px}
@@ -9455,6 +9474,9 @@ function StyleTag() {
     .app:not(.pub) .arb-sub{font-size:12px;color:var(--d-ink-4)}
     .app:not(.pub) .arb-card-acts{display:flex;align-items:center;gap:6px}
     .app:not(.pub) .arb-next{flex:1 1 0;min-width:0;justify-content:center;padding-inline:10px}
+    /* 1280-1366: the card is too narrow for "Started talking →" on one line, so the words wrap inside the button
+       (balanced, so the arrow never sits alone on the second line). .arb-card-acts .btn: outranks .btn.sm's height and size */
+    @media (max-width:1366px){ .app:not(.pub) .arb-card-acts .btn.arb-next{height:auto;min-height:var(--d-ctl-sm);padding:5px 8px;font-size:12.5px;white-space:normal;text-wrap:balance;text-align:center;line-height:1.2;border-radius:14px} }
     .app:not(.pub) .arb-card .arb-card-top{flex-wrap:wrap}   /* the Artist/Producer tag drops under a long name instead of squeezing it */
     .app:not(.pub) .arb-dots{flex:none}
     .app:not(.pub) .arb-more{position:relative;display:inline-flex}
