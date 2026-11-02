@@ -9693,6 +9693,13 @@ function StyleTag() {
     .app:not(.pub) .ar-summary .ar-gainers{min-height:341px}   /* about 5 rows, so nothing jumps when they load */
     .app:not(.pub) .dirty-bar{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 22px;border-top:1px solid var(--d-warn-line);background:var(--d-warn-bg);font-size:13.5px;color:var(--d-ink)}
     .app:not(.pub) .dirty-bar > span{margin-right:auto;font-weight:600}
+    @media (max-width:700px){
+      /* phones: every tap target at least 40px tall, and nothing moves for it (easy-spec B9): text links grow
+         an invisible 12px above and below, the Luminate tick gets a 44px box over the same 28px slot */
+      .app:not(.pub) .dash-main button.inline-link{padding-block:12px;margin-block:-12px}
+      .app:not(.pub) .lm-tick{width:44px;height:44px;margin:-8px}
+      .app:not(.pub) .arb-find,.app:not(.pub) .dash-main input[type=search]{height:40px}
+    }
     .app:not(.pub) .ar-prefill-nums{margin:0 0 8px;font-size:13.5px;color:var(--d-ink-2);font-variant-numeric:tabular-nums}
     .app:not(.pub) .ar-gainers .gainer-n{color:var(--d-ink-4)} .app:not(.pub) .ar-gainers .gainer:not([data-ranked]) .gainer-n{color:var(--d-ink-off)}
     .app:not(.pub) .ar-g-sub{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px}
