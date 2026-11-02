@@ -5218,7 +5218,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo }) {
               <span className="fix-streams">{fmt(p.streams || 0)} streams</span>
               <span className="fix-acts">
                 <button className="btn sm" onClick={() => onFix(p.id)}>Fix</button>
-                {g.client && <button className="btn ghost sm" data-not-ours onClick={() => { setNote(null); setAsk({ p, client: g.client }); }}>This isn't ours</button>}
+                {g.client && <button className="quiet-act" data-not-ours onClick={() => { setNote(null); setAsk({ p, client: g.client }); }}>This isn't ours</button>}
               </span>
             </div>
           ))}
@@ -6203,8 +6203,8 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
                   )}
                 </span>
                 <span className="lm-row-acts">
-                  <button className="btn ghost sm lm-skip" title="Leave this song out of Luminate. It stays on the site." disabled={!!busy} onClick={() => run(`skip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: true }))}>Don't track</button>
-                  <button className="btn ghost sm lm-not-ours" data-not-ours disabled={!!busy} onClick={() => setAsk({ notOurs: db.placements.find((p) => p.id === g.ids[0]) })}>This isn't ours</button>
+                  <button className="quiet-act lm-skip" title="Leave this song out of Luminate. It stays on the site." disabled={!!busy} onClick={() => run(`skip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: true }))}>Don't track</button>
+                  <button className="quiet-act lm-not-ours" data-not-ours disabled={!!busy} onClick={() => setAsk({ notOurs: db.placements.find((p) => p.id === g.ids[0]) })}>This isn't ours</button>
                 </span>
               </div>
             ))}
@@ -8999,7 +8999,7 @@ function StyleTag() {
     .app:not(.pub) .lm-isrc-in input:focus{outline:none;border-color:#f5f5f5}
     .app:not(.pub) .lm-find{font-size:12.5px;white-space:nowrap}
     /* Don't track / This isn't ours: words, not an unlabelled × */
-    .app:not(.pub) .lm-row-acts{display:flex;gap:6px;flex:none}
+    .app:not(.pub) .lm-row-acts{display:flex;align-items:center;gap:6px;flex:none}
     .app:not(.pub) .lm-row-acts .btn{white-space:nowrap}
     .app:not(.pub) .lm-show-add{font:inherit;color:var(--d-info)}
     /* a Dashboard task's jump lands here: a short outline so the eye finds it */
@@ -9018,7 +9018,14 @@ function StyleTag() {
     .app:not(.pub) .ask-body > p.hint{font-size:12.5px;color:var(--d-ink-3);margin-bottom:0}
     .app:not(.pub) .ask-places{margin:0 0 12px;padding-left:18px;font-size:13.5px;line-height:1.6;color:var(--d-ink)}
     .app:not(.pub) .btn.ask-go{background:var(--d-neg);border-color:var(--d-neg);color:#160606}
-    .app:not(.pub) .btn[data-not-ours]{color:var(--d-neg);border-color:var(--d-neg-line)}   /* it removes the song: reads apart from Don't track */
+    /* a list row's side actions (Don't track, This isn't ours): quiet words after the row's main button,
+       so they don't shout next to real songs. Red only on hover / focus, and inside the confirm */
+    .app:not(.pub) .quiet-act{font:inherit;font-size:12.5px;line-height:1.2;min-height:30px;padding:6px 6px;border:0;border-radius:6px;background:none;color:var(--d-ink-4);cursor:pointer;white-space:nowrap;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:3px}
+    .app:not(.pub) .quiet-act:hover:not(:disabled), .app:not(.pub) .quiet-act:focus-visible{color:var(--d-ink-2);text-decoration-color:currentColor}
+    .app:not(.pub) .quiet-act[data-not-ours]:hover:not(:disabled), .app:not(.pub) .quiet-act[data-not-ours]:focus-visible{color:var(--d-neg)}
+    .app:not(.pub) .quiet-act:focus-visible{outline:1px solid var(--d-line-3);outline-offset:1px}
+    .app:not(.pub) .quiet-act:disabled{opacity:.5;cursor:default}
+    @media (max-width:700px){.app:not(.pub) .quiet-act{min-height:40px}}
     .app:not(.pub) .del-note [data-show-me]{margin-left:4px;font-weight:600}
     .app:not(.pub) .fix-panel{scroll-margin-top:16px}
     .app:not(.pub) p.hint.del-note{display:flex;align-items:flex-start;gap:8px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--d-pos-line);border-radius:var(--d-r-md);background:var(--d-pos-bg);color:var(--d-ink-2);font-size:13px;line-height:1.5;max-width:80ch}
@@ -9037,7 +9044,7 @@ function StyleTag() {
     .app:not(.pub) .fix-song{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--d-ink)}
     .app:not(.pub) .fix-pct,.app:not(.pub) .fix-streams{font-variant-numeric:tabular-nums;text-align:right;color:var(--d-ink-3)}
     .app:not(.pub) .fix-row .fix-pct{color:var(--d-warn)}
-    .app:not(.pub) .fix-acts{display:flex;gap:6px;justify-content:flex-end}
+    .app:not(.pub) .fix-acts{display:flex;align-items:center;gap:6px;justify-content:flex-end}
     .app:not(.pub) p.hint.fix-strip{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--d-pos-line);border-radius:var(--d-r-md);background:var(--d-pos-bg);color:var(--d-ink-2);font-size:13px}
     .app:not(.pub) p.hint.fix-strip svg{color:var(--d-pos)}
     .app:not(.pub) .cc-text{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:3px}
