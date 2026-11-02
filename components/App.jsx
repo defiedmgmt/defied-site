@@ -9506,6 +9506,7 @@ function StyleTag() {
     .app:not(.pub) .acct-row-hd{padding-block:4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-ink-4)}
     .app:not(.pub) .acct-amt{text-align:right}
     .app:not(.pub) .home-money-card .acct-unlogged .hint{padding:10px 16px 14px}
+    @media (max-width:599px){.app:not(.pub) .home-money-card .acct-unlogged .hint{padding:8px 16px 10px}}   /* the card opens here on phones too: keeps it under 560px */
     /* one-click logging: a Log it on each row, Log all in the head, the confirm's rows */
     .app:not(.pub) .home-money-card .acct-unlogged-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
     .app:not(.pub) .home-money-card .acct-row{grid-template-columns:64px minmax(0,1fr) auto auto;align-items:center}
