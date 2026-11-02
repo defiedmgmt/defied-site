@@ -2556,11 +2556,11 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         </div>
       </aside>
       <main className="dash-main">
-        {tab === "home" && <HomeDashboard db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} onGo={go} toLum={toLum} />}
+        {tab === "home" && <HomeDashboard db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} onGo={go} toLum={toLum} arTop={arSum?.top} arLoaded={!!arSum} />}
         {tab === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={setSub} />}
         {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} onSub={setSub} />}
         {tab === "luminate" && <LuminateAdmin db={db} commit={commit} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} toLum={toLum} onGo={go} />}
-        {tab === "ar" && <ARAdmin onGo={go} />}
+        {tab === "ar" && <ARAdmin onGo={go} sub={sub} />}
         {tab === "users" && <UsersAdmin db={db} commit={commit} />}
         {tab === "subs" && <SubsAdmin db={db} commit={commit} />}
       </main>
@@ -3055,12 +3055,17 @@ function useArAll() {
   useEffect(() => { if (sheet.data) loadPg(); }, [sheet.data]);
   return { ...sheet, pg, pgErr, loadPg };
 }
-function ARAdmin({ onGo }) {
+// the Dashboard's This week › A&R rows: "watch:open:<key>" (their panel) / "watch:flash:<key>" (a Luminate-only row)
+const arWatchAt = (sub) => { const m = /^watch:(open|flash):(.+)$/.exec(sub || ""); return m ? { pill: "people", [m[1]]: m[2] } : null; };
+function ARAdmin({ onGo, sub }) {
   const [sec, setSecState] = useState(() => {
+    if (arWatchAt(sub)) return "watch";
     try { const s = sessionStorage.getItem(AR_SEC_KEY); return AR_SECS.some(([id]) => id === s) ? s : "summary"; } catch { return "summary"; }
   });
-  const [watchAt, setWatchAt] = useState(null); // where Summary sends the Watchlist: {pill, open}
+  const [watchAt, setWatchAt] = useState(() => arWatchAt(sub)); // where Summary sends the Watchlist: {pill, open}
   const setSec = (id, at = null) => { setSecState(id); setWatchAt(at); try { sessionStorage.setItem(AR_SEC_KEY, id); } catch { /* private mode */ } };
+  // Back / Forward to another Dashboard row while A&R is open
+  useEffect(() => { const at = arWatchAt(sub); if (at) setSec("watch", at); }, [sub]); // eslint-disable-line react-hooks/exhaustive-deps
   const ar = useArAll();
   // each page opens on the latest from Postgres (another page may have added someone)
   const opened = useRef(false);
@@ -6455,7 +6460,7 @@ const HomeMore = ({ n, open, onToggle }) => (n > 0 ? <button className="btn ghos
 // (GET /api/growth?top=1): from 1,000 streams this week, the rest filling in by streams without a %.
 // Each list says the days it covers ("This week" on the Dashboard). The A&R lists' movers live on
 // the A&R tab, not here.
-const GAINER_TABS = [["songs", "Songs"], ["artists", "Artists"]];
+const GAINER_TABS = [["songs", "Songs"], ["artists", "Artists"], ["ar", "A&R"]];
 // "▲ 157.5%", "▼ 12.0%": the same as the A&R tab's
 const wowText = pctText;
 function useRosterTop() {
@@ -6479,17 +6484,20 @@ function GainNum({ r }) {
     ? <span className="gainer-num" data-wow={r.wowPct >= 0 ? "up" : "down"}><WowPill pct={r.wowPct} /><em>{fmt(r.thisWeek)} this week</em></span>
     : <span className="gainer-num" data-wow="none"><em>{fmt(r.thisWeek)} this week</em></span>;
 }
-function TopGainers({ db, lum, onGo }) {
+function TopGainers({ db, lum, onGo, arTop, arLoaded }) {
   const [kind, setKind] = useState("songs");
   const { top, failed, retry } = useRosterTop();
   const body = useRef(null);
   const hidden = useScrollMore(body);
   const placement = (id) => db.placements.find((p) => p.id === id);
   const client = (id) => db.clients.find((c) => c.id === id);
-  const rows = !top ? null : kind === "artists" ? top.artists.filter((a) => client(a.clientId)) : top.songs.filter((s) => placement(s.placementId));
+  // A&R: A&R › Summary's top people (from the summary StaffDashboard already fetches)
+  const isAR = kind === "ar";
+  const rows = isAR ? arTop?.people || null : !top ? null : kind === "artists" ? top.artists.filter((a) => client(a.clientId)) : top.songs.filter((s) => placement(s.placementId));
   // each tab says its own days (a portfolio exported later can move the songs' week)
-  const span = top && (kind === "artists" ? top.artistsWeekOf : top.songsWeekOf);
-  const empty = !top ? (failed ? "Couldn't load this week's numbers." : "Loading…")
+  const span = isAR ? arTop?.period : top && (kind === "artists" ? top.artistsWeekOf : top.songsWeekOf);
+  const empty = isAR ? (!arTop ? (arLoaded ? "Couldn't load the A&R numbers." : "Loading…") : !rows.length && "No A&R numbers this week yet.")
+    : !top ? (failed ? "Couldn't load this week's numbers." : "Loading…")
     : !rows.length && !top.noWeekly?.length && (lum?.lastUpload ? "Shows up after next week's Luminate export." : "Shows up after two weekly Luminate exports.");
   const firstOff = rows ? rows.findIndex((r) => !(r.ranked && r.wowPct != null)) : -1;
   // the rows without a % sit under one caption, after the ranked ones
@@ -6511,8 +6519,16 @@ function TopGainers({ db, lum, onGo }) {
       <div className="home-scroll" ref={body}>
         {span && <p className="gainer-sub">{dayRange(span.from, span.to)} · vs the week before</p>}
         {empty ? (
-          <p className="gainers-empty">{empty}{!top && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
-        ) : kind === "artists" ? rows.map((a, i) => {
+          <p className="gainers-empty">{empty}{!isAR && !top && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
+        ) : isAR ? rows.map((r, i) => [split(i), (
+          // opens that person on A&R's Watchlist, as Summary's rows do
+          <button key={r.key} className="gainer" data-ranked={r.ranked && r.wowPct != null ? "" : undefined} data-fall={fall(r)} onClick={() => onGo("ar", `watch:${r.open ? "open" : "flash"}:${r.key}`)}>
+            {rank(r, i)}
+            <span className="lm-cover gainer-av">{(r.name || "?")[0].toUpperCase()}</span>
+            <span className="lm-song-main"><strong>{r.name}</strong><span className="ar-g-sub">{r.role === "producer" ? "Producer" : "Artist"}{r.stage && <StagePill id={r.stage} />}</span></span>
+            <GainNum r={r} />
+          </button>
+        )]) : kind === "artists" ? rows.map((a, i) => {
           const c = client(a.clientId);
           return [split(i), (
             <button key={c.id} className="gainer" data-ranked={a.ranked && a.wowPct != null ? "" : undefined} data-fall={fall(a)} onClick={() => onGo("catalog", `client:${c.id}`)}>
@@ -6534,7 +6550,7 @@ function TopGainers({ db, lum, onGo }) {
           )];
         })}
         {/* a portfolio still exported the old way has no week to rank: one plain line each */}
-        {top && (top.noWeekly || []).map((p) => (
+        {!isAR && top && (top.noWeekly || []).map((p) => (
           <p key={p.name} className="gainers-noweek">
             <i aria-hidden="true" /><span><span className="gainers-noweek-t">{p.name} has no weekly numbers yet. Drop its new export to include its songs.</span> <button className="inline-link" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></span>
           </p>
@@ -6628,7 +6644,7 @@ function ArToLuminateModal({ t, onGo, onClose }) {
   );
 }
 
-function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum }) {
+function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum, arTop, arLoaded }) {
   const { home, failed, retry } = useHome();
   const [showToLum, setShowToLum] = useState(false);
   // the Money card's tab lives here, so the "not in the sheet" task can open it on that list
@@ -6658,7 +6674,7 @@ function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum }) {
       <MoneyRow money={m} failed={failed} retry={retry} />
       <div className="home-row">
         <ToDoCard items={tasks} loading={!lum && !lumErr} failed={!lum && lumErr} onRetry={reloadLum} onGo={onGo} cuFirst={home?.clickup} homeFailed={failed} homeRetry={retry} />
-        <TopGainers db={db} lum={lum} onGo={onGo} />
+        <TopGainers db={db} lum={lum} onGo={onGo} arTop={arTop} arLoaded={arLoaded} />
       </div>
       <MoneyCard home={home} failed={failed} retry={retry} tab={moneyTab} setTab={(t) => { tabPicked.current = true; setMoneyTab(t); }} />
       {showToLum && toLum && <ArToLuminateModal t={toLum} onGo={onGo} onClose={() => setShowToLum(false)} />}
