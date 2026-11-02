@@ -5037,6 +5037,26 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               {isStaff && activeEven && (
                 <p className="hint song-even" data-song-even>Even split assumed: {splitWords(activeEven.splits, active.splits)}. Edit and Save confirms it, or use Confirm in Publishing › Splits to confirm.</p>
               )}
+              {/* the numbers before the pie (build I3): at 1440x900 Net streams is in view without scrolling, the warning above it too */}
+              {db.sheetSync?.lastSyncedAt && (
+                <div className="split-list song-nums">
+                  <div className="split-list-row"><span className="split-name">Streams</span><span className="split-pct">{fmt(active.streams)}</span></div>
+                  {/* the song's row on the sheet gives its net streams (gross × the sheet's writer share); without a row, the site's split estimates it */}
+                  {(() => {
+                    const f = db.sheetFacts?.songs?.[active.id];
+                    const net = f ? f.net : Math.round((active.streams || 0) * ((Number(ownSplit(active, client)?.percent) || 0) / 100));
+                    return <div className="split-list-row" data-song-net={f ? "sheet" : "estimate"}><span className="split-name">Net streams{!f && <em> (estimate)</em>}</span><span className="split-pct">{fmt(net)}</span></div>;
+                  })()}
+                  {isStaff && (
+                    <>
+                      <div className="split-list-row"><span className="split-name">Their earnings <em>(est., paid to them directly)</em></span><span className="split-pct">{money(active.revenue)}</span></div>
+                      <div className="split-list-row"><span className="split-name">Our fee so far <em>(est. admin fee)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
+                    </>
+                  )}
+                  <p className="hint song-asof">{isStaff ? streamsAsOf({ luminateDay: growth?.[active.id]?.latestOn, pulledAt: db.sheetSync.lastSyncedAt })
+                    : `as of ${new Date(growth?.[active.id]?.latestOn ? `${growth[active.id].latestOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}</p>
+                </div>
+              )}
               <SplitsPie splits={activeEven ? activeEven.splits : active.splits} size={230} />
               <div className="split-list">
                 {orderSplits(activeEven ? activeEven.splits : active.splits || []).map((s, i) => (
@@ -5060,25 +5080,6 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
                   </div>
                   <Sparkline series={growth[active.id].series} />
                   <p className="hint">All-time streams, from {shortDay(growth[active.id].series[0][0])} to {shortDay(growth[active.id].latestOn)}</p>
-                </div>
-              )}
-              {db.sheetSync?.lastSyncedAt && (
-                <div className="split-list">
-                  <div className="split-list-row"><span className="split-name">Streams</span><span className="split-pct">{fmt(active.streams)}</span></div>
-                  {/* the song's row on the sheet gives its net streams (gross × the sheet's writer share); without a row, the site's split estimates it */}
-                  {(() => {
-                    const f = db.sheetFacts?.songs?.[active.id];
-                    const net = f ? f.net : Math.round((active.streams || 0) * ((Number(ownSplit(active, client)?.percent) || 0) / 100));
-                    return <div className="split-list-row" data-song-net={f ? "sheet" : "estimate"}><span className="split-name">Net streams{!f && <em> (estimate)</em>}</span><span className="split-pct">{fmt(net)}</span></div>;
-                  })()}
-                  {isStaff && (
-                    <>
-                      <div className="split-list-row"><span className="split-name">Their earnings <em>(est., paid to them directly)</em></span><span className="split-pct">{money(active.revenue)}</span></div>
-                      <div className="split-list-row"><span className="split-name">Our fee so far <em>(est. admin fee)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
-                    </>
-                  )}
-                  <p className="hint song-asof">{isStaff ? streamsAsOf({ luminateDay: growth?.[active.id]?.latestOn, pulledAt: db.sheetSync.lastSyncedAt })
-                    : `as of ${new Date(growth?.[active.id]?.latestOn ? `${growth[active.id].latestOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}</p>
                 </div>
               )}
             </div>
@@ -5666,9 +5667,14 @@ function SongsToUpdate({ db, lum, onFix, focus, dupes = [], onDupe }) {
           {rows.map((x) => (
             <div className="fix-row" key={x.p.id} data-song={x.p.id}>
               <span className="fix-song"><span className="fix-who">{x.client?.name || "A deleted client"} · </span>{x.p.song || "Untitled"}</span>
-              <span className="fix-mid upd-gaps">{x.gaps.map((g) => <span key={g.k} className={`upd-gap${GAP_WORDS[g.k] ? "" : " upd-split"}`} data-gap={g.k}>{g.label}</span>)}</span>
+              {/* on phones the first two chips and "+N" (all of them in its title), so a row stays short */}
+              <span className="fix-mid upd-gaps" title={[...x.gaps.map((g) => g.label), x.splitSee && "Split: see Splits to confirm"].filter(Boolean).join(" · ")}>
+                {x.gaps.map((g, i) => <span key={g.k} className={`upd-gap${i >= 2 ? " upd-gap-x" : ""}`} data-gap={g.k}>{g.label}</span>)}
+                {x.splitSee && <span className={`upd-gap upd-split${x.gaps.length >= 2 ? " upd-gap-x" : ""}`} data-gap="split-see">Split: see Splits to confirm</span>}
+                {x.gaps.length + (x.splitSee ? 1 : 0) > 2 && <span className="upd-gap upd-gap-more" data-gap-more aria-hidden="true">+{x.gaps.length + (x.splitSee ? 1 : 0) - 2}</span>}
+              </span>
               <span className="fix-streams">{fmt(x.p.streams || 0)} streams</span>
-              <span className="fix-acts"><button className="btn sm" data-update onClick={() => onFix(x.p.id, x.gaps[0].field)}>Update</button></span>
+              <span className="fix-acts"><button className="btn sm" data-update onClick={() => onFix(x.p.id, (x.gaps[0] || {}).field)}>Update</button></span>
             </div>
           ))}
           {shown.length > UPDATE_FIRST && <button className="inline-link upd-more" data-upd-more onClick={() => setMore(!more)}>{more ? `Show the first ${UPDATE_FIRST}` : `Show all ${shown.length}`}</button>}
@@ -5805,6 +5811,8 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
         : fresh.dropRow != null ? `It has its own row on the ${tab} tab (row ${fresh.dropRow}), so it can't be merged here.`
         : `It has no row on the ${tab} tab (checked just now), so nothing is written there for it.`}</p>
       <p data-merge-share>{shareText}{rename && <> <span data-merge-rename>Row {fresh.keepRow} on the {tab} tab is renamed to "{title}".</span></>}</p>
+      {/* the weekly ClickUp task counts Add to Luminate and the rest: it's checked at a Dashboard load (every 10 minutes at most) */}
+      <p className="hint" data-merge-clickup>The weekly ClickUp task updates its counts at the next Dashboard load.</p>
       {blocked && <p className="warn-text" role="alert" data-merge-blocked>{blocked}</p>}
       <div className="dupe-cols">
         {col(keep, "keep", "Keeps this card")}
@@ -6999,7 +7007,8 @@ function songsToUpdate(db, lum) {
     const split = splitTotal(p.splits) === 100 ? "ok" : evenSplit(p.splits).status;
     const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split, inLuminate });
     if (!gaps.some((x) => GAP_WORDS[x.k])) continue;
-    out.push({ p, client: (db.clients || []).find((c) => c.id === p.clientId) || null, gaps });
+    // a split to confirm or review is Splits to confirm's (build I3): listed here only for the other gaps, with a pointer
+    out.push({ p, client: (db.clients || []).find((c) => c.id === p.clientId) || null, gaps: gaps.filter((x) => GAP_WORDS[x.k]), splitSee: gaps.some((x) => !GAP_WORDS[x.k]) });
   }
   return out.sort((a, b) => (b.p.streams || 0) - (a.p.streams || 0));
 }
@@ -7015,11 +7024,17 @@ const dupeIds = (db, lum) => new Set(likelyDupes(db, lum).flatMap((x) => [x.keep
 // "TRUST WHO (Stack!e)": the To do and Publishing's line name the song once, without its version tags
 const dupeName = (x) => `${plainTitle(x.keep.song) || "Untitled"} (${x.client?.name || "no client"})`;
 const dupeWords = (list) => (list.length === 1 ? `Possible duplicate: ${dupeName(list[0])}` : `${list.length} possible duplicate songs`);
-// the To do's detail: the two most common gaps, counted
+// the To do's detail (build I3): the gaps that matter for money first (no writer share, not on the sheet, not in
+// Luminate), then a missing date or link counted once per song; trimmed to fit the line
+const UPDATE_WORDS_MAX = 84;
 function updateWords(list) {
-  const n = {};
-  for (const x of list) for (const g of x.gaps) if (GAP_WORDS[g.k]) n[g.k] = (n[g.k] || 0) + 1;
-  return Object.keys(GAP_WORDS).filter((k) => n[k]).sort((a, b) => n[b] - n[a]).slice(0, 2).map((k) => `${n[k]} ${GAP_WORDS[k]}`).join(" · ");
+  const n = (f) => list.filter((x) => x.gaps.some(f)).length;
+  const share = n((g) => g.k === "share"), sheet = n((g) => g.k === "sheet"), lum = n((g) => g.k === "lum"), dl = n((g) => g.k === "date" || g.k === "link");
+  const parts = [share && `${share} ${share === 1 ? "has" : "have"} no writer share in the sheet`, sheet && `${sheet} ${sheet === 1 ? "isn't" : "aren't"} on the pub sheet`,
+    lum && `${lum} not in Luminate`, dl && `${dl} missing a date or link`].filter(Boolean);
+  let out = parts[0] || "";
+  for (const x of parts.slice(1)) if (`${out} · ${x}`.length <= UPDATE_WORDS_MAX) out = `${out} · ${x}`; else break;
+  return out;
 }
 function dashTasks(db, lum) {
   // both groups of Splits to confirm, in plain words: the even default ready to confirm, and the ones to fix by hand
@@ -9805,6 +9820,7 @@ function StyleTag() {
     .app:not(.pub) .upd-gaps{gap:4px 6px}
     .app:not(.pub) .upd-gap{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;border:1px solid var(--d-line-2);color:var(--d-warn);font-size:12px;line-height:18px;white-space:nowrap}
     .app:not(.pub) .upd-gap.upd-split{color:var(--d-ink-3)}
+    .app:not(.pub) .upd-gap-more{display:none;color:var(--d-ink-3)}
     .app:not(.pub) .upd-filters{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
     .app:not(.pub) .upd-filter{display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid var(--d-line-2);border-radius:999px;background:none;color:var(--d-ink-3);font:400 12px/1 var(--d-body);cursor:pointer;white-space:nowrap}
     .app:not(.pub) .upd-filter.on{background:var(--d-active);border-color:var(--d-line-3);color:var(--d-ink)}
@@ -9849,6 +9865,9 @@ function StyleTag() {
       .app:not(.pub) .fix-group[data-group=update] .fix-song{grid-column:1 / -1}
       .app:not(.pub) .fix-group[data-group=update] .fix-acts{grid-column:auto}
       .app:not(.pub) .fix-group[data-group=update] .fix-acts .btn{min-height:34px}
+      .app:not(.pub) .fix-group[data-group=update] .upd-gap-x{display:none}
+      .app:not(.pub) .fix-group[data-group=update] .upd-gap-more{display:inline-flex}
+      .app:not(.pub) .fix-group[data-group=update] .upd-gaps{flex-wrap:nowrap;overflow:hidden}
       /* thumb-sized taps: the segmented toggles, the A&R strip in two lines, Luminate's buttons under its title */
       .app:not(.pub) .gainer-tabs button{min-height:40px}
       .app:not(.pub) .ar-strip{flex-wrap:wrap;overflow-x:visible}
@@ -10490,7 +10509,9 @@ function StyleTag() {
     .app:not(.pub) .arb-empty{color:var(--d-ink-off)}
     .app:not(.pub) .arb-board.dragging .arb-col[data-col]:not([data-col=other]) .arb-empty{color:var(--d-ink-3)}
     .app:not(.pub) .arb-card-open{width:100%}
-    .app:not(.pub) .arb-card .arb-card-top{flex-wrap:nowrap;align-items:baseline;justify-content:space-between;gap:10px;width:100%}
+    .app:not(.pub) .arb-card .arb-card-top{flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 10px;width:100%}
+    /* a long name ("frappersmitprod") stays whole: ≈ $value wraps under it; only a name wider than the card is cut with … */
+    .app:not(.pub) .arb-card .arb-card-top .arb-name{flex:0 0 auto;max-width:100%}
     .app:not(.pub) .arb-val{flex:none;font:600 13px/1.3 var(--d-body);color:var(--d-ink);font-variant-numeric:tabular-nums;white-space:nowrap}
     @media (max-width:1366px){
       /* laptops: a name wraps to 2 lines and ≈ $value goes under it (the columns: below, after the sideways row) */
