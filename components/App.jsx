@@ -4309,7 +4309,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
           <ExtLink href={links.advanceCalculator} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
         )}
       </div>
-      <p className="muted mb">Mirrors the sheet's own math exactly — pick an Outreach prospect or a signed client, or fill out a brand-new scenario and add it as a prospect once you're happy with it.</p>
+      <p className="muted mb">Works out an advance the same way the sheet's ADVANCE CALCULATOR tab does.</p>
       {/* the dollars below use the pub sheet's rate (ASSUMPTIONS!B7), read live: say which */}
       <p className="hint adv-rate" title="The rate is ASSUMPTIONS!B7 on the pub sheet">{assumptions.blendedRate != null ? `At $${+Number(assumptions.blendedRate).toFixed(6)} a stream (your pub sheet's rate).` : "At your pub sheet's rate a stream."}</p>
 
@@ -4324,15 +4324,15 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
       <div className="form-card" style={{ maxWidth: 560 }}>
         <label className="fld"><span>Prospect or signed client</span>
           <select value={scenario.kind === "new" ? "" : `${scenario.kind}:${scenario.key}`} onChange={(e) => selectScenario(e.target.value)}>
-            <option value="">— new prospect —</option>
-            {prospects.length > 0 && (
-              <optgroup label="Outreach prospects">
-                {prospects.filter((p) => p.id).map((p) => <option key={p.id} value={`outreach:${p.id}`}>{p.name} ({fmt(Math.round(p.money.netStreams))} net streams)</option>)}
+            <option value="">— someone new (type their streams) —</option>
+            {signedClients.length > 0 && (
+              <optgroup label="Our clients">
+                {signedClients.map((c) => <option key={c.id} value={`client:${c.id}`}>{c.name} ({fmt(c.netStreams)} net streams)</option>)}
               </optgroup>
             )}
-            {signedClients.length > 0 && (
-              <optgroup label="Signed clients">
-                {signedClients.map((c) => <option key={c.id} value={`client:${c.id}`}>{c.name} ({fmt(c.netStreams)} net streams)</option>)}
+            {prospects.length > 0 && (
+              <optgroup label="Prospects (A&R)">
+                {prospects.filter((p) => p.id).map((p) => <option key={p.id} value={`outreach:${p.id}`}>{p.name} ({fmt(Math.round(p.money.netStreams))} net streams)</option>)}
               </optgroup>
             )}
           </select>
@@ -4348,15 +4348,15 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
             <Field label="Contact or Handle" value={scenario.contact} onChange={(e) => setField({ contact: e.target.value })} />
             <Field label="Gross Streams" type="number" value={scenario.grossStreams} onChange={(e) => setField({ grossStreams: e.target.value })} />
             <Field label="Writer %" type="number" value={scenario.writerShare} onChange={(e) => setField({ writerShare: e.target.value })} />
-            <p className="hint">Net Streams: {fmt(Math.round(netStreams))} · Est. publishing earnings: {money(estRevenue)}</p>
+            {netStreams > 0 && <p className="hint">Net Streams: {fmt(Math.round(netStreams))} · Est. publishing earnings: {money(estRevenue)}</p>}
           </>
         )}
         <Field
           label="Recoup target (months)" type="number" value={recoupMonths}
           onChange={(e) => setRecoupMonths(e.target.value)}
-          hint="Advance = this many months of Year 1 admin cut · recouped from your 20% admin, not the writer's share · 12-18 mo traditional, 24-36 aggressive"
+          hint="The advance is this many months of our fee in year 1. 12 to 18 is usual, 24 to 36 is aggressive."
         />
-        <p className="hint">Recouped from our commission (the admin fee). Uses the same numbers as the ADVANCE CALCULATOR tab.</p>
+        <p className="hint">Paid back out of our fee, not their share.</p>
         {err && <p className="hint err-text">{err}</p>}
         {/* saving flips scenario.kind to "outreach", which swaps in the
             read-only reference block above on the very next render — the
@@ -4383,6 +4383,8 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
         )}
       </div>
 
+      {/* nothing to work out yet: one line says what to do, instead of rows of $0.00 */}
+      {!selectedProspect && !selectedClient && !netStreams ? <p className="adv-empty">Pick a client or prospect, or type streams, to see an advance.</p> : <>
       <div className="cat-summary" style={{ marginTop: 20 }}>
         <div className="cat-summary-grid">
           <div className="cat-stat"><span className="cat-stat-label">Recommended Advance</span><span className="cat-stat-val">{money(result.advance)}</span></div>
@@ -4393,17 +4395,18 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
       </div>
 
       <div className="split-list" style={{ marginTop: 16 }}>
-        <div className="split-list-row"><span className="split-name">Proj. Royalties Yr 1</span><span className="split-pct">{money(result.royYr1)}</span></div>
-        <div className="split-list-row"><span className="split-name">Proj. Royalties Yr 2</span><span className="split-pct">{money(result.royYr2)}</span></div>
-        <div className="split-list-row"><span className="split-name">Proj. Royalties Yr 3</span><span className="split-pct">{money(result.royYr3)}</span></div>
-        <div className="split-list-row split-list-total"><span>Proj. Royalties 3-Yr</span><span>{money(result.roy3yr)}</span></div>
+        <div className="split-list-row"><span className="split-name">Their earnings yr 1</span><span className="split-pct">{money(result.royYr1)}</span></div>
+        <div className="split-list-row"><span className="split-name">Their earnings yr 2</span><span className="split-pct">{money(result.royYr2)}</span></div>
+        <div className="split-list-row"><span className="split-name">Their earnings yr 3</span><span className="split-pct">{money(result.royYr3)}</span></div>
+        <div className="split-list-row split-list-total"><span>Their earnings next 3 yrs</span><span>{money(result.roy3yr)}</span></div>
       </div>
       <div className="split-list" style={{ marginTop: 12 }}>
-        <div className="split-list-row"><span className="split-name">Admin Yr 1</span><span className="split-pct">{money(result.adminYr1)}</span></div>
-        <div className="split-list-row"><span className="split-name">Admin Yr 2</span><span className="split-pct">{money(result.adminYr2)}</span></div>
-        <div className="split-list-row"><span className="split-name">Admin Yr 3</span><span className="split-pct">{money(result.adminYr3)}</span></div>
-        <div className="split-list-row split-list-total"><span>Your Admin 3-Yr</span><span>{money(result.admin3yr)}</span></div>
+        <div className="split-list-row"><span className="split-name">Our fee yr 1</span><span className="split-pct">{money(result.adminYr1)}</span></div>
+        <div className="split-list-row"><span className="split-name">Our fee yr 2</span><span className="split-pct">{money(result.adminYr2)}</span></div>
+        <div className="split-list-row"><span className="split-name">Our fee yr 3</span><span className="split-pct">{money(result.adminYr3)}</span></div>
+        <div className="split-list-row split-list-total"><span>Our fee next 3 yrs</span><span>{money(result.admin3yr)}</span></div>
       </div>
+      </>}
     </div>
   );
 }
@@ -6003,7 +6006,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
 
   return (
     <div className="lm">
-      <div className="admin-head">
+      <div className="admin-head lm-head">
         <h2>Luminate</h2>
         <div className="overview-links">
           <button className="btn ghost sm" disabled={!!busy} onClick={() => run("resync", () => lumPost({ action: "resync" }).then(() => window.dispatchEvent(new Event(STREAMS_EVENT))))} title="Rebuild STREAM DATA from the newest exports and pull every client's numbers again">
@@ -8909,6 +8912,7 @@ function StyleTag() {
     .app:not(.pub) p.hint.del-note svg{flex:none;margin-top:3px;color:var(--d-pos)}
     .app:not(.pub) p.hint.del-note.warn{border-color:var(--d-warn-line);background:var(--d-warn-bg);color:var(--d-ban-warn-ink)}
     .app:not(.pub) p.hint.del-note.warn svg{color:var(--d-warn)}
+    .app:not(.pub) .adv-empty{margin:20px 0 0;padding:16px;border:1px dashed var(--d-line-3);border-radius:var(--d-r-md);color:var(--d-ink-3);font-size:13.5px;max-width:560px}
     /* Publishing: Splits to fix (one list, Fix opens the editor) and the strip after a Save */
     .app:not(.pub) .fix-panel{margin:0 0 18px;padding:14px 16px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1)}
     .app:not(.pub) .fix-panel.flash{animation:lm-flash 1.2s ease-out;outline:2px solid transparent}
@@ -8935,6 +8939,13 @@ function StyleTag() {
       .app:not(.pub) .fix-streams{text-align:left}
       .app:not(.pub) .fix-acts{grid-column:1 / -1;justify-content:flex-start}
       .app:not(.pub) .fix-acts .btn{min-height:40px}
+      /* thumb-sized taps: the segmented toggles, the A&R strip in two lines, Luminate's buttons under its title */
+      .app:not(.pub) .gainer-tabs button{min-height:40px}
+      .app:not(.pub) .ar-strip{flex-wrap:wrap;overflow-x:visible}
+      .app:not(.pub) .ar-strip-val{flex-basis:100%;margin-left:0;padding:4px 0 0}
+      .app:not(.pub) .lm-head{flex-wrap:wrap}
+      .app:not(.pub) .lm-head .overview-links{flex-basis:100%;display:grid;grid-template-columns:1fr;gap:8px}
+      .app:not(.pub) .lm-head .overview-links .btn{width:100%;justify-content:center;min-height:40px}
     }
     .app:not(.pub) .lm-unl-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:none;max-width:60%}
     .app:not(.pub) .lm-pick{height:var(--d-ctl-sm);max-width:260px;padding:0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:400 13.5px/1 var(--d-body)}
