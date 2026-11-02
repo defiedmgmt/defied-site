@@ -4913,6 +4913,11 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
                   {active.notable && <div className="song-detail-public"><Eye size={13} aria-hidden="true" /> Shown on {client?.name}'s public page.</div>}
                 </div>
               </div>
+              {/* streams but $0: the sheet row's Writer Share is blank (Spots. on the Stackie tab), so its earnings formulas
+                  give nothing. Up here under the title, so it's read before anything else and never sits behind the buttons */}
+              {isStaff && db.sheetSync?.lastSyncedAt && active.streams > 0 && !active.revenue && Number(ownSplit(active, client)?.percent) > 0 && (
+                <p className="hint song-sheet-warn"><AlertTriangle size={14} /> <span>The pub sheet has no writer share for this song ({client?.sheetTabName?.trim() || client?.name} tab), so it earns $0 there. Edit and Save to send the split to the sheet, or use This isn't ours.</span></p>
+              )}
               <SplitsPie splits={active.splits} size={230} />
               <div className="split-list">
                 {(active.splits || []).map((s) => (
@@ -4939,10 +4944,6 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               )}
               {db.sheetSync?.lastSyncedAt && (
                 <div className="split-list">
-                  {/* streams but $0: the sheet row's Writer Share is blank (Spots. on the Stackie tab), so its earnings formulas give nothing */}
-                  {isStaff && active.streams > 0 && !active.revenue && Number(ownSplit(active, client)?.percent) > 0 && (
-                    <p className="hint song-sheet-warn"><AlertTriangle size={14} /> <span>The pub sheet has no writer share for this song ({client?.sheetTabName?.trim() || client?.name} tab), so it earns $0 there. Edit and Save to send the split to the sheet, or use This isn't ours.</span></p>
-                  )}
                   <div className="split-list-row"><span className="split-name">Streams</span><span className="split-pct">{fmt(active.streams)}</span></div>
                   {isStaff && (
                     <>
@@ -9171,7 +9172,7 @@ function StyleTag() {
     .app:not(.pub) .song-info em > .split-chip{display:inline-flex;align-items:center;height:20px;padding:0 8px;border:1px solid var(--d-warn-line);border-radius:100px;background:var(--d-warn-bg);color:var(--d-warn);font-style:normal}
     .app:not(.pub) .song-info .song-public{display:flex;align-items:center;gap:4px;margin-top:3px;font-size:12px;color:var(--d-ink-3)}
     .app:not(.pub) .song-detail-public{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12.5px;color:var(--d-ink-3)}
-    .app:not(.pub) p.hint.song-sheet-warn{display:flex;align-items:flex-start;gap:8px;margin:0 0 10px;padding:10px 12px;border:1px solid var(--d-warn-line);border-radius:var(--d-r-md);background:var(--d-warn-bg);color:var(--d-ban-warn-ink);font-size:13px;line-height:1.5}
+    .app:not(.pub) p.hint.song-sheet-warn{display:flex;align-items:flex-start;gap:8px;margin:14px 0 4px;padding:10px 12px;border:1px solid var(--d-warn-line);border-radius:var(--d-r-md);background:var(--d-warn-bg);color:var(--d-ban-warn-ink);font-size:13px;line-height:1.5}
     .app:not(.pub) p.hint.song-sheet-warn svg{flex:none;margin-top:3px;color:var(--d-warn)}
     @media (max-width:700px){
       .app:not(.pub) .subpill .pill-long{display:none}  /* the phone pill reads "Advance" */
