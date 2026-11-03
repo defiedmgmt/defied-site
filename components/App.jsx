@@ -7725,19 +7725,25 @@ function AcctOverview({ d, onSec }) {
   const yr = M && { stripe: cents2(M.reduce((a, m) => a + m.stripe, 0)), sheet: cents2(M.reduce((a, m) => a + m.sheet, 0)) };
   if (yr) yr.diff = cents2(yr.stripe - yr.sheet);
   const nLog = d.counts?.toLog || 0, nCheck = d.counts?.toCheck || 0;
-  const rounding = M ? cents2(M.flatMap((m) => m.parts).filter((x) => x.kind === "rounding").reduce((a, x) => a + x.amount, 0)) : 0;
+  const partSum = (kind) => (M ? cents2(M.flatMap((m) => m.parts).filter((x) => x.kind === kind).reduce((a, x) => a + x.amount, 0)) : 0);
+  const rounding = partSum("rounding");
+  // co-managers' share of Stripe's fees (the Co-Management Cut): Stripe has it, the sheet books it on
+  // its Stripe Fees tab, so it never makes the year look wrong
+  const covered = partSum("covered");
+  const coveredText = covered ? `${money(covered)} is co-managers' share of Stripe's fees (on the Stripe Fees tab)` : "";
   const checkRow = new Set((d.toCheck?.items || []).map((x) => x.row).filter(Boolean)); // rows with an open To check line
   const diffText = (v) => (v ? money(v).replace("$-", "-$") : "—");
-  const clean = yr && !yr.diff && !nLog && !nCheck;
+  const clean = yr && !cents2(yr.diff - covered) && !nLog && !nCheck;
   return (
     <>
       {yr && (
         <p className={clean ? "acct-status ok" : "acct-status"} data-acct-status>
-          {clean ? <><CheckCircle2 size={15} /> Stripe and the sheet match for {d.year}.</> : (
+          {clean ? <><CheckCircle2 size={15} /> <span>Stripe and the sheet match for {d.year}{covered ? <span className="acct-round" data-status-covered> · {coveredText}</span> : null}.</span></> : (
             <><AlertTriangle size={15} /> <span>{yr.diff ? `${money(Math.abs(yr.diff))} apart for ${d.year}` : `Stripe and the sheet add up the same for ${d.year}`}
               {nLog > 0 && <>: {nLog === 1 ? "1 payment" : `${nLog} payments`} to log (<button className="inline-link" data-status-log onClick={() => onSec("log")}>log {nLog === 1 ? "it" : "them"}</button>)</>}
               {nCheck > 0 && <>{nLog ? " · " : ": "}{nCheck === 1 ? "1 row" : `${nCheck} rows`} to check (<button className="inline-link" data-status-check onClick={() => onSec("check")}>see why</button>)</>}
-              {rounding ? <span className="acct-round">{nLog || nCheck ? " · " : ": "}{money(Math.abs(rounding))} is rounding</span> : null}.</span></>
+              {rounding ? <span className="acct-round">{nLog || nCheck ? " · " : ": "}{money(Math.abs(rounding))} is rounding</span> : null}
+              {covered ? <span className="acct-round" data-status-covered>{nLog || nCheck || rounding ? " · " : ": "}{coveredText}</span> : null}.</span></>
           )}
         </p>
       )}
@@ -7759,7 +7765,7 @@ function AcctOverview({ d, onSec }) {
                 <span role="cell" className="acct-why" data-col="why">
                   {!m.diff && !m.parts.length ? <span className="acct-match"><CheckCircle2 size={14} /> Matches</span> : (
                     <>{m.parts.map((x, i) => (
-                      <React.Fragment key={i}>{i ? " · " : ""}<span className={x.kind === "rounding" ? "acct-round" : undefined} data-part={x.kind}>{x.text}</span>
+                      <React.Fragment key={i}>{i ? " · " : ""}<span className={x.kind === "rounding" || x.kind === "covered" ? "acct-round" : undefined} data-part={x.kind}>{x.text}</span>
                         {x.kind === "unlogged" && <> (<button className="inline-link" data-part-log onClick={() => onSec("log")}>log them</button>)</>}
                         {(x.kind === "share" || x.kind === "extra") && x.url && <> (<ExtLink className="inline-link" href={x.url}>open row ↗</ExtLink>{checkRow.has(x.row) && <>, <button className="inline-link" onClick={() => onSec("check")}>see To check</button></>})</>}
                       </React.Fragment>
