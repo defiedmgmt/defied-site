@@ -116,7 +116,8 @@ function TrueUpDrop({ d }) {
   };
   const undo = async (runId) => {
     setBusy("undoing");
-    try { await post("/api/trueup", { action: "undo", runId }); setDone({ undone: true }); setRecent(null); await reloadTrueUp(); }
+    // reloaded before "recent" is cleared, so the row (and this message) never drops out in between
+    try { await post("/api/trueup", { action: "undo", runId }); setDone({ undone: true }); await reloadTrueUp(); setRecent(null); }
     catch (e) { setDone({ error: e.message }); }
     finally { setBusy(null); }
   };
