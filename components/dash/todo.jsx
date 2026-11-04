@@ -15,6 +15,7 @@ import { DropNote, Field, fmt, money } from "./ui";
 import { AskCard, SongManager } from "../portal/ClientPortal";
 import { cuCache, syncCache } from "../shared/dash-caches";
 import { ExtLink } from "../shared/ui";
+import { TrueUpPanel } from "../TrueUp"; // TRUEUP-HOOK: the monthly Luminate true-up
 
 /* staff: To do (r7) — every to-do from every area, finished where it's listed ------------------ */
 export function useCuTasks(tab) {
@@ -125,6 +126,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log" && viaCta} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
     case "follow": return <ArFollowUps ctx={ctx} />;
     case "seeds": return <SeedList area={it.seedArea} ctx={ctx} />;
+    case "trueup": case "trueup-new": case "trueup-schedule": return <TrueUpPanel kind={it.panel} ctx={ctx} />; // TRUEUP-HOOK
     case "messages": return <SubsAdmin db={db} commit={commit} />;
     case "syncfix": return <SyncFix check={it.check} ctx={ctx} />;
     default: return null;

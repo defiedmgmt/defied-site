@@ -2,6 +2,7 @@ import { Analytics } from "@vercel/analytics/next";
 import AppRoot from "../components/app/AppRoot";
 import "../components/ui/mobile.css"; // the shared mobile-first helper (list B #10)
 import "../components/ar/ar.css"; // A&R › Trackers and Radar (list B #5, #6, #8)
+import "../components/trueup.css"; // TRUEUP-HOOK: the monthly Luminate true-up in To do
 // the site's and the dashboard's stylesheet (list B #11: was App's inline <style>); last, as it was
 import "../styles/app.css";
 

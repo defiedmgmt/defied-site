@@ -12,6 +12,7 @@ import { NumbersPage, TodoChip } from "./numbers";
 import { SiteAdmin } from "./site";
 import { TodoPage, todoItems, useAutoConfirm, useCuTasks, useSeeds, useSplitFixes, useSyncChecks } from "./todo";
 import { Wordmark } from "./ui";
+import { useTrueUp, trueUpTodoItems } from "../TrueUp"; // TRUEUP-HOOK: the monthly Luminate true-up
 import { ROUTE_TO_PATH } from "../shared/routes";
 
 // Roles (lib/roles.js): may this account use that section? The server says which in db.access (and
@@ -114,8 +115,9 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const sync = useSyncChecks(tab);
   const fixes = useSplitFixes();
   const doneForYou = useAutoConfirm({ db, commit, songInfo, fixes });
+  const trueup = useTrueUp(tab, can("publishing") && !db?.access?.ownOnly); // TRUEUP-HOOK: its To do rows (GET /api/trueup)
   // only the areas this account may use (lib/roles.js)
-  const todo = useMemo(() => todoItems({ db, songInfo, acct: acctN, ar: arSum, sync: sync.data, seeds: seeds.data }).filter((it) => can(AREA_SECTION[it.area] || "todo")), [db, songInfo, acctN, arSum, sync.data, seeds.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const todo = useMemo(() => todoItems({ db, songInfo, acct: acctN, ar: arSum, sync: sync.data, seeds: seeds.data }).concat(trueUpTodoItems(trueup.data)).filter((it) => can(AREA_SECTION[it.area] || "todo")), [db, songInfo, acctN, arSum, sync.data, seeds.data, trueup.data]); /* TRUEUP-HOOK: + the true-up rows */ // eslint-disable-line react-hooks/exhaustive-deps
   const cuDue = (cu.data?.tasks || []).filter((t) => dueBucket(t.due) === "overdue" || dueBucket(t.due) === "today");
   const todoN = todo.length + cuDue.length;
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
