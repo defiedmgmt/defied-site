@@ -18,7 +18,7 @@ import { songGaps, netStreamsOf, SONG_GAPS } from "../lib/sheet-facts";
 import { likelyDuplicates, mergedCard, mergedTitle, plainTitle } from "../lib/duplicates";
 import { biggestTasks, dueBucket, nyDay } from "../lib/todo-rank";
 import { shareFixes, autoConfirms, autoWords } from "../lib/split-fixes";
-import { foldMonths, monthMatches } from "../lib/months";
+import { foldMonths } from "../lib/months";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
    this bundle instead of inside it). The chrome wordmark + D live in /public/brand as transparent
@@ -2839,7 +2839,8 @@ function ClientsAdmin({ db, commit, openId = null, lum = null }) {
   const noTabIds = new Set(noTab.map((c) => c.id));
   const cols = [
     { key: "name", label: "Name", render: (c) => <span className="cell-name"><Avatar src={c.photo} name={c.name} size={30} />{c.name}{noTabIds.has(c.id) && <span className="tab-missing" data-tab-missing title="The pub sheet has no tab by this name">No sheet tab</span>}</span> },
-    { key: "role", label: "Role" }, { key: "credit", label: "Credit" },
+    // Credit (the edit form's "Credit / descriptor") only gets a column once a client has one (list A 7: all blank)
+    { key: "role", label: "Role" }, ...(db.clients.some((c) => (c.credit || "").trim()) ? [{ key: "credit", label: "Credit" }] : []),
     { key: "onRoster", label: "Public", render: (c) => c.onRoster !== false ? <span className="badge-yes"><Check size={12} /> Live</span> : <span className="badge-no">Hidden</span> },
   ];
   const [deleteWarn, setDeleteWarn] = useState(null);
@@ -3520,7 +3521,9 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const Gainers = ({ list, kind }) => (
     <div className="gainers ar-gainers" data-list={kind} data-wait={!pg ? "" : undefined}>
       <div className="attn-head"><TrendingUp size={15} /> {kind === "people" ? "People" : "Songs"}{watch?.periods?.[kind] && <span className="ar-dates"> · {dayRange(watch.periods[kind].from, watch.periods[kind].to)}</span>}</div>
-      {!pg ? <p className="gainers-empty">Loading…</p> : !list.length ? (
+      {!pg ? <p className="gainers-empty">Loading…</p> : !list.length && (watch?.[kind] || []).some((r) => r.wowPct != null) ? (
+        <p className="gainers-empty">No rises this week.</p>
+      ) : !list.length ? (
         <p className="gainers-empty">{kind === "people" ? "Nobody" : "No songs"} with numbers yet. <button className="btn ghost sm" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></p>
       ) : list.map((r, i) => {
         const pct = r.ranked && r.wowPct != null;
@@ -6026,7 +6029,8 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
   // Our fee show; Net streams, Their earnings and the share of the roster's fee wait behind "More columns"
   // (r7: the 3-year forecast lives on the Advance calculator)
   const { growth } = useGrowthState();
-  const [sort, setSort] = useState({ col: "week", dir: -1 });
+  // auto: the opening order (This week); with no weekly numbers at all it falls back to Streams (list A 1)
+  const [sort, setSort] = useState({ col: "week", dir: -1, auto: true });
   const [more, setMore] = useState(false);
   const weekOf = (client) => {
     let ws = client && growth ? db.placements.filter((p) => p.clientId === client.id).map((p) => growth[p.id]).filter((w) => w && w.thisWeek != null && w.lastWeek != null) : [];
@@ -6041,23 +6045,29 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
   const MORE_COLS = ["net", "earn", "share"];
   const cols = [["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"], ...(more ? [["net", "Net streams"], ["earn", "Their earnings"]] : []), ["fee", "Our fee"],
     ...(more ? [["share", "% of roster fee"]] : [])];
-  const val = { songs: (x) => x.r.songs, gross: (x) => x.r.grossStreams, net: (x) => x.r.netStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, share: (x) => Number(x.r.pctOfRoster) };
+  const val = { songs: (x) => x.songs, gross: (x) => x.r.grossStreams, net: (x) => x.r.netStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, share: (x) => Number(x.r.pctOfRoster) };
   const cell = { writer: null, songs: (r) => r.songs, gross: (r) => fmt(r.grossStreams), net: (r) => fmt(r.netStreams), earn: (r) => money(r.grossRevenue), fee: (r) => money(r.adminFee), share: (r) => `${r.pctOfRoster}%` };
-  const rows = (state.data?.rows || []).map((r) => { const client = findClient(r); return { r, client, wk: weekOf(client) }; });
+  // Songs = the songs on the site for that writer (the client list's count beside it); the sheet's own
+  // count, when it differs, is said under it (a song the site has that isn't on the writer's tab yet)
+  const siteSongs = (client, r) => (client ? db.placements.filter((p) => p.clientId === client.id).length : r.songs);
+  const rows = (state.data?.rows || []).map((r) => { const client = findClient(r); return { r, client, wk: weekOf(client), songs: siteSongs(client, r) }; });
   const name = (x) => (x.client ? x.client.name : x.r.writer).toLowerCase();
+  const noWeeks = !rows.some((x) => x.wk);
+  const by = sort.auto && sort.col === "week" && noWeeks ? { col: "gross", dir: -1 } : sort; // the column the rows follow
   // the days This week covers, said once in the source line (the Dashboard says the same)
   const weeks = rows.map((x) => x.wk?.weekOf).filter(Boolean);
   const span = weeks.length ? { from: weeks.map((w) => w.from).sort()[0], to: weeks.map((w) => w.to).sort().pop() } : null;
   rows.sort((a, b) => {
-    if (sort.col === "writer") return sort.dir * name(a).localeCompare(name(b));
-    if (sort.col === "week") {
-      // no % goes last either way, by this week's streams (none at all at the very end)
+    if (by.col === "writer") return by.dir * name(a).localeCompare(name(b));
+    if (by.col === "week") {
+      // no % goes last either way, by this week's streams, then (no week at all) by all-time streams
       const pa = a.wk?.wowPct ?? null, pb = b.wk?.wowPct ?? null;
-      if (pa == null || pb == null) return pa == null && pb == null ? (b.wk?.thisWeek ?? -1) - (a.wk?.thisWeek ?? -1) : pa == null ? 1 : -1;
-      return sort.dir * (pa - pb) || name(a).localeCompare(name(b));
+      if (pa == null || pb == null) return pa == null && pb == null ? (b.wk?.thisWeek ?? -1) - (a.wk?.thisWeek ?? -1) || (b.r.grossStreams || 0) - (a.r.grossStreams || 0) : pa == null ? 1 : -1;
+      return by.dir * (pa - pb) || name(a).localeCompare(name(b));
     }
-    return sort.dir * ((Number(val[sort.col](a)) || 0) - (Number(val[sort.col](b)) || 0)) || name(a).localeCompare(name(b));
+    return by.dir * ((Number(val[by.col](a)) || 0) - (Number(val[by.col](b)) || 0)) || name(a).localeCompare(name(b));
   });
+  const songsTotal = rows.reduce((a, x) => a + (Number(x.songs) || 0), 0);
   return (
     <div>
       <div className="admin-head">
@@ -6097,15 +6107,15 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
           </div>
 
           <div className="master-tools">
-            <button className="btn ghost sm" data-more-cols aria-pressed={more} onClick={() => { setMore((f) => !f); if (more && MORE_COLS.includes(sort.col)) setSort({ col: "week", dir: -1 }); }}>{more ? "Fewer columns" : "More columns"}</button>
+            <button className="btn ghost sm" data-more-cols aria-pressed={more} onClick={() => { setMore((f) => !f); if (more && MORE_COLS.includes(sort.col)) setSort({ col: "week", dir: -1, auto: true }); }}>{more ? "Fewer columns" : "More columns"}</button>
           </div>
           <div className="master-table-wrap">
             <table className="master-table">
               <thead>
                 <tr>
                   {cols.map(([id, label]) => (
-                    <th key={id} data-col={id} aria-sort={sort.col === id ? (sort.dir < 0 ? "descending" : "ascending") : undefined}>
-                      <button className={sort.col === id ? "ar-sort on" : "ar-sort"} onClick={() => setSort((o) => ({ col: id, dir: o.col === id ? -o.dir : id === "writer" ? 1 : -1 }))}>{label}{sort.col === id ? (sort.dir < 0 ? "\u00a0▼" : "\u00a0▲") : ""}</button>
+                    <th key={id} data-col={id} aria-sort={by.col === id ? (by.dir < 0 ? "descending" : "ascending") : undefined}>
+                      <button className={by.col === id ? "ar-sort on" : "ar-sort"} onClick={() => setSort(() => ({ col: id, dir: by.col === id ? -by.dir : id === "writer" ? 1 : -1 }))}>{label}{by.col === id ? (by.dir < 0 ? "\u00a0▼" : "\u00a0▲") : ""}</button>
                       {/* which week it is, right on the column */}
                       {id === "week" && span && <span className="master-week-of">{dayRange(span.from, span.to)} vs the week before</span>}
                     </th>
@@ -6113,7 +6123,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ r, client, wk }) => (
+                {rows.map(({ r, client, wk, songs }) => (
                   <tr
                     key={r.writer}
                     className={client ? "master-row-link" : ""}
@@ -6121,6 +6131,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
                     title={client ? `Open ${client.name}` : "Not linked to a client on the site"}
                   >
                     {cols.map(([id]) => (id === "writer" ? <td key={id}>{client ? client.name : r.writer}</td>
+                      : id === "songs" ? <td key={id} className="master-songs">{songs}{client && songs !== r.songs && <em data-sheet-songs={r.songs} title={`The pub sheet's ${client.name} tab has ${r.songs} song${r.songs === 1 ? "" : "s"}; the site has ${songs}`}>{songs > r.songs ? `${songs - r.songs} not on the sheet` : `sheet has ${r.songs}`}</em>}</td>
                       : id === "week" ? <td key={id} className="master-week">{wk ? <><WowPill pct={wk.wowPct} /><em>{fmt(wk.thisWeek)}</em></> : <span className="muted-dash" title="No last week to compare">—</span>}</td>
                       : <td key={id}>{cell[id](r)}</td>))}
                   </tr>
@@ -6129,7 +6140,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
               {state.data.rosterTotal && (
                 <tfoot>
                   <tr className="master-total-row">
-                    {cols.map(([id]) => <td key={id}>{id === "writer" ? "Roster total" : id === "week" ? null : cell[id](state.data.rosterTotal)}</td>)}
+                    {cols.map(([id]) => <td key={id}>{id === "writer" ? "Roster total" : id === "week" ? null : id === "songs" ? songsTotal : cell[id](state.data.rosterTotal)}</td>)}
                   </tr>
                 </tfoot>
               )}
@@ -6706,6 +6717,7 @@ function ExportDrop({ onDone, saved = [] }) {
   const [askBlocked, setAskBlocked] = useState(false);
   const files = useRef(null);
   const leftOut = useRef(null); // "Only 60 files at a time…": said on the preview and after Apply
+  const checked = useRef([]); // the preview's rows: the files skipped there (already in) are still said after Apply
   const post = async (body) => {
     const res = await fetch("/api/luminate-upload", {
       method: "POST",
@@ -6725,6 +6737,7 @@ function ExportDrop({ onDone, saved = [] }) {
       const first = {};
       for (const r of data.results || []) if (r.unknown) first[r.portfolioId] = !r.needsArea ? "clients" : r.entities && r.artists === r.entities ? "ar_artists" : "";
       setAreas(first);
+      checked.current = data.results || [];
       setOut(data.error && !data.results ? { fatal: data.error } : withLeftOut(data));
     }
     catch (e) { setOut({ fatal: e.message }); }
@@ -6735,7 +6748,10 @@ function ExportDrop({ onDone, saved = [] }) {
     setBusy("applying");
     try {
       const { data } = await post({ files: files.current.filter((f) => pick.includes(f.name)), force, areas });
-      setOut(withLeftOut({ ...data, applied: true, fatal: data.updated ? null : data.error || null }));
+      // Apply only sends the files it takes: the ones the preview skipped as already in (an A&R pair
+      // dropped again) stay listed, so they're never called "Not in this drop" (list A 5)
+      const skipped = checked.current.filter((r) => r.status === "older" && !pick.includes(r.fileName) && !(data.results || []).some((x) => x.fileName === r.fileName));
+      setOut(withLeftOut({ ...data, results: [...(data.results || []), ...skipped], applied: true, fatal: data.updated ? null : data.error || null }));
       if (data.updated) window.dispatchEvent(new Event(STREAMS_EVENT));
       if (data.updated || data.kept) onDone();
     } catch (e) { setOut({ ...out, fatal: e.message }); }
@@ -7836,7 +7852,10 @@ function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll = fals
 const cents2 = (x) => Math.round(x * 100) / 100;
 function AcctOverview({ d, onSec }) {
   const t = d.tiles, month = monthName(d.month), M = d.months;
-  const stats = [["monthNet", `Net · ${month}`, `${money(t.monthRevenue)} in · ${money(t.monthExpenses)} out`], ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]];
+  // a month with no rows yet says so, instead of "$0.00 in · $0.00 out" (list A 8)
+  const monthEmpty = !t.monthRevenue && !t.monthExpenses;
+  const stats = [["monthNet", `Net · ${month}`, monthEmpty ? "Nothing logged yet this month" : `${money(t.monthRevenue)} in · ${money(t.monthExpenses)} out`], ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]];
+  const latest = (d.payments?.items || []).slice(0, 5); // the newest payments, as records (Log it lives in To do and All payments)
   const yr = M && { stripe: cents2(M.reduce((a, m) => a + m.stripe, 0)), sheet: cents2(M.reduce((a, m) => a + m.sheet, 0)) };
   if (yr) yr.diff = cents2(yr.stripe - yr.sheet);
   const nLog = d.counts?.toLog || 0, nCheck = d.counts?.toCheck || 0;
@@ -7849,7 +7868,7 @@ function AcctOverview({ d, onSec }) {
   const checkRow = new Set((d.toCheck?.items || []).map((x) => x.row).filter(Boolean)); // rows with an open To check line
   const diffText = (v) => (v ? money(v).replace("$-", "-$") : "—");
   const clean = yr && !cents2(yr.diff - covered) && !nLog && !nCheck;
-  const fold = foldMonths(M || []);
+  const fold = foldMonths(M || [], { current: d.month });
   const [unfold, setUnfold] = useState(false); // the matching months' own rows, opened from the fold line
   const monthRow = (m) => (
     <div key={m.month} className="acct-mrow" role="row" data-month={m.month} data-explained={m.explained ? "1" : "0"}>
@@ -7884,7 +7903,7 @@ function AcctOverview({ d, onSec }) {
         </p>
       )}
       <div className="cat-summary-grid acct-grid acct-tiles">
-        {stats.map(([k, label, note]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(t[k])}</span>{note && <span className="acct-note">{note}</span>}</div>)}
+        {stats.map(([k, label, note]) => <div key={k} className="cat-stat" data-stat={k} data-empty={k === "monthNet" && monthEmpty ? "" : undefined}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(t[k])}</span>{note && <span className="acct-note">{note}</span>}</div>)}
       </div>
       <div className="fix-panel acct-panel" data-acct="months">
         <div className="fix-head"><h3>Stripe and the sheet, month by month</h3>
@@ -7901,7 +7920,8 @@ function AcctOverview({ d, onSec }) {
                 <button type="button" className="inline-link acct-unfold" data-unfold aria-expanded={unfold} onClick={() => setUnfold((x) => !x)}>{unfold ? "Hide them" : `Show ${fold.matched === 1 ? "it" : `the ${fold.matched}`}`}</button>
               </div>
             )}
-            {unfold && (M || []).filter(monthMatches).reverse().map(monthRow)}
+            {fold.quiet.length > 0 && <div className="acct-mrow acct-mfold acct-mquiet" role="row" data-quiet={fold.quiet.join(",")}><span role="cell" className="acct-round">{fold.quiet.join(", ")}: nothing yet</span></div>}
+            {unfold && fold.rows.map(monthRow)}
             <div className="acct-mrow acct-mtotal" role="row" data-total="year">
               <span role="cell" className="acct-mname">This year</span>
               <span role="cell" className="acct-amt" data-col="stripe">{money(yr.stripe)}</span>
@@ -7912,6 +7932,13 @@ function AcctOverview({ d, onSec }) {
           </div>
         )}
       </div>
+      {latest.length > 0 && (
+        <div className="fix-panel acct-panel acct-latest" data-acct="latest">
+          <div className="fix-head"><h3>Latest payments</h3>
+            <button className="inline-link acct-all" data-acct-all onClick={() => onSec("payments")}>All payments ({fmt(d.payments.total)}) ›</button></div>
+          {latest.map((p) => <PayRow key={p.id} p={p} />)}
+        </div>
+      )}
     </>
   );
 }
@@ -9432,6 +9459,7 @@ function StyleTag() {
        Roster: the name gets most of the row; Public and the 4 row actions are fixed */
     .app:not(.pub) .admin-table:has(.admin-row-link) .admin-row{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) repeat(3,minmax(0,1fr)) minmax(0,.6fr) 144px}
     .app:not(.pub) .admin-table:has(.cell-name):has(.badge-yes,.badge-no) .admin-row{grid-template-columns:minmax(0,1.7fr) minmax(64px,.8fr) minmax(0,1.1fr) 84px calc(var(--d-icon) * 4 + 6px)}
+    .app:not(.pub) .admin-table:has(.cell-name):has(.badge-yes,.badge-no) .admin-row:has(> :nth-child(4):last-child){grid-template-columns:minmax(0,1.7fr) minmax(64px,1.9fr) 84px calc(var(--d-icon) * 4 + 6px)}   /* no Credit column */
     @media (min-width:900px) and (max-width:1199px){
       /* half-screen: Outreach drops Gross Streams + Songs (as the phone list does) so the numbers stay readable */
       .app:not(.pub) .admin-table:has(.admin-row-link) .admin-row{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) repeat(2,minmax(88px,1fr)) 144px}
@@ -10759,7 +10787,7 @@ function StyleTag() {
     .app:not(.pub) .lm-step-n{flex:none;display:grid;place-items:center;width:24px;height:24px;border-radius:50%;border:1px solid var(--d-line-3);font:600 12px/1 var(--d-body);color:var(--d-ink-3)}
     .app:not(.pub) .lm-steps li.todo .lm-step-n{border-color:var(--d-warn-line);color:var(--d-warn);background:var(--d-warn-bg)}
     .app:not(.pub) .lm-steps li.done .lm-step-n{border-color:var(--d-pos-line);color:var(--d-pos);background:var(--d-pos-bg)}
-    .app:not(.pub) .lm-step-links{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+    .app:not(.pub) .lm-step-links{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px}   /* a gap before the drop box under it */
     .app:not(.pub) .lm-drop-wrap{margin:0 0 24px}
     .app:not(.pub) .lm-drop{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:132px;padding:22px;text-align:center;
       border:1px dashed var(--d-line-3);border-radius:var(--d-r-card);background:var(--d-s1);color:var(--d-ink-3);cursor:pointer;
@@ -11156,6 +11184,11 @@ function StyleTag() {
     /* Accounting section: tiles, the month-by-month table, To log and To check in the Splits to confirm look */
     .app:not(.pub) .acct-page .admin-head .home-src{margin:0;flex:1 1 auto}
     .app:not(.pub) .acct-page .acct-tiles{margin:0 0 18px}
+    .app:not(.pub) .acct-page .acct-tiles .cat-stat{justify-content:flex-start}   /* every value on one line; a note sits under its own */
+    .app:not(.pub) .acct-page .acct-tiles .cat-stat[data-empty] .cat-stat-val{color:var(--d-ink-4)}   /* nothing logged this month yet */
+    .app:not(.pub) .acct-latest{margin-top:18px}
+    .app:not(.pub) .acct-latest .fix-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+    .app:not(.pub) .acct-all{font-size:13px;white-space:nowrap}
     .app:not(.pub) .acct-mtable{display:flex;flex-direction:column}
     .app:not(.pub) .acct-mrow{display:grid;grid-template-columns:96px 112px 112px 104px minmax(0,1fr);gap:12px;align-items:baseline;padding:8px 0;border-top:1px solid var(--d-line);font-size:13.5px;color:var(--d-ink-2)}
     .app:not(.pub) .acct-mhead{border-top:0;padding-top:2px;font-size:12px;color:var(--d-ink-4)}
@@ -11451,7 +11484,9 @@ function StyleTag() {
       .app:not(.pub) .home-money-row .cat-stat-val{font-size:clamp(18px,8cqi,22px)}
       .app:not(.pub) .home-money-info{position:absolute;top:7px;right:8px;z-index:2;display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;color:var(--d-ink-4);cursor:help;outline-offset:2px}
       .app:not(.pub) .home-money-info:is(:hover,:focus-visible){color:var(--d-ink);background:var(--d-active)}
-      .app:not(.pub) .home-money-row .home-money-note{position:absolute;top:calc(100% + 6px);right:0;z-index:40;width:min(380px,calc(100% - 12px));margin:0;padding:10px 12px;
+      /* list A 4: the note opens to the (i)'s left, over the strip itself, so it never covers This week's
+         Songs / Artists / A&R switch (or anything else that can be clicked) under the strip */
+      .app:not(.pub) .home-money-row .home-money-note{position:absolute;top:50%;right:40px;transform:translateY(-50%);z-index:40;width:min(600px,calc(100% - 56px));margin:0;padding:8px 12px;
         border:1px solid var(--d-line-2);border-radius:var(--d-r-md);background:var(--d-s2);box-shadow:var(--d-shadow-pop);color:var(--d-ink-2);font-size:13px;line-height:1.45;
         opacity:0;visibility:hidden;pointer-events:none;transition:opacity var(--d-t-fast) ease,visibility var(--d-t-fast)}
       .app:not(.pub) .home-money-info:is(:hover,:focus) + .home-money-note{opacity:1;visibility:visible}
@@ -11663,6 +11698,7 @@ function StyleTag() {
     .app:not(.pub) .master-table th .ar-sort{text-align:inherit;white-space:nowrap}
     .app:not(.pub) .master-table td.master-week{height:auto;padding-block:8px;white-space:nowrap}
     .app:not(.pub) .master-week em{display:block;margin-top:3px;font-style:normal;font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .master-songs em{display:block;margin-top:2px;font-style:normal;font-size:11.5px;color:var(--d-ink-4);white-space:nowrap}   /* "1 not on the sheet": why it differs from the sheet */
     .app:not(.pub) .master-week-of{display:block;margin-top:2px;font-size:11px;font-weight:400;letter-spacing:0;text-transform:none;white-space:nowrap;color:var(--d-ink-4)}
     /* the table without its forecast columns fits beside the client list at 1280 and up: it no longer
        stretches to its widest (max-content), so heads wrap to two lines ("Gross / streams") and the
