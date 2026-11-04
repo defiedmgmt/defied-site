@@ -6,8 +6,16 @@ import { requireAccess, limited, ownSet } from "../../lib/access";
 import { loadSummary } from "../../lib/data/summary";
 import { setMode, addSound, removeSound, saveSetting, loadSettings, dataSql as sql } from "../../lib/data/engine";
 import { SOURCES, sourceSettings, soundId } from "../../lib/data/sources";
+import { loadSeeds, seedTodo, decideSeed, countsOf } from "../../lib/data/seeds";
+import { syncEntities } from "../../lib/data/engine";
+
+// the old Luminate portfolios' rows an account may answer for: the clients' catalogs need Publishing,
+// the Artist and Song Trackers A&R (an account limited to its own artists sees none: the lists are everyone's)
+const seedAreas = (req) => (limited(req) ? [] : [req.access.sections.includes("publishing") && "roster", req.access.sections.includes("ar") && "ar"].filter(Boolean));
 
 export default async function handler(req, res) {
+  // ?seeds=1: To do's rows for what the Luminate starting list still needs (GET); POST {action:"seed"}: an answer
+  if (req.query.seeds || (req.method === "POST" && req.body?.action === "seed")) return seeds(req, res);
   if (req.method === "GET") {
     const home = !!req.query.home;
     const session = await requireAccess(req, res, home ? ["home", "publishing"] : ["publishing"]);
@@ -61,5 +69,34 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error("data write failed:", err);
     return res.status(503).json({ error: "Couldn't save that — try again in a minute." });
+  }
+}
+
+async function seeds(req, res) {
+  if (req.method === "POST" && req.headers["x-requested-with"] !== "defied-site") return res.status(400).json({ error: "Bad request." });
+  const session = await requireAccess(req, res, ["publishing", "ar"]);
+  if (!session) return;
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    const areas = seedAreas(req);
+    if (req.method === "GET") {
+      const rows = await loadSeeds();
+      return res.status(200).json({ todo: seedTodo(rows, areas), counts: countsOf(rows.filter((r) => areas.includes(r.area))) });
+    }
+    if (req.method !== "POST") return res.status(405).json({ error: "GET or POST" });
+    const b = req.body || {};
+    const [row] = (await loadSeeds()).filter((r) => r.lum_id === String(b.lumId || ""));
+    if (!row) return res.status(404).json({ error: "That one isn't on the list any more." });
+    if (!areas.includes(row.area)) return res.status(403).json({ error: row.area === "ar" ? "That one is A&R's." : "That one is Publishing's." });
+    const by = session.user.name || session.user.email || session.user.id || "";
+    const r = await decideSeed(row.lum_id, { op: String(b.op || ""), url: String(b.url || "").slice(0, 400), socials: b.socials && typeof b.socials === "object" ? b.socials : {} }, by);
+    if (r.error) return res.status(400).json(r);
+    // tracked from the next numbers on (no paid run starts here)
+    await syncEntities().catch((err) => console.error("seed sync:", err));
+    const s = r.row;
+    return res.status(200).json({ ok: true, status: s.status, spotify: s.spotify_id ? { id: s.spotify_id, name: s.spotify_name } : null, socials: s.socials });
+  } catch (err) {
+    console.error("seeds failed:", err);
+    return res.status(503).json({ error: "Couldn't load that — try again in a minute." });
   }
 }
