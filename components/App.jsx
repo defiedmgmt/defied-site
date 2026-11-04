@@ -8049,7 +8049,7 @@ function SyncFix({ check, ctx }) {
   const run = () => syncFix(check, ctx, setBusy, setNote);
   return (
     <div className="todo-sublist">
-      <p className="hint">{check.text}</p>
+      <p className="hint">{check.text}{check.detail ? ` ${check.detail}` : ""}</p>
       {check.fix?.kind === "url" ? <p className="hint">Add the missing names on INFO (or fix their spelling) so payments find their client. <ExtLink className="inline-link" href={check.fix.url}>Open the sheet ↗</ExtLink></p>
         : check.fix && <button className="btn sm" data-sync-fix={check.id} disabled={busy} onClick={run}>{busy ? "Working…" : check.fix.label}</button>}
       <DropNote note={note} />
@@ -8361,7 +8361,7 @@ function SyncView({ ctx }) {
           {d.checks.map((c) => (
             <div key={c.id} className="attn-row sync-row" data-check={c.id} data-ok={c.ok === true ? "ok" : c.ok === false ? "warn" : "unknown"}>
               <i className="sync-dot" aria-hidden="true" />
-              <span className="attn-main"><b>{c.text}</b></span>
+              <span className="attn-main"><b>{c.text}</b>{c.detail && <em>{c.detail}</em>}</span>
               {c.ok === false && c.fix && (c.fix.kind === "url"
                 ? <ExtLink className="btn ghost sm" href={c.fix.url}>{c.fix.label}</ExtLink>
                 : <button type="button" className="btn ghost sm" data-sync-fix={c.id} disabled={!!busy} onClick={() => syncFix(c, ctx, (b) => setBusy(b ? c.id : null), setNote)}>{busy === c.id ? "Working…" : c.fix.label}</button>)}
