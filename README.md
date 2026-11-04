@@ -144,6 +144,8 @@ never values.
 | `CLICKUP_TASK_WRITES` | ClickUp tasks: create, update and mark done. |
 | `AR_SHEET_WRITES` | The A&R tab's saves to OUTREACH / ADVANCE CALCULATOR. Off in production when unset. |
 | `PUB_SHARE_WRITES` | "Fill in 100%": a blank Writer Share cell on the pub sheet. |
+| `STREAM_SHEET_WRITES` | The pub sheet's STREAM DATA tab from the new numbers, after each data cron tick (lib/stream-sheet.js): column D (streams) and E (source) of the rows with a confirmed Spotify match, and the label in G1. Nothing else on the sheet. |
+| `STREAM_SHEET_MODE` | Not a switch: `estimate` (default, Spotify plays x each song's own Luminate/Spotify ratio, so the sheet stays on Luminate's all-platform scale) or `spotify` (Spotify plays as they are). |
 | `DATA_REFRESH` | Not a write, but it spends money: the daily data crons start Apify runs and read YouTube/Spotify. Off, nothing is fetched (the Numbers page shows what's there). |
 
 **Build and platform**

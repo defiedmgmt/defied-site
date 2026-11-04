@@ -15,6 +15,8 @@ import { roleOf, cleanAccess, ROLE_KEYS, sectionLabel } from "../../lib/roles";
 import { readSheetFacts } from "../../lib/sheet-facts-store";
 import { afterAction } from "../../lib/area-tasks";
 import { MAX_DATA_BYTES } from "../../lib/image-links";
+import { getState } from "../../lib/app-state";
+import { streamSheetOn } from "../../lib/stream-sheet";
 
 // photos uploaded before list B #2 are data: URIs inside the rows (new ones are Blob links,
 // /api/upload-image), so Next's default 1 MB body cap turned every staff save into a 413 once ~5-8 had
@@ -89,7 +91,13 @@ const insertPlacement = (r) => sql`
 // Everything a staff session's GET returns — and what the size guard weighs.
 // the day of Luminate's last numbers for the clients' songs: what the pub sheet's streams still are (its
 // STREAM DATA tab isn't updated since list B #3), so a page says "streams as of" that day, not the pull's
-const streamsOn = () => rowsOrNoneIfNoTable(sql`SELECT max(atd_on)::text AS day FROM lum_history WHERE area = 'roster'`).then((r) => (r[0]?.day ? String(r[0].day).slice(0, 10) : null));
+// the day the pub sheet's streams are from: STREAM DATA's writer's last update when it's on (lib/stream-sheet.js),
+// else Luminate's last numbers
+const streamsOn = async () => {
+  if (streamSheetOn()) { const st = await getState("streamSheet").catch(() => null); if (st?.at) return nyYmd(st.at); }
+  return rowsOrNoneIfNoTable(sql`SELECT max(atd_on)::text AS day FROM lum_history WHERE area = 'roster'`).then((r) => (r[0]?.day ? String(r[0].day).slice(0, 10) : null));
+};
+const nyYmd = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(d));
 
 async function staffPayload() {
   const [clients, placements, staff, users, submissions, notableReleases, [settings], notOurs, sheetFacts, lumDay] = await Promise.all([

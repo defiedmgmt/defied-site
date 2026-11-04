@@ -434,12 +434,14 @@ function splitsToFix(db) {
 // one wording for how fresh the sheet's streams are (Publishing's subline, a client's page, a song window):
 // they're the pub sheet's, whose STREAM DATA tab keeps Luminate's last numbers (lumDay) and isn't updated
 // any more (list B #3), and when the site last pulled the sheet
-function streamsAsOf({ lumDay, pulledAt }) {
+// sheet: STREAM DATA's writer (GET /api/songs streamSheet): once it has written, the sheet's streams are its numbers
+function streamsAsOf({ lumDay, pulledAt, sheet }) {
   const pulled = pulledAt ? ` · sheet pulled ${new Date(pulledAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "";
-  return `Pub sheet streams${lumDay ? ` (Luminate's last numbers, ${new Date(`${lumDay}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })})` : ""}${pulled}`;
+  const short = (d) => new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (sheet?.on && sheet.at) return `Pub sheet streams (${sheet.mode === "spotify" ? "Spotify plays" : "Spotify estimate"}, ${short(sheet.at)})${pulled}`;
+  return `Pub sheet streams${lumDay ? ` (Luminate's last numbers, ${short(`${lumDay}T12:00:00`)})` : ""}${pulled}`;
 }
 // the one line staff see about it (Publishing's overview and a client's page): the owner decides what feeds the sheet next
-const STREAM_DATA_NOTE = "The pub sheet's STREAM DATA tab isn't updated any more: its streams and money stay at Luminate's last numbers. The new numbers are under Numbers.";
 
 // recharts (~350KB min / ~90KB gzip) is only drawn in the song-splits view (staff Clients tab +
 // client portal) — loaded on demand so the public pages never carry it
@@ -5353,7 +5355,7 @@ function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSongInfo, 
             )}
           </div>
           <p className="hint cat-asof">
-            {isStaff ? streamsAsOf({ lumDay: numbersOn, pulledAt: db.sheetSync.lastSyncedAt })
+            {isStaff ? streamsAsOf({ lumDay: numbersOn, pulledAt: db.sheetSync.lastSyncedAt, sheet: songInfo?.streamSheet })
               : `Streams as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}
             {isStaff && weekGain != null && ` · ${signed(weekGain)} Spotify streams this week`}
           </p>
@@ -5428,7 +5430,7 @@ function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSongInfo, 
                       <div className="split-list-row"><span className="split-name">Our fee so far <em>(est. admin fee)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
                     </>
                   )}
-                  <p className="hint song-asof">{isStaff ? streamsAsOf({ lumDay: numbersOn, pulledAt: db.sheetSync.lastSyncedAt })
+                  <p className="hint song-asof">{isStaff ? streamsAsOf({ lumDay: numbersOn, pulledAt: db.sheetSync.lastSyncedAt, sheet: songInfo?.streamSheet })
                     : `as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}</p>
                 </div>
               )}
@@ -6344,10 +6346,10 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
         </div>
       </div>
       <p className="hint overview-subhint">
-        {streamsAsOf({ lumDay: songInfo?.lumLastDay, pulledAt: db.sheetSync?.lastSyncedAt })}
+        {streamsAsOf({ lumDay: songInfo?.lumLastDay, pulledAt: db.sheetSync?.lastSyncedAt, sheet: songInfo?.streamSheet })}
         {span && <span className="overview-week"> · This week = Spotify streams, {dayRange(span.from, span.to)} vs the week before</span>}
       </p>
-      <p className="hint overview-subhint" data-stream-data-note>{STREAM_DATA_NOTE}</p>
+      <p className="hint overview-subhint" data-stream-data-note>{songInfo?.streamSheet?.text || "Sheet streams: Luminate's last numbers"}</p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
@@ -10568,7 +10570,7 @@ function StyleTag() {
     .app:not(.pub) .nums-home{margin:0 0 12px}
     @media (max-width:599px){
       .app:not(.pub) .nums .admin-head{flex-wrap:wrap}
-      .app:not(.pub) .nums-cost{margin-left:0}
+      .app:not(.pub) .nums-cost{margin-left:0;height:44px} /* a thumb-sized tap on a phone */
       .app:not(.pub) .nums-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
       .app:not(.pub) .nums-tile b{font-size:18px}
       .app:not(.pub) .nums-song-hd{display:none}
