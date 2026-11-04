@@ -3427,17 +3427,8 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
   );
 }
 
-// Summary: the top gainers in the A&R lists, then what needs doing. Nothing else.
-// ClickUp's A&R Tasks list for the Summary's task list (read-only, /api/home?list=ar)
-function useArClickUp() {
-  const [cu, setCu] = useState(() => dashCache.cu.ar || null); // the Dashboard's copy of the same list, refreshed below
-  const load = () => fetch("/api/home?list=ar", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-    .then((d) => { if (d?.clickup && !d.clickup.error) dashCache.cu.ar = d.clickup; setCu(d?.clickup || { error: "Couldn't reach ClickUp." }); })
-    .catch(() => setCu({ error: "Couldn't reach ClickUp." }));
-  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return { cu, retry: () => { setCu(null); load(); } };
-}
 
+// Summary: the top gainers in the A&R lists and the pipeline at a glance (its to-dos are To do's, r7)
 function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const { data, pg, pgErr, loadPg } = ar;
   const watch = pg?.watch;
@@ -7270,9 +7261,9 @@ function TopGainers({ db, lum, onGo, arTop, arLoaded }) {
 // when it can't load, so the rest of the page never waits on it.
 // The Dashboard's last answers, kept while the app is open: coming back to it draws them at once and a
 // fresh copy loads quietly ("updated 7:34 PM" says how fresh the money is). Only good answers are kept.
-const dashCache = { cu: {} };
+const dashCache = {};
 // sign-in and sign-out start clean (the same tab can sign in as someone else)
-function clearDashCaches() { dashCache.home = null; dashCache.top = null; dashCache.cu = {}; arPgCache.d = null; arPgCache.at = 0; }
+function clearDashCaches() { dashCache.home = null; dashCache.top = null; cuCache.d = null; syncCache.d = null; syncCache.at = 0; arPgCache.d = null; arPgCache.at = 0; }
 function useHome() {
   const [home, setHome] = useState(() => dashCache.home || null);
   const [failed, setFailed] = useState(false);
@@ -7488,78 +7479,6 @@ function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay = null, 
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-// One Money card: Stripe's payments, the accounting sheet's numbers, and the payments the sheet
-// doesn't have yet (its count in amber on the tab: the one thing here that needs doing)
-function MoneyCard({ home, failed, retry, tab, setTab, onGo }) {
-  const [open, setOpen] = useState(false);
-  const [logIds, setLogIds] = useState(null); // the payments the Log confirm is for
-  const body = useRef(null);
-  const hidden = useScrollMore(body);
-  const P = home?.payments, A = home?.accounting;
-  const U = A?.connected && !A.error ? A.unlogged : null;
-  const tabs = [["payments", "Payments"], ["accounting", "Accounting"], ["unlogged", <span>Not in <span className="tab-the">the </span>sheet</span>]];
-  const month = monthName(A?.month);
-  const more = (n) => <HomeMore n={n - HOME_ROWS} open={open} onToggle={() => setOpen((o) => !o)} />;
-  let content;
-  if (!home) content = <HomeWait failed={failed} retry={retry} what={tab === "payments" ? "the payments" : "the accounting sheet"} />;
-  else if (tab === "payments") {
-    content = !P.connected ? <p className="home-muted">Connect Stripe to see recent payments here.</p>
-      : P.error ? <p className="home-muted"><AlertTriangle size={15} /> {P.error}</p>
-      : !P.items.length ? <p className="home-muted">No payments yet.</p>
-      : <><p className="pay-legend">Green = Defied's share of each payment</p>{P.items.map((p, i) => <PayRow key={p.id} p={p} over={i >= HOME_ROWS} />)}{more(P.items.length)}</>;
-  } else if (!A.connected) content = <p className="home-muted">Accounting sheet: not connected yet. Once it's shared, live numbers and one-click logging of payments show up here.</p>;
-  else if (A.error) content = <p className="home-muted"><AlertTriangle size={15} /> {A.error}</p>;
-  else if (tab === "accounting") {
-    const stats = [["monthNet", `Net · ${month}`, `${money(A.monthRevenue)} in · ${money(A.monthExpenses)} out`], ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]];
-    content = (
-      <div className="cat-summary-grid acct-grid">
-        {stats.map(([k, label, note]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(A[k])}</span>{note && <span className="acct-note">{note}</span>}</div>)}
-      </div>
-    );
-  } else {
-    content = U === null ? <p className="home-muted">Stripe couldn't be read just now, so the payments missing from the sheet can't be checked.</p>
-      : !U.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every Stripe payment is in the accounting sheet.</p>
-      : (
-        <div className="acct-unlogged">
-          <div className="acct-row acct-row-hd" aria-hidden="true"><span>Date</span><span>Who</span><span className="acct-amt">Paid</span><span /></div>
-          {[...U].reverse().map((p, i) => (
-            <div key={p.id} className={i >= HOME_ROWS ? "acct-row over" : "acct-row"} data-pay={p.id}><span>{shortDay(p.at)}</span><span className="acct-who">{p.client || p.payer || "Unknown payer"}{p.test && <> <TestChip /></>}</span><span className="acct-amt">{money(p.amount)}</span>
-              <button className="btn ghost sm acct-log" data-log={p.id} onClick={() => setLogIds([p.id])}>Log it</button></div>
-          ))}
-          {more(U.length)}
-          <p className="hint">{A.canLog ? <>Log it adds the row to the sheet's Income tab for you, after showing you the row. When it can't tell the type or client (studio work, someone not on INFO), use Log with details in <button className="inline-link" data-go-to-log onClick={() => onGo?.("accounting", "log")}>Accounting › To log</button>.</> : "Add each one as a new row in the sheet with the full amount paid. They leave this list once the sheet has them."}</p>
-        </div>
-      );
-  }
-  return (
-    <div className="home-card home-money-card" id="money">
-      <div className="attn-head">
-        <Receipt size={15} /> Money
-        <span className="gainer-tabs money-tabs" role="tablist" aria-label="Money">
-          {tabs.map(([id, label]) => (
-            <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} data-tab={id} onClick={() => { setTab(id); setOpen(false); }}>
-              {label}{id === "unlogged" && U?.length > 0 && <span className="attn-n">{U.length}</span>}
-            </button>
-          ))}
-        </span>
-        {/* a narrow card (one-screen Dashboard at 1280) drops the word "payments" so the head stays one line */}
-        {P?.items?.length > 0 && <button className="inline-link pay-all" onClick={() => onGo?.("accounting", "payments")} title="All payments, in Accounting">All<span className="pay-all-w"> payments</span> ({fmt(P.total ?? P.items.length)}) ›</button>}
-      </div>
-      {/* Not in the sheet's head sits above the scroll box, so "Log all N" never hides under the fade
-          and the first payment row starts at the top of the box (1280x800, 1366x768) */}
-      {tab === "unlogged" && U?.length > 0 && (
-        <div className="acct-unlogged acct-unlogged-top">
-          <p className="acct-unlogged-head"><span>Add {U.length === 1 ? "this one" : `these ${U.length}`}<span className="acct-hd-w"> to the accounting sheet</span> · {money(A.unloggedTotal)} paid<span className="acct-hd-w"> in total</span></span>
-            {U.length > 1 && <button className="btn sm acct-log-all" data-log-all onClick={() => setLogIds(U.map((p) => p.id))}>Log all {U.length}</button>}</p>
-        </div>
-      )}
-      <div className={open ? "home-scroll open" : "home-scroll"} ref={body}>{content}</div>
-      <ScrollFoot n={hidden} box={body} />
-      {logIds && <LogConfirm ids={logIds} canLog={!!A?.canLog} onClose={() => setLogIds(null)} onDone={retry} onDetails={() => onGo?.("accounting", "log")} />}
     </div>
   );
 }
@@ -7785,49 +7704,6 @@ function AcctToCheck({ d, busy, err, onOk }) {
   );
 }
 
-// ClickUp's open tasks, read-only, as the To do card's last group: all three lists at once. Each
-// row opens the task in ClickUp in a new tab.
-const CU_LISTS = [["internal", "Internal Tasks"], ["pub", "Pub Tasks"], ["ar", "A&R Tasks"]];
-// the two tasks the dashboard writes into ClickUp itself: the rows above already say the same
-const OWN_CU = /^(Weekly dashboard sync:|Log new payments:)/;
-const PRIORITY = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
-const dueLate = (iso) => !!iso && new Date(iso).getTime() < new Date().setHours(0, 0, 0, 0);
-function useClickUpLists(first) {
-  // Pub and A&R start from the saved copy; Internal always from this visit's /api/home (first), which
-  // is fresh on every Dashboard visit; a saved Internal would win over it and never refresh
-  const [lists, setLists] = useState(() => { const { internal, ...rest } = dashCache.cu; return rest; }); // eslint-disable-line no-unused-vars
-  const failed = (k) => ({ key: k, error: "Couldn't reach ClickUp." });
-  // quiet: the list on screen (the last answer) stays until the fresh one lands
-  const load = (k, quiet = false) => {
-    if (!quiet) setLists((x) => ({ ...x, [k]: null }));
-    return fetch(`/api/home?list=${k}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.clickup && !d.clickup.error && k !== "internal") dashCache.cu[k] = d.clickup; setLists((x) => ({ ...x, [k]: d?.clickup || failed(k) })); })
-      .catch(() => setLists((x) => ({ ...x, [k]: failed(k) })));
-  };
-  // Internal Tasks comes with the Dashboard's own load; Pub and A&R right away beside it
-  useEffect(() => { load("pub", true); load("ar", true); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return { lists: CU_LISTS.map(([k]) => (k in lists ? lists[k] : k === "internal" ? first || null : null)), load };
-}
-function CuTask({ t, over }) {
-  const late = dueLate(t.due);
-  return (
-    <ExtLink href={t.url} className={over ? "cu-row over" : "cu-row"} title="Open in ClickUp">
-      <span className="cu-main"><strong>{t.name}</strong>
-        <span className="cu-meta">
-          <span className="cu-status">{t.status}</span>
-          {t.due && <span className={late ? "cu-due late" : "cu-due"}>{late ? "Late · " : "Due "}{shortDay(t.due)}</span>}
-        </span>
-      </span>
-      {t.priority && <span className="cu-pri" data-pri={t.priority} title={`${PRIORITY[t.priority] || t.priority} priority`}><Flag size={13} /></span>}
-      <span className="cu-who">{t.assignees.slice(0, 3).map((a, i) => <span key={i} className="cu-av">{a}</span>)}</span>
-    </ExtLink>
-  );
-}
-
-// To do: the Dashboard's own tasks under coloured area labels (Luminate, Publishing, Money, A&R,
-// Website), then ClickUp's three lists. On phones a whole row is the button (with a ›), and the list
-// stops at 4 rows with "Show N more". failed = the Luminate data couldn't load: a plain line to try
-// again, never "All caught up" or a spinner that never stops.
 // The phone tab bar's "More": Luminate and Site in a small menu above the bar (To do always stays in the
 // bar, with the one count). Hidden on desktop, where the sidebar lists every section.
 const PHONE_MORE = new Set(["luminate", "site"]);
@@ -8078,6 +7954,7 @@ async function syncFix(check, ctx, setBusy, setNote) {
 }
 
 // ClickUp: one open task. The name opens it in ClickUp; Done ✓ sets it to its list's done status.
+const PRIORITY = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
 const CU_BUCKETS = [["overdue", "Overdue"], ["today", "Today"], ["week", "This week"], ["later", "Later"], ["none", "No date"]];
 function CuTodoRow({ t, cu }) {
   const [busy, setBusy] = useState(false);
