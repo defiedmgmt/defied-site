@@ -8105,7 +8105,8 @@ function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
       </div>
       {ctx.can("publishing") && <HomeNumbers onGo={ctx.onGo} />}
       <HomeWeek ctx={ctx} home={home} todo={todo} />
-      {money && <HomePayments home={home} failed={failed} retry={retry} refresh={refresh} onGo={ctx.onGo} />}
+      {/* the last card: on a phone it's drawn once it nears the screen (or the page is idle), after what's on screen */}
+      {money && <LazySection minHeight={240}><HomePayments home={home} failed={failed} retry={retry} refresh={refresh} onGo={ctx.onGo} /></LazySection>}
     </div>
   );
 }

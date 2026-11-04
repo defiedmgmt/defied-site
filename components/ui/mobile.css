@@ -34,10 +34,11 @@
       fields, selects, tabs and sub-tab pills. Opt one control out with class m-tap-off (say why in a comment). */
 @media (pointer:coarse),(max-width:639px){
   .app:not(.pub){--d-ctl-sm:44px;--d-ctl:44px;--d-field-h:48px;--d-icon:44px}
-  .app:not(.pub) :is(.dash-main,.portal-main,.modal,.login-card) :is(button,a.btn,a.cu-name,a.m-tap,[role=button],[role=tab],select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]):not([type=file]),textarea):not(.m-tap-off):not(.ar-sort){min-height:44px !important}
+  .app:not(.pub) :is(.dash-main,.portal-main,.modal,.login-card) :is(button,a.btn,a.cu-name,a.m-tap,[role=button],[role=tab],select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]):not([type=file]),textarea):not(.m-tap-off):not(.ar-sort):not(.inline-link){min-height:44px !important}
   .app:not(.pub) :is(.dash-main,.portal-main,.modal) :is(button,[role=button]):not(.m-tap-off):not(.ar-sort):not(.inline-link){min-width:44px}
-  /* a quiet text button that stands on its own line ("See all 13 ›", "Check again") keeps its look and gets the height */
-  .app:not(.pub) :is(.dash-main,.portal-main,.modal) button.inline-link{display:inline-flex;align-items:center}
+  /* a quiet text button: inside a sentence it stays text (as WCAG 2.5.8 allows); one that stands on its own
+     ("See all 13 ›", "Open calendar ›") keeps its look and gets the height */
+  .app:not(.pub) :is(.dash-main,.portal-main,.modal) button.inline-link.home-all{display:inline-flex;align-items:center;min-height:44px}
   .m-tap{min-height:44px;min-width:44px}
 }
 
