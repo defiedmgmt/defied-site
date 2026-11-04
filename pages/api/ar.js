@@ -11,6 +11,7 @@ import { requireStaff, requireSameOrigin } from "../../lib/session";
 import { arSummary, arWatchNow, mergeProspect, trackedOut, checkTracked, ArError } from "../../lib/ar";
 import { uid } from "../../lib/id";
 import { afterAction } from "../../lib/area-tasks";
+import { refreshDeezer } from "../../lib/ar-deezer";
 
 // the panel's History: plain sentences only (the cells stay server-side); pending ones are left out
 // until the next load settles them
@@ -40,6 +41,9 @@ async function trackedAct(action, b, by) {
     await sql`INSERT INTO ar_tracked (id, kind, name, artist, handle, spotify, isrc, genre, notes, luminate_id, person_id, stage, last_contact, created_by)
       VALUES (${id}, ${v.kind}, ${v.name}, ${v.artist}, ${v.handle}, ${v.spotify}, ${v.isrc}, ${v.genre}, ${v.notes}, ${v.luminateId}, ${v.personId ?? null}, ${v.stage ?? null}, ${v.lastContact || null}, ${by})`;
     await event(id, by, "created", `${by} added ${v.name} to the Watchlist.`);
+    // their Deezer page (fans, and the songs a songs-only artist is followed by) right away; the nightly
+    // check retries one Deezer didn't answer for
+    if (v.kind === "artist") await Promise.race([refreshDeezer({ ids: [id] }), new Promise((r) => setTimeout(r, 4000))]).catch(() => null);
     return { ok: true, tracked: trackedOut(await trackedRow(id)) };
   }
   const t = await trackedRow(String(b.id || ""));
