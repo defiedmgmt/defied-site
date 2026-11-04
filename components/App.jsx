@@ -7904,7 +7904,10 @@ const SYNC_ROWS = { pubSheet: ["roster", "Pull from the sheet"], streamData: ["l
 function todoItems({ db, lum, acct, ar, sync }) {
   const out = [];
   const nLog = acct?.toLog || 0, nCheck = acct?.toCheck || 0;
-  if (nLog) out.push({ k: "log", area: "money", tap: true, t: `${nLog} payment${nLog === 1 ? "" : "s"} to log`, d: acct.toLogTotal ? `${money(acct.toLogTotal)} paid, not in the Income tab yet` : undefined,
+  // the test payments among them said once (they still count): "1 of them is a $2.00 test payment."
+  const tN = acct?.toLogTests?.n || 0, tSum = acct?.toLogTests?.total || 0;
+  const testD = !tN ? null : nLog === 1 ? `It's a ${money(tSum)} test payment.` : tN === 1 ? `1 of them is a ${money(tSum)} test payment.` : `${tN} of them are test payments (${money(tSum)}).`;
+  if (nLog) out.push({ k: "log", area: "money", tap: true, t: `${nLog} payment${nLog === 1 ? "" : "s"} to log`, d: testD || (acct.toLogTotal ? `${money(acct.toLogTotal)} paid, not in the Income tab yet` : undefined),
     cta: nLog === 1 ? "Log it" : `Log all ${nLog}`, panel: "log", rank: { kind: "money", value: acct.toLogTotal || nLog } });
   if (nCheck) out.push({ k: "check", area: "money", t: `${nCheck} row${nCheck === 1 ? "" : "s"} in the Income tab to check`, cta: "Review", panel: "check", rank: { kind: "money", value: 0 } });
   const streams = (ps) => ps.reduce((a, p) => a + (p.streams || 0), 0);
@@ -7916,7 +7919,7 @@ function todoItems({ db, lum, acct, ar, sync }) {
     else if (it.k === "dupes") out.push({ ...base, tap: true, cta: "Merge", panel: "dupes", rank: { kind: "fix", value: 0 } });
     else if (it.k === "splits") out.push({ ...base, panel: "splits", rank: { kind: "fix", value: streams(splitsToConfirm(db, lum).all.map((x) => x.p)) } });
     else if (it.k === "update") out.push({ ...base, panel: "update", rank: { kind: "fix", value: streams(songsToUpdate(db, lum).map((x) => x.p)) } });
-    else if (it.k === "tabs") out.push({ ...base, d: "The pub sheet has no tab by that name. Type the right one here.", cta: "Set the sheet tab", panel: "tabs", rank: { kind: "other" } });
+    else if (it.k === "tabs") out.push({ ...base, d: "The pub sheet has no tab by that name. Type the right one here.", cta: it.sub === "roster" ? "Set the sheet tabs" : it.cta, panel: "tabs", rank: { kind: "other" } });
   }
   const due = ar?.followUpsDue || 0;
   if (due) out.push({ k: "follow", area: "ar", t: `${due} A&R follow-up${due === 1 ? "" : "s"} due`, cta: "Review", panel: "follow", rank: { kind: "contacts", value: due } });
@@ -7934,27 +7937,30 @@ function todoItems({ db, lum, acct, ar, sync }) {
 
 // One To do row: the sentence opens it, the button does its one thing; open, the panel below holds
 // exactly the controls it needs (the same ones the tabs used to hold). Home's biggest tasks use it too.
+// (a One tap row's button goes straight to its preview, "Log all 4" to the log preview; the sentence, or a
+// link to the item, opens the list behind it)
 function TodoRow({ it, open, onToggle, ctx }) {
+  const [viaCta, setViaCta] = useState(false);
   return (
     <div className={open ? "todo-item open" : "todo-item"} data-item={it.k} data-area={it.area}>
       <div className="attn-row" data-task={it.k} data-area={it.area}>
-        <button type="button" className="attn-main todo-open" aria-expanded={open} onClick={onToggle}>
+        <button type="button" className="attn-main todo-open" aria-expanded={open} onClick={() => { setViaCta(false); onToggle(); }}>
           <b>{it.t}</b>{it.d && <em>{it.d}</em>}
         </button>
-        <button type="button" className={it.tap && !open ? "btn sm" : "btn ghost sm"} data-cta={it.k} onClick={onToggle}>{open ? "Close" : it.cta}</button>
+        <button type="button" className={it.tap && !open ? "btn sm" : "btn ghost sm"} data-cta={it.k} onClick={() => { setViaCta(!open && !!it.tap); onToggle(); }}>{open ? "Close" : it.cta}</button>
       </div>
-      {open && <div className="todo-panel" data-panel={it.k}><TodoPanel it={it} ctx={ctx} onClose={onToggle} /></div>}
+      {open && <div className="todo-panel" data-panel={it.k}><TodoPanel it={it} ctx={ctx} onClose={onToggle} viaCta={viaCta} /></div>}
     </div>
   );
 }
-function TodoPanel({ it, ctx, onClose }) {
+function TodoPanel({ it, ctx, onClose, viaCta = false }) {
   const { db, commit, lum, lumErr, reloadLum, reloadDb, onGo } = ctx;
   const lumProps = { db, commit, lum, lumErr, reloadLum, reloadDb, onGo };
   switch (it.panel) {
     case "drop": case "add": case "match": case "missing": case "gone": return <LuminateAdmin {...lumProps} part={it.panel} />;
-    case "splits": case "update": case "dupes": return <PubFix kind={it.panel} ctx={ctx} />;
+    case "splits": case "update": case "dupes": return <PubFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
     case "tabs": return <SheetTabFix ctx={ctx} />;
-    case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log"} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
+    case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log" && viaCta} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
     case "follow": return <ArFollowUps ctx={ctx} />;
     case "arLuminate": return ctx.ar?.toLuminate ? <ArToLuminateModal inline t={ctx.ar.toLuminate} onClose={onClose} /> : null;
     case "messages": return <SubsAdmin db={db} commit={commit} />;
@@ -7965,13 +7971,14 @@ function TodoPanel({ it, ctx, onClose }) {
 
 // Publishing's lists in place: Splits to confirm, Songs to update and the merge card. Fix / Update open
 // the song's editor right here (SongManager's own editor, nothing else of the client's page)
-function PubFix({ kind, ctx }) {
+// (Merge, the row's button, opens the merge card at once; the sentence or a link shows the line with Review)
+function PubFix({ kind, ctx, viaCta = false }) {
   const { db, commit, lum, reloadLum, onGo } = ctx;
   const dupes = useMemo(() => likelyDupes(db, lum), [db, lum]);
   const [edit, setEdit] = useState(null);
   const n = useRef(0);
   const openFix = (id, field = null) => { const p = db.placements.find((x) => x.id === id); if (p) setEdit({ id, field, n: ++n.current, clientId: p.clientId }); };
-  const [dupeKey, setDupeKey] = useState(() => (kind === "dupes" ? dupes[0]?.key || null : null));
+  const [dupeKey, setDupeKey] = useState(() => (kind === "dupes" && viaCta ? dupes[0]?.key || null : null));
   const [note, setNote] = useState(null);
   const dupeOpen = dupeKey && dupes.find((x) => x.key === dupeKey);
   const openDupe = () => { setNote(null); setDupeKey(dupes[0]?.key || null); };
@@ -8008,10 +8015,11 @@ function SheetTabFix({ ctx }) {
   };
   return (
     <div className="todo-sublist">
-      {names.map((n) => findTabClient(db, n)).filter(Boolean).map((c) => (
+      {names.map((n) => findTabClient(db, n)).filter(Boolean).map((c, i) => (
         <div key={c.id} className="fix-row" data-tab-client={c.id}>
           <span className="fix-song">{c.name}</span>
-          <span className="fix-mid"><input className="todo-input" value={typed[c.id] ?? c.sheetTabName ?? ""} placeholder={`Sheet tab name (now ${c.name})`} aria-label={`${c.name}'s sheet tab name`} onChange={(e) => setTyped((t) => ({ ...t, [c.id]: e.target.value }))} /></span>
+          <label className="fix-mid fld todo-tab-fld"><input className="todo-input" data-sheet-tab value={typed[c.id] ?? c.sheetTabName ?? ""} placeholder="Sheet tab name" aria-label={`${c.name}'s sheet tab name`} autoFocus={i === 0} onChange={(e) => setTyped((t) => ({ ...t, [c.id]: e.target.value }))} />
+            <span className="hint">The pub sheet has no tab called {c.sheetTabName?.trim() || c.name}.</span></label>
           <span className="fix-acts"><button className="btn sm" disabled={busy === c.id || !(typed[c.id] ?? "").trim()} onClick={() => save(c)}>{busy === c.id ? "Saving…" : "Save"}</button></span>
         </div>
       ))}
@@ -8156,8 +8164,8 @@ function CuSection({ cu, list, person, setList, setPerson, onNew }) {
           </React.Fragment>
         );
       })}
-      {d && !tasks.length && <p className="todo-line">Nothing open{list !== "all" || person !== "all" ? " for this filter" : ""}.</p>}
-      {down.length > 0 && <p className="todo-line"><AlertTriangle size={14} /> Couldn't read {down.map((l) => l.name).join(", ")}. <button className="inline-link" onClick={() => cu.load(true)}>Try again</button></p>}
+      {d && !tasks.length && down.length < d.lists.length && <p className="todo-line">Nothing open{list !== "all" || person !== "all" ? " for this filter" : ""}.</p>}
+      {down.length > 0 && <p className="todo-line"><AlertTriangle size={14} /> {down.length === d.lists.length ? "Couldn't reach ClickUp." : `Couldn't read ${down.map((l) => l.name).join(", ")}.`} <button className="inline-link" onClick={() => cu.load(true)}>Try again</button></p>}
     </div>
   );
 }
@@ -8215,10 +8223,29 @@ function TodoPage({ ctx, todo, sub, onSub, areaN }) {
             {!shown.length && (lum || area === "clickup") && area !== "clickup" && <p className="todo-line todo-clear"><CheckCircle2 size={14} /> Nothing to do here.</p>}
             {cuOn && <CuSection cu={ctx.cu} list={list} person={person} setList={setList} setPerson={setPerson} onNew={() => setNewTask(true)} />}
           </div>
+          <DoneForYou ctx={ctx} />
           {newTask && <NewTaskCard cu={ctx.cu} onClose={() => setNewTask(false)} />}
         </>
       )}
     </div>
+  );
+}
+
+// "Done for you": what the dashboard did by itself, said once. Today that's the ClickUp tasks it keeps
+// current (each area's checklist ticks itself); A2 adds what it confirms on its own (an even split the sheet
+// already holds), each with Undo (ctx.doneForYou: [{ k, text, undo }]).
+const OWN_NAMES = { payments: "Log new payments", "area:luminate": "Luminate", "area:publishing": "Publishing", "area:ar": "A&R" };
+function DoneForYou({ ctx }) {
+  const own = (ctx.cu.data?.own || []).filter((t) => OWN_NAMES[t.kind]);
+  const extra = ctx.doneForYou || [];
+  if (!own.length && !extra.length) return null;
+  return (
+    <p className="todo-line todo-done-for-you" data-done-for-you>
+      <CheckCircle2 size={14} /> <span>Done for you:{" "}
+        {own.length > 0 && <>ClickUp's {own.map((t, i) => <React.Fragment key={t.taskId}>{i ? (i === own.length - 1 ? " and " : ", ") : ""}<ExtLink className="inline-link" href={t.url}>{OWN_NAMES[t.kind]}</ExtLink></React.Fragment>)} {own.length === 1 ? "task keeps" : "tasks keep"} themselves up to date.</>}
+        {extra.map((x) => <React.Fragment key={x.k}> {x.text}{x.undo && <> <button className="inline-link" onClick={x.undo}>Undo</button></>}</React.Fragment>)}
+      </span>
+    </p>
   );
 }
 
@@ -8313,7 +8340,11 @@ function TodoCalendar({ ctx }) {
 function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
   const { home, failed, retry } = useHome();
   const unlogged = home?.accounting?.unlogged, toCheck = home?.accounting?.toCheck || 0;
-  useEffect(() => { if (unlogged) onAcct?.((x) => ({ ...x, toLog: unlogged.length, toCheck, toLogTotal: home.accounting.unloggedTotal })); }, [unlogged, toCheck]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!unlogged) return;
+    const tests = unlogged.filter((p) => p.test);
+    onAcct?.((x) => ({ ...x, toLog: unlogged.length, toCheck, toLogTotal: home.accounting.unloggedTotal, toLogTests: { n: tests.length, total: Math.round(tests.reduce((a, p) => a + p.amount, 0) * 100) / 100 } }));
+  }, [unlogged, toCheck]); // eslint-disable-line react-hooks/exhaustive-deps
   const m = home?.money;
   const { top } = useMemo(() => biggestTasks([...todo, ...cuTasks.map((t) => ({ ...t, kind: "clickup" }))]), [todo, cuTasks]);
   const [open, setOpen] = useState(() => new Set());
@@ -11295,6 +11326,8 @@ function StyleTag() {
     .app:not(.pub) .todo-sublist{display:flex;flex-direction:column;gap:6px;padding-top:6px}
     .app:not(.pub) .todo-input{width:100%;height:36px;padding:0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:inherit}
     .app:not(.pub) .todo-clear{color:var(--d-pos)}
+    .app:not(.pub) .todo-done-for-you{padding:12px 4px 0}
+    .app:not(.pub) .todo-done-for-you svg{color:var(--d-pos)}
     .app:not(.pub) .todo-cu{display:block}
     .app:not(.pub) .todo-cu-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;--area:var(--d-a-cu)}
     .app:not(.pub) .todo-cu-tools{display:flex;flex-wrap:wrap;gap:6px;text-transform:none;letter-spacing:0;font-weight:400}
