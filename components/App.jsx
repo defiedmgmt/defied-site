@@ -21,6 +21,8 @@ import { shareFixes, autoConfirms, autoWords } from "../lib/split-fixes";
 import { foldMonths } from "../lib/months";
 import { SECTIONS, ROLES, ROLE_KEYS, TAB_SECTION, AREA_SECTION, accessFor, cleanAccess, sameManager } from "../lib/roles";
 import { MAX_DATA_BYTES } from "../lib/image-links";
+import { PhoneSort, LazySection } from "./ui/responsive";
+import { swrJson, peekJson } from "./ui/fetch-cache";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
    this bundle instead of inside it). The chrome wordmark + D live in /public/brand as transparent
@@ -2720,9 +2722,9 @@ function NumTile({ m, label, sub, k }) {
   );
 }
 function NumbersPage({ ctx }) {
-  const [d, setD] = useState(null), [err, setErr] = useState(false);
+  const [d, setD] = useState(() => peekJson("/api/data") || null), [err, setErr] = useState(false);
   const [view, setView] = useState("artists"), [open, setOpen] = useState(null);
-  const load = () => fetch("/api/data", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject())).then((j) => { setD(j); setErr(false); }).catch(() => setErr(true));
+  const load = () => swrJson("/api/data", (j) => { setD(j); setErr(false); }).catch(() => setErr(true));
   useEffect(() => { load(); }, []);
   if (err && !d) return <div className="nums"><div className="admin-head"><h2>Numbers</h2></div><p className="hint err-text">Couldn't load the numbers. <button className="inline-link" onClick={load}>Try again</button></p></div>;
   if (!d) return <div className="nums"><div className="admin-head"><h2>Numbers</h2></div><p className="hint"><RefreshCw size={14} className="spin" /> Loading…</p></div>;
@@ -2866,8 +2868,8 @@ function SourceNums({ d, canEdit, onSaved }) {
 }
 // Home: spikes and new releases from the automated numbers, and what they cost a month. Nothing to say: nothing shown.
 function HomeNumbers({ onGo }) {
-  const [d, setD] = useState(null);
-  useEffect(() => { fetch("/api/data?home=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then(setD).catch(() => {}); }, []);
+  const [d, setD] = useState(() => peekJson("/api/data?home=1") || null);
+  useEffect(() => { swrJson("/api/data?home=1", setD).catch(() => {}); }, []);
   if (!d || (!d.spikes.length && !d.newReleases.length)) return null;
   return (
     <div className="home-card nums-home" data-home-numbers>
@@ -3149,7 +3151,7 @@ function ClientsAdmin({ db, commit, openId = null, songInfo = null }) {
 function PlacementsAdmin({ db, commit }) {
   const clientName = (id) => db.clients.find((c) => c.id === id)?.name || "—";
   const cols = [
-    { key: "cover", label: "", w: "44px", render: (p) => p.cover ? <img className="rel-thumb" src={p.cover} alt="" /> : <span className="rel-thumb rel-thumb-empty" /> },
+    { key: "cover", label: "", w: "44px", render: (p) => p.cover ? <img className="rel-thumb" src={p.cover} alt="" loading="lazy" decoding="async" /> : <span className="rel-thumb rel-thumb-empty" /> },
     { key: "song", label: "Song", w: "1.3fr" },
     { key: "clientId", label: "Client", w: "1fr", render: (p) => clientName(p.clientId) },
     { key: "splits", label: "Splits", w: "0.8fr", render: (p) => `${(p.splits || []).length} · ${splitTotal(p.splits)}%` },
@@ -3455,11 +3457,10 @@ async function arWrite(body) {
 // the OUTREACH / ADVANCE CALCULATOR / ASSUMPTIONS read behind A&R's Outreach and Publishing's
 // Advance calculator: loaded when either one opens, reloaded after each of their saves
 function useArData() {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState(() => peekJson("/api/ar-data") || null);
   const [err, setErr] = useState(null);
-  const load = () => fetch("/api/ar-data")
-    .then((r) => r.json())
-    .then((d) => { if (d.error) throw new Error(d.error); setData(d); setErr(null); })
+  const load = () => swrJson("/api/ar-data", (d) => { setData(d); setErr(null); }, { anyStatus: true })
+    .then((d) => { if (d?.error) throw new Error(d.error); })
     .catch((e) => setErr(e.message || "Couldn't load A&R data."));
   const retry = () => { setErr(null); load(); }; // shows "Loading…" again until it answers
   useEffect(() => { load(); }, []);
@@ -4946,7 +4947,7 @@ function RosterForecast({ db }) {
   const [byWriter, setByWriter] = useState(false);
   useEffect(() => {
     let alive = true;
-    fetch("/api/sheets-master").then((r) => (r.ok ? r.json() : null)).then((x) => { if (alive) { if (x?.totals) setD(x); else setFailed(true); } }).catch(() => alive && setFailed(true));
+    swrJson("/api/sheets-master", (x) => alive && setD(x), { keep: (x) => !!x?.totals }).then((x) => { if (alive && !x?.totals) setFailed(true); }).catch(() => alive && setFailed(true));
     return () => { alive = false; };
   }, []);
   if (failed) return <p className="hint">Couldn't read the roster's forecast from the pub sheet just now.</p>;
@@ -4964,10 +4965,10 @@ function RosterForecast({ db }) {
       </div></div>
       <button className="btn ghost sm" data-forecast-writers aria-pressed={byWriter} onClick={() => setByWriter((v) => !v)}>{byWriter ? "Hide writers" : "By writer"}</button>
       {byWriter && (
-        <div className="master-table-wrap">
-          <table className="master-table">
+        <div className="master-table-wrap m-cards-wrap">
+          <table className="master-table m-cards">
             <thead><tr>{["Writer", "Year 1", "Year 2", "Year 3", "Next 3 yrs", "In all"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
-            <tbody>{(d.rows || []).map((r) => <tr key={r.writer}><td>{writerOf(r)}</td><td>{money(r.year1)}</td><td>{money(r.year2)}</td><td>{money(r.year3)}</td><td>{money(r.forecastTotal)}</td><td>{money(r.totalEstAdminFee)}</td></tr>)}</tbody>
+            <tbody>{(d.rows || []).map((r) => <tr key={r.writer}><td>{writerOf(r)}</td><td data-label="Year 1">{money(r.year1)}</td><td data-label="Year 2">{money(r.year2)}</td><td data-label="Year 3">{money(r.year3)}</td><td data-label="Next 3 yrs">{money(r.forecastTotal)}</td><td data-label="In all">{money(r.totalEstAdminFee)}</td></tr>)}</tbody>
           </table>
         </div>
       )}
@@ -6374,8 +6375,10 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
           <div className="master-tools">
             <button className="btn ghost sm" data-more-cols aria-pressed={more} onClick={() => { setMore((f) => !f); if (more && MORE_COLS.includes(sort.col)) setSort({ col: "week", dir: -1, auto: true }); }}>{more ? "Fewer columns" : "More columns"}</button>
           </div>
-          <div className="master-table-wrap">
-            <table className="master-table">
+          {/* phones: the table is a stack of cards (components/ui), so its sort is a picker */}
+          <PhoneSort cols={cols.map(([id, label]) => ({ id, label }))} sort={by} onSort={(id) => setSort(() => ({ col: id, dir: by.col === id ? -by.dir : id === "writer" ? 1 : -1 }))} />
+          <div className="master-table-wrap m-cards-wrap">
+            <table className="master-table m-cards">
               <thead>
                 <tr>
                   {cols.map(([id, label]) => (
@@ -6395,17 +6398,17 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
                     onClick={client ? () => onSelectClient(client.id) : undefined}
                     title={client ? `Open ${client.name}` : "Not linked to a client on the site"}
                   >
-                    {cols.map(([id]) => (id === "writer" ? <td key={id}>{client ? client.name : r.writer}</td>
-                      : id === "songs" ? <td key={id} className="master-songs">{songs}{client && songs !== r.songs && <em data-sheet-songs={r.songs} title={`The pub sheet's ${client.name} tab has ${r.songs} song${r.songs === 1 ? "" : "s"}; the site has ${songs}`}>{songs > r.songs ? `${songs - r.songs} not on the sheet` : `sheet has ${r.songs}`}</em>}</td>
-                      : id === "week" ? <td key={id} className="master-week">{wk ? <><WowPill pct={wk.wowPct} /><em>{fmt(wk.thisWeek)}</em></> : <span className="muted-dash" title="No last week to compare">—</span>}</td>
-                      : <td key={id}>{cell[id](r)}</td>))}
+                    {cols.map(([id, label]) => (id === "writer" ? <td key={id}>{client ? client.name : r.writer}</td>
+                      : id === "songs" ? <td key={id} data-label={label} className="master-songs">{songs}{client && songs !== r.songs && <em data-sheet-songs={r.songs} title={`The pub sheet's ${client.name} tab has ${r.songs} song${r.songs === 1 ? "" : "s"}; the site has ${songs}`}>{songs > r.songs ? `${songs - r.songs} not on the sheet` : `sheet has ${r.songs}`}</em>}</td>
+                      : id === "week" ? <td key={id} data-label={label} className="master-week">{wk ? <><WowPill pct={wk.wowPct} /><em>{fmt(wk.thisWeek)}</em></> : <span className="muted-dash" title="No last week to compare">—</span>}</td>
+                      : <td key={id} data-label={label}>{cell[id](r)}</td>))}
                   </tr>
                 ))}
               </tbody>
               {state.data.rosterTotal && (
                 <tfoot>
                   <tr className="master-total-row">
-                    {cols.map(([id]) => <td key={id}>{id === "writer" ? "Roster total" : id === "week" ? null : id === "songs" ? songsTotal : cell[id](state.data.rosterTotal)}</td>)}
+                    {cols.map(([id, label]) => <td key={id} data-label={label}>{id === "writer" ? "Roster total" : id === "week" ? null : id === "songs" ? songsTotal : cell[id](state.data.rosterTotal)}</td>)}
                   </tr>
                 </tfoot>
               )}
@@ -7140,8 +7143,10 @@ function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll = fals
   const [okErr, setOkErr] = useState(null);
   const load = (fresh = false) => {
     setFailed(false);
-    return fetch(`/api/accounting${fresh ? "?fresh=1" : ""}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((x) => { if (x?.connected !== undefined) { setD(x); if (x.counts) onCounts?.(x.counts); } else setFailed(true); }).catch(() => setFailed(true));
+    const got = (x) => { if (x?.connected !== undefined) { setD(x); if (x.counts) onCounts?.(x.counts); } else setFailed(true); };
+    // the plain read is cached for the tab (drawn at once when Money opens again); a "fresh" read never is
+    return (fresh ? fetch("/api/accounting?fresh=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then(got)
+      : swrJson("/api/accounting", got, { keep: (x) => x?.connected !== undefined }).then((x) => { if (x?.connected === undefined) setFailed(true); })).catch(() => setFailed(true));
   };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // To do's Log all: the preview of every payment Log it can place, as soon as they're read
@@ -7781,7 +7786,7 @@ function SeedRow({ r, picks = [], onDone }) {
   return (
     <div className="seed-row" data-seed={r.lumId} data-status={r.status}>
       <div className="seed-head">
-        <span className="lm-cover">{r.spotify?.image && !other ? <img src={r.spotify.image} alt="" /> : <Disc3 size={16} />}</span>
+        <span className="lm-cover">{r.spotify?.image && !other ? <img src={r.spotify.image} alt="" loading="lazy" decoding="async" /> : <Disc3 size={16} />}</span>
         <span className="lm-song-main"><strong>{r.name}</strong>
           <span>{[r.list, r.artist, r.atd != null && `Luminate: ${fmt(r.atd)} all-time on ${shortDay(r.atdOn)}`].filter(Boolean).join(" · ")}</span></span>
       </div>
@@ -8343,7 +8348,7 @@ function NotableAdmin({ db, commit }) {
   };
   const del = async (id) => commit({ ...db, notableReleases: list.filter((r) => r.id !== id) });
   const cols = [
-    { key: "cover", label: "", w: "44px", render: (r) => r.cover ? <img className="rel-thumb" src={r.cover} alt="" /> : <span className="rel-thumb rel-thumb-empty" /> },
+    { key: "cover", label: "", w: "44px", render: (r) => r.cover ? <img className="rel-thumb" src={r.cover} alt="" loading="lazy" decoding="async" /> : <span className="rel-thumb rel-thumb-empty" /> },
     { key: "song", label: "Song", w: "1.2fr" },
     { key: "artist", label: "Artist", w: "0.9fr" },
     { key: "client", label: "Client", w: "0.9fr" },

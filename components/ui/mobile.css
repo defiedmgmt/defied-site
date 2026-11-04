@@ -1,0 +1,61 @@
+/* The shared mobile-first helper (list B #10). Imported once, in pages/_app.jsx. A phone is under 640px.
+   The rules a new screen follows (and how to apply them) are at the top of components/ui/responsive.jsx.
+   Everything here is scoped to the dashboard and the portal (.app:not(.pub)) or to its own m- classes, and
+   nothing applies at 640px and up except the touch-screen tap sizes, so desktop looks exactly as before.
+   The "!important"s are on purpose: this is a utility layer that has to beat the screens' own longer selectors. */
+
+/* 1. TABLES BECOME CARDS: <table class="m-cards"> (or <CardTable>), each <td data-label="Streams">. The first
+      cell is the card's title; every other cell is a "label ... value" line. The table's scroll wrapper goes
+      flat (add class m-cards-wrap to it). A <tfoot> row (totals) becomes the last card. The header row is
+      hidden, so a sortable table shows <PhoneSort> above it on phones. */
+@media (max-width:639px){
+  .m-cards-wrap{overflow:visible !important;border:0 !important;border-radius:0 !important;background:none !important;box-shadow:none !important;-webkit-mask-image:none !important;mask-image:none !important}
+  table.m-cards,table.m-cards > tbody,table.m-cards > tfoot,table.m-cards > tbody > tr,table.m-cards > tfoot > tr{display:block !important;width:100% !important;min-width:0 !important}
+  table.m-cards > thead{display:none !important}
+  table.m-cards > tbody > tr,table.m-cards > tfoot > tr{margin:0 0 8px;padding:10px 14px 12px;border:1px solid var(--d-line-2,#2a2a2c);border-radius:var(--d-r-card,14px);background:var(--d-s1,#0b0b0c)}
+  table.m-cards > tfoot > tr{background:var(--d-s2,#111113)}
+  table.m-cards > tbody > tr > td,table.m-cards > tfoot > tr > td{display:flex !important;align-items:baseline;justify-content:space-between;gap:12px;width:auto !important;max-width:none !important;
+    height:auto !important;min-height:0;padding:3px 0 !important;border:0 !important;background:none !important;box-shadow:none !important;position:static !important;
+    text-align:right !important;white-space:normal !important;overflow:visible !important;font-size:14px}
+  table.m-cards > tbody > tr > td::before,table.m-cards > tfoot > tr > td::before{content:attr(data-label);flex:none;max-width:55%;text-align:left;font-size:12.5px;font-weight:400;color:var(--d-ink-4,#8a8a8a);letter-spacing:0;text-transform:none}
+  table.m-cards > tbody > tr > td:first-child,table.m-cards > tfoot > tr > td:first-child{justify-content:flex-start;padding:2px 0 6px !important;text-align:left !important;font-size:15px;font-weight:500;color:var(--d-ink,#f5f5f5)}
+  table.m-cards > tbody > tr > td:first-child::before,table.m-cards > tfoot > tr > td:first-child::before{content:none}
+  table.m-cards > tbody > tr > td:empty,table.m-cards > tfoot > tr > td:empty{display:none !important}
+  /* a row that opens something: the whole card is the tap target */
+  table.m-cards > tbody > tr[class*="link"],table.m-cards > tbody > tr[data-m-open]{cursor:pointer}
+  /* the phone's sort picker (PhoneSort) */
+  .m-sort{display:flex !important;align-items:center;gap:8px;margin:0 0 10px;font-size:13px;color:var(--d-ink-4,#8a8a8a)}
+  .m-sort select{flex:1 1 auto;min-width:0;height:44px;padding:0 12px;border:1px solid var(--d-line-2,#2a2a2c);border-radius:var(--d-r-field,12px);background:var(--d-field,#0d0d0f);color:var(--d-ink,#f5f5f5);font:inherit;font-size:14px}
+  .m-sort button{flex:none;width:44px;height:44px;border:1px solid var(--d-line-2,#2a2a2c);border-radius:var(--d-r-field,12px);background:none;color:var(--d-ink,#f5f5f5)}
+}
+.m-sort{display:none}
+
+/* 2. TAP TARGETS: 44px on any touch screen and on any phone-width window. Buttons, links styled as buttons,
+      fields, selects, tabs and sub-tab pills. Opt one control out with class m-tap-off (say why in a comment). */
+@media (pointer:coarse),(max-width:639px){
+  .app:not(.pub){--d-ctl-sm:44px;--d-ctl:44px;--d-field-h:48px;--d-icon:44px}
+  .app:not(.pub) :is(.dash-main,.portal-main,.modal,.login-card) :is(button,a.btn,a.cu-name,a.m-tap,[role=button],[role=tab],select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]):not([type=file]),textarea):not(.m-tap-off):not(.ar-sort){min-height:44px !important}
+  .app:not(.pub) :is(.dash-main,.portal-main,.modal) :is(button,[role=button]):not(.m-tap-off):not(.ar-sort):not(.inline-link){min-width:44px}
+  /* a quiet text button that stands on its own line ("See all 13 ›", "Check again") keeps its look and gets the height */
+  .app:not(.pub) :is(.dash-main,.portal-main,.modal) button.inline-link{display:inline-flex;align-items:center}
+  .m-tap{min-height:44px;min-width:44px}
+}
+
+/* 3. NO SIDEWAYS SCROLL on phones: long words and links wrap, media never outgrow their box, and a grid
+      or flex child may shrink below its content. A row that should scroll sideways on purpose (a chip row)
+      gets data-m-scroll; nothing else may. */
+@media (max-width:639px){
+  .app:not(.pub) .dash-main,.app:not(.pub) .portal-main{min-width:0;overflow-wrap:anywhere}
+  .app:not(.pub) :is(.dash-main,.portal-main) :is(img,svg,canvas,video,iframe){max-width:100%}
+  .app:not(.pub) :is(.dash-main,.portal-main) svg[viewBox]:not([width]){height:auto}
+  [data-m-scroll]{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none}
+  [data-m-scroll]::-webkit-scrollbar{display:none}
+}
+
+/* 4. SHOW / HIDE BY SCREEN: m-phone shows only on phones, m-desk only at 640px and up. */
+@media (max-width:639px){ .m-desk{display:none !important} }
+@media (min-width:640px){ .m-phone{display:none !important} }
+
+/* 5. THE BOTTOM NAV is the dashboard's own nav (.dash-side nav in components/App.jsx): under 900px it is a
+      fixed bar at the bottom with every tab at least 44px tall; tabs in PHONE_MORE go into its "More" menu.
+      A new top-level tab is one more row in Dashboard's `tabs` list (and PHONE_MORE if the bar is full). */
