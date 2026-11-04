@@ -2554,7 +2554,7 @@ const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d
 const canUse = (db, k) => !db?.access || db.access.sections.includes(k);
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
-const DASH_TABS = ["home", "todo", "catalog", "money", "ar", "luminate", "site"];
+const DASH_TABS = ["home", "todo", "catalog", "numbers", "money", "ar", "luminate", "site"];
 const TODO_AREAS = ["money", "roster", "luminate", "ar", "clickup", "site"];
 function placeOf(t, s) {
   const sub = typeof s === "string" && s ? s : null;
@@ -2647,11 +2647,11 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const ctx = { db, commit, reloadDb, lum, lumErr, lumOff, reloadLum, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou, can };
   const allTabs = [
     ["home", "Home", LayoutDashboard], ["todo", "To do", ListChecks, todoN],
-    ["catalog", "Publishing", ListMusic, 0, "roster"], ["money", "Money", Receipt, 0, "money"],
+    ["catalog", "Publishing", ListMusic, 0, "roster"], ["numbers", "Numbers", TrendingUp, 0, "roster"], ["money", "Money", Receipt, 0, "money"],
     ["ar", "A&R", Handshake, 0, "ar"], ["luminate", "Luminate", Radar, 0, "luminate"], ["site", "Site", Globe, 0, "site"],
   ];
   // the tabs this account may use: Site holds Users too. Any other address opens the first of them.
-  const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : can(TAB_SECTION[id])));
+  const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : id === "numbers" ? can("publishing") : can(TAB_SECTION[id])));
   const at = tabs.some(([id]) => id === tab) ? tab : tabs[0]?.[0];
   const roleWord = db.access ? `${ROLES[db.access.role]?.label || "Staff"}${db.access.ownOnly ? " · own artists" : ""}` : "Staff — full edit access";
   return (
@@ -2681,7 +2681,194 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {at === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} onSub={setSub} chip={<TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "luminate" && <LuminateAdmin db={db} commit={commit} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} onGo={go} chip={<TodoChip n={areaN("luminate")} area="luminate" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} chip={<TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
+        {at === "numbers" && <NumbersPage ctx={ctx} />}
       </main>
+    </div>
+  );
+}
+
+/* Numbers (list B #4): the automated numbers ------------------------------ */
+// Every roster artist (and watchlist artist) with their numbers, each labelled by platform ("Spotify
+// streams, global"), with this week against last week, a small chart, and "last updated <date>" when its
+// source hasn't refreshed it on time (the last good number stays). Tap an artist for their songs and
+// campaign mode (daily updates while we push them). Sounds: TikTok sounds we track by link. Sources &
+// cost: how often each source runs, which scraper it uses, its monthly budget and what a month costs.
+const dataPost = async (body) => {
+  const r = await fetch("/api/data", { method: "POST", headers: { "content-type": "application/json", "x-requested-with": "defied-site" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || "Couldn't save that — try again.");
+  return j;
+};
+const usd = (v) => `$${(Number(v) || 0).toFixed(Number(v) >= 10 ? 0 : 2)}`;
+const big = (n) => (n == null ? "—" : Math.abs(n) >= 1e4 ? compact(n).replace(/^\+/, "") : fmt(n));
+const pctWord = (p) => (p == null ? null : `${p >= 0 ? "+" : "−"}${Math.abs(Math.round(p * 100))}%`);
+function NumTile({ m, label, sub, k }) {
+  if (!m) return <div className="nums-tile nums-none" data-tile={k}><span className="nums-lab">{label}</span><b>—</b><span className="nums-sub">Not read yet</span></div>;
+  const week = m.thisWeek != null ? `${compact(m.thisWeek)} this week` : m.daily != null ? `${compact(m.daily)} yesterday` : null;
+  const vs = pctWord(m.pct);
+  return (
+    <div className={`nums-tile${m.stale ? " nums-stale" : ""}`} data-tile={k}>
+      <span className="nums-lab">{m.label}</span>
+      <b title={fmt(m.latest)}>{m.approx ? "about " : ""}{big(m.latest)}</b>
+      {(week || sub) && <span className="nums-sub">{week}{week && vs ? <> · <span className={m.pct >= 0 ? "pos" : "neg"}>{vs} vs last week</span></> : null}{sub && <>{week ? " · " : ""}{sub}</>}</span>}
+      <Sparkline series={m.series} height={34} />
+      <span className="nums-when" data-when>{m.stale ? <><AlertTriangle size={11} /> last updated {shortDay(m.day)}</> : `updated ${shortDay(m.day)}`}</span>
+    </div>
+  );
+}
+function NumbersPage({ ctx }) {
+  const [d, setD] = useState(null), [err, setErr] = useState(false);
+  const [view, setView] = useState("artists"), [open, setOpen] = useState(null);
+  const load = () => fetch("/api/data", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject())).then((j) => { setD(j); setErr(false); }).catch(() => setErr(true));
+  useEffect(() => { load(); }, []);
+  if (err && !d) return <div className="nums"><div className="admin-head"><h2>Numbers</h2></div><p className="hint err-text">Couldn't load the numbers. <button className="inline-link" onClick={load}>Try again</button></p></div>;
+  if (!d) return <div className="nums"><div className="admin-head"><h2>Numbers</h2></div><p className="hint"><RefreshCw size={14} className="spin" /> Loading…</p></div>;
+  const st = d.status;
+  const line = !st.refreshOn ? "Automatic updates are off." : !st.keys?.apify ? "Apify isn't connected, so streams and followers don't update." : `Streams and YouTube update daily, followers weekly${st.lastAt ? ` · last update ${shortDay(st.lastAt)}, ${clock(st.lastAt)}` : ""}`;
+  return (
+    <div className="nums" data-numbers>
+      <div className="admin-head"><h2>Numbers</h2><span className="home-src" data-nums-status>{line}</span>
+        <button type="button" className="nums-cost" data-nums-cost onClick={() => setView("sources")} title="What the automatic numbers cost a month at this schedule">About {usd(d.cost.estMonthlyUsd)}/month</button></div>
+      {d.spikes.length > 0 && (
+        <div className="nums-spikes" data-nums-spikes>
+          {d.spikes.slice(0, 4).map((s, i) => <span key={i} className="nums-spike"><TrendingUp size={13} /> <b>{s.name}</b> {s.text}</span>)}
+        </div>
+      )}
+      <span className="gainer-tabs nums-views" role="tablist" aria-label="Numbers">
+        {[["artists", "Artists"], ["sounds", "Sounds"], ["sources", "Sources & cost"]].map(([k, l]) => <button key={k} role="tab" aria-selected={view === k} data-nums-view={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{l}</button>)}
+      </span>
+      {view === "artists" && (!d.artists.length ? <div className="admin-empty">No numbers yet. They start with the first daily update.</div> : (
+        <div className="nums-list">{d.artists.map((a) => <ArtistNums key={a.id} a={a} open={open === a.id} onToggle={() => setOpen(open === a.id ? null : a.id)} onSaved={load} />)}</div>
+      ))}
+      {view === "sounds" && <SoundNums sounds={d.sounds} onSaved={load} />}
+      {view === "sources" && <SourceNums d={d} canEdit={ctx.can("money")} onSaved={load} />}
+    </div>
+  );
+}
+function ModeSwitch({ id, mode, onSaved, what = "artist" }) {
+  const [busy, setBusy] = useState(false), [err, setErr] = useState(null);
+  const set = async (m) => { setBusy(true); setErr(null); try { await dataPost({ action: "mode", entityId: id, mode: m, days: m === "campaign" ? 30 : null }); await onSaved(); } catch (e) { setErr(e.message); } finally { setBusy(false); } };
+  return (
+    <div className="nums-mode" data-nums-mode={mode || "auto"}>
+      <label className="nums-switch"><input type="checkbox" checked={mode === "campaign"} disabled={busy || mode === "off"} onChange={(e) => set(e.target.checked ? "campaign" : "auto")} /> Campaign mode: everything about this {what} updates daily for 30 days</label>
+      {mode === "off" ? <button type="button" className="inline-link" disabled={busy} onClick={() => set("auto")}>Start updating again</button>
+        : <button type="button" className="inline-link nums-off" disabled={busy} onClick={() => set("off")}>Stop updating</button>}
+      {err && <span className="hint err-text">{err}</span>}
+    </div>
+  );
+}
+function ArtistNums({ a, open, onToggle, onSaved }) {
+  const m = a.metrics;
+  const [all, setAll] = useState(false);
+  const tiles = [
+    (a.streams || a.songs.length > 0) && <NumTile key="st" k="streams" label="Spotify streams, global" m={a.streams} sub={a.streams?.songs ? `${a.streams.songs} song${a.streams.songs === 1 ? "" : "s"}` : null} />,
+    (m.spotify_monthly_listeners || a.links.spotify) && <NumTile key="ml" k="listeners" label="Spotify monthly listeners" m={m.spotify_monthly_listeners} sub={m.spotify_followers ? `${big(m.spotify_followers.latest)} followers` : null} />,
+    (m.instagram_followers || a.links.instagram) && <NumTile key="ig" k="instagram" label="Instagram followers" m={m.instagram_followers} />,
+    (m.tiktok_followers || a.links.tiktok) && <NumTile key="tt" k="tiktok" label="TikTok followers" m={m.tiktok_followers} />,
+    (m.youtube_subscribers || a.links.youtube) && <NumTile key="yt" k="youtube" label="YouTube subscribers" m={m.youtube_subscribers} sub={m.youtube_views ? `${big(m.youtube_views.latest)} views` : null} />,
+  ].filter(Boolean);
+  const songs = all ? a.songs : a.songs.slice(0, 12);
+  return (
+    <div className={`nums-card${open ? " open" : ""}`} data-nums-artist={a.id}>
+      <button type="button" className="nums-head" aria-expanded={open} onClick={onToggle}>
+        {a.image ? <img className="nums-av" src={a.image} alt="" loading="lazy" /> : <span className="nums-av" aria-hidden="true">{(a.name || "?").slice(0, 1)}</span>}
+        <span className="nums-name">{a.name}</span>
+        {a.watchlist && <span className="nums-tag">Watchlist</span>}
+        {a.mode === "campaign" && <span className="nums-tag hot">Campaign · daily</span>}
+        {a.mode === "off" && <span className="nums-tag">Not updating</span>}
+        <ChevronDown size={16} className="nums-chev" aria-hidden="true" />
+      </button>
+      <div className="nums-tiles">{tiles.length ? tiles : <span className="hint">No links to read numbers from yet. Add their Spotify, Instagram, TikTok or YouTube in Site › Roster.</span>}</div>
+      {open && (
+        <div className="nums-more" data-nums-more>
+          <ModeSwitch id={a.id} mode={a.mode} onSaved={onSaved} />
+          {a.songs.length > 0 && (
+            <div className="nums-songs" data-nums-songs>
+              <div className="nums-song nums-song-hd"><span>Song</span><span>Spotify streams, global</span><span>Yesterday</span><span>This week</span><span>vs last week</span></div>
+              {songs.map((s) => (
+                <div key={s.id} className="nums-song" data-song={s.id}>
+                  <span className="nums-song-t">{s.name}{s.isNew && <span className="nums-tag hot">New</span>}<em>{s.artist}</em></span>
+                  <span data-l="All-time">{s.streams ? big(s.streams.latest) : "—"}{s.streams?.stale && <em className="nums-when"> last updated {shortDay(s.streams.day)}</em>}</span>
+                  <span data-l="Yesterday">{s.streams?.daily != null ? compact(s.streams.daily) : "—"}</span>
+                  <span data-l="This week">{s.streams?.thisWeek != null ? compact(s.streams.thisWeek) : "—"}</span>
+                  <span data-l="vs last week" className={s.streams?.pct == null ? "" : s.streams.pct >= 0 ? "pos" : "neg"}>{pctWord(s.streams?.pct) || "—"}</span>
+                </div>
+              ))}
+              {a.songs.length > 12 && <button type="button" className="inline-link" onClick={() => setAll(!all)}>{all ? "Show fewer" : `Show all ${a.songs.length} songs`}</button>}
+              {!a.songs.some((s) => s.streams?.thisWeek != null) && <p className="hint">Weekly changes show once there are two weeks of numbers.</p>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+function SoundNums({ sounds, onSaved }) {
+  const [url, setUrl] = useState(""), [busy, setBusy] = useState(false), [err, setErr] = useState(null);
+  const add = async (e) => { e.preventDefault(); setBusy(true); setErr(null); try { await dataPost({ action: "addSound", url }); setUrl(""); await onSaved(); } catch (x) { setErr(x.message); } finally { setBusy(false); } };
+  return (
+    <div className="nums-sounds" data-nums-sounds>
+      <form className="nums-add" onSubmit={add}>
+        <input type="url" inputMode="url" placeholder="Paste a TikTok sound link (tiktok.com/music/…)" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="TikTok sound link" />
+        <button className="btn sm" disabled={busy || !url.trim()}>{busy ? "Adding…" : "Track sound"}</button>
+      </form>
+      {err && <p className="hint err-text" role="alert">{err}</p>}
+      {!sounds.length ? <div className="admin-empty">No sounds tracked yet. Paste a TikTok sound link to start.</div> : sounds.map((s) => (
+        <div key={s.id} className="nums-card" data-nums-sound={s.id}>
+          <div className="nums-head nums-head-static"><span className="nums-name">{s.name || "A TikTok sound"}{s.artist && <em> · {s.artist}</em>}</span>
+            {s.url && <a className="inline-link" href={s.url} target="_blank" rel="noreferrer">Open ↗</a>}
+            <RowMenu label={`More for ${s.name || "this sound"}`} items={[{ label: "Stop tracking", onClick: async () => { await dataPost({ action: "removeSound", entityId: s.id }).catch(() => {}); onSaved(); } }]} /></div>
+          <div className="nums-tiles"><NumTile k="videos" label="TikTok videos with this sound" m={s.videos} /></div>
+          <ModeSwitch id={s.id} mode={s.mode} onSaved={onSaved} what="sound" />
+        </div>
+      ))}
+    </div>
+  );
+}
+function SourceNums({ d, canEdit, onSaved }) {
+  const [f, setF] = useState(() => Object.fromEntries(d.sources.map((s) => [s.key, { schedule: s.schedule, adapter: s.adapter, softCapUsd: String(s.softCapUsd) }])));
+  const [total, setTotal] = useState(String(d.cost.totalCapUsd));
+  const [busy, setBusy] = useState(false), [msg, setMsg] = useState(null);
+  const set = (k, p) => setF((x) => ({ ...x, [k]: { ...x[k], ...p } }));
+  const save = async () => { setBusy(true); setMsg(null); try { await dataPost({ action: "sources", sources: f, totalCapUsd: total }); setMsg({ ok: "Saved." }); await onSaved(); } catch (e) { setMsg({ err: e.message }); } finally { setBusy(false); } };
+  const acct = d.cost.account;
+  const month = new Date().toLocaleDateString(undefined, { month: "long" });
+  return (
+    <div className="nums-src" data-nums-sources>
+      <p className="nums-costline" data-costline>About <b>{usd(d.cost.estMonthlyUsd)} a month</b> at this schedule · {usd(d.cost.spentUsd)} spent in {month}{acct ? ` · Apify: ${usd(acct.usageUsd)} of its ${usd(acct.limitUsd)} limit used` : ""}</p>
+      {d.sources.map((s) => (
+        <div key={s.key} className="nums-srow" data-source={s.key}>
+          <div className="nums-srow-t"><b>{s.label}</b><span className="hint">{s.tracked} tracked{s.campaign ? ` · ${s.campaign} in campaign mode` : ""} · about {usd(s.estMonthlyUsd)}/month{s.paid ? ` · ${usd(s.spentUsd)} this month` : " · free"}</span>
+            <span className={`hint${s.last?.status === "failed" ? " err-text" : ""}`} data-last>{s.skipped ? `Skipped ${shortDay(s.skipped.at)}: ${s.skipped.why}` : s.last ? `${s.last.status === "failed" ? "Failed" : s.last.status === "started" ? "Running since" : "Last run"} ${shortDay(s.last.at)}${s.last.error ? `: ${s.last.error}` : ""}` : "Not run yet"}</span></div>
+          {canEdit ? (
+            <div className="nums-srow-f">
+              {s.key !== "spotify_catalog" && <select aria-label="How often" value={f[s.key].schedule} onChange={(e) => set(s.key, { schedule: e.target.value })}><option value="daily">Daily</option><option value="weekly">Weekly</option></select>}
+              {s.adapters.length > 1 && <select aria-label="Scraper" value={f[s.key].adapter} onChange={(e) => set(s.key, { adapter: e.target.value })}>{s.adapters.map((a) => <option key={a.id} value={a.id}>{a.actor}</option>)}</select>}
+              {s.paid && <label className="nums-cap">Budget $<input type="number" min="0" max="19" step="0.5" value={f[s.key].softCapUsd} onChange={(e) => set(s.key, { softCapUsd: e.target.value })} />/mo</label>}
+            </div>
+          ) : <div className="nums-srow-f hint">{s.schedule === "daily" ? "Daily" : "Weekly"} · {s.adapters.find((a) => a.id === s.adapter)?.actor}{s.paid ? ` · budget ${usd(s.softCapUsd)}/mo` : ""}</div>}
+        </div>
+      ))}
+      {canEdit ? (
+        <div className="nums-save"><label className="nums-cap">All sources together: $<input type="number" min="0" max="19" step="0.5" value={total} onChange={(e) => setTotal(e.target.value)} />/month</label>
+          <button className="btn sm" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+          {msg && <span className={`hint${msg.err ? " err-text" : ""}`} role="status">{msg.err || msg.ok}</span>}</div>
+      ) : <p className="hint">Changing schedules and budgets needs Money access.</p>}
+      <p className="hint">Apify's own hard limit stops every run at the plan's cap. A run that would go past this month's budget waits until next month.</p>
+    </div>
+  );
+}
+// Home: spikes and new releases from the automated numbers, and what they cost a month. Nothing to say: nothing shown.
+function HomeNumbers({ onGo }) {
+  const [d, setD] = useState(null);
+  useEffect(() => { fetch("/api/data?home=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then(setD).catch(() => {}); }, []);
+  if (!d || (!d.spikes.length && !d.newReleases.length)) return null;
+  return (
+    <div className="home-card nums-home" data-home-numbers>
+      <div className="attn-head"><TrendingUp size={15} /> Spikes and new releases
+        <button type="button" className="inline-link home-all" onClick={() => onGo("numbers")}>Numbers · about {usd(d.cost.estMonthlyUsd)}/month ›</button></div>
+      {d.spikes.map((s, i) => <p key={`s${i}`} className="todo-line" data-spike><b>{s.name}</b>&nbsp;{s.text}</p>)}
+      {d.newReleases.map((r, i) => <p key={`r${i}`} className="todo-line" data-new-release><b>{r.artist}</b>&nbsp;released “{r.name}” ({shortDay(r.releaseDate)}), picked up for tracking</p>)}
     </div>
   );
 }
@@ -8142,7 +8329,7 @@ function AcctToCheck({ d, busy, err, onOk }) {
 
 // The phone tab bar's "More": Luminate and Site in a small menu above the bar (To do always stays in the
 // bar, with the one count). Hidden on desktop, where the sidebar lists every section.
-const PHONE_MORE = new Set(["luminate", "site"]);
+const PHONE_MORE = new Set(["numbers", "luminate", "site"]);
 function NavMore({ tabs, tab, badge, setTab }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
@@ -8816,6 +9003,7 @@ function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
         </div>
         <TopGainers db={ctx.db} lum={ctx.lum} onGo={ctx.onGo} arTop={ctx.ar?.top} arLoaded={!!ctx.ar} />
       </div>
+      {ctx.can("publishing") && <HomeNumbers onGo={ctx.onGo} />}
       <HomeWeek ctx={ctx} home={home} todo={todo} />
       {money && <HomePayments home={home} failed={failed} retry={retry} refresh={refresh} onGo={ctx.onGo} />}
     </div>
@@ -11235,6 +11423,65 @@ function StyleTag() {
     .app:not(.pub) .spark{display:block;width:100%;height:56px;overflow:visible}
     .app:not(.pub) .spark-line{fill:none;stroke:#8fce8f;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
     .app:not(.pub) .spark-fill{fill:rgba(143,206,143,.10)}
+    /* Numbers (list B #4) */
+    .app:not(.pub) .nums-cost{margin-left:auto;height:32px;padding:0 12px;border:1px solid var(--d-line-2);border-radius:100px;background:var(--d-s1);color:var(--d-ink-2);font:500 12.5px/1 var(--d-body);cursor:pointer}
+    .app:not(.pub) .nums-views{margin:0 0 12px}
+    .app:not(.pub) .nums-spikes{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+    .app:not(.pub) .nums-spike{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid var(--d-pos-line);border-radius:100px;background:var(--d-pos-bg);font:500 12px/1.3 var(--d-body);color:var(--d-ink-2)}
+    .app:not(.pub) .nums-spike svg{color:var(--d-pos)}
+    .app:not(.pub) .nums-list{display:flex;flex-direction:column;gap:10px}
+    .app:not(.pub) .nums-card{border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);padding:4px 12px 12px;margin:0 0 10px}
+    .app:not(.pub) .nums-list .nums-card{margin:0}
+    .app:not(.pub) .nums-head{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;padding:6px 0;border:0;background:none;color:var(--d-ink);text-align:left;cursor:pointer;font:600 14.5px/1.2 var(--d-body)}
+    .app:not(.pub) .nums-head-static{cursor:default}
+    .app:not(.pub) .nums-head em{font-style:normal;font-weight:400;color:var(--d-ink-4)}
+    .app:not(.pub) .nums-av{width:32px;height:32px;flex:none;border-radius:50%;object-fit:cover;background:var(--d-s3);display:inline-flex;align-items:center;justify-content:center;color:var(--d-ink-3);font-size:13px}
+    .app:not(.pub) .nums-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .app:not(.pub) .nums-tag{padding:2px 8px;border:1px solid var(--d-line-3);border-radius:100px;font:500 11px/1.3 var(--d-body);color:var(--d-ink-3);white-space:nowrap}
+    .app:not(.pub) .nums-tag.hot{border-color:var(--d-pos-line);color:var(--d-pos);margin-left:6px}
+    .app:not(.pub) .nums-chev{color:var(--d-ink-4);transition:transform var(--d-t-fast) ease}
+    .app:not(.pub) .nums-card.open .nums-chev{transform:rotate(180deg)}
+    .app:not(.pub) .nums-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px}
+    .app:not(.pub) .nums-tile{display:flex;flex-direction:column;gap:2px;min-width:0;padding:10px 10px 8px;border:1px solid var(--d-line);border-radius:10px;background:var(--d-s2)}
+    .app:not(.pub) .nums-tile b{font:600 20px/1.15 var(--d-body);color:var(--d-ink);font-variant-numeric:tabular-nums}
+    .app:not(.pub) .nums-tile .spark{height:34px;margin-top:4px}
+    .app:not(.pub) .nums-lab{font:500 11.5px/1.3 var(--d-body);color:var(--d-ink-4)}
+    .app:not(.pub) .nums-sub{font:400 12px/1.35 var(--d-body);color:var(--d-ink-3)}
+    .app:not(.pub) .nums-when{font:400 11px/1.3 var(--d-body);font-style:normal;color:var(--d-ink-off);display:inline-flex;align-items:center;gap:3px}
+    .app:not(.pub) .nums-stale .nums-when,.app:not(.pub) .nums-song .nums-when{color:var(--d-warn)}
+    .app:not(.pub) .nums-none b{color:var(--d-ink-off)}
+    .app:not(.pub) :is(.nums-tile,.nums-song) .pos{color:var(--d-pos)}
+    .app:not(.pub) :is(.nums-tile,.nums-song) .neg{color:var(--d-neg)}
+    .app:not(.pub) .nums-more{margin-top:12px;display:flex;flex-direction:column;gap:10px}
+    .app:not(.pub) .nums-mode{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin-top:8px;font-size:13px;color:var(--d-ink-2)}
+    .app:not(.pub) .nums-switch{display:inline-flex;align-items:center;gap:8px;min-height:40px;cursor:pointer}
+    .app:not(.pub) .nums-switch input{width:18px;height:18px;accent-color:#8fce8f}
+    .app:not(.pub) .nums-off{color:var(--d-ink-4)}
+    .app:not(.pub) .nums-song{display:grid;grid-template-columns:minmax(0,2.2fr) repeat(4,minmax(0,1fr));gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--d-line);font-size:13px;font-variant-numeric:tabular-nums}
+    .app:not(.pub) .nums-song-hd{font:500 11.5px/1.3 var(--d-body);color:var(--d-ink-4);border-top:0}
+    .app:not(.pub) .nums-song-t{display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;min-width:0}
+    .app:not(.pub) .nums-song-t em{flex-basis:100%;font-style:normal;color:var(--d-ink-4);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .app:not(.pub) .nums-add{display:flex;gap:8px;margin:0 0 12px}
+    .app:not(.pub) .nums-add input{flex:1;min-width:0;height:40px}
+    .app:not(.pub) .nums-costline{margin:0 0 12px;font-size:14px;color:var(--d-ink-2)}
+    .app:not(.pub) .nums-srow{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 16px;padding:12px 0;border-top:1px solid var(--d-line)}
+    .app:not(.pub) .nums-srow-t{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1 1 280px}
+    .app:not(.pub) .nums-srow-f{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+    .app:not(.pub) .nums-srow-f select{height:36px;max-width:100%}
+    .app:not(.pub) .nums-cap{display:inline-flex;align-items:center;gap:4px;font-size:13px;color:var(--d-ink-3)}
+    .app:not(.pub) .nums-cap input{width:64px;height:36px}
+    .app:not(.pub) .nums-save{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 0;border-top:1px solid var(--d-line)}
+    .app:not(.pub) .nums-home{margin:0 0 12px}
+    @media (max-width:599px){
+      .app:not(.pub) .nums .admin-head{flex-wrap:wrap}
+      .app:not(.pub) .nums-cost{margin-left:0}
+      .app:not(.pub) .nums-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .app:not(.pub) .nums-tile b{font-size:18px}
+      .app:not(.pub) .nums-song-hd{display:none}
+      .app:not(.pub) .nums-song{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px 8px}
+      .app:not(.pub) .nums-song-t{grid-column:1/-1}
+      .app:not(.pub) .nums-song > span[data-l]::before{content:attr(data-l);display:block;font-size:10.5px;color:var(--d-ink-4)}
+    }
     @media (max-width:899px){
       .app:not(.pub) .lm-steps{grid-template-columns:minmax(0,1fr)}
     }
