@@ -11,10 +11,12 @@ import {
   Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator, Copy,
   Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
   LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight, Info, Eye, MoreHorizontal,
+  Globe, CalendarDays, ChevronLeft, List as ListIcon,
 } from "lucide-react";
 import { evenSplit, splitWords, filledSplits, orderSplits } from "../lib/splits";
 import { songGaps, netStreamsOf, SONG_GAPS } from "../lib/sheet-facts";
 import { likelyDuplicates, mergedCard, mergedTitle, plainTitle } from "../lib/duplicates";
+import { biggestTasks, dueBucket, nyDay } from "../lib/todo-rank";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
    this bundle instead of inside it). The chrome wordmark + D live in /public/brand as transparent
@@ -2506,17 +2508,29 @@ async function saveRow(commit, next, key, id, thing) {
 // one the user has since chosen themselves
 const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d, users: d.users.map(({ password, ...u }) => u) } : d);
 
-const DASH_TABS = ["home", "catalog", "accounting", "ar", "luminate", "website", "users", "subs"];
+// r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
+// Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
+const DASH_TABS = ["home", "todo", "catalog", "money", "ar", "luminate", "site"];
+const TODO_AREAS = ["money", "roster", "luminate", "ar", "clickup", "site"];
+function placeOf(t, s) {
+  const sub = typeof s === "string" && s ? s : null;
+  if (t === "accounting") return sub === "log" || sub === "check" ? { tab: "todo", sub } : { tab: "money", sub: sub === "payments" ? "payments" : null };
+  if (t === "website") return { tab: "site", sub };
+  if (t === "users") return { tab: "site", sub: "users" };
+  if (t === "subs") return { tab: "site", sub: "messages" };
+  if (t === "catalog" && ["splits", "update", "dupes"].includes(sub)) return { tab: "todo", sub };
+  if (t === "luminate" && ["add", "full", "match", "missing", "gone", "ar"].includes(sub)) return { tab: "todo", sub: { full: "add", match: "unlinked", ar: "arLuminate" }[sub] || sub };
+  if (t === "luminate" && sub === "drop") return { tab: "luminate", sub };
+  const tab = DASH_TABS.includes(t) ? t : "home";
+  return { tab, sub: tab !== "home" ? sub : null };
+}
 function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
-  // sub = where a Dashboard task or gainer points inside the tab it opens ("advance", "client:<id>",
-  // "roster"): read once as the tab mounts, so the sidebar always opens a tab on its usual start
-  // The address bar carries {tab, sub} (/dashboard?tab=catalog&sub=splits), so the browser's Back and
+  // sub = where a link points inside the tab it opens ("advance", "client:<id>", To do's item or area):
+  // read once as the tab mounts, so the sidebar always opens a tab on its usual start
+  // The address bar carries {tab, sub} (/dashboard?tab=catalog&sub=advance), so the browser's Back and
   // Forward step through sections instead of leaving the dashboard, and a reload stays where it was
   const router = useRouter();
-  const fromQuery = (q) => {
-    const t = DASH_TABS.includes(q?.tab) ? q.tab : "home";
-    return { tab: t, sub: t !== "home" && typeof q?.sub === "string" && q.sub ? q.sub : null };
-  };
+  const fromQuery = (q) => placeOf(q?.tab, q?.sub);
   const [{ tab, sub }, setAt] = useState(() => fromQuery(router.query));
   const toUrl = (t, s, how = "push") => {
     const query = t === "home" && !s ? {} : { tab: t, ...(s ? { sub: s } : {}) };
@@ -2525,21 +2539,21 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
     router[how]({ pathname: "/dashboard", query }, undefined, { shallow: true, scroll: false });
   };
   const setTab = (t) => { setAt({ tab: t, sub: null }); toUrl(t, null); };
-  const go = (t, s = null) => { setAt({ tab: t, sub: s }); toUrl(t, s); window.scrollTo(0, 0); };
-  // a page's own pickers (Publishing's client, Website's tab) update the address in place: one Back
+  const go = (t0, s0 = null) => { const { tab: t, sub: s } = placeOf(t0, s0); setAt({ tab: t, sub: s }); toUrl(t, s); window.scrollTo(0, 0); };
+  // a page's own pickers (Publishing's client, Site's tab) update the address in place: one Back
   // step per section, not one per chip
   const setSub = (s) => { setAt((cur) => (cur.sub === s ? cur : { ...cur, sub: s })); toUrl(tab, s, "replace"); };
-  // Back / Forward (and a reload): the address says where to be
+  // Back / Forward (and a reload): the address says where to be; an old address is rewritten to its new place
   useEffect(() => {
     if (!router.isReady) return;
     const at = fromQuery(router.query);
     setAt((cur) => (cur.tab === at.tab && cur.sub === at.sub ? cur : at));
+    if (router.query.tab && (router.query.tab !== at.tab || (router.query.sub || null) !== at.sub)) toUrl(at.tab, at.sub, "replace");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.isReady, router.query.tab, router.query.sub]);
-  const unreadCount = db.submissions.filter((s) => !s.read).length;
-  // the Luminate page's data (portfolios, ISRCs, songs to link): loaded first, then again whenever the
-  // Dashboard opens (its tasks) and after anything that changes it (Luminate's actions, Publishing's
-  // "Refresh numbers"). lumErr = it couldn't load, so the cards say so instead of spinning.
+  // the Luminate page's data (portfolios, ISRCs, songs to link): loaded first, then again whenever
+  // Home or To do opens and after anything that changes it (Luminate's actions, "Refresh numbers").
+  // lumErr = it couldn't load, so the cards say so instead of spinning.
   const [lum, setLum] = useState(null);
   const [lumErr, setLumErr] = useState(false);
   const reloadLum = () => {
@@ -2548,62 +2562,56 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
       .then((d) => { if (d?.portfolios) setLum(d); else setLumErr(true); }).catch(() => setLumErr(true));
   };
   useEffect(() => {
-    if (tab === "home" || !lum) reloadLum();
+    if (tab === "home" || tab === "todo" || !lum) reloadLum();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
-  const lumCount = useMemo(() => {
-    if (!lum) return 0;
-    return lumGroups(db, lum).filter((g) => g.status === "toAdd" || g.status === "unplaced" || g.status === "missing").length + lum.unlinked.length + (lum.notOursLeft?.length || 0);
-  }, [db, lum]);
   // db.sheetSync lives in this browser's localStorage, not on a server — a
   // device whose local copy is stale (never synced, or synced a while ago,
   // including before some bug fix here) would otherwise sit stale until
   // someone remembers to press a button. There's exactly one manual sync
   // action (Publishing's "Refresh numbers") — this silently keeps every
-  // other view current in the background instead, whenever the Dashboard or
+  // other view current in the background instead, whenever Home, To do or
   // Publishing opens on a stale copy. One run at a time: a quick hop from
   // one to the other doesn't start a second.
   const syncing = useRef(false);
   useEffect(() => {
-    if ((tab !== "home" && tab !== "catalog") || syncing.current || !isSheetSyncStale(db)) return;
+    if ((tab !== "home" && tab !== "catalog" && tab !== "todo") || syncing.current || !isSheetSyncStale(db)) return;
     syncing.current = true;
     fullSiteSync(db, commit).catch((err) => console.error("Background sync failed:", err)).finally(() => { syncing.current = false; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
-  // A&R's badge (follow-ups due + people and songs to add to its Luminate lists) and the Dashboard's
-  // A&R task, from one fetch here
-  const arSum = useArSummary(tab);
-  const toLum = arSum?.toLuminate || null;
-  const pubCount = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster").length, [db, lum]);
-  // Accounting's badge: payments to log + rows to check. Read once here; the Dashboard and the section
-  // put in what they read later, so it follows a Log it or a Mark as OK
+  // A&R's counts (follow-ups due, people and songs to add to its Luminate lists), Money's (payments to
+  // log, rows to check), ClickUp's open tasks and the sync checks: To do's rows, its one count in the
+  // sidebar, Home's biggest tasks and each tab's count chip all come from these
+  const arSum = useArSummary(tab === "todo" ? "home" : tab);
   const [acctN, setAcctN] = useState(null);
-  useEffect(() => {
-    fetch("/api/accounting?counts=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => d?.counts && setAcctN((x) => x || d.counts)).catch(() => {});
-  }, []);
-  // each tab's area colours its active icon and its badge (Dashboard, Users and Messages stay white)
+  const loadAcctN = () => fetch("/api/accounting?counts=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => d?.counts && setAcctN(d.counts)).catch(() => {});
+  useEffect(() => { loadAcctN(); }, []);
+  useEffect(() => { if (tab === "todo") loadAcctN(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  const cu = useCuTasks(tab);
+  const sync = useSyncChecks(tab);
+  const todo = useMemo(() => todoItems({ db, lum, acct: acctN, ar: arSum, sync: sync.data }), [db, lum, acctN, arSum, sync.data]);
+  const cuDue = (cu.data?.tasks || []).filter((t) => dueBucket(t.due) === "overdue" || dueBucket(t.due) === "today");
+  const todoN = todo.length + cuDue.length;
+  const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
+  const ctx = { db, commit, reloadDb, lum, lumErr, reloadLum, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN };
   const tabs = [
-    ["home", "Dashboard", LayoutDashboard], ["catalog", "Publishing", ListMusic, pubCount, "roster"],
-    ["accounting", "Accounting", Receipt, (acctN?.toLog || 0) + (acctN?.toCheck || 0), "money", "Money"],
-    ["ar", "A&R", Handshake, (arSum?.followUpsDue || 0) + (toLum?.count || 0), "ar"], ["luminate", "Luminate", Radar, lumCount, "luminate"],
-    ["website", "Website", Pencil, 0, "site"],
-    ["users", "Users", UserCog], ["subs", "Messages", Inbox, unreadCount],
+    ["home", "Home", LayoutDashboard], ["todo", "To do", ListChecks, todoN],
+    ["catalog", "Publishing", ListMusic, 0, "roster"], ["money", "Money", Receipt, 0, "money"],
+    ["ar", "A&R", Handshake, 0, "ar"], ["luminate", "Luminate", Radar, 0, "luminate"], ["site", "Site", Globe, 0, "site"],
   ];
-  // phones: 8 tabs don't fit a 360px bar, so Website, Users and Messages sit behind "More" (desktop lists all)
-  const moreBadge = tabs.filter(([id]) => PHONE_MORE.has(id)).reduce((n, t) => n + (t[3] || 0), 0);
   return (
     <div className="dash">
       <aside className="dash-side">
         <div className="dash-brand"><Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link></div>
         <nav>
-          {tabs.map(([id, label, Icon, badge, area, short]) => (
-            <button key={id} className={[tab === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
-              {/* short: the phone tab bar's word when the full one doesn't fit its tab at 360 */}
-              <Icon size={17} /> <span className="nav-label">{short ? <><span className="nav-full">{label}</span><span className="nav-short" aria-hidden="true">{short}</span></> : label}</span>
+          {tabs.map(([id, label, Icon, badge, area]) => (
+            <button key={id} className={[tab === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+              <Icon size={17} /> <span className="nav-label">{label}</span>
               {!!badge && <span className="nav-badge">{badge}</span>}
             </button>
           ))}
-          <NavMore tabs={tabs.filter(([id]) => PHONE_MORE.has(id))} tab={tab} badge={moreBadge} setTab={setTab} />
+          <NavMore tabs={tabs.filter(([id]) => PHONE_MORE.has(id))} tab={tab} badge={0} setTab={setTab} />
         </nav>
         <div className="dash-side-foot">
           <div className="dash-role">Staff — full edit access</div>
@@ -2611,17 +2619,22 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         </div>
       </aside>
       <main className="dash-main">
-        {tab === "home" && <HomeDashboard db={db} lum={lum} lumErr={lumErr} reloadLum={reloadLum} onGo={go} toLum={toLum} arTop={arSum?.top} arLoaded={!!arSum} onAcct={setAcctN} />}
-        {tab === "accounting" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} />}
-        {tab === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={setSub} lum={lum} />}
-        {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} onSub={setSub} />}
-        {tab === "luminate" && <LuminateAdmin db={db} commit={commit} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} toLum={toLum} onGo={go} />}
-        {tab === "ar" && <ARAdmin onGo={go} sub={sub} />}
-        {tab === "users" && <UsersAdmin db={db} commit={commit} />}
-        {tab === "subs" && <SubsAdmin db={db} commit={commit} />}
+        {tab === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcctN} />}
+        {tab === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} />}
+        {tab === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} chip={<TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
+        {tab === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={<TodoChip n={areaN("site")} area="site" onGo={go} />} />}
+        {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} onSub={setSub} chip={<TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
+        {tab === "luminate" && <LuminateAdmin db={db} commit={commit} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} onGo={go} chip={<TodoChip n={areaN("luminate")} area="luminate" onGo={go} />} />}
+        {tab === "ar" && <ARAdmin onGo={go} sub={sub} chip={<TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
       </main>
     </div>
   );
+}
+
+// A dashboard tab's one link to its to-dos: "3 to do ›", opening To do on that area (none: nothing shown)
+function TodoChip({ n, area, onGo }) {
+  if (!n) return null;
+  return <button type="button" className="todo-chip" data-area={area} data-todo-chip={area} onClick={() => onGo("todo", area)}>{n} to do <ChevronRight size={14} aria-hidden="true" /></button>;
 }
 
 /* generic editable list ------------------------------------------------ */
@@ -3157,7 +3170,7 @@ function useArAll() {
 }
 // the Dashboard's This week › A&R rows: "watch:open:<key>" (their panel) / "watch:flash:<key>" (a Luminate-only row)
 const arWatchAt = (sub) => { const m = /^watch:(open|flash):(.+)$/.exec(sub || ""); return m ? { pill: "people", [m[1]]: m[2] } : null; };
-function ARAdmin({ onGo, sub }) {
+function ARAdmin({ onGo, sub, chip = null }) {
   const [sec, setSecState] = useState(() => {
     if (arWatchAt(sub)) return "watch";
     try { const s = sessionStorage.getItem(AR_SEC_KEY); return AR_SECS.some(([id]) => id === s) ? s : "summary"; } catch { return "summary"; }
@@ -3173,7 +3186,7 @@ function ARAdmin({ onGo, sub }) {
   return (
     <div className="ar">
       {/* the page's title first, as on Publishing and Website; each section says only its one line */}
-      <div className="admin-head"><h2>A&amp;R</h2></div>
+      <div className="admin-head"><h2>A&amp;R</h2>{chip}</div>
       <div className="subnav">
         {AR_SECS.map(([id, label]) => (
           <button key={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { setSec(id); revealChip(e.currentTarget); }}>{label}</button>
@@ -3427,10 +3440,8 @@ function useArClickUp() {
 
 function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const { data, pg, pgErr, loadPg } = ar;
-  const { cu, retry: retryCu } = useArClickUp();
   const watch = pg?.watch;
   const { cards } = arCards(data, pg);
-  const [showToLum, setShowToLum] = useState(false);
   const phone = useMedia("(max-width: 699px)");
   const [gtab, setGtab] = useState("people"); // phones show one list at a time
   // ranked on the server by week-on-week % (watch.top: keys, ranked = shown with its %)
@@ -3438,32 +3449,9 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const people = ranked(watch?.people || [], watch?.top?.people), songs = ranked(watch?.songs || [], watch?.top?.songs);
   const to = watch?.period?.to;
   const old = to && daysSince(to) > 8;
-  // most urgent first: late follow-ups, then due today, then quiet offers, then what can't get numbers.
-  // urg colours the row's dot: red late, amber soon, blue Luminate
-  const tasks = [];
-  const live = cards.filter((c) => c.stage !== "passed" && c.stage !== "signed");
-  for (const c of live.filter((x) => x.followUp?.state === "overdue")) tasks.push({ k: `late:${c.key}`, urg: "late", t: `Follow up with ${c.name}: ${c.followUp.daysLate === 1 ? "1 day" : `${c.followUp.daysLate} days`} late.`, cta: "Open", go: () => goBoard() });
-  for (const c of live.filter((x) => x.followUp?.state === "due")) tasks.push({ k: `due:${c.key}`, urg: "soon", t: `Follow up with ${c.name} today.`, cta: "Open", go: () => goBoard() });
-  for (const c of cards.filter((x) => x.stage === "offer" && (!x.lastContact || daysSince(x.lastContact) >= 7))) {
-    tasks.push({ k: `offer:${c.key}`, urg: "soon", t: `The offer to ${c.name} has had no contact ${c.lastContact ? `since ${shortDay(c.lastContact)}` : "logged"}.`, cta: "Open", go: () => goBoard() });
-  }
-  // the same task and wording as the Dashboard's (lib/ar.js arToLuminateOf)
-  const toLum = pg?.toLuminate;
-  if (toLum?.count) tasks.push({ k: "noNumbers", urg: "lum", t: toLum.text, cta: "View list", go: () => setShowToLum(true) });
-  if (old) tasks.push({ k: "stale", urg: "lum", t: `A&R numbers are from ${shortDay(to)}.`, cta: "Drop new exports", go: () => onGo("luminate", "drop") });
-  // ClickUp's A&R Tasks, merged by urgency: urgent ones above the late follow-ups, high ones right
-  // after them, the rest only while the list is short. Each opens the task in ClickUp.
-  const cuItem = (t) => ({ k: `cu:${t.id}`, pri: t.priority, t: `${t.name}${t.due ? ` (${dueLate(t.due) ? "late, was due" : "due"} ${shortDay(t.due)})` : ""}`, cta: "Open in ClickUp", go: () => openTab(t.url) });
-  const cuOpen = cu?.tasks || [];
-  const lateN = tasks.filter((x) => x.k.startsWith("late:")).length;
-  const merged = [...cuOpen.filter((t) => t.priority === "urgent").map(cuItem), ...tasks.slice(0, lateN), ...cuOpen.filter((t) => t.priority === "high").map(cuItem), ...tasks.slice(lateN)];
-  const others = cuOpen.filter((t) => t.priority !== "urgent" && t.priority !== "high");
-  if (merged.length < 5) merged.push(...others.slice(0, 5 - merged.length).map(cuItem));
-  if (cu?.error) merged.push({ k: "cu:error", t: "Couldn't reach ClickUp, so its A&R tasks aren't listed here.", cta: "Try again", go: retryCu });
+  // its to-dos (follow-ups, the Luminate A&R lists, ClickUp's A&R Tasks) are To do's now (r7): the chip counts them
   const value = data?.totals?.totalValue;
   const stageN = (id) => cards.filter((c) => c.stage === id).length;
-  // never "All caught up" before both the database and ClickUp's A&R list have answered
-  const checking = (!pg && !pgErr) || !cu;
   // someone tracked here opens their panel on the Watchlist; a Luminate-only row is just shown there
   const openGainer = (r, kind) => goWatch(r.ref ? { pill: kind, open: r.key } : { pill: kind, flash: r.key });
   const Gainers = ({ list, kind }) => (
@@ -3493,7 +3481,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const tabs = [["people", "People", (watch?.people || []).length], ["songs", "Songs", (watch?.songs || []).length]];
   return (
     <div className="ar-summary">
-      <ArHead sub="Who's up this week and what needs doing." />
+      <ArHead sub="Who's up this week." />
       {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
       {/* the pipeline at a glance: one coloured pill per stage, and the sheet's total value; opens the Board */}
       <button className="ar-strip" onClick={goBoard} aria-label="Open the Board">
@@ -3514,24 +3502,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
         {(!phone || gtab === "people") && <Gainers list={people} kind="people" />}
         {(!phone || gtab === "songs") && <Gainers list={songs} kind="songs" />}
       </div>
-      {checking ? <h3 className="ar-h3 ar-todo-h ar-todo-wait">To do <span className="todo-done">· <RefreshCw size={14} className="spin" /> checking…</span></h3> : merged.length ? (
-        <>
-          <h3 className="ar-h3 ar-todo-h">To do <span className="attn-n">{merged.length}</span></h3>
-          <div className="attn ar-tasks">
-            {merged.map((it) => (
-              // phones: the whole row is the button, with a › instead of the pill (as on the Dashboard)
-              <div key={it.k} className="attn-row" data-task={it.k} data-pri={it.pri || undefined}
-                {...(phone ? { role: "button", tabIndex: 0, onClick: it.go, onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); it.go(); } } } : {})}>
-                {it.urg && <i className="ar-dot" data-urg={it.urg} aria-hidden="true" />}
-                <span>{it.pri && <span className="cu-pri" data-pri={it.pri} title={`${PRIORITY[it.pri] || it.pri} priority in ClickUp`}><Flag size={13} /></span>}{it.t}</span>
-                <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); it.go(e); }}>{it.cta}</button>
-                <ChevronRight size={16} className="attn-chev" aria-hidden="true" />
-              </div>
-            ))}
-          </div>
-        </>
-      ) : <h3 className="ar-h3 ar-todo-h ar-todo-clear">To do <span className="todo-done">· <CheckCircle2 size={14} /> All caught up</span></h3>}
-      {showToLum && toLum && <ArToLuminateModal t={toLum} onGo={onGo} onClose={() => setShowToLum(false)} />}
+
     </div>
   );
 }
@@ -4756,7 +4727,8 @@ async function pushOwnShare(saved, client, liveIds, keepPercent = null) {
   }
 }
 
-function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix, onFixList, onGo, onDeleteClient }) {
+// editorOnly (To do's Fix / Update): only the song's editor and the strip after its Save, none of the client's page
+function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix, onFixList, onGo, onDeleteClient, editorOnly = false }) {
   // staff's db has a `clients` array; a client session's db has just their
   // own `client` record (no `clients` array — that's not sent to them).
   const client = db.clients ? db.clients.find((c) => c.id === clientId) : db.client;
@@ -4928,7 +4900,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
   return (
     <>
       {/* read-only: shows staff which sheet tab this client's numbers come from (Stack!e reads tab Stackie) */}
-      {isStaff && client && (
+      {isStaff && client && !editorOnly && (
         <div className="client-head">
           <Avatar src={client.photo} name={client.name} size={40} />
           <div className="client-head-text">
@@ -4957,6 +4929,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
         </p>
       )}
       {isStaff && <DropNote note={delNote} onShow={onGo && ((sec) => onGo("luminate", sec))} />}
+      {!editorOnly && <>
       <div className="portal-block-head">
         <div>
           <h2>Songs &amp; Splits</h2>
@@ -5024,7 +4997,9 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
         </div>
       )}
 
-      {active && !editing && (
+      </>}
+
+      {active && !editing && !editorOnly && (
         <div className="modal" onClick={(e) => e.target === e.currentTarget && setOpenId(null)}>
           <div className="modal-card song-detail">
             <div className="modal-head"><h3>{active.song || "Untitled"}</h3><button onClick={() => setOpenId(null)} aria-label="Close"><X size={18} /></button></div>
@@ -5868,21 +5843,8 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
   );
 }
 
-function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onFix, focusSplits, focusUpdate, focusDupes }) {
-  // Splits to confirm and Songs to update share one place: two tabs, the To do's own one open
-  const nUpdate = useMemo(() => songsToUpdate(db, lum).length, [db, lum]);
-  const nSplits = useMemo(() => splitsToConfirm(db, lum).all.length, [db, lum]);
-  // cards that look like the same song: the To do's Review opens the merge card at once, the line below reopens it
-  const dupes = useMemo(() => likelyDupes(db, lum), [db, lum]);
-  const [dupeKey, setDupeKey] = useState(null);
-  const [dupeNote, setDupeNote] = useState(null);
-  const dupeOpen = dupeKey && dupes.find((x) => x.key === dupeKey);
-  const openDupe = () => { setDupeNote(null); setDupeKey(dupes[0]?.key || null); };
-  const askedDupes = useRef(false);
-  useEffect(() => { if (focusDupes && !askedDupes.current && dupes.length) { askedDupes.current = true; setDupeKey(dupes[0].key); } }, [focusDupes, dupes]);
-  const [fixTab, setFixTab] = useState(focusUpdate ? "update" : "splits");
-  useEffect(() => { if (focusUpdate) setFixTab("update"); }, [focusUpdate]);
-  useEffect(() => { if (focusSplits) setFixTab("splits"); }, [focusSplits]);
+// (Splits to confirm, Songs to update and the merge card are To do's now, r7: PubFix there shows them)
+function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [streamSync, setStreamSync] = useState({ syncing: false, error: null });
   const dbNow = useRef(db); // the sheet pull below starts from the db as it is then, not at the click
@@ -5945,9 +5907,6 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
   };
 
   const links = state.data?.links || {};
-  // the task list lives on the Dashboard now: here, only how many of them are this tab's to fix
-  // the splits task is the Splits to fix list right under this line: only the others point to the Dashboard
-  const pubTasks = useMemo(() => dashTasks(db, lum).filter((t) => t.area === "roster" && t.k !== "splits" && t.k !== "update" && t.k !== "dupes").length, [db, lum]);
   const rate = state.data?.rate;
   // the writers' table: This week first (each writer's songs that have both weeks, added up, as
   // lib/weekly.js sumWeeks), biggest % first; any column head re-sorts. The 6 forecast columns wait
@@ -6001,24 +5960,6 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
         {span && <span className="overview-week"> · This week = {dayRange(span.from, span.to)} vs the week before</span>}
       </p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
-      {pubTasks > 0 && (
-        <p className="pub-tasks"><AlertTriangle size={14} /> {pubTasks} {splitsToFix(db).length ? "more " : ""}publishing task{pubTasks === 1 ? "" : "s"} · <button className="inline-link" onClick={() => onGo("home")}>see the Dashboard</button></p>
-      )}
-      {dupes.length > 0 && (
-        <p className="pub-tasks dupe-line" data-dupe-line><AlertTriangle size={14} /> {dupeWords(dupes)} · <button className="inline-link" data-dupe-review onClick={openDupe}>Review</button></p>
-      )}
-      <DropNote note={dupeNote} />
-      {dupeOpen && <DupeMerge db={db} commit={commit} lum={lum} reloadLum={reloadLum} pair={dupeOpen} onClose={() => setDupeKey(null)} onDone={(r) => { setDupeKey(null); setDupeNote(r); }} />}
-      {nUpdate > 0 && (
-        <div className="fix-tabs" role="tablist">
-          <button role="tab" aria-selected={fixTab === "splits"} className={fixTab === "splits" ? "fix-tab active" : "fix-tab"} data-fix-tab="splits" onClick={() => setFixTab("splits")}>{nSplits ? `Splits to confirm (${nSplits})` : "Splits"}</button>
-          <button role="tab" aria-selected={fixTab === "update"} className={fixTab === "update" ? "fix-tab active" : "fix-tab"} data-fix-tab="update" onClick={() => setFixTab("update")}>Songs to update ({nUpdate})</button>
-        </div>
-      )}
-      {fixTab === "update" && nUpdate > 0
-        ? <SongsToUpdate db={db} lum={lum} onFix={onFix} focus={focusUpdate} dupes={dupes} onDupe={openDupe} />
-        : <SplitsToFix db={db} commit={commit} lum={lum} reloadLum={reloadLum} onFix={onFix} focus={focusSplits} onGo={onGo} dupes={dupes} onDupe={openDupe} />}
-
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
 
@@ -6117,7 +6058,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient, onGo, onF
 
 // Publishing: the clients, their songs and splits, the MASTER totals, and the Advance calculator.
 // A Dashboard task can open it on a client ("client:<id>") or on the calculator ("advance").
-function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
+function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub, chip = null }) {
   const [sec, setSec] = useState(sub === "advance" || sub?.startsWith("advance:") ? "advance" : "overview");
   const editSong = sub?.startsWith("edit:") ? db.placements.find((p) => p.id === sub.slice(5)) : null;
   // null clientId = the read-only Overview landing page, not "no selection"
@@ -6187,7 +6128,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
   return (
     <div>
       <div className="admin-head">
-        <h2>Publishing</h2>
+        <h2>Publishing</h2>{chip}
       </div>
       <div className="subnav">
         <button className={sec === "overview" ? "subpill active" : "subpill"} onClick={pick("overview")}>Overview &amp; clients</button>
@@ -6216,8 +6157,8 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub }) {
         </div>
         <div className="catalog-main">
           {clientId === null
-            ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} onGo={onGo} onFix={openFix} focusSplits={sub === "splits"} focusUpdate={sub === "update"} focusDupes={sub === "dupes"} />
-            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={(to) => { setClientIdOnly(null); onSub?.(to === "update" ? "update" : null); setFix(null); }} onGo={onGo} onDeleteClient={setDelAsk} />
+            ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} />
+            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={(to) => { setFix(null); onGo("todo", to === "update" ? "update" : "splits"); }} onGo={onGo} onDeleteClient={setDelAsk} />
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
         </div>
@@ -6660,7 +6601,10 @@ function ExportDrop({ onDone, saved = [] }) {
   );
 }
 
-function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLum, onGo }) {
+// part (To do, r7): only that to-do's block, in place: "drop" (the exports to drop), "add" (the songs to
+// add, with their ISRCs, Copy and Mark as added), "match", "missing" or "gone". Without it, the Luminate
+// tab: the steps, the drop zone, the portfolios and the records, with its to-dos counted on the chip.
+function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo, part = null, chip = null }) {
   const groups = useMemo(() => lumGroups(db, lum), [db, lum]);
   const plan = useMemo(() => lumPlan(groups, lum), [groups, lum]);
   const clientName = (id) => db.clients.find((c) => c.id === id)?.name || "";
@@ -6700,7 +6644,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
   latest.current = groups;
   useEffect(() => {
     const next = () => latest.current.filter((g) => (g.status === "toAdd" || g.status === "unplaced") && !g.isrc && !g.checked && !looked.current.has(g.key)).slice(0, 4);
-    if (!lum || looking.current || !next().length) return;
+    if (!lum || looking.current || (part && part !== "add") || !next().length) return;
     looking.current = true;
     (async () => {
       try {
@@ -6745,104 +6689,50 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
   const candidates = groups.filter((g) => !g.luminateId && !g.skip);
   const skipped = groups.filter((g) => g.status === "skipped");
 
-  return (
-    <div className="lm">
-      <div className="admin-head lm-head">
-        <h2>Luminate</h2>
-        <div className="overview-links">
-          <button className="btn ghost sm" disabled={!!busy} onClick={() => run("resync", () => lumPost({ action: "resync" }).then(() => window.dispatchEvent(new Event(STREAMS_EVENT))))} title="Rebuild STREAM DATA from the newest exports and pull every client's numbers again">
-            <RefreshCw size={14} className={busy === "resync" ? "spin" : ""} /> {busy === "resync" ? "Updating…" : "Update the sheet again"}
-          </button>
-          <button className="btn ghost sm" onClick={() => setEditing({ name: "", url: "", kind: "roster", capacity: lum.cap })}><Plus size={14} /> Add portfolio</button>
-        </div>
-      </div>
-      <p className="hint overview-subhint">
-        {last ? <>Last update {shortDay(last.at)} ({ago(last.at)}){last.by ? ` by ${last.by}` : ""}.</> : "No exports taken in yet. Drop the portfolio exports below to start."}
-        {last?.weekTotal != null && last.gainers?.length ? ` That week: ${signed(last.weekTotal)} streams.` : ""}
-        {(last?.files || []).filter((f) => f.longWeeks).map((f) => ` ${f.portfolio}'s file covered about ${f.longWeeks} weeks, so its weekly numbers weren't used.`).join("")}
-      </p>
-      {err && <p className="hint err-text overview-subhint" role="alert">{err}</p>}
-      {lum.alertsConnected === false && <p className="hint overview-subhint">ClickUp alerts aren't connected yet: they start once the Dashboard Alerts channel is set up.</p>}
-
-      <ol className="lm-steps">
-        <li className={plan.slots.length || plan.left.length ? "todo" : "done"}>
-          <span className="lm-step-n">1</span>
-          <div><strong>Add new songs to Luminate</strong>{plan.slots.length || plan.left.length
-            ? <span><button className="inline-link lm-show-add" onClick={() => jumpTo(plan.slots.length ? "add" : "full")}>Show the {plan.slots.reduce((a, s) => a + s.songs.length, 0) + plan.left.length} ↓</button> with their ISRCs</span>
-            : <span>Nothing new to add</span>}</div>
-        </li>
-        <li>
-          <span className="lm-step-n">2</span>
-          <div><strong>{allExports.length > 1 ? `Export all ${countWord(allExports.length)} with 1 week · Worldwide` : "Export each portfolio with 1 week · Worldwide"}</strong><span>Open each one, then Export CSV.</span>
-            <div className="lm-step-links">
-              {lum.portfolios.length === 0 && <span className="hint">Your portfolios appear here after the first drop.</span>}
-              {allExports.map((p) => (p.url
-                ? <ExtLink key={p.id} href={p.url} className="btn ghost sm"><ExternalLink size={13} /> Open {p.name} ↗</ExtLink>
-                : <button key={p.id} className="btn ghost sm" onClick={() => setEditing({ ...p })}><Link2 size={13} /> Add the {p.name} link</button>))}
-            </div>
-          </div>
-        </li>
-        <li>
-          <span className="lm-step-n">3</span>
-          <div><strong>Drop the files here</strong><span>The sheet, every client's numbers and this week's growth update by themselves.</span></div>
-        </li>
-      </ol>
-
-      <ExportDrop onDone={refresh} saved={allExports} />
-
-      {allExports.length > 0 && (
-        <div className="lm-ports">
-          {lum.portfolios.map((p) => {
-            const used = (p.usedCount ?? p.songCount) + p.pendingCount, pct = Math.min(100, (used / p.capacity) * 100);
-            // a full one says where new songs go; an export over 8 days old breaks the weekly %, so it's amber
-            const room = used >= p.capacity && lum.portfolios.find((q) => q.id !== p.id && q.area === p.area && (q.usedCount ?? q.songCount) + q.pendingCount < q.capacity);
-            const age = p.exportedAt ? Math.floor((Date.now() - new Date(p.exportedAt).getTime()) / 86400000) : null;
-            return (
-              <button key={p.id} className="lm-port" onClick={() => setEditing({ ...p })} title={p.fixedName ? "Edit link or size" : "Edit name, link or size"}>
-                <span className="lm-port-top"><strong>{p.name}</strong></span>
-                <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity ? ` · Full${room ? ` · new songs go in ${room.name}` : ""}` : ""}</span>
-                <span className="lm-port-meta">{held(p)}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
-                <span className={`lm-bar${pct >= 95 ? " full" : pct >= 80 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
-                <span className={age > 8 ? "lm-port-meta lm-port-old" : "lm-port-meta"}>{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}${age > 8 ? ` (${age} days ago)` : ""}${p.songCount ? ` · ${fmt(p.totalStreams)} all-time streams` : ""}` : "No export yet"}</span>
-                {/* its newest file was made for longer than a week: no weekly numbers from it */}
-                {p.longWeeks && <span className="lm-port-meta lm-port-old">That file covers about {p.longWeeks} weeks, so it gave no weekly numbers. Export it again with 1 week.</span>}
-              </button>
-            );
-          })}
-          {/* the A&R ones, read-only: their numbers go to the A&R tab */}
-          {arPorts.map((p) => (
-            <div key={p.id} className="lm-arcard">
-              <strong>{p.name}</strong>
-              <span className="lm-port-meta">{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}` : "No export yet"} · for the A&amp;R tab</span>
-              {p.url && <ExtLink href={p.url} className="inline-link lm-open" data-open-lum>Open in Luminate ↗</ExtLink>}
-            </div>
-          ))}
-        </div>
+  const openLinks = (
+    <div className="lm-step-links">
+      {lum.portfolios.length === 0 && <span className="hint">Your portfolios appear here after the first drop.</span>}
+      {allExports.map((p) => (p.url
+        ? <ExtLink key={p.id} href={p.url} className="btn ghost sm"><ExternalLink size={13} /> Open {p.name} ↗</ExtLink>
+        : <button key={p.id} className="btn ghost sm" onClick={() => setEditing({ ...p })}><Link2 size={13} /> Add the {p.name} link</button>))}
+    </div>
+  );
+  const modals = (
+    <>
+      {ask?.notOurs && (
+        <NotOursAsk db={db} commit={commit} lum={lum} target={ask.notOurs} client={db.clients.find((c) => c.id === ask.notOurs.clientId)} onClose={() => setAsk(null)}
+          onDone={(n) => { setAsk(null); setNote(n); refresh(); }} />
       )}
-
-      <DropNote note={note} onShow={jumpTo} />
-      {/* removed as "not ours" but still in a portfolio: the app can't take it out of Luminate */}
-      {lum.notOursLeft?.length > 0 && (
-        <div className={flash === "gone" ? "lm-block lm-gone lm-flash" : "lm-block lm-gone"} data-sec="gone">
-          <div className="lm-block-head"><div><strong>Taken off the site, still in Luminate</strong><span className="hint"> The next export after you take it out clears this by itself.</span></div></div>
-          <div className="lm-list">
-            {lum.notOursLeft.map((r) => (
-              <div key={r.luminateId} className="lm-song lm-gone-row">
-                <span className="lm-cover"><Radar size={16} /></span>
-                <span className="lm-song-main"><strong>{r.name}</strong><span>In {r.portfolioName}{r.lumName && r.lumName !== r.name ? ` as "${r.lumName}"` : ""} · uses 1 slot</span></span>
-                <span className="lm-unl-acts">
-                  {r.url ? <ExtLink href={r.url} className="btn ghost sm"><ExternalLink size={13} /> Open {r.portfolioName} ↗</ExtLink>
-                    : portOf(r.portfolioId) && <button className="btn ghost sm" onClick={() => setEditing({ ...portOf(r.portfolioId) })}><Link2 size={13} /> Add the {r.portfolioName} link</button>}
-                  <button className="btn sm" disabled={!!busy} onClick={() => run(`out:${r.luminateId}`, () => lumPost({ action: "notOursOut", luminateId: r.luminateId }))}><Check size={13} /> Mark as removed</button>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+      {ask?.lumOnly && (
+        <AskCard title={`Mark "${ask.lumOnly.name}" as not in our catalog?`} goLabel="Not in our catalog" busyLabel="Saving…" onClose={() => setAsk(null)}
+          go={async () => { const u = ask.lumOnly; await run(`ign:${u.luminateId}`, () => lumPost({ action: "notOurs", song: u.name, luminateId: u.luminateId })); setAsk(null); }}>
+          <p>The app stops asking about it. It's still in {pName(ask.lumOnly.portfolioId)} in Luminate and uses a slot; you'll get a To do to take it out.</p>
+        </AskCard>
       )}
-
-      {(plan.slots.length > 0 || plan.left.length > 0 || toLum?.count > 0) && <h3 className="lm-h3">Add to Luminate</h3>}
-      {plan.slots.length > 0 && <p className="hint lm-acts-hint">Exclude from Luminate: it's ours, it just stays out of Luminate. Remove from catalog: takes it off the site and the pub sheet too.</p>}
+      {editing && <PortfolioForm initial={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reloadLum(); }} />}
+    </>
+  );
+  // To do: one block in place
+  if (part) {
+    const blocks = { gone: lum.notOursLeft?.length > 0 && <>{/* removed as "not ours" but still in a portfolio: the app can't take it out of Luminate */}
+              {lum.notOursLeft?.length > 0 && (
+                <div className={flash === "gone" ? "lm-block lm-gone lm-flash" : "lm-block lm-gone"} data-sec="gone">
+                  <div className="lm-block-head"><div><strong>Taken off the site, still in Luminate</strong><span className="hint"> The next export after you take it out clears this by itself.</span></div></div>
+                  <div className="lm-list">
+                    {lum.notOursLeft.map((r) => (
+                      <div key={r.luminateId} className="lm-song lm-gone-row">
+                        <span className="lm-cover"><Radar size={16} /></span>
+                        <span className="lm-song-main"><strong>{r.name}</strong><span>In {r.portfolioName}{r.lumName && r.lumName !== r.name ? ` as "${r.lumName}"` : ""} · uses 1 slot</span></span>
+                        <span className="lm-unl-acts">
+                          {r.url ? <ExtLink href={r.url} className="btn ghost sm"><ExternalLink size={13} /> Open {r.portfolioName} ↗</ExtLink>
+                            : portOf(r.portfolioId) && <button className="btn ghost sm" onClick={() => setEditing({ ...portOf(r.portfolioId) })}><Link2 size={13} /> Add the {r.portfolioName} link</button>}
+                          <button className="btn sm" disabled={!!busy} onClick={() => run(`out:${r.luminateId}`, () => lumPost({ action: "notOursOut", luminateId: r.luminateId }))}><Check size={13} /> Mark as removed</button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}</>, add: (plan.slots.length > 0 || plan.left.length > 0) && <>{plan.slots.length > 0 && <p className="hint lm-acts-hint">Exclude from Luminate: it's ours, it just stays out of Luminate. Remove from catalog: takes it off the site and the pub sheet too.</p>}
       {plan.slots.map((slot, i) => (
         <div key={slot.p.id} className={i === 0 && flash === "add" ? "lm-block lm-flash" : "lm-block"} data-sec={i === 0 ? "add" : undefined}>
           <div className="lm-block-head">
@@ -6899,19 +6789,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
           </div>
           <button className="btn sm" onClick={() => setEditing({ name: `Portfolio ${String.fromCharCode(65 + lum.portfolios.length)}`, url: "", kind: "roster", capacity: lum.cap })}><Plus size={14} /> Add portfolio</button>
         </div>
-      )}
-      {/* A&R names added on the site that its Luminate A&R lists don't have yet (they clear by themselves after the next A&R export) */}
-      {toLum?.count > 0 && (
-        <div className="lm-block lm-ar-add" data-sec="ar">
-          <div className="lm-block-head">
-            <div><strong>Add to your A&amp;R lists</strong><span className="hint"> {toLum.text}</span></div>
-            <div className="lm-block-acts"><button className="btn sm" onClick={() => setArList(true)}>View list</button></div>
-          </div>
-        </div>
-      )}
-      {arList && toLum && <ArToLuminateModal t={toLum} onGo={onGo} onClose={() => setArList(false)} />}
-
-      {lum.unlinked.length > 0 && (
+      )}</>, match: lum.unlinked.length > 0 && <>{lum.unlinked.length > 0 && (
         <>
           <h3 className="lm-h3" data-sec="match">New in Luminate: which song is this?</h3>
           <div className="lm-list">
@@ -6941,25 +6819,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
             })}
           </div>
         </>
-      )}
-
-      {waiting.length > 0 && (
-        <>
-          <h3 className="lm-h3">Added, waiting for their first numbers</h3>
-          <p className="hint lm-h3-sub">They link up by themselves when the next export of their portfolio is dropped here.</p>
-          <div className="lm-list">
-            {waiting.map((g) => (
-              <div key={g.key} className="lm-song lm-wait">
-                <span className="lm-cover">{g.cover ? <Photo src={g.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
-                <span className="lm-song-main"><strong>{g.song}</strong><span>{pName(g.portfolioId)} · added {shortDay(g.addedAt)}{g.isrc ? ` · ${g.isrc}` : ""}</span></span>
-                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`un:${g.key}`, () => lumPost({ action: "unmark", placementIds: g.ids }))}>Mark as not added</button>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {missing.length > 0 && (
+      )}</>, missing: missing.length > 0 && <>{missing.length > 0 && (
         <>
           <h3 className="lm-h3" data-sec="missing">Marked as added, but not in the latest export</h3>
           <p className="hint lm-h3-sub">Luminate didn't keep {missing.length === 1 ? "this song" : "these songs"}, or {missing.length === 1 ? "it was" : "they were"} added to another portfolio. {missing.length === 1 ? "It doesn't" : "They don't"} take up a slot until {missing.length === 1 ? "it's" : "they're"} added again.</p>
@@ -6980,6 +6840,98 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
                 </div>
               );
             })}
+          </div>
+        </>
+      )}</> };
+    return (
+      <div className="lm lm-part" data-lm-part={part}>
+        {err && <p className="hint err-text overview-subhint" role="alert">{err}</p>}
+        <DropNote note={note} />
+        {part === "drop"
+          ? <><p className="hint">{allExports.length > 1 ? `Export all ${countWord(allExports.length)} with 1 week · Worldwide, then drop the files here.` : "Export each portfolio with 1 week · Worldwide, then drop the files here."}</p>{openLinks}<ExportDrop onDone={refresh} saved={allExports} /></>
+          : blocks[part] || <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Nothing left here.</p>}
+        {modals}
+      </div>
+    );
+  }
+  return (
+    <div className="lm">
+      <div className="admin-head lm-head">
+        <h2>Luminate</h2>
+        {chip}
+        <div className="overview-links">
+          <button className="btn ghost sm" disabled={!!busy} onClick={() => run("resync", () => lumPost({ action: "resync" }).then(() => window.dispatchEvent(new Event(STREAMS_EVENT))))} title="Rebuild STREAM DATA from the newest exports and pull every client's numbers again">
+            <RefreshCw size={14} className={busy === "resync" ? "spin" : ""} /> {busy === "resync" ? "Updating…" : "Update the sheet again"}
+          </button>
+          <button className="btn ghost sm" onClick={() => setEditing({ name: "", url: "", kind: "roster", capacity: lum.cap })}><Plus size={14} /> Add portfolio</button>
+        </div>
+      </div>
+      <p className="hint overview-subhint">
+        {last ? <>Last update {shortDay(last.at)} ({ago(last.at)}){last.by ? ` by ${last.by}` : ""}.</> : "No exports taken in yet. Drop the portfolio exports below to start."}
+        {last?.weekTotal != null && last.gainers?.length ? ` That week: ${signed(last.weekTotal)} streams.` : ""}
+        {(last?.files || []).filter((f) => f.longWeeks).map((f) => ` ${f.portfolio}'s file covered about ${f.longWeeks} weeks, so its weekly numbers weren't used.`).join("")}
+      </p>
+      {err && <p className="hint err-text overview-subhint" role="alert">{err}</p>}
+      {lum.alertsConnected === false && <p className="hint overview-subhint">ClickUp alerts aren't connected yet: they start once the Dashboard Alerts channel is set up.</p>}
+
+      <ol className="lm-steps">
+        <li>
+          <span className="lm-step-n">1</span>
+          <div><strong>{allExports.length > 1 ? `Export all ${countWord(allExports.length)} with 1 week · Worldwide` : "Export each portfolio with 1 week · Worldwide"}</strong><span>Open each one, then Export CSV.</span>
+            {openLinks}
+          </div>
+        </li>
+        <li>
+          <span className="lm-step-n">2</span>
+          <div><strong>Drop the files here</strong><span>The sheet, every client's numbers and this week's growth update by themselves.</span></div>
+        </li>
+      </ol>
+
+      <ExportDrop onDone={refresh} saved={allExports} />
+
+      {allExports.length > 0 && (
+        <div className="lm-ports">
+          {lum.portfolios.map((p) => {
+            const used = (p.usedCount ?? p.songCount) + p.pendingCount, pct = Math.min(100, (used / p.capacity) * 100);
+            // a full one says where new songs go; an export over 8 days old breaks the weekly %, so it's amber
+            const room = used >= p.capacity && lum.portfolios.find((q) => q.id !== p.id && q.area === p.area && (q.usedCount ?? q.songCount) + q.pendingCount < q.capacity);
+            const age = p.exportedAt ? Math.floor((Date.now() - new Date(p.exportedAt).getTime()) / 86400000) : null;
+            return (
+              <button key={p.id} className="lm-port" onClick={() => setEditing({ ...p })} title={p.fixedName ? "Edit link or size" : "Edit name, link or size"}>
+                <span className="lm-port-top"><strong>{p.name}</strong></span>
+                <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity ? ` · Full${room ? ` · new songs go in ${room.name}` : ""}` : ""}</span>
+                <span className="lm-port-meta">{held(p)}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
+                <span className={`lm-bar${pct >= 95 ? " full" : pct >= 80 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
+                <span className={age > 8 ? "lm-port-meta lm-port-old" : "lm-port-meta"}>{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}${age > 8 ? ` (${age} days ago)` : ""}${p.songCount ? ` · ${fmt(p.totalStreams)} all-time streams` : ""}` : "No export yet"}</span>
+                {/* its newest file was made for longer than a week: no weekly numbers from it */}
+                {p.longWeeks && <span className="lm-port-meta lm-port-old">That file covers about {p.longWeeks} weeks, so it gave no weekly numbers. Export it again with 1 week.</span>}
+              </button>
+            );
+          })}
+          {/* the A&R ones, read-only: their numbers go to the A&R tab */}
+          {arPorts.map((p) => (
+            <div key={p.id} className="lm-arcard">
+              <strong>{p.name}</strong>
+              <span className="lm-port-meta">{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}` : "No export yet"} · for the A&amp;R tab</span>
+              {p.url && <ExtLink href={p.url} className="inline-link lm-open" data-open-lum>Open in Luminate ↗</ExtLink>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <DropNote note={note} onShow={jumpTo} />
+      {waiting.length > 0 && (
+        <>
+          <h3 className="lm-h3">Added, waiting for their first numbers</h3>
+          <p className="hint lm-h3-sub">They link up by themselves when the next export of their portfolio is dropped here.</p>
+          <div className="lm-list">
+            {waiting.map((g) => (
+              <div key={g.key} className="lm-song lm-wait">
+                <span className="lm-cover">{g.cover ? <Photo src={g.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
+                <span className="lm-song-main"><strong>{g.song}</strong><span>{pName(g.portfolioId)} · added {shortDay(g.addedAt)}{g.isrc ? ` · ${g.isrc}` : ""}</span></span>
+                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`un:${g.key}`, () => lumPost({ action: "unmark", placementIds: g.ids }))}>Mark as not added</button>
+              </div>
+            ))}
           </div>
         </>
       )}
@@ -7010,17 +6962,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, toLu
         </details>
       )}
 
-      {ask?.notOurs && (
-        <NotOursAsk db={db} commit={commit} lum={lum} target={ask.notOurs} client={db.clients.find((c) => c.id === ask.notOurs.clientId)} onClose={() => setAsk(null)}
-          onDone={(n) => { setAsk(null); setNote(n); refresh(); }} />
-      )}
-      {ask?.lumOnly && (
-        <AskCard title={`Mark "${ask.lumOnly.name}" as not in our catalog?`} goLabel="Not in our catalog" busyLabel="Saving…" onClose={() => setAsk(null)}
-          go={async () => { const u = ask.lumOnly; await run(`ign:${u.luminateId}`, () => lumPost({ action: "notOurs", song: u.name, luminateId: u.luminateId })); setAsk(null); }}>
-          <p>The app stops asking about it. It's still in {pName(ask.lumOnly.portfolioId)} in Luminate and uses a slot; you'll get a To do to take it out.</p>
-        </AskCard>
-      )}
-      {editing && <PortfolioForm initial={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reloadLum(); }} />}
+      {modals}
     </div>
   );
 }
@@ -7366,14 +7308,12 @@ function useArSummary(tab) {
 // "See the list": the names to add, by the Luminate list they go in (with how full that list is),
 // each with Copy name and its Spotify link when one is saved. The Dashboard, A&R Summary and the
 // Watchlist's chips all open this one.
-function ArToLuminateModal({ t, onGo, onClose }) {
-  useEscape(onClose);
+// inline (To do): the same lists in place, without the window round them
+function ArToLuminateModal({ t, onGo, onClose, inline = false }) {
+  useEscape(onClose, !inline);
   const groups = [["artists", `Add to your ${t.lists.artists.name} list in Luminate`, t.artists, t.lists.artists], ["songs", `Add to your ${t.lists.songs.name} list`, t.songs, t.lists.songs]].filter(([, , items]) => items.length);
-  return (
-    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-card ar-tolum-modal">
-        <div className="modal-head"><h3>Add these to Luminate</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
-        <div className="modal-body">
+  const lists = (
+    <>
           <p className="hint mb">In Luminate, open the list → Add → search the name; it shows up here after your next export.</p>
           {groups.map(([k, head, items, list]) => {
             const pct = list.count == null ? null : Math.min(100, Math.round((list.count / list.cap) * 100));
@@ -7401,55 +7341,19 @@ function ArToLuminateModal({ t, onGo, onClose }) {
               </div>
             );
           })}
-        </div>
+    </>
+  );
+  if (inline) return <div className="ar-tolum-inline">{lists}</div>;
+  return (
+    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-card ar-tolum-modal">
+        <div className="modal-head"><h3>Add these to Luminate</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-body">{lists}</div>
         <div className="modal-foot">
           {onGo && <button className="btn ghost sm ar-tolum-drop" onClick={() => { onClose(); onGo("luminate", "drop"); }}>Drop new exports</button>}
           <button className="btn sm" onClick={onClose}>Done</button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function HomeDashboard({ db, lum, lumErr = false, reloadLum, onGo, toLum, arTop, arLoaded, onAcct }) {
-  const { home, failed, retry } = useHome();
-  const [showToLum, setShowToLum] = useState(false);
-  // the Money card's tab lives here, so the "not in the sheet" task can open it on that list
-  const [moneyTab, setMoneyTab] = useState("payments");
-  const unlogged = home?.accounting?.unlogged;
-  const tabPicked = useRef(false);
-  useEffect(() => {
-    if (!home || tabPicked.current) return;
-    tabPicked.current = true;
-    if (unlogged?.length > 0) setMoneyTab("unlogged");
-  }, [home]); // eslint-disable-line react-hooks/exhaustive-deps
-  const toCheck = home?.accounting?.toCheck || 0;
-  useEffect(() => { if (unlogged) onAcct?.({ toLog: unlogged.length, toCheck }); }, [unlogged, toCheck]); // eslint-disable-line react-hooks/exhaustive-deps
-  const tasks = useMemo(() => {
-    const list = dashTasks(db, lum);
-    // phase 6 logs them in one click; until then the button shows the list on the Money card
-    const tests = (unlogged || []).filter((p) => p.test), testSum = tests.reduce((s, p) => s + p.amount, 0);
-    const testD = !tests.length ? undefined : unlogged.length === 1 ? `It's a ${money(testSum)} test payment.`
-      : tests.length === 1 ? `1 of them is a ${money(testSum)} test payment.` : `${tests.length} of them are test payments (${money(testSum)}).`;
-    // both of Accounting's counts on one short line; Review opens the tab with the work
-    const nLog = unlogged?.length || 0;
-    if (nLog || toCheck) list.push({ k: "unlogged", area: "money", t: [nLog && `${nLog} payment${nLog === 1 ? "" : "s"} to log`, toCheck && `${toCheck} row${toCheck === 1 ? "" : "s"} to check`].filter(Boolean).join(" · "), d: nLog ? testD : undefined, cta: "Review",
-      go: () => onGo("accounting", nLog ? "log" : "check") });
-    if (toLum?.count) list.push({ k: "arLuminate", area: "ar", t: toLum.text.replace(/\.$/, ""), cta: "View list", go: () => setShowToLum(true) });
-    return list;
-  }, [db, lum, unlogged, toCheck, toLum]); // eslint-disable-line react-hooks/exhaustive-deps
-  const m = home?.money;
-  return (
-    <div className="home">
-      <div className="admin-head"><h2>Dashboard</h2>{m?.connected && !m.error && <span className="home-src">From Stripe · updated {clock(m.updatedAt)}</span>}</div>
-      <MoneyRow money={m} failed={failed} retry={retry} />
-      <div className="home-row">
-        <ToDoCard items={tasks} loading={!lum && !lumErr} failed={!lum && lumErr} onRetry={reloadLum} onGo={onGo} cuFirst={home?.clickup} homeFailed={failed} homeRetry={retry}
-          settled={(!!lum || lumErr) && (!!home || failed) && arLoaded} />
-        <TopGainers db={db} lum={lum} onGo={onGo} arTop={arTop} arLoaded={arLoaded} />
-      </div>
-      <MoneyCard home={home} failed={failed} retry={retry} tab={moneyTab} setTab={(t) => { tabPicked.current = true; setMoneyTab(t); }} onGo={onGo} />
-      {showToLum && toLum && <ArToLuminateModal t={toLum} onGo={onGo} onClose={() => setShowToLum(false)} />}
     </div>
   );
 }
@@ -7660,13 +7564,14 @@ function MoneyCard({ home, failed, retry, tab, setTab, onGo }) {
   );
 }
 
-// Accounting (staff only, GET /api/accounting): Overview (the sheet's tiles and Stripe against the
-// sheet month by month), To log (every payment the sheet doesn't have, Log it or Log with details),
-// To check (rows worth a look, each with Open row ↗ and Mark as OK) and All payments. Nothing in the
-// sheet is ever edited from here: problems are shown with a link to the row.
-const ACCT_SECS = [["overview", "Overview"], ["log", "To log"], ["check", "To check"], ["payments", "All payments"]];
-function AccountingAdmin({ sub, onSub, onCounts }) {
-  const sec = ACCT_SECS.some(([k]) => k === sub) ? sub : "overview";
+// Money (staff only, GET /api/accounting): Overview (the sheet's tiles and Stripe against the sheet
+// month by month) and All payments. Its to-dos live in To do (r7), which shows this same component's
+// part="log" (every payment the sheet doesn't have: Log all, Log it or Log with details; startLogAll
+// opens the Log all preview at once) or part="check" (rows worth a look: Open row ↗ and Mark as OK).
+// Nothing in the sheet is ever edited from here: problems are shown with a link to the row.
+const ACCT_SECS = [["overview", "Overview"], ["payments", "All payments"]];
+function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll = false, chip = null, onGo }) {
+  const sec = part || (ACCT_SECS.some(([k]) => k === sub) ? sub : "overview");
   const [d, setD] = useState(null);
   const [failed, setFailed] = useState(false);
   const [logIds, setLogIds] = useState(null); // Log it / Log all
@@ -7680,8 +7585,16 @@ function AccountingAdmin({ sub, onSub, onCounts }) {
       .then((x) => { if (x?.connected !== undefined) { setD(x); if (x.counts) onCounts?.(x.counts); } else setFailed(true); }).catch(() => setFailed(true));
   };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const n = d?.counts || {};
-  const label = (k, l) => (k === "log" && n.toLog ? `${l} (${n.toLog})` : k === "check" && n.toCheck ? `${l} (${n.toCheck})` : l);
+  // To do's Log all: the preview of every payment Log it can place, as soon as they're read
+  const started = useRef(false);
+  useEffect(() => {
+    if (!startLogAll || started.current || !d?.toLog?.items) return;
+    started.current = true;
+    const easy = d.toLog.items.filter((p) => !p.needsDetails);
+    if (easy.length) setLogIds(easy.map((p) => p.id));
+  }, [d]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the overview's "log them" / "see why" open those to-dos in To do
+  const toSec = (k) => (k === "log" || k === "check" ? onGo?.("todo", k) : onSub?.(k === "overview" ? null : k));
   // a payment Log it skipped: straight to Log with details for it
   const pickById = (id) => { const p = d?.toLog?.items?.find((x) => x.id === id); if (p) setPick(p); };
   const markOk = async (key) => {
@@ -7696,22 +7609,28 @@ function AccountingAdmin({ sub, onSub, onCounts }) {
     : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>;
   else if (!d.connected) body = <p className="home-muted">Accounting sheet: not connected yet. Once it's shared with the dashboard, this section fills in.</p>;
   else if (d.error) body = <p className="home-muted"><AlertTriangle size={15} /> {d.error}</p>;
-  else if (sec === "overview") body = <AcctOverview d={d} onSec={onSub} />;
+  else if (sec === "overview") body = <AcctOverview d={d} onSec={toSec} />;
   else if (sec === "log") body = <AcctToLog d={d} onLog={setLogIds} onPick={setPick} />;
   else if (sec === "check") body = <AcctToCheck d={d} busy={okBusy} err={okErr} onOk={markOk} />;
   else body = !d.payments ? <p className="home-muted"><AlertTriangle size={15} /> {d.stripe?.error || "Stripe couldn't be read just now."}</p>
     : <div className="acct-panel" data-acct="payments"><p className="pay-legend">Green = Defied's share of each payment · {fmt(d.payments.total)} payments</p>{d.payments.items.map((p) => <PayRow key={p.id} p={p} onLog={(ids) => setLogIds(ids)} />)}</div>;
-  return (
-    <div className="acct-page">
-      <div className="admin-head"><h2>Accounting</h2>{d?.readAt && <span className="home-src">Stripe and the {d.year} accounting sheet · read {clock(d.readAt)}</span>}
-        {d?.sheetUrl && <ExtLink className="btn ghost sm acct-sheet-link" href={d.sheetUrl}>Open the sheet ↗</ExtLink>}</div>
-      <div className="subnav" role="tablist" aria-label="Accounting">
-        {ACCT_SECS.map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} data-acct-tab={k} className={sec === k ? "subpill active" : "subpill"} onClick={() => onSub(k === "overview" ? null : k)}>{label(k, l)}</button>)}
-      </div>
-      {body}
+  const modals = (
+    <>
       {logIds && <LogConfirm ids={logIds} canLog={!!d?.toLog?.canLog} onClose={() => setLogIds(null)} onDone={() => load(true)} onDetails={pickById} />}
       {pick && <LogDetails p={pick} options={d?.options} canLog={!!d?.toLog?.canLog} onClose={() => setPick(null)} onNext={(details) => { setPick(null); setDetail({ ids: [pick.id], details, p: pick }); }} />}
       {detail && <LogConfirm ids={detail.ids} details={detail.details} pay={detail.p} canLog={!!d?.toLog?.canLog} onClose={() => setDetail(null)} onDone={() => load(true)} />}
+    </>
+  );
+  if (part) return <div className="acct-part" data-acct-part={part}>{body}{modals}</div>;
+  return (
+    <div className="acct-page">
+      <div className="admin-head"><h2>Money</h2>{chip}{d?.readAt && <span className="home-src">Stripe and the {d.year} accounting sheet · read {clock(d.readAt)}</span>}
+        {d?.sheetUrl && <ExtLink className="btn ghost sm acct-sheet-link" href={d.sheetUrl}>Open the sheet ↗</ExtLink>}</div>
+      <div className="subnav" role="tablist" aria-label="Money">
+        {ACCT_SECS.map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} data-acct-tab={k} className={sec === k ? "subpill active" : "subpill"} onClick={() => onSub(k === "overview" ? null : k)}>{l}</button>)}
+      </div>
+      {body}
+      {modals}
     </div>
   );
 }
@@ -7909,9 +7828,9 @@ function CuTask({ t, over }) {
 // Website), then ClickUp's three lists. On phones a whole row is the button (with a ›), and the list
 // stops at 4 rows with "Show N more". failed = the Luminate data couldn't load: a plain line to try
 // again, never "All caught up" or a spinner that never stops.
-// The phone tab bar's "More": Website, Users and Messages in a small menu above the bar, with their badges
-// added up on the button. Hidden on desktop, where the sidebar lists every section.
-const PHONE_MORE = new Set(["website", "users", "subs"]);
+// The phone tab bar's "More": Luminate and Site in a small menu above the bar (To do always stays in the
+// bar, with the one count). Hidden on desktop, where the sidebar lists every section.
+const PHONE_MORE = new Set(["luminate", "site"]);
 function NavMore({ tabs, tab, badge, setTab }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
@@ -7942,75 +7861,533 @@ function NavMore({ tabs, tab, badge, setTab }) {
   );
 }
 
-const TODO_GROUPS = [["luminate", "Luminate"], ["roster", "Publishing"], ["money", "Money"], ["ar", "A&R"], ["site", "Website"]];
-function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, homeRetry, settled = true }) {
-  const phone = useMedia("(max-width: 599px)");
-  const [open, setOpen] = useState(false);
-  const body = useRef(null);
-  const hidden = useScrollMore(body);
-  const { lists, load } = useClickUpLists(cuFirst);
-  const cu = lists.map((l, i) => (l?.tasks ? { ...l, tasks: l.tasks.filter((t) => !OWN_CU.test(t.name)) } : l ? { ...l, name: l.name || CU_LISTS[i][1] } : l));
-  const cuOpen = cu.reduce((n, l) => n + (l?.tasks?.length || 0), 0);
-  // ClickUp is still on its way only while the Dashboard's own load is (Internal) or Pub/A&R are
-  const cuWait = cu.some((l, i) => !l && !(i === 0 && homeFailed));
-  const cuErr = cu.map((l, i) => (l?.error ? CU_LISTS[i][0] : null)).filter(Boolean);
-  const total = items.length + cuOpen;
-  if (!total && !loading && !failed && !cuWait && !cuErr.length && !homeFailed) {
-    return <div className="attn clear todo"><div className="attn-head"><ListChecks size={15} /> To do <span className="todo-done">· <CheckCircle2 size={14} /> All caught up</span></div></div>;
-  }
-  if (!total && loading && cuWait) {
-    return <div className="attn clear wait todo"><div className="attn-head"><RefreshCw size={15} className="spin" /> Checking what needs doing…</div></div>;
-  }
-  // rows past the 4th fold away on phones; a label or line goes with the row under it
-  let n = 0;
-  const over = (isRow) => { const o = n >= HOME_ROWS; if (isRow) n += 1; return o; };
+/* staff: To do (r7) — every to-do from every area, finished where it's listed ------------------ */
+// ClickUp's open tasks on the dashboard's eight lists (GET /api/tasks), kept while the app is open and
+// read again whenever Home or To do opens. Done ✓ takes a task off at once; a failed write puts it back.
+const cuCache = { d: null };
+function useCuTasks(tab) {
+  const [data, setData] = useState(() => cuCache.d);
+  const [failed, setFailed] = useState(false);
+  const load = (fresh = false) => {
+    setFailed(false);
+    return fetch(`/api/tasks${fresh ? "?fresh=1" : ""}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.lists) { cuCache.d = d; setData(d); } else setFailed(true); }).catch(() => setFailed(true));
+  };
+  useEffect(() => { if (tab === "home" || tab === "todo" || !cuCache.d) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  const drop = (id) => setData((d) => (d ? { ...d, tasks: d.tasks.filter((t) => t.id !== id) } : d));
+  const add = (t) => setData((d) => (d ? { ...d, tasks: [...d.tasks, t] } : d));
+  return { data, failed, load, drop, add };
+}
+// The Sync view's checks (GET /api/sync): Home's pill, To do's sync rows and Site › Sync. They read
+// the sheets and Stripe, so a fresh answer is kept for two minutes.
+const syncCache = { d: null, at: 0 };
+function useSyncChecks(tab) {
+  const [data, setData] = useState(() => syncCache.d);
+  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const load = (force = false) => {
+    if (!force && syncCache.d && Date.now() - syncCache.at < 120000) { setData(syncCache.d); return Promise.resolve(); }
+    setFailed(false); setBusy(true);
+    return fetch("/api/sync", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.checks) { syncCache.d = d; syncCache.at = Date.now(); setData(d); } else setFailed(true); }).catch(() => setFailed(true)).finally(() => setBusy(false));
+  };
+  useEffect(() => { if (tab === "home" || tab === "todo" || tab === "site") load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { data, failed, busy, load };
+}
+
+// Every to-do the dashboard knows about, from every area, as To do's rows: one sentence (t), at most
+// one short detail (d), one button (cta), the panel it opens in place (panel), and its weight for
+// Home's biggest tasks (rank, lib/todo-rank.js). tap = the button finishes it (after the preview the
+// panel shows); the rest need a person. The Luminate and Publishing rows are dashTasks' (the same words);
+// lib/area-tasks.js keeps ClickUp's area tasks to the same list.
+const SYNC_ROWS = { pubSheet: ["roster", "Pull from the sheet"], streamData: ["luminate", "Update the sheet"], info: ["money", "Review"] };
+function todoItems({ db, lum, acct, ar, sync }) {
   const out = [];
-  const act = (it) => (it.go ? it.go() : onGo(it.tab, it.sub));
-  for (const [area, label] of TODO_GROUPS) {
-    const mine = items.filter((it) => (it.area || "site") === area);
-    if (!mine.length) continue;
-    out.push(<div key={`g:${area}`} className={over(false) ? "todo-group over" : "todo-group"} data-area={area}>{label}</div>);
-    for (const it of mine) {
-      const tap = phone ? { role: "button", tabIndex: 0, onClick: () => act(it), onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); act(it); } } } : {};
-      out.push(
-        <div key={it.k} className={over(true) ? "attn-row over" : "attn-row"} data-task={it.k} data-area={area} {...tap}>
-          <span className="attn-main" title={it.d ? `${it.t}. ${it.d}` : it.t}><b>{it.t}</b>{it.d && <em>{it.d}</em>}</span>
-          <button className="btn ghost sm" onClick={(e) => { e.stopPropagation(); act(it); }}>{it.cta}</button>
-          <ChevronRight size={16} className="attn-chev" aria-hidden="true" />
-        </div>,
-      );
-    }
+  const nLog = acct?.toLog || 0, nCheck = acct?.toCheck || 0;
+  if (nLog) out.push({ k: "log", area: "money", tap: true, t: `${nLog} payment${nLog === 1 ? "" : "s"} to log`, d: acct.toLogTotal ? `${money(acct.toLogTotal)} paid, not in the Income tab yet` : undefined,
+    cta: nLog === 1 ? "Log it" : `Log all ${nLog}`, panel: "log", rank: { kind: "money", value: acct.toLogTotal || nLog } });
+  if (nCheck) out.push({ k: "check", area: "money", t: `${nCheck} row${nCheck === 1 ? "" : "s"} in the Income tab to check`, cta: "Review", panel: "check", rank: { kind: "money", value: 0 } });
+  const streams = (ps) => ps.reduce((a, p) => a + (p.streams || 0), 0);
+  for (const it of dashTasks(db, lum)) {
+    const base = { k: it.k, area: it.area, t: it.t, d: it.d, cta: it.cta };
+    if (it.k === "none" || it.k === "stale") out.push({ ...base, cta: "Drop exports", panel: "drop", rank: { kind: "luminate", due: true } });
+    else if (it.k === "gone" || it.k === "add" || it.k === "missing") out.push({ ...base, panel: it.k, rank: { kind: "other" } });
+    else if (it.k === "unlinked") out.push({ ...base, panel: "match", rank: { kind: "other" } });
+    else if (it.k === "dupes") out.push({ ...base, tap: true, cta: "Merge", panel: "dupes", rank: { kind: "fix", value: 0 } });
+    else if (it.k === "splits") out.push({ ...base, panel: "splits", rank: { kind: "fix", value: streams(splitsToConfirm(db, lum).all.map((x) => x.p)) } });
+    else if (it.k === "update") out.push({ ...base, panel: "update", rank: { kind: "fix", value: streams(songsToUpdate(db, lum).map((x) => x.p)) } });
+    else if (it.k === "tabs") out.push({ ...base, cta: "Set the sheet tab", panel: "tabs", rank: { kind: "other" } });
   }
-  if (loading && items.length > 0) out.push(<div key="lwait" className={over(true) ? "attn-row attn-wait over" : "attn-row attn-wait"}><span>Checking Luminate…</span></div>);
-  if (failed) {
-    out.push(
-      <div key="lfail" className={over(true) ? "attn-row attn-wait attn-failed over" : "attn-row attn-wait attn-failed"}>
-        <span>Couldn't load the Luminate tasks.</span>
-        <button className="btn ghost sm" onClick={onRetry}>Try again</button>
-      </div>,
-    );
+  const due = ar?.followUpsDue || 0;
+  if (due) out.push({ k: "follow", area: "ar", t: `${due} A&R follow-up${due === 1 ? "" : "s"} due`, cta: "Review", panel: "follow", rank: { kind: "contacts", value: due } });
+  if (ar?.toLuminate?.count) out.push({ k: "arLuminate", area: "ar", t: ar.toLuminate.text.replace(/\.$/, ""), cta: "View list", panel: "arLuminate", rank: { kind: "other" } });
+  const unread = (db.submissions || []).filter((x) => !x.read).length;
+  if (unread) out.push({ k: "messages", area: "site", t: `${unread} new website message${unread === 1 ? "" : "s"}`, cta: "Read", panel: "messages", rank: { kind: "other" } });
+  // the sync checks that aren't a row already (Stripe = payments to log, OUTREACH = the A&R list, ClickUp = its tasks)
+  for (const c of sync?.checks || []) {
+    if (c.ok !== false || !SYNC_ROWS[c.id] || (c.id === "streamData" && c.fix?.kind !== "resync")) continue;
+    const [area, cta] = SYNC_ROWS[c.id];
+    out.push({ k: `sync:${c.id}`, area, tap: c.fix?.kind === "pull" || c.fix?.kind === "resync", t: c.text.replace(/\.$/, ""), cta, panel: "syncfix", check: c, rank: { kind: "sync" } });
   }
-  // ClickUp: each list with open tasks under its own subhead; the empty ones share one quiet line
-  out.push(<div key="g:clickup" className={over(false) ? "todo-group over" : "todo-group"} data-area="clickup">ClickUp</div>);
-  cu.forEach((l, i) => {
-    if (!l?.tasks?.length) return;
-    out.push(<div key={`s:${l.key}`} className={over(false) ? "todo-sub over" : "todo-sub"} data-list={CU_LISTS[i][0]}>{l.name} · {l.tasks.length} · <ExtLink href={l.url} className="inline-link">Open in ClickUp ↗</ExtLink></div>);
-    for (const t of l.tasks) out.push(<CuTask key={t.id} t={t} over={over(true)} />);
-  });
-  const empty = cu.filter((l) => l?.tasks && !l.tasks.length).map((l) => `${l.name}: nothing open`);
-  if (empty.length) out.push(<p key="cuempty" className={over(true) ? "todo-line over" : "todo-line"}>{empty.join(" · ")}</p>);
-  if (homeFailed && !cu[0]) out.push(<p key="cuhome" className={over(true) ? "todo-line over" : "todo-line"}>Couldn't load ClickUp. <button className="inline-link" onClick={homeRetry}>Try again</button></p>);
-  if (cuErr.length) out.push(<p key="cuerr" className={over(true) ? "todo-line over" : "todo-line"}><AlertTriangle size={14} /> Couldn't reach ClickUp. <button className="inline-link" onClick={() => cuErr.forEach((k) => load(k))}>Try again</button></p>);
-  if (cuWait) out.push(<p key="cuwait" className={over(true) ? "todo-line over" : "todo-line"}><RefreshCw size={14} className="spin" /> Loading ClickUp…</p>);
+  return out;
+}
+
+// One To do row: the sentence opens it, the button does its one thing; open, the panel below holds
+// exactly the controls it needs (the same ones the tabs used to hold). Home's biggest tasks use it too.
+function TodoRow({ it, open, onToggle, ctx }) {
   return (
-    <div className="attn home-card todo">
-      {/* no number until every group (Luminate, the Dashboard's own, ClickUp, A&R) has answered: it never counts up */}
-      <div className="attn-head"><ListChecks size={15} /> To do {total > 0 && settled && !cuWait && <span className="attn-n">{total}</span>}</div>
-      <div className={open ? "home-scroll open" : "home-scroll"} ref={body}>
-        {out}
-        <HomeMore n={n - HOME_ROWS} open={open} onToggle={() => setOpen((o) => !o)} />
+    <div className={open ? "todo-item open" : "todo-item"} data-item={it.k} data-area={it.area}>
+      <div className="attn-row" data-task={it.k} data-area={it.area}>
+        <button type="button" className="attn-main todo-open" aria-expanded={open} onClick={onToggle}>
+          <b>{it.t}</b>{it.d && <em>{it.d}</em>}
+        </button>
+        <button type="button" className={it.tap && !open ? "btn sm" : "btn ghost sm"} data-cta={it.k} onClick={onToggle}>{open ? "Close" : it.cta}</button>
       </div>
-      <ScrollFoot n={hidden} box={body} />
+      {open && <div className="todo-panel" data-panel={it.k}><TodoPanel it={it} ctx={ctx} onClose={onToggle} /></div>}
+    </div>
+  );
+}
+function TodoPanel({ it, ctx, onClose }) {
+  const { db, commit, lum, lumErr, reloadLum, reloadDb, onGo } = ctx;
+  const lumProps = { db, commit, lum, lumErr, reloadLum, reloadDb, onGo };
+  switch (it.panel) {
+    case "drop": case "add": case "match": case "missing": case "gone": return <LuminateAdmin {...lumProps} part={it.panel} />;
+    case "splits": case "update": case "dupes": return <PubFix kind={it.panel} ctx={ctx} />;
+    case "tabs": return <SheetTabFix ctx={ctx} />;
+    case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log"} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
+    case "follow": return <ArFollowUps ctx={ctx} />;
+    case "arLuminate": return ctx.ar?.toLuminate ? <ArToLuminateModal inline t={ctx.ar.toLuminate} onClose={onClose} /> : null;
+    case "messages": return <SubsAdmin db={db} commit={commit} />;
+    case "syncfix": return <SyncFix check={it.check} ctx={ctx} />;
+    default: return null;
+  }
+}
+
+// Publishing's lists in place: Splits to confirm, Songs to update and the merge card. Fix / Update open
+// the song's editor right here (SongManager's own editor, nothing else of the client's page)
+function PubFix({ kind, ctx }) {
+  const { db, commit, lum, reloadLum, onGo } = ctx;
+  const dupes = useMemo(() => likelyDupes(db, lum), [db, lum]);
+  const [edit, setEdit] = useState(null);
+  const n = useRef(0);
+  const openFix = (id, field = null) => { const p = db.placements.find((x) => x.id === id); if (p) setEdit({ id, field, n: ++n.current, clientId: p.clientId }); };
+  const [dupeKey, setDupeKey] = useState(() => (kind === "dupes" ? dupes[0]?.key || null : null));
+  const [note, setNote] = useState(null);
+  const dupeOpen = dupeKey && dupes.find((x) => x.key === dupeKey);
+  const openDupe = () => { setNote(null); setDupeKey(dupes[0]?.key || null); };
+  return (
+    <>
+      {kind === "splits" && <SplitsToFix db={db} commit={commit} lum={lum} reloadLum={reloadLum} onFix={openFix} onGo={onGo} dupes={dupes} onDupe={openDupe} />}
+      {kind === "update" && <SongsToUpdate db={db} lum={lum} onFix={openFix} dupes={dupes} onDupe={openDupe} />}
+      {kind === "dupes" && (dupes.length
+        ? <p className="pub-tasks dupe-line" data-dupe-line>{dupeWords(dupes)} · <button className="inline-link" data-dupe-review onClick={openDupe}>Review</button></p>
+        : <p className="home-muted acct-clear"><CheckCircle2 size={15} /> No possible duplicates left.</p>)}
+      <DropNote note={note} />
+      {dupeOpen && <DupeMerge db={db} commit={commit} lum={lum} reloadLum={reloadLum} pair={dupeOpen} onClose={() => setDupeKey(null)} onDone={(r) => { setDupeKey(null); setNote(r); }} />}
+      {edit && <SongManager editorOnly db={db} commit={commit} clientId={edit.clientId} isStaff lum={lum} reloadLum={reloadLum} fix={{ id: edit.id, n: edit.n, field: edit.field }} onFix={openFix} onFixList={() => setEdit(null)} onGo={onGo} />}
+    </>
+  );
+}
+
+// "X's numbers can't sync": each client's Sheet tab name, typed right here, then the sheet pull checks it
+function SheetTabFix({ ctx }) {
+  const { db, commit, lum, reloadLum } = ctx;
+  const names = noTabNames(db, lum);
+  const [typed, setTyped] = useState({});
+  const [busy, setBusy] = useState(null);
+  const [note, setNote] = useState(null);
+  const save = async (c) => {
+    setBusy(c.id); setNote(null);
+    try {
+      const next = await commit({ ...db, clients: db.clients.map((x) => (x.id === c.id ? { ...x, sheetTabName: (typed[c.id] ?? "").trim() } : x)) });
+      if (!next) return;
+      const { missing } = await fullSiteSync(next, commit);
+      await reloadLum();
+      setNote(missing.includes(c.name) ? { warn: true, text: `Saved, but the pub sheet still has no tab called ${(typed[c.id] ?? "").trim() || c.name}.` } : { text: `Saved. ${c.name}'s numbers sync from the ${(typed[c.id] ?? "").trim() || c.name} tab now.` });
+    } finally { setBusy(null); }
+  };
+  return (
+    <div className="todo-sublist">
+      {names.map((n) => findTabClient(db, n)).filter(Boolean).map((c) => (
+        <div key={c.id} className="fix-row" data-tab-client={c.id}>
+          <span className="fix-song">{c.name}</span>
+          <span className="fix-mid"><input className="todo-input" value={typed[c.id] ?? c.sheetTabName ?? ""} placeholder={`Sheet tab name (now ${c.name})`} aria-label={`${c.name}'s sheet tab name`} onChange={(e) => setTyped((t) => ({ ...t, [c.id]: e.target.value }))} /></span>
+          <span className="fix-acts"><button className="btn sm" disabled={busy === c.id || !(typed[c.id] ?? "").trim()} onClick={() => save(c)}>{busy === c.id ? "Saving…" : "Save"}</button></span>
+        </div>
+      ))}
+      <DropNote note={note} />
+    </div>
+  );
+}
+
+// A&R follow-ups due today or late: each person, and Open shows their panel right here
+function ArFollowUps({ ctx }) {
+  const ar = useArAll();
+  const { cards } = arCards(ar.data, ar.pg);
+  const [open, setOpen] = useState(null);
+  const due = cards.filter((c) => c.stage !== "passed" && c.stage !== "signed" && (c.followUp?.state === "overdue" || c.followUp?.state === "due"));
+  return (
+    <div className="todo-sublist">
+      {!ar.pg ? <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>
+        : !due.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> No follow-ups due.</p>
+        : due.map((c) => (
+          <div key={c.key} className="fix-row" data-follow={c.id}>
+            <span className="fix-song">{c.name}</span>
+            <span className="fix-mid">{followChip(c.followUp)}</span>
+            <span className="fix-acts"><button className="btn sm" onClick={() => setOpen(c.key.startsWith("p:") ? { type: "prospect", id: c.id } : { type: "tracked", id: c.id })}>Open</button></span>
+          </div>
+        ))}
+      <ArPanels ar={ar} open={open} openPanel={setOpen} closePanel={() => setOpen(null)} onGo={ctx.onGo} />
+    </div>
+  );
+}
+
+// a sync check's fix, in place: pull the sheet, rebuild STREAM DATA, or what to do about INFO
+function SyncFix({ check, ctx }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null);
+  const run = () => syncFix(check, ctx, setBusy, setNote);
+  return (
+    <div className="todo-sublist">
+      <p className="hint">{check.text}</p>
+      {check.fix?.kind === "url" ? <p className="hint">Add the missing names on INFO (or fix their spelling) so payments find their client. <ExtLink className="inline-link" href={check.fix.url}>Open the sheet ↗</ExtLink></p>
+        : check.fix && <button className="btn sm" data-sync-fix={check.id} disabled={busy} onClick={run}>{busy ? "Working…" : check.fix.label}</button>}
+      <DropNote note={note} />
+    </div>
+  );
+}
+async function syncFix(check, ctx, setBusy, setNote) {
+  const { db, commit, reloadLum, sync, onGo } = ctx;
+  if (check.fix?.kind === "todo") return onGo("todo", check.fix.area);
+  setBusy(true); setNote(null);
+  try {
+    if (check.fix?.kind === "resync") { await lumPost({ action: "resync" }); window.dispatchEvent(new Event(STREAMS_EVENT)); }
+    const { missing } = await fullSiteSync(db, commit);
+    await reloadLum?.();
+    await sync.load(true);
+    setNote({ warn: !!missing.length, text: missing.length ? `Done. No sheet tab found for ${missing.join(", ")}.` : "Done. The numbers are pulled from the sheet again." });
+  } catch (err) { setNote({ warn: true, text: err.message || "That didn't go through. Try again in a minute." }); } finally { setBusy(false); }
+}
+
+// ClickUp: one open task. The name opens it in ClickUp; Done ✓ sets it to its list's done status.
+const CU_BUCKETS = [["overdue", "Overdue"], ["today", "Today"], ["week", "This week"], ["later", "Later"], ["none", "No date"]];
+function CuTodoRow({ t, cu }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const writes = !!cu.data?.writes;
+  const b = dueBucket(t.due);
+  const list = (cu.data?.lists || []).find((l) => l.key === t.list);
+  const done = async () => {
+    setBusy(true); setErr(null);
+    const r = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "done", id: t.id }) }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
+    setBusy(false);
+    if (!r?.ok) return setErr(j.error || "Couldn't reach ClickUp. Try again in a minute.");
+    cu.drop(t.id);
+  };
+  return (
+    <div className="attn-row cu-todo" data-cu={t.id} data-area="clickup" data-bucket={b}>
+      <span className="attn-main">
+        <b><ExtLink href={t.url} className="cu-name" title="Open in ClickUp">{t.name} <span className="cu-ext" aria-hidden="true">↗</span></ExtLink></b>
+        <em>{[list?.name, t.people?.length ? t.people.map((p) => p.name).join(", ") : null, t.due && `${b === "overdue" ? "Late · was due" : "Due"} ${shortDay(t.due)}`, t.priority && t.priority !== "normal" && `${PRIORITY[t.priority] || t.priority} priority`].filter(Boolean).join(" · ")}</em>
+        {err && <em className="err-text" role="alert">{err}</em>}
+      </span>
+      <button type="button" className="btn ghost sm" data-done={t.id} disabled={busy || !writes} title={writes ? "Set it to done in ClickUp" : "Writing to ClickUp isn't switched on yet"} onClick={done}>{busy ? "Saving…" : "Done ✓"}</button>
+    </div>
+  );
+}
+
+// New task: name, list, due day and who, straight into ClickUp
+function NewTaskCard({ cu, onClose }) {
+  const lists = cu.data?.lists || [], people = cu.data?.people || [];
+  const [f, setF] = useState({ name: "", list: "internal", due: "", assignee: "" });
+  const [err, setErr] = useState(null);
+  const go = async () => {
+    setErr(null);
+    const r = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "create", ...f, assignee: f.assignee || null }) }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
+    if (!r?.ok) return setErr(j.error || "Couldn't reach ClickUp. Try again in a minute.");
+    cu.add(j.created);
+    onClose();
+  };
+  return (
+    <AskCard title="New ClickUp task" goLabel="Add task" busyLabel="Adding…" plain goDisabled={!f.name.trim() || !cu.data?.writes} go={go} onClose={onClose}>
+      {!cu.data?.writes && <p className="hint">Writing to ClickUp isn't switched on yet.</p>}
+      <Field label="Name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} data-new-name autoFocus />
+      <label className="fld"><span>List</span>
+        <select data-new-list value={f.list} onChange={(e) => setF({ ...f, list: e.target.value })}>{lists.map((l) => <option key={l.key} value={l.key}>{l.name}</option>)}</select></label>
+      <label className="fld"><span>Due</span><input type="date" data-new-due value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} /></label>
+      <label className="fld"><span>Who</span>
+        <select data-new-who value={f.assignee} onChange={(e) => setF({ ...f, assignee: e.target.value })}><option value="">Nobody yet</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+      {err && <p className="hint err-text" role="alert">{err}</p>}
+    </AskCard>
+  );
+}
+
+// ClickUp's part of To do: due groups, filtered by list and person
+function CuSection({ cu, list, person, setList, setPerson, onNew }) {
+  const d = cu.data;
+  const tasks = (d?.tasks || []).filter((t) => (list === "all" || t.list === list) && (person === "all" || (t.people || []).some((p) => String(p.id) === person)));
+  const people = d?.people || [];
+  const down = (d?.lists || []).filter((l) => l.error);
+  return (
+    <div className="todo-cu" data-area="clickup">
+      <div className="todo-group todo-cu-head" data-group="clickup">
+        <span>ClickUp{d ? ` · ${tasks.length}` : ""}</span>
+        <span className="todo-cu-tools">
+          <select aria-label="List" data-cu-list value={list} onChange={(e) => setList(e.target.value)}>
+            <option value="all">All lists</option>{(d?.lists || []).map((l) => <option key={l.key} value={l.key}>{l.name}{l.count ? ` (${l.count})` : ""}</option>)}
+          </select>
+          <select aria-label="Person" data-cu-person value={person} onChange={(e) => setPerson(e.target.value)}>
+            <option value="all">Everyone</option>{people.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+          </select>
+          <button type="button" className="btn ghost sm" data-new-task onClick={onNew}><Plus size={14} /> New task</button>
+        </span>
+      </div>
+      {!d && !cu.failed && <p className="todo-line"><RefreshCw size={14} className="spin" /> Loading ClickUp…</p>}
+      {cu.failed && !d && <p className="todo-line"><AlertTriangle size={14} /> Couldn't reach ClickUp. <button className="inline-link" onClick={() => cu.load(true)}>Try again</button></p>}
+      {d && CU_BUCKETS.map(([b, label]) => {
+        const xs = tasks.filter((t) => dueBucket(t.due) === b).sort((x, y) => (x.due ? Date.parse(x.due) : Infinity) - (y.due ? Date.parse(y.due) : Infinity));
+        if (!xs.length) return null;
+        return (
+          <React.Fragment key={b}>
+            <div className="todo-sub" data-bucket-head={b}>{label} · {xs.length}</div>
+            {xs.map((t) => <CuTodoRow key={t.id} t={t} cu={cu} />)}
+          </React.Fragment>
+        );
+      })}
+      {d && !tasks.length && <p className="todo-line">Nothing open{list !== "all" || person !== "all" ? " for this filter" : ""}.</p>}
+      {down.length > 0 && <p className="todo-line"><AlertTriangle size={14} /> Couldn't read {down.map((l) => l.name).join(", ")}. <button className="inline-link" onClick={() => cu.load(true)}>Try again</button></p>}
+    </div>
+  );
+}
+
+const AREA_CHIPS = [["all", "All"], ["money", "Money"], ["roster", "Publishing"], ["luminate", "Luminate"], ["ar", "A&R"], ["clickup", "ClickUp"], ["site", "Site"]];
+function TodoPage({ ctx, todo, sub, onSub, areaN }) {
+  const isArea = TODO_AREAS.includes(sub);
+  const [area, setArea] = useState(isArea ? sub : "all");
+  const [view, setView] = useState(sub === "calendar" ? "calendar" : "list");
+  const [open, setOpen] = useState(() => new Set(sub && !isArea && sub !== "calendar" ? [sub] : []));
+  const [list, setList] = useState("all"), [person, setPerson] = useState("all");
+  const [newTask, setNewTask] = useState(false);
+  // a link or Back / Forward to an area, an item or the calendar
+  useEffect(() => {
+    if (TODO_AREAS.includes(sub)) setArea(sub);
+    else if (sub === "calendar") setView("calendar");
+    else if (sub) { setArea("all"); setView("list"); setOpen((o) => (o.has(sub) ? o : new Set([...o, sub]))); }
+  }, [sub]);
+  // an opened item asked for by a link: brought into view once it's drawn
+  const landed = useRef(false);
+  useEffect(() => {
+    if (landed.current || !sub || isArea || sub === "calendar") return;
+    const el = document.querySelector(`.todo-page [data-item="${CSS.escape(sub)}"]`);
+    if (el) { landed.current = true; el.scrollIntoView({ block: "start" }); }
+  });
+  const toggle = (k) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const pick = (a) => { setArea(a); onSub(a === "all" ? null : a); };
+  const shown = todo.filter((it) => area === "all" || it.area === area);
+  const tap = shown.filter((it) => it.tap), need = shown.filter((it) => !it.tap);
+  const cuOn = area === "all" || area === "clickup";
+  const { lum, lumErr, reloadLum } = ctx;
+  const allN = todo.length + areaN("clickup");
+  return (
+    <div className="todo-page">
+      <div className="admin-head"><h2>To do</h2>
+        <span className="gainer-tabs todo-view" role="tablist" aria-label="View">
+          <button role="tab" aria-selected={view === "list"} className={view === "list" ? "active" : ""} data-view="list" onClick={() => { setView("list"); if (sub === "calendar") onSub(null); }}><ListIcon size={14} /> List</button>
+          <button role="tab" aria-selected={view === "calendar"} className={view === "calendar" ? "active" : ""} data-view="calendar" onClick={() => { setView("calendar"); onSub("calendar"); }}><CalendarDays size={14} /> Calendar</button>
+        </span>
+      </div>
+      {view === "calendar" ? <TodoCalendar ctx={ctx} /> : (
+        <>
+          <div className="todo-chips" role="tablist" aria-label="Area">
+            {AREA_CHIPS.map(([a, label]) => { const n = a === "all" ? allN : areaN(a); return (n || a === "all" || a === area) && (
+              <button key={a} role="tab" aria-selected={area === a} className={area === a ? "upd-filter on" : "upd-filter"} data-area-chip={a} data-area={a === "all" ? undefined : a} onClick={() => pick(a)}>{label} <span className="todo-chip-n">{n}</span></button>
+            ); })}
+          </div>
+          <div className="attn home-card todo">
+            {tap.length > 0 && <div className="todo-group" data-group="tap">One tap</div>}
+            {tap.map((it) => <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />)}
+            {need.length > 0 && <div className="todo-group" data-group="need">Needs you</div>}
+            {need.map((it) => <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />)}
+            {!lum && !lumErr && area !== "clickup" && <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking Luminate…</p>}
+            {lumErr && !lum && <p className="todo-line"><AlertTriangle size={14} /> Couldn't load the Luminate to-dos. <button className="inline-link" onClick={reloadLum}>Try again</button></p>}
+            {!shown.length && (lum || area === "clickup") && area !== "clickup" && <p className="todo-line todo-clear"><CheckCircle2 size={14} /> Nothing to do here.</p>}
+            {cuOn && <CuSection cu={ctx.cu} list={list} person={person} setList={setList} setPerson={setPerson} onNew={() => setNewTask(true)} />}
+          </div>
+          {newTask && <NewTaskCard cu={ctx.cu} onClose={() => setNewTask(false)} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+// To do's Calendar: a month (a week on phones) with ClickUp's due dates and the dashboard's own days.
+// Each source gives [{ day: "YYYY-MM-DD" (New York), label, kind, late?, task? }]; Opportunities (B)
+// adds its deadlines by adding a source here.
+const CAL_SOURCES = [
+  // ClickUp: each open task on its due day
+  ({ cu }) => (cu.data?.tasks || []).filter((t) => t.due).map((t) => ({ day: nyDay(t.due), label: t.name, kind: "clickup", late: dueBucket(t.due) === "overdue", task: t })),
+  // Luminate: the weekly exports, a week after the newest ones (and every week after)
+  ({ lum }, from, to) => {
+    const made = lum?.lastUpload?.numbersFrom || lum?.lastUpload?.at || (lum?.portfolios || []).map((p) => p.exportedAt).filter(Boolean).sort().pop();
+    if (!made) return [];
+    const today = nyDay(Date.now()), out = [];
+    let d = addDays(nyDay(made), 7);
+    if (d < today) { out.push({ day: today, label: `Luminate exports (due ${shortDay(d)})`, kind: "luminate", late: true }); d = addDays(today, 7); }
+    for (; d <= to; d = addDays(d, 7)) if (d >= from) out.push({ day: d, label: "Luminate exports due", kind: "luminate" });
+    return out;
+  },
+  // Money: the days payments came in that the Income tab doesn't have yet
+  ({ home }) => {
+    const by = new Map();
+    for (const p of home?.accounting?.unlogged || []) { const d = nyDay(p.at); by.set(d, [...(by.get(d) || []), p]); }
+    return [...by].map(([day, ps]) => ({ day, label: `Log ${ps.length === 1 ? `${ps[0].client || ps[0].payer || "a payment"} ${money(ps[0].amount)}` : `${ps.length} payments`}`, kind: "money", late: true }));
+  },
+];
+const addDays = (iso, n) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+function TodoCalendar({ ctx }) {
+  const phone = useMedia("(max-width: 599px)");
+  const { home } = useHome();
+  const today = nyDay(Date.now());
+  const [anchor, setAnchor] = useState(today);
+  const [picked, setPicked] = useState(today);
+  const dow = (iso) => new Date(`${iso}T12:00:00Z`).getUTCDay();
+  const first = `${anchor.slice(0, 7)}-01`;
+  const start = phone ? addDays(anchor, -dow(anchor)) : addDays(first, -dow(first));
+  const days = [];
+  if (phone) for (let i = 0; i < 7; i++) days.push(addDays(start, i));
+  else for (let d = start; days.length < 42 && (days.length % 7 || d.slice(0, 7) <= anchor.slice(0, 7)); d = addDays(d, 1)) days.push(d);
+  const from = days[0], to = days[days.length - 1];
+  const events = CAL_SOURCES.flatMap((f) => f({ ...ctx, home }, from, to));
+  const on = (d) => events.filter((e) => e.day === d);
+  const step = (n) => setAnchor((a) => (phone ? addDays(a, 7 * n) : (() => { const [y, m] = a.split("-").map(Number); const x = new Date(Date.UTC(y, m - 1 + n, 1)); return x.toISOString().slice(0, 10); })()));
+  const title = phone ? `${shortDay(from)} – ${shortDay(to)}` : new Date(`${first}T12:00:00Z`).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+  const chip = (e, i) => <span key={i} className={`cal-ev${e.late ? " late" : ""}`} data-kind={e.kind} data-area={e.kind === "clickup" ? "clickup" : e.kind === "money" ? "money" : e.kind === "luminate" ? "luminate" : e.kind}>{e.label}</span>;
+  return (
+    <div className="cal" data-cal={phone ? "week" : "month"}>
+      <div className="cal-head">
+        <button type="button" className="btn ghost sm" aria-label={phone ? "Last week" : "Last month"} onClick={() => step(-1)}><ChevronLeft size={16} /></button>
+        <strong className="cal-title">{title}</strong>
+        <button type="button" className="btn ghost sm" aria-label={phone ? "Next week" : "Next month"} onClick={() => step(1)}><ChevronRight size={16} /></button>
+        <button type="button" className="inline-link cal-today" onClick={() => { setAnchor(today); setPicked(today); }}>Today</button>
+      </div>
+      {phone ? (
+        <div className="cal-week">
+          {days.map((d) => (
+            <div key={d} className={`cal-wday${d === today ? " today" : ""}`} data-day={d}>
+              <span className="cal-wname">{WEEKDAY_SHORT[dow(d)]} {Number(d.slice(8))}</span>
+              <span className="cal-wevs">{on(d).length ? on(d).map(chip) : <span className="muted">—</span>}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="cal-grid" role="grid">
+            {WEEKDAY_SHORT.map((w) => <span key={w} className="cal-dow" role="columnheader">{w}</span>)}
+            {days.map((d) => {
+              const evs = on(d);
+              return (
+                <button type="button" key={d} role="gridcell" className={["cal-day", d.slice(0, 7) !== anchor.slice(0, 7) && "other", d === today && "today", d === picked && "picked"].filter(Boolean).join(" ")} data-day={d} onClick={() => setPicked(d)}>
+                  <span className="cal-n">{Number(d.slice(8))}</span>
+                  {evs.slice(0, 3).map(chip)}
+                  {evs.length > 3 && <span className="cal-more">+{evs.length - 3} more</span>}
+                </button>
+              );
+            })}
+          </div>
+          <div className="cal-list" data-picked={picked}>
+            <h3 className="lm-h3">{new Date(`${picked}T12:00:00Z`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" })}</h3>
+            {!on(picked).length ? <p className="todo-line">Nothing on this day.</p> : on(picked).map((e, i) => (e.task ? <CuTodoRow key={e.task.id} t={e.task} cu={ctx.cu} />
+              : <div key={i} className="attn-row" data-area={e.kind === "money" ? "money" : "luminate"}><span className="attn-main"><b>{e.label}</b></span></div>))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Home: the numbers, the sync pill and the biggest tasks (at most five, ranked across ClickUp and the
+// site by lib/todo-rank.js), each opening and finished right here; "See all N" opens To do
+function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
+  const { home, failed, retry } = useHome();
+  const unlogged = home?.accounting?.unlogged, toCheck = home?.accounting?.toCheck || 0;
+  useEffect(() => { if (unlogged) onAcct?.((x) => ({ ...x, toLog: unlogged.length, toCheck, toLogTotal: home.accounting.unloggedTotal })); }, [unlogged, toCheck]); // eslint-disable-line react-hooks/exhaustive-deps
+  const m = home?.money;
+  const { top } = useMemo(() => biggestTasks([...todo, ...cuTasks.map((t) => ({ ...t, kind: "clickup" }))]), [todo, cuTasks]);
+  const [open, setOpen] = useState(() => new Set());
+  const toggle = (k) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const settled = (ctx.lum || ctx.lumErr) && ctx.ar && ctx.cu.data;
+  return (
+    <div className="home">
+      <div className="admin-head"><h2>Home</h2><SyncPill sync={ctx.sync} onGo={ctx.onGo} />{m?.connected && !m.error && <span className="home-src">From Stripe · updated {clock(m.updatedAt)}</span>}</div>
+      <MoneyRow money={m} failed={failed} retry={retry} />
+      <div className="home-row">
+        <div className="attn home-card todo home-top" data-home-top>
+          <div className="attn-head"><ListChecks size={15} /> Biggest tasks
+            {settled && <button type="button" className="inline-link home-all" data-see-all onClick={() => ctx.onGo("todo")}>{todoN ? `See all ${todoN}` : "Open To do"} ›</button>}</div>
+          {!top.length ? (settled ? <p className="todo-line todo-clear"><CheckCircle2 size={14} /> All caught up.</p> : <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking what needs doing…</p>)
+            : top.map((it) => (it.kind === "clickup" ? <CuTodoRow key={`cu:${it.id}`} t={it} cu={ctx.cu} /> : <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />))}
+        </div>
+        <TopGainers db={ctx.db} lum={ctx.lum} onGo={ctx.onGo} arTop={ctx.ar?.top} arLoaded={!!ctx.ar} />
+      </div>
+    </div>
+  );
+}
+
+// Home's sync pill: all good, or how many checks are amber; opens Site › Sync
+function SyncPill({ sync, onGo }) {
+  const d = sync.data, n = d?.outOfSync || 0;
+  return (
+    <button type="button" className={`sync-pill${!d ? "" : n ? " warn" : " ok"}`} data-sync-pill={!d ? "wait" : n ? "warn" : "ok"} onClick={() => onGo("site", "sync")}>
+      <i className="sync-dot" aria-hidden="true" />{!d ? (sync.failed ? "Sync: couldn't check" : "Checking sync…") : n ? `${n} thing${n === 1 ? "" : "s"} out of sync` : "Synced · all good"}
+    </button>
+  );
+}
+
+// Site › Sync: every check, one line each, green or amber, with its fix
+function SyncView({ ctx }) {
+  const { sync } = ctx;
+  const [busy, setBusy] = useState(null);
+  const [note, setNote] = useState(null);
+  const d = sync.data;
+  return (
+    <div className="sync-view">
+      <p className="hint overview-subhint">{d ? <>Checked {clock(d.at)} · <button className="inline-link" disabled={sync.busy} onClick={() => sync.load(true)}>{sync.busy ? "Checking…" : "Check again"}</button></> : sync.failed ? <>Couldn't run the checks. <button className="inline-link" onClick={() => sync.load(true)}>Try again</button></> : "Checking…"}</p>
+      <DropNote note={note} />
+      {d && (
+        <div className="attn home-card sync-list">
+          {d.checks.map((c) => (
+            <div key={c.id} className="attn-row sync-row" data-check={c.id} data-ok={c.ok === true ? "ok" : c.ok === false ? "warn" : "unknown"}>
+              <i className="sync-dot" aria-hidden="true" />
+              <span className="attn-main"><b>{c.text}</b></span>
+              {c.ok === false && c.fix && (c.fix.kind === "url"
+                ? <ExtLink className="btn ghost sm" href={c.fix.url}>{c.fix.label}</ExtLink>
+                : <button type="button" className="btn ghost sm" data-sync-fix={c.id} disabled={!!busy} onClick={() => syncFix(c, ctx, (b) => setBusy(b ? c.id : null), setNote)}>{busy === c.id ? "Working…" : c.fix.label}</button>)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Site: the public website's content, the logins, the contact form's messages, and the Sync view
+const SITE_SECS = [["website", "Website"], ["users", "Users"], ["messages", "Messages"], ["sync", "Sync"]];
+function SiteAdmin({ ctx, sub, onSub, chip }) {
+  const { db, commit, lum } = ctx;
+  const sec = ["users", "messages", "sync"].includes(sub) ? sub : "website";
+  return (
+    <div className="site-page">
+      <div className="admin-head"><h2>Site</h2>{chip}</div>
+      <div className="subnav" role="tablist" aria-label="Site">
+        {SITE_SECS.map(([id, label]) => <button key={id} role="tab" aria-selected={sec === id} data-site-tab={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { onSub(id === "website" ? null : id); revealChip(e.currentTarget); }}>{label}</button>)}
+      </div>
+      {sec === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={onSub} lum={lum} embedded />}
+      {sec === "users" && <UsersAdmin db={db} commit={commit} />}
+      {sec === "messages" && <SubsAdmin db={db} commit={commit} />}
+      {sec === "sync" && <SyncView ctx={ctx} />}
     </div>
   );
 }
@@ -8018,7 +8395,8 @@ function ToDoCard({ items, loading, failed, onRetry, onGo, cuFirst, homeFailed, 
 /* staff: website content (about, roster, staff, notable) -------------- */
 const WEBSITE_SECS = [["roster", "Roster"], ["notable", "Notable releases"], ["staff", "Team"], ["about", "About page"]];
 const WEB_SEC_KEY = "dm-web-sec";
-function WebsiteAdmin({ db, commit, sub, onSub, lum = null }) {
+// embedded: inside Site, which has the page's title
+function WebsiteAdmin({ db, commit, sub, onSub, lum = null, embedded = false }) {
   const secs = WEBSITE_SECS;
   // a Dashboard task's sub wins, then the last tab used in this browser tab, then Roster (the weekly work)
   const openId = sub?.startsWith("roster:") ? sub.slice(7) : null; // To do's "Set X's sheet tab"
@@ -8031,7 +8409,7 @@ function WebsiteAdmin({ db, commit, sub, onSub, lum = null }) {
   const setSec = (id) => { setSecOnly(id); onSub?.(id); try { sessionStorage.setItem(WEB_SEC_KEY, id); } catch { /* storage blocked */ } };
   return (
     <div className="website-main">
-      <div className="admin-head website-head"><h2>Website</h2></div>
+      {!embedded && <div className="admin-head website-head"><h2>Website</h2></div>}
       <div className="subnav">
         {secs.map(([id, label]) => (
           <button key={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { setSec(id); revealChip(e.currentTarget); }}>{label}</button>
@@ -10895,6 +11273,87 @@ function StyleTag() {
     .app:not(.pub) .ar-tolum-group .lm-block-head + .ar-tolum-row{border-top:0}
     .app:not(.pub) .ar-tolum-name{min-width:0;font-size:13.5px}
     .app:not(.pub) .modal-foot .ar-tolum-drop{margin-right:auto}
+    /* ---- r7: To do (every to-do, finished in place), Home's biggest tasks, the sync pill, Site › Sync, the calendar ---- */
+    .app:not(.pub) .admin-head > :is(.todo-chip,.sync-pill){margin-right:auto}
+    .app:not(.pub) .todo-chip{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 8px 0 12px;border:1px solid var(--d-warn-line);border-radius:999px;background:var(--d-warn-bg);
+      color:var(--d-warn);font:500 12.5px/1 var(--d-body);cursor:pointer;white-space:nowrap}
+    @media (hover:hover){ .app:not(.pub) .todo-chip:hover{border-color:var(--d-warn)} }
+    .app:not(.pub) .todo-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+    .app:not(.pub) .todo-chips .upd-filter{height:32px;padding:0 12px;gap:6px;font-size:13px}
+    .app:not(.pub) .todo-chips .upd-filter.on{border-color:var(--d-ink-3);color:var(--d-ink);background:var(--d-active)}
+    .app:not(.pub) .todo-chip-n{color:var(--d-ink-4);font-variant-numeric:tabular-nums}
+    .app:not(.pub) .todo-page .todo{overflow:visible}
+    .app:not(.pub) .todo-item{display:block}
+    .app:not(.pub) .todo-open{all:unset;box-sizing:border-box;flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;cursor:pointer;border-radius:var(--d-r-sm)}
+    .app:not(.pub) .todo-open:focus-visible{outline:1px solid #f5f5f5;outline-offset:4px}
+    .app:not(.pub) .todo-item.open > .attn-row{background:var(--d-hover)}
+    .app:not(.pub) .todo-panel{padding:4px 16px 16px 19px;box-shadow:inset 3px 0 0 var(--area,var(--d-a-cu));background:var(--d-hover)}
+    .app:not(.pub) .todo-panel > :is(.fix-panel,.lm,.acct-part,.todo-sublist,.ar-tolum-inline,div){margin:0}
+    .app:not(.pub) .todo-panel .fix-panel{border:0;background:none;padding:0}
+    .app:not(.pub) .todo-panel .lm-part .lm-block{margin:8px 0 0}
+    .app:not(.pub) .todo-panel .acct-part .fix-panel{padding:0}
+    .app:not(.pub) .todo-sublist{display:flex;flex-direction:column;gap:6px;padding-top:6px}
+    .app:not(.pub) .todo-input{width:100%;height:36px;padding:0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:inherit}
+    .app:not(.pub) .todo-clear{color:var(--d-pos)}
+    .app:not(.pub) .todo-cu{display:block}
+    .app:not(.pub) .todo-cu-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;--area:var(--d-a-cu)}
+    .app:not(.pub) .todo-cu-tools{display:flex;flex-wrap:wrap;gap:6px;text-transform:none;letter-spacing:0;font-weight:400}
+    .app:not(.pub) .todo-cu-tools select{height:32px;padding:0 28px 0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field) var(--d-chev);background-size:5px 5px,5px 5px;
+      background-position:calc(100% - 14px) 50%,calc(100% - 9px) 50%;background-repeat:no-repeat;color:var(--d-ink-2);font:400 12.5px/1 var(--d-body);appearance:none}
+    .app:not(.pub) .cu-todo[data-bucket=overdue] .attn-main em{color:var(--d-neg)}
+    .app:not(.pub) .cu-name{color:var(--d-ink);text-decoration:none}
+    .app:not(.pub) .cu-name:hover{text-decoration:underline;text-underline-offset:3px}
+    .app:not(.pub) .cu-ext{color:var(--d-ink-4);font-weight:400}
+    .app:not(.pub) .home-all{margin-left:auto;font-size:12.5px;text-decoration:none;color:var(--d-ink-3)}
+    .app:not(.pub) .home-top{overflow:visible}
+    .app:not(.pub) .home-top .attn-head{display:flex;align-items:center;gap:8px}
+    @media (min-width:900px) and (min-height:640px){
+      .app:not(.pub) .home{height:auto;grid-template-rows:auto auto auto}
+      .app:not(.pub) .home-row > .todo{grid-row:3}
+      .app:not(.pub) .home-row > .todo,.app:not(.pub) .home-row > .gainers{align-self:start}
+    }
+    .app:not(.pub) .sync-pill{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border:1px solid var(--d-line-2);border-radius:999px;background:none;color:var(--d-ink-3);font:500 12.5px/1 var(--d-body);cursor:pointer;white-space:nowrap}
+    .app:not(.pub) .sync-pill.ok{border-color:var(--d-pos-line);color:var(--d-pos)}
+    .app:not(.pub) .sync-pill.warn{border-color:var(--d-warn-line);color:var(--d-warn);background:var(--d-warn-bg)}
+    .app:not(.pub) .sync-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--d-ink-off)}
+    .app:not(.pub) .sync-pill.ok .sync-dot,.app:not(.pub) .sync-row[data-ok=ok] .sync-dot{background:var(--d-pos)}
+    .app:not(.pub) .sync-pill.warn .sync-dot,.app:not(.pub) .sync-row[data-ok=warn] .sync-dot{background:var(--d-warn)}
+    .app:not(.pub) .sync-list .sync-row{justify-content:flex-start;gap:12px}
+    .app:not(.pub) .sync-list .sync-row .btn{margin-left:auto}
+    .app:not(.pub) .todo-view{margin-left:auto}
+    .app:not(.pub) .todo-view button{display:inline-flex;align-items:center;gap:6px}
+    .app:not(.pub) .cal-head{display:flex;align-items:center;gap:8px;margin:0 0 10px}
+    .app:not(.pub) .cal-title{min-width:150px;text-align:center;font-weight:500;color:var(--d-ink)}
+    .app:not(.pub) .cal-today{margin-left:auto}
+    .app:not(.pub) .cal-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:var(--d-line);border:1px solid var(--d-line);border-radius:var(--d-r-card);overflow:hidden}
+    .app:not(.pub) .cal-dow{padding:8px 10px;background:var(--d-s1);font:600 11px/1 var(--d-body);letter-spacing:.08em;text-transform:uppercase;color:var(--d-ink-4)}
+    .app:not(.pub) .cal-day{all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:3px;min-height:96px;padding:6px 6px 8px;background:var(--d-s1);cursor:pointer;min-width:0}
+    .app:not(.pub) .cal-day.other{background:var(--d-bg)}
+    .app:not(.pub) .cal-day.other .cal-n{color:var(--d-ink-off)}
+    .app:not(.pub) .cal-day.picked{box-shadow:inset 0 0 0 1px var(--d-ink-3)}
+    .app:not(.pub) .cal-day:focus-visible{outline:1px solid #f5f5f5;outline-offset:-2px}
+    .app:not(.pub) .cal-n{font-size:12px;color:var(--d-ink-3)}
+    .app:not(.pub) .cal-day.today .cal-n{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#f5f5f5;color:#000;font-weight:600}
+    .app:not(.pub) .cal-ev{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border-radius:5px;box-shadow:inset 2px 0 0 var(--area,var(--d-ink-3));background:var(--d-s3);font-size:11.5px;line-height:1.35;color:var(--d-ink-2)}
+    .app:not(.pub) .cal-ev.late{color:var(--d-neg)}
+    .app:not(.pub) .cal-more{font-size:11px;color:var(--d-ink-4);padding-left:6px}
+    .app:not(.pub) .cal-list{margin-top:16px}
+    .app:not(.pub) .cal-list .attn-row{border:1px solid var(--d-line);border-radius:var(--d-r-md);margin:0 0 6px;box-shadow:inset 3px 0 0 var(--area,var(--d-a-cu))}
+    .app:not(.pub) .cal-week{display:flex;flex-direction:column;border:1px solid var(--d-line);border-radius:var(--d-r-card);overflow:hidden}
+    .app:not(.pub) .cal-wday{display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px;padding:10px 12px;border-top:1px solid var(--d-line);background:var(--d-s1)}
+    .app:not(.pub) .cal-wday:first-child{border-top:0}
+    .app:not(.pub) .cal-wday.today .cal-wname{color:var(--d-ink);font-weight:600}
+    .app:not(.pub) .cal-wname{font-size:12.5px;color:var(--d-ink-3)}
+    .app:not(.pub) .cal-wevs{display:flex;flex-direction:column;gap:4px;min-width:0}
+    .app:not(.pub) .cal-wevs .cal-ev{white-space:normal}
+    @media (max-width:599px){
+      .app:not(.pub) .todo-page .attn-row{flex-direction:row;align-items:center}
+      .app:not(.pub) .todo-cu-tools{width:100%}
+      .app:not(.pub) .todo-cu-tools select{flex:1;min-width:0}
+      .app:not(.pub) .todo-panel{padding:4px 12px 14px 15px}
+      .app:not(.pub) .todo-panel .fix-row{flex-wrap:wrap}
+      .app:not(.pub) .todo-view{margin-left:0}
+    }
     `}</style>
   );
 }
