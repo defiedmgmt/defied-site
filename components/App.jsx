@@ -724,7 +724,7 @@ export default function App() {
   // in flight; calls = saves ever started; failed = one failed since the queue last emptied;
   // server = the latest server copy this tab knows of; gen = bumped per sign-in, so a save still
   // queued from the last one is dropped; freshAt = when server was last fetched
-  const saves = useRef({ chain: Promise.resolve(), pending: 0, calls: 0, failed: false, server: null, gen: 0, freshAt: 0 });
+  const saves = useRef({ chain: Promise.resolve(), pending: 0, held: 0, calls: 0, failed: false, server: null, gen: 0, freshAt: 0 });
 
   // once a session is known, load its scoped dashboard/portal data —
   // re-fires if the signed-in user actually changes (login/logout/switch).
@@ -759,13 +759,16 @@ export default function App() {
   // never wiped by sending this tab's old copy back. base = the db next was built from: the one on
   // screen, or for a slow job (the sheet sync) the copy it started from. Resolves with the server's
   // copy as saved (a row deleted elsewhere is missing from it), or false when nothing was saved.
-  const commit = (next, base = shownDb.current) => {
+  // quiet: a save the dashboard makes by itself (r7: an even split the sheet already has), which the next load
+  // would make again: leaving the page while it's on its way doesn't ask "leave the page?"
+  const commit = (next, base = shownDb.current, { quiet = false } = {}) => {
     const patch = diffDb(base, next);
     if (!patch) return Promise.resolve(next);
     const s = saves.current, gen = s.gen;
     setDb((cur) => (cur === base ? next : cur && applyPatch(cur, patch)));
     // leaving now would drop it: the browser asks first while anything is unsaved
-    if (s.pending++ === 0) window.addEventListener("beforeunload", holdUnload);
+    s.pending++;
+    if (!quiet && s.held++ === 0) window.addEventListener("beforeunload", holdUnload);
     s.calls++;
     const run = s.chain.then(async () => {
       let saved = false;
@@ -799,7 +802,8 @@ export default function App() {
         if (gen === s.gen) setLoadErr(err.message || "Couldn't save that change — try again.");
       } finally {
         // the last save out shows the server's copy: others' changes, minus anything that failed
-        if (--s.pending === 0) { s.failed = false; window.removeEventListener("beforeunload", holdUnload); if (gen === s.gen) setDb(s.server); }
+        if (!quiet && --s.held === 0) window.removeEventListener("beforeunload", holdUnload);
+        if (--s.pending === 0) { s.failed = false; if (gen === s.gen) setDb(s.server); }
         else if (saved && patch.users && gen === s.gen) setDb(withoutPasswords);
       }
       return saved;
@@ -7989,7 +7993,7 @@ function useAutoConfirm({ db, commit, lum, fixes }) {
     if (!items.length || tried.current === key) return;
     tried.current = key;
     const by = new Map(items.map((x) => [x.p.id, x.after]));
-    commit({ ...db, placements: db.placements.map((p) => (by.has(p.id) ? { ...p, splits: by.get(p.id) } : p)) })
+    commit({ ...db, placements: db.placements.map((p) => (by.has(p.id) ? { ...p, splits: by.get(p.id) } : p)) }, undefined, { quiet: true })
       .then((saved) => saved && splitFixPost({ action: "auto", items: items.map((x) => ({ id: x.p.id, song: x.p.song, client: x.client.name, before: x.before, after: x.after })) }))
       .then(() => fixes.load()).catch(() => {});
   }, [db, lum, fixes.data]); // eslint-disable-line react-hooks/exhaustive-deps
