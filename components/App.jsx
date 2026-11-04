@@ -19,6 +19,7 @@ import { likelyDuplicates, mergedCard, mergedTitle, plainTitle } from "../lib/du
 import { biggestTasks, dueBucket, nyDay } from "../lib/todo-rank";
 import { shareFixes, autoConfirms, autoWords } from "../lib/split-fixes";
 import { foldMonths } from "../lib/months";
+import { SECTIONS, ROLES, ROLE_KEYS, TAB_SECTION, AREA_SECTION, accessFor, cleanAccess, sameManager } from "../lib/roles";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
    this bundle instead of inside it). The chrome wordmark + D live in /public/brand as transparent
@@ -2514,6 +2515,9 @@ async function saveRow(commit, next, key, id, thing) {
 // one the user has since chosen themselves
 const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d, users: d.users.map(({ password, ...u }) => u) } : d);
 
+// Roles (lib/roles.js): may this account use that section? The server says which in db.access (and
+// enforces it on every request); with no db.access (a client's portal) nothing here applies.
+const canUse = (db, k) => !db?.access || db.access.sections.includes(k);
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
 const DASH_TABS = ["home", "todo", "catalog", "money", "ar", "luminate", "site"];
@@ -2567,13 +2571,16 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
     return fetch("/api/luminate", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.portfolios) setLum(d); else setLumErr(true); }).catch(() => setLumErr(true));
   };
+  const can = (k) => canUse(db, k);
+  const lumOff = !can("luminate");
   useEffect(() => {
+    if (lumOff) return;
     if (tab === "home" || tab === "todo" || !lum) reloadLum();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
-  // db.sheetSync lives in this browser's localStorage, not on a server — a
-  // device whose local copy is stale (never synced, or synced a while ago,
-  // including before some bug fix here) would otherwise sit stale until
+  // db.sheetSync is the site's last sheet sync (site_settings.last_synced_at
+  // in the database) — a copy that's stale (never synced, or synced a while
+  // ago, including before some bug fix here) would otherwise sit stale until
   // someone remembers to press a button. There's exactly one manual sync
   // action (Publishing's "Refresh numbers") — this silently keeps every
   // other view current in the background instead, whenever Home, To do or
@@ -2581,7 +2588,7 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   // one to the other doesn't start a second.
   const syncing = useRef(false);
   useEffect(() => {
-    if ((tab !== "home" && tab !== "catalog" && tab !== "todo") || syncing.current || !isSheetSyncStale(db)) return;
+    if ((tab !== "home" && tab !== "catalog" && tab !== "todo") || syncing.current || !can("publishing") || !isSheetSyncStale(db)) return;
     syncing.current = true;
     fullSiteSync(db, commit).catch((err) => console.error("Background sync failed:", err)).finally(() => { syncing.current = false; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2591,49 +2598,55 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   // sidebar, Home's biggest tasks and each tab's count chip all come from these
   const arSum = useArSummary(tab === "todo" ? "home" : tab);
   const [acctN, setAcctN] = useState(null);
-  const loadAcctN = () => fetch("/api/accounting?counts=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => d?.counts && setAcctN(d.counts)).catch(() => {});
+  const loadAcctN = () => !can("money") ? Promise.resolve() : fetch("/api/accounting?counts=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => d?.counts && setAcctN(d.counts)).catch(() => {});
   useEffect(() => { loadAcctN(); }, []);
   useEffect(() => { if (tab === "todo") loadAcctN(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   const cu = useCuTasks(tab);
   const sync = useSyncChecks(tab);
   const fixes = useSplitFixes();
   const doneForYou = useAutoConfirm({ db, commit, lum, fixes });
-  const todo = useMemo(() => todoItems({ db, lum, acct: acctN, ar: arSum, sync: sync.data }), [db, lum, acctN, arSum, sync.data]);
+  // only the areas this account may use (lib/roles.js)
+  const todo = useMemo(() => todoItems({ db, lum, acct: acctN, ar: arSum, sync: sync.data }).filter((it) => can(AREA_SECTION[it.area] || "todo")), [db, lum, acctN, arSum, sync.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const cuDue = (cu.data?.tasks || []).filter((t) => dueBucket(t.due) === "overdue" || dueBucket(t.due) === "today");
   const todoN = todo.length + cuDue.length;
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
-  const ctx = { db, commit, reloadDb, lum, lumErr, reloadLum, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou };
-  const tabs = [
+  const ctx = { db, commit, reloadDb, lum, lumErr, lumOff, reloadLum, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou, can };
+  const allTabs = [
     ["home", "Home", LayoutDashboard], ["todo", "To do", ListChecks, todoN],
     ["catalog", "Publishing", ListMusic, 0, "roster"], ["money", "Money", Receipt, 0, "money"],
     ["ar", "A&R", Handshake, 0, "ar"], ["luminate", "Luminate", Radar, 0, "luminate"], ["site", "Site", Globe, 0, "site"],
   ];
+  // the tabs this account may use: Site holds Users too. Any other address opens the first of them.
+  const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : can(TAB_SECTION[id])));
+  const at = tabs.some(([id]) => id === tab) ? tab : tabs[0]?.[0];
+  const roleWord = db.access ? `${ROLES[db.access.role]?.label || "Staff"}${db.access.ownOnly ? " · own artists" : ""}` : "Staff — full edit access";
   return (
     <div className="dash">
       <aside className="dash-side">
         <div className="dash-brand"><Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link></div>
         <nav>
           {tabs.map(([id, label, Icon, badge, area]) => (
-            <button key={id} className={[tab === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+            <button key={id} className={[at === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={at === id ? "page" : undefined} onClick={() => setTab(id)}>
               <Icon size={17} /> <span className="nav-label">{label}</span>
               {!!badge && <span className="nav-badge">{badge}</span>}
             </button>
           ))}
-          <NavMore tabs={tabs.filter(([id]) => PHONE_MORE.has(id))} tab={tab} badge={0} setTab={setTab} />
+          <NavMore tabs={tabs.filter(([id]) => PHONE_MORE.has(id))} tab={at} badge={0} setTab={setTab} />
         </nav>
         <div className="dash-side-foot">
-          <div className="dash-role">Staff — full edit access</div>
+          <div className="dash-role" data-role={db.access?.role}>{roleWord}</div>
           <button className="dash-out" onClick={logout} disabled={signingOut}>{signingOut ? <><RefreshCw size={16} className="spin" /> Signing out…</> : <><LogOut size={16} /> Sign out</>}</button>
         </div>
       </aside>
       <main className="dash-main">
-        {tab === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcctN} />}
-        {tab === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} />}
-        {tab === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} chip={<TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
-        {tab === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={<TodoChip n={areaN("site")} area="site" onGo={go} />} />}
-        {tab === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} onSub={setSub} chip={<TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
-        {tab === "luminate" && <LuminateAdmin db={db} commit={commit} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} onGo={go} chip={<TodoChip n={areaN("luminate")} area="luminate" onGo={go} />} />}
-        {tab === "ar" && <ARAdmin onGo={go} sub={sub} chip={<TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
+        {!at && <div className="admin-empty" data-no-sections>Your account has nothing turned on yet. Ask a Founder to turn on what you need in Site › Users.</div>}
+        {at === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcctN} />}
+        {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} />}
+        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} chip={<TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
+        {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={<TodoChip n={areaN("site")} area="site" onGo={go} />} />}
+        {at === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} onSub={setSub} chip={<TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
+        {at === "luminate" && <LuminateAdmin db={db} commit={commit} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} onGo={go} chip={<TodoChip n={areaN("luminate")} area="luminate" onGo={go} />} />}
+        {at === "ar" && <ARAdmin onGo={go} sub={sub} chip={<TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
       </main>
     </div>
   );
@@ -2646,7 +2659,7 @@ function TodoChip({ n, area, onGo }) {
 }
 
 /* generic editable list ------------------------------------------------ */
-function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete, openId = null }) {
+function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete, openId = null, noAdd = false }) {
   const [editing, setEditing] = useState(null); // object or null
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState(null);
@@ -2687,7 +2700,7 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
     <div>
       <div className="admin-head">
         <h2>{title}{maxItems ? ` — ${items.length}/${maxItems}` : ""}</h2>
-        <button className="btn sm" onClick={() => start(null)} disabled={atMax} title={atMax ? `Remove one to add another (max ${maxItems})` : undefined}><Plus size={15} /> Add</button>
+        {!noAdd && <button className="btn sm" onClick={() => start(null)} disabled={atMax} title={atMax ? `Remove one to add another (max ${maxItems})` : undefined}><Plus size={15} /> Add</button>}
       </div>
       {listErr && <p className="hint err-text mb" role="alert">{listErr}</p>}
       {ask && (
@@ -2713,7 +2726,7 @@ function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItem
                 </>
               )}
               <button onClick={() => start(it)} aria-label={`Edit ${it.name || it.song || it.email || "entry"}`}><Pencil size={14} /></button>
-              <button onClick={() => remove(it)} aria-label={`Delete ${it.name || it.song || it.email || "entry"}`}><Trash2 size={14} /></button>
+              {onDelete && <button onClick={() => remove(it)} aria-label={`Delete ${it.name || it.song || it.email || "entry"}`}><Trash2 size={14} /></button>}
             </span>
           </div>
         ))}
@@ -2871,7 +2884,7 @@ function ClientsAdmin({ db, commit, openId = null, lum = null }) {
     {noTab.length > 1 && <p className="hint warn-text mb" data-tab-missing-note><AlertTriangle size={14} /> {noTab.length} clients have no tab on the pub sheet, so their numbers can't sync. Open each one marked "No sheet tab" and type its tab name.</p>}
     <Editor title="Clients" items={db.clients} columns={cols}
       blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "", sheetTabName: "", onRoster: false }}
-      onSave={save} onDelete={del} onReorder={reorder} openId={openId}
+      onSave={save} onDelete={canUse(db, "publishing") && !db.access?.ownOnly ? del : undefined} onReorder={db.access?.ownOnly ? undefined : reorder} noAdd={!!db.access?.ownOnly} openId={openId}
       confirmDelete={(c) => clientDeleteAsk(db, c)}
       extra={(e, set) => (
         <>
@@ -3035,37 +3048,81 @@ function TeamAdmin({ db, commit }) {
   );
 }
 
-function UsersAdmin({ db, commit }) {
+// Site › Users: the logins. A Founder also sets each staff login's role (lib/roles.js: Founder,
+// Co-manager, Intern) and can turn any section on or off for that person on top of the role. The
+// server checks all of it on every request; this only shows it.
+const ROLE_PICK = [["founder", "Founder"], ["comanager", "Co-manager"], ["intern", "Intern"], ["client", "Client"]];
+const SECTION_OF = Object.fromEntries(SECTIONS);
+function useManagers(reloadDb) {
+  const [st, setSt] = useState({ at: undefined, busy: false, err: null });
+  const update = async () => {
+    setSt((x) => ({ ...x, busy: true, err: null }));
+    const r = await fetch("/api/access", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "managers" }) }).catch(() => null);
+    const d = r && (await r.json().catch(() => null));
+    if (r?.ok) { await reloadDb?.(); setSt({ at: d.at, busy: false, err: null }); } else setSt((x) => ({ ...x, busy: false, err: d?.error || "Couldn't read the accounting sheet just now." }));
+  };
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/access", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!alive || !d) return;
+      setSt((x) => ({ ...x, at: d.managersAt }));
+      if (!d.managersAt) update(); // never read yet: read it once now
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return { ...st, update };
+}
+function UsersAdmin({ db, commit, reloadDb }) {
+  const founder = db.access?.role === "founder";
+  const anyFounder = db.users.some((u) => u.role === "staff" && u.staffRole === "founder");
+  const pickOf = (u) => (u.role === "client" ? "client" : ROLES[u.staffRole] ? u.staffRole : anyFounder ? "comanager" : "founder");
+  const accessOf = (u) => accessFor({ staffRole: pickOf(u), access: u.access, name: u.name }, { anyFounder: true });
+  const artistsOf = (name) => db.clients.filter((c) => sameManager(c.manager, name));
+  const managers = useManagers(reloadDb);
+  const who = (u) => {
+    if (u.role === "client") return `Client · ${db.clients.find((c) => c.id === u.clientId)?.name || "no client linked"}`;
+    const a = accessOf(u);
+    return `${ROLES[a.role].label}${a.ownOnly ? ` · own artists (${artistsOf(u.name).length})` : ""}`;
+  };
   const cols = [
-    { key: "email", label: "Email" }, { key: "role", label: "Role" },
-    { key: "clientId", label: "Linked client", render: (u) => db.clients.find((c) => c.id === u.clientId)?.name || "—" },
+    { key: "email", label: "Email", render: (u) => <span className="cell-name">{u.email}{u.name ? <span className="muted"> · {u.name}</span> : null}</span> },
+    { key: "role", label: "Access", render: (u) => <span data-user-access={u.id}>{who(u)}</span> },
   ];
   const save = async (o) => {
     // the server skips a new login with no password, which would leave it on screen but never saved
     if (!o.id && !(o.password || "").trim()) return "Enter a password to create this account.";
     const users = o.id ? db.users.map((u) => u.id === o.id ? o : u) : [...db.users, { ...o, id: uid() }];
     if (!users.some((u) => u.role === "staff")) return "There has to be at least one staff account.";
+    if (anyFounder && !users.some((u) => u.role === "staff" && u.staffRole === "founder")) return "There has to be at least one Founder.";
     return saveRow(commit, { ...db, users }, "users", o.id, "user");
   };
   const del = async (id) => {
     const users = db.users.filter((u) => u.id !== id);
     if (!users.some((u) => u.role === "staff")) return "There has to be at least one staff account.";
+    if (anyFounder && !users.some((u) => u.role === "staff" && u.staffRole === "founder")) return "There has to be at least one Founder.";
     await commit({ ...db, users });
   };
+  const setPick = (e, set, v) => set({ ...e, role: v === "client" ? "client" : "staff", staffRole: v === "client" ? null : v,
+    access: v === "comanager" && e.access?.ownOnly ? { ownOnly: true } : {} });
+  const setSection = (e, set, k, on) => set({ ...e, access: cleanAccess(pickOf(e), { ...e.access, sections: { ...(e.access?.sections || {}), [k]: on } }) });
   return (
+    <>
     <Editor title="Users" items={db.users} columns={cols}
-      blank={{ email: "", password: "", role: "client", name: "", clientId: null }}
+      blank={{ email: "", password: "", role: "staff", staffRole: "comanager", access: {}, name: "", clientId: null }}
       onSave={save} onDelete={del}
-      extra={(e, set) => (
+      extra={(e, set) => {
+        const pick = pickOf(e), a = e.role === "staff" ? accessOf(e) : null, mine = a?.ownOnly ? artistsOf(e.name) : [];
+        return (
         <>
           <Field label="Email" value={e.email} onChange={(ev) => set({ ...e, email: ev.target.value })} />
+          <Field label="Name" value={e.name || ""} onChange={(ev) => set({ ...e, name: ev.target.value })} />
           <Field
             label="Password" value={e.password} onChange={(ev) => set({ ...e, password: ev.target.value })}
             hint={e.id ? "Leave blank to keep their current password. At least 8 characters if you're setting a new one." : "At least 8 characters — required to create the account."}
           />
           <label className="fld"><span>Role</span>
-            <select value={e.role} onChange={(ev) => set({ ...e, role: ev.target.value })}>
-              <option value="client">Client</option><option value="staff">Staff</option>
+            <select value={pick} data-role-pick onChange={(ev) => setPick(e, set, ev.target.value)} disabled={!founder && e.role === "staff"}>
+              {ROLE_PICK.filter(([k]) => founder || k === "client" || k === pick).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
             </select>
           </label>
           {e.role === "client" && (
@@ -3076,10 +3133,39 @@ function UsersAdmin({ db, commit }) {
               </select>
             </label>
           )}
+          {e.role === "staff" && founder && pick === "comanager" && (
+            <label className="check-row" data-own-only>
+              <input type="checkbox" checked={!!e.access?.ownOnly} onChange={(ev) => set({ ...e, access: cleanAccess("comanager", { ...e.access, ownOnly: ev.target.checked }) })} />
+              <span>Only their own artists: the ones with this name as Assigned Manager on the accounting sheet's INFO tab.</span>
+            </label>
+          )}
+          {a?.ownOnly && (
+            <p className="hint" data-own-artists>{!(e.name || "").trim() ? "Type their name above, as INFO spells it." : mine.length ? `Their artists: ${mine.map((c) => c.name).join(", ")}.` : `No artist has "${e.name.trim()}" as Assigned Manager yet.`}
+              {" "}<button type="button" className="inline-link" onClick={managers.update} disabled={managers.busy}>{managers.busy ? "Reading the sheet…" : "Update from the sheet"}</button>
+              {managers.err && <span className="err-text"> {managers.err}</span>}</p>
+          )}
+          {e.role === "staff" && founder && (
+            <fieldset className="fld sec-picks" data-sections>
+              <legend>What they can open</legend>
+              {SECTIONS.map(([k]) => {
+                const locked = (k === "users" && pick === "founder") || (a.ownOnly && k === "luminate");
+                return (
+                  <label key={k} className={`sec-pick${locked ? " locked" : ""}`} data-section={k}>
+                    <input type="checkbox" checked={a.sections.includes(k)} disabled={locked} onChange={(ev) => setSection(e, set, k, ev.target.checked)} />
+                    <span>{SECTION_OF[k]}</span>
+                  </label>
+                );
+              })}
+              <p className="hint">{ROLES[pick].label} starts with {pick === "founder" ? "everything" : pick === "comanager" ? "everything but Money and Users" : "Site only"}. Tick or untick to change it for this person.{a.ownOnly ? " Luminate needs every artist, so it's off while they see only their own." : ""}</p>
+            </fieldset>
+          )}
           <p className="hint">Clients only see their own placements and splits. They can never edit the website.</p>
         </>
-      )}
+        );
+      }}
     />
+    {founder && <p className="hint users-managers" data-managers-at>Each artist's manager comes from the accounting sheet's INFO tab{managers.at ? `, read ${shortDay(managers.at)}` : ""}. <button type="button" className="inline-link" onClick={managers.update} disabled={managers.busy}>{managers.busy ? "Reading the sheet…" : "Update from the sheet"}</button>{managers.err && <span className="err-text"> {managers.err}</span>}</p>}
+    </>
   );
 }
 
@@ -5340,10 +5426,10 @@ function ClientPortal({ db, commit, session, logout, signingOut }) {
 const normalizeTitle = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
   .replace(/\s+(feat|ft|featuring)\s+.*$/, "").trim();
 
-// db.sheetSync lives in this browser's own localStorage, not on a server, so
-// "is this data current" can't just mean "has this browser ever synced" —
-// a device that synced once, a while ago (including before some bug fix
-// that only affects sync logic itself), would otherwise sit stale
+// db.sheetSync is when the site last synced from the sheet (kept in the
+// database, shared by every device), so "is this data current" can't just
+// mean "has it ever synced" — a sync a while ago (including before some bug
+// fix that only affects sync logic itself) would otherwise sit stale
 // indefinitely with no way to notice. Both silent background auto-syncs
 // (CatalogAdmin, ClientPortal) re-check against this instead of a one-time
 // gate, so nobody has to remember to press a button for routine staleness.
@@ -8539,7 +8625,7 @@ function TodoPage({ ctx, todo, sub, onSub, areaN }) {
       {view === "calendar" ? <TodoCalendar ctx={ctx} /> : (
         <>
           <div className="todo-chips" role="tablist" aria-label="Area">
-            {AREA_CHIPS.map(([a, label]) => { const n = a === "all" ? allN : areaN(a); return (n || a === "all" || a === area) && (
+            {AREA_CHIPS.filter(([a]) => a === "all" || ctx.can(AREA_SECTION[a])).map(([a, label]) => { const n = a === "all" ? allN : areaN(a); return (n || a === "all" || a === area) && (
               <button key={a} role="tab" aria-selected={area === a} className={area === a ? "upd-filter on" : "upd-filter"} data-area-chip={a} data-area={a === "all" ? undefined : a} onClick={() => pick(a)}>{label} <span className="todo-chip-n">{n}</span></button>
             ); })}
           </div>
@@ -8549,9 +8635,9 @@ function TodoPage({ ctx, todo, sub, onSub, areaN }) {
             {tap.map((it) => <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />)}
             {need.length > 0 && <div className="todo-group" data-group="need">Needs you</div>}
             {need.map((it) => <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />)}
-            {!lum && !lumErr && area !== "clickup" && <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking Luminate…</p>}
+            {!lum && !lumErr && !ctx.lumOff && area !== "clickup" && <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking Luminate…</p>}
             {lumErr && !lum && <p className="todo-line"><AlertTriangle size={14} /> Couldn't load the Luminate to-dos. <button className="inline-link" onClick={reloadLum}>Try again</button></p>}
-            {!shown.length && (lum || area === "clickup") && area !== "clickup" && <p className="todo-line todo-clear"><CheckCircle2 size={14} /> Nothing to do here.</p>}
+            {!shown.length && (lum || ctx.lumOff || area === "clickup") && area !== "clickup" && <p className="todo-line todo-clear"><CheckCircle2 size={14} /> Nothing to do here.</p>}
             {cuOn && <CuSection cu={ctx.cu} list={list} person={person} setList={setList} setPerson={setPerson} onNew={() => setNewTask(true)} />}
           </div>
           <DoneForYou ctx={ctx} />
@@ -8681,11 +8767,12 @@ function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
   const { top } = useMemo(() => biggestTasks([...todo, ...cuTasks.map((t) => ({ ...t, kind: "clickup" }))]), [todo, cuTasks]);
   const [open, setOpen] = useState(() => new Set());
   const toggle = (k) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n; });
-  const settled = (ctx.lum || ctx.lumErr) && ctx.ar && ctx.cu.data;
+  const settled = (ctx.lum || ctx.lumErr || ctx.lumOff) && ctx.ar && ctx.cu.data;
+  const money = ctx.can("money"), syncOn = ctx.can("site") && !ctx.db.access?.ownOnly;
   return (
     <div className="home">
-      <div className="admin-head"><h2>Home</h2><SyncPill sync={ctx.sync} onGo={ctx.onGo} />{m?.connected && !m.error && <span className="home-src">From Stripe · updated {clock(m.updatedAt)}</span>}</div>
-      <MoneyRow money={m} failed={failed} retry={retry} />
+      <div className="admin-head"><h2>Home</h2>{syncOn && <SyncPill sync={ctx.sync} onGo={ctx.onGo} />}{money && m?.connected && !m.error && <span className="home-src">From Stripe · updated {clock(m.updatedAt)}</span>}</div>
+      {money && <MoneyRow money={m} failed={failed} retry={retry} />}
       <div className="home-row">
         <div className="attn home-card todo home-top" data-home-top>
           <div className="attn-head"><ListChecks size={15} /> Biggest tasks
@@ -8696,7 +8783,7 @@ function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
         <TopGainers db={ctx.db} lum={ctx.lum} onGo={ctx.onGo} arTop={ctx.ar?.top} arLoaded={!!ctx.ar} />
       </div>
       <HomeWeek ctx={ctx} home={home} todo={todo} />
-      <HomePayments home={home} failed={failed} retry={retry} refresh={refresh} onGo={ctx.onGo} />
+      {money && <HomePayments home={home} failed={failed} retry={retry} refresh={refresh} onGo={ctx.onGo} />}
     </div>
   );
 }
@@ -8864,15 +8951,18 @@ function SyncView({ ctx }) {
 const SITE_SECS = [["website", "Website"], ["users", "Users"], ["messages", "Messages"], ["sync", "Sync"]];
 function SiteAdmin({ ctx, sub, onSub, chip }) {
   const { db, commit, lum } = ctx;
-  const sec = ["users", "messages", "sync"].includes(sub) ? sub : "website";
+  // Users is user management; the rest is Site's. Sync reads every artist at once.
+  const secs = SITE_SECS.filter(([id]) => (id === "users" ? ctx.can("users") : ctx.can("site") && !(id === "sync" && db.access?.ownOnly)));
+  const want = ["users", "messages", "sync"].includes(sub) ? sub : "website";
+  const sec = secs.some(([id]) => id === want) ? want : secs[0]?.[0];
   return (
     <div className="site-page">
       <div className="admin-head"><h2>Site</h2>{chip}</div>
       <div className="subnav" role="tablist" aria-label="Site">
-        {SITE_SECS.map(([id, label]) => <button key={id} role="tab" aria-selected={sec === id} data-site-tab={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { onSub(id === "website" ? null : id); revealChip(e.currentTarget); }}>{label}</button>)}
+        {secs.map(([id, label]) => <button key={id} role="tab" aria-selected={sec === id} data-site-tab={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { onSub(id === "website" ? null : id); revealChip(e.currentTarget); }}>{label}</button>)}
       </div>
       {sec === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={onSub} lum={lum} embedded />}
-      {sec === "users" && <UsersAdmin db={db} commit={commit} />}
+      {sec === "users" && <UsersAdmin db={db} commit={commit} reloadDb={ctx.reloadDb} />}
       {sec === "messages" && <SubsAdmin db={db} commit={commit} />}
       {sec === "sync" && <SyncView ctx={ctx} />}
     </div>
@@ -9298,6 +9388,14 @@ function StyleTag() {
     /* dashboard misc */
     .badge-yes{display:inline-flex;align-items:center;gap:4px;color:#8fce8f;font-size:12px}
     .badge-no{color:var(--mut2)}
+    .sec-picks{border:1px solid var(--line);border-radius:10px;padding:10px 14px 12px;margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 14px}
+    .sec-picks legend{font-size:12px;color:var(--mut2);padding:0 6px}
+    .users-managers{margin-top:12px}
+    .sec-picks .hint{grid-column:1/-1;margin:4px 0 0}
+    .sec-pick{display:flex;align-items:center;gap:8px;min-height:36px;font-size:13px;color:var(--ink);cursor:pointer}
+    .sec-pick input{width:16px;height:16px;accent-color:#fff;flex-shrink:0}
+    .sec-pick.locked{opacity:.55;cursor:default}
+    @media (max-width:520px){.sec-picks{grid-template-columns:1fr}}
     .check-row{display:flex;align-items:flex-start;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer}
     .check-row input{margin-top:2px;width:16px;height:16px;accent-color:#fff;flex-shrink:0}
     .check-row span{font-size:13px;color:var(--ink);line-height:1.5}
