@@ -17,6 +17,8 @@ import { evenSplit, splitWords, filledSplits, orderSplits } from "../lib/splits"
 import { songGaps, netStreamsOf, SONG_GAPS } from "../lib/sheet-facts";
 import { likelyDuplicates, mergedCard, mergedTitle, plainTitle } from "../lib/duplicates";
 import { biggestTasks, dueBucket, nyDay } from "../lib/todo-rank";
+import { shareFixes, autoConfirms, autoWords } from "../lib/split-fixes";
+import { foldMonths } from "../lib/months";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
    this bundle instead of inside it). The chrome wordmark + D live in /public/brand as transparent
@@ -2859,7 +2861,7 @@ function ClientsAdmin({ db, commit, openId = null, lum = null }) {
     <div>
     <p className="muted mb">Order here is the order they appear on the public Roster page — use the arrows to move someone up or down.</p>
     {deleteWarn && <p className="hint err-text mb">{deleteWarn}</p>}
-    {noTab.length > 1 && <p className="hint warn-text mb" data-tab-missing-note><AlertTriangle size={14} /> {noTab.length} clients have no tab on the pub sheet, so their numbers can't sync. They're marked "No sheet tab" below: open each one and type its tab name under Sheet tab name.</p>}
+    {noTab.length > 1 && <p className="hint warn-text mb" data-tab-missing-note><AlertTriangle size={14} /> {noTab.length} clients have no tab on the pub sheet, so their numbers can't sync. Open each one marked "No sheet tab" and type its tab name.</p>}
     <Editor title="Clients" items={db.clients} columns={cols}
       blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "", sheetTabName: "", onRoster: false }}
       onSave={save} onDelete={del} onReorder={reorder} openId={openId}
@@ -3376,7 +3378,7 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
           {isNew && prefill?.nums && (
             <p className="ar-nums ar-prefill-nums">This week {fmt(prefill.nums.thisWeek ?? 0)}{prefill.nums.wowPct != null && ` · ${pctText(prefill.nums.wowPct)} vs last week`}{prefill.nums.atd != null && ` · ${bigNum(prefill.nums.atd)} all-time`}</p>
           )}
-          {isNew && prefill?.name && <p className="hint mb">Their numbers already come in from Luminate. Add a handle or Spotify link, or put them on the board.</p>}
+          {isNew && prefill?.name && <p className="hint mb">Tracked from your Luminate list. Add a handle, or put them on the board.</p>}
           {err && <p className="hint err-text" role="alert">{err}</p>}
           <Field label={type === "song" ? "Song title" : "Name"} value={f.name} onChange={set("name")} />
           {type === "artist" && (
@@ -3609,7 +3611,7 @@ function ArBoard({ ar, onGo }) {
 
   return (
     <div className="arb">
-      <ArHead sub="Everyone we're talking to (artists and producers). Drag a card, or press its button when things move.">
+      <ArHead sub="Everyone we're talking to. Drag a card when things move.">
         <input className="arb-find" type="search" placeholder="Find someone" value={find} onChange={(e) => setFind(e.target.value)} aria-label="Find someone" />
         <span className="arb-more" onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setMore(false)}>
           <button className="btn ghost sm" aria-expanded={more} aria-haspopup="menu" onClick={() => setMore(!more)}>More ▾</button>
@@ -3869,7 +3871,8 @@ function ArWatch({ ar, onGo, at }) {
   const cols = pill === "songs" ? "minmax(0,2.2fr) 118px minmax(0,.9fr) minmax(0,.9fr)"
     : `minmax(0,1.7fr) 112px minmax(84px,.8fr)${tight ? "" : " minmax(84px,.8fr)"} minmax(112px,1fr) minmax(104px,.8fr)${producers ? " minmax(84px,.8fr)" : ""}`;
   const dash = (title) => <span className="muted-dash" title={title}>—</span>;
-  const subOf = (r) => (pill === "people" ? [r.role === "producer" ? "Producer" : "Artist", r.handle]
+  // someone only in your Luminate Artist Tracker (not on OUTREACH) is tracked all the same (the owner): said so
+  const subOf = (r) => (pill === "people" ? [r.role === "producer" ? "Producer" : "Artist", r.fromLuminate ? "In your Artist Tracker" : r.handle]
     : [r.artist || (r.release ? "Release" : ""), r.tiedTo && `tied to ${r.tiedTo}`]).filter(Boolean).join(" · ");
   const rowKey = (e, r) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openRow(r, e); } };
   return (
@@ -4552,7 +4555,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
 }
 
 // Publishing › Advance calculator: the sheet read happens only once this sub-tab opens
-function AdvanceTab({ pick = null }) {
+function AdvanceTab({ pick = null, db = null }) {
   const { data, err, load, retry } = useArData();
   // the calculator's levers and budget come from the sheet itself: nothing to work out without it
   const down = data && data.sheet?.ok === false;
@@ -4562,7 +4565,46 @@ function AdvanceTab({ pick = null }) {
       {down && <ArDataError err="Couldn't read the pub sheet just now, so the Advance calculator can't work out its numbers." retry={retry} />}
       {!data && !err && <p className="muted">Loading…</p>}
       {data && !down && <div className="pub-sec"><AdvanceCalcPanel data={data} reload={load} pick={pick} /></div>}
+      <RosterForecast db={db} />
     </>
+  );
+}
+
+// Publishing › Advance calculator: the pub sheet's own 3-year forecast of our fee (MASTER), for the roster and
+// by writer (r7: it moved here from Publishing's Overview). The sheet's Year 1 is the fee so far × B9 × (1 − B8),
+// then B8 less each year: a rough guess, said so.
+function RosterForecast({ db }) {
+  const [d, setD] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [byWriter, setByWriter] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/sheets-master").then((r) => (r.ok ? r.json() : null)).then((x) => { if (alive) { if (x?.totals) setD(x); else setFailed(true); } }).catch(() => alive && setFailed(true));
+    return () => { alive = false; };
+  }, []);
+  if (failed) return <p className="hint">Couldn't read the roster's forecast from the pub sheet just now.</p>;
+  if (!d) return null;
+  const y = yearOne(d);
+  // MASTER's Writer label can be stale ("Stackie", "WRITER 13"): the client its formulas read, as on Overview
+  const writerOf = (r) => { const cs = db?.clients || []; const c = findByName([...cs.filter((x) => x.sheetTabName), ...cs.filter((x) => !x.sheetTabName)], r.sheetTab || r.writer, (x) => x.sheetTabName || x.name); return c ? c.name : r.writer; };
+  return (
+    <div className="pub-sec adv-forecast" data-forecast>
+      <h3 className="lm-h3">Our fee, next 3 years</h3>
+      <p className="hint">The pub sheet's rough guess{y ? `: ${y.share} of the fee so far in year 1, then ${y.decay} less a year` : ""}.</p>
+      <div className="cat-summary"><div className="cat-summary-grid">
+        <div className="cat-stat" data-stat="next3"><span className="cat-stat-label">Next 3 years</span><span className="cat-stat-val">{money(d.totals.threeYearForecast)}</span></div>
+        <div className="cat-stat" data-stat="inAll"><span className="cat-stat-label">So far + 3 years</span><span className="cat-stat-val">{money(d.totals.totalEstAdminFee)}</span></div>
+      </div></div>
+      <button className="btn ghost sm" data-forecast-writers aria-pressed={byWriter} onClick={() => setByWriter((v) => !v)}>{byWriter ? "Hide writers" : "By writer"}</button>
+      {byWriter && (
+        <div className="master-table-wrap">
+          <table className="master-table">
+            <thead><tr>{["Writer", "Year 1", "Year 2", "Year 3", "Next 3 yrs", "In all"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+            <tbody>{(d.rows || []).map((r) => <tr key={r.writer}><td>{writerOf(r)}</td><td>{money(r.year1)}</td><td>{money(r.year2)}</td><td>{money(r.year3)}</td><td>{money(r.forecastTotal)}</td><td>{money(r.totalEstAdminFee)}</td></tr>)}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -5013,7 +5055,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               )}
               {/* an even split the rule can fill: shown as it would be confirmed, in a neutral note, never as a broken 0% */}
               {isStaff && activeEven && (
-                <p className="hint song-even" data-song-even>Even split assumed: {splitWords(activeEven.splits, active.splits)}. Edit and Save confirms it, or use Confirm in Publishing › Splits to confirm.</p>
+                <p className="hint song-even" data-song-even>Even split assumed: {splitWords(activeEven.splits, active.splits)}. Edit and Save confirms it (or Confirm in To do).</p>
               )}
               {/* the numbers before the pie (build I3): at 1440x900 Net streams is in view without scrolling, the warning above it too */}
               {db.sheetSync?.lastSyncedAt && (
@@ -5548,7 +5590,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo, dupes = [
     <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="splits">
       <div className="fix-head">
         <h3>{n ? `Splits to confirm (${n})` : "Splits"}</h3>
-        <span className="hint">{n ? "The default is even: the artist side is 50% and the producer side is 50%, shared evenly. Confirm saves the split on the site and writes only the client's own share to their tab of the pub sheet; unnamed people stay on the site only. Biggest songs first." : "All splits add up."}</span>
+        <span className="hint">{n ? "Even by default: 50% artist side, 50% producer side. Confirm writes only the client's own share to the sheet." : "All splits add up."}</span>
       </div>
       <DropNote note={note} onShow={onGo && ((sec) => onGo("luminate", sec))} />
       <HeldDupes dupes={dupes} onDupe={onDupe} />
@@ -5633,7 +5675,7 @@ function SongsToUpdate({ db, lum, onFix, focus, dupes = [], onDupe }) {
     <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="update">
       <div className="fix-head">
         <h3>{list.length ? `Songs to update (${list.length})` : "Songs to update"}</h3>
-        <span className="hint">{list.length ? "What each song is missing on the pub sheet or on the site, from the last sheet pull. Update opens the song at the first missing field. Biggest songs first." : "Every song has its sheet row, writer share, release date, link and Luminate id."}</span>
+        <span className="hint">{list.length ? "What each song is missing, from the last sheet pull. Update opens the song there." : "Every song has its sheet row, writer share, release date, link and Luminate id."}</span>
       </div>
       <HeldDupes dupes={dupes} onDupe={onDupe} />
       {Object.keys(counts).length > 1 && (
@@ -5900,11 +5942,12 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
   const links = state.data?.links || {};
   const rate = state.data?.rate;
   // the writers' table: This week first (each writer's songs that have both weeks, added up, as
-  // lib/weekly.js sumWeeks), biggest % first; any column head re-sorts. The 6 forecast columns wait
-  // behind a toggle
+  // lib/weekly.js sumWeeks), biggest % first; any column head re-sorts. Writer, Songs, This week, Streams and
+  // Our fee show; Net streams, Their earnings and the share of the roster's fee wait behind "More columns"
+  // (r7: the 3-year forecast lives on the Advance calculator)
   const { growth } = useGrowthState();
   const [sort, setSort] = useState({ col: "week", dir: -1 });
-  const [forecast, setForecast] = useState(false);
+  const [more, setMore] = useState(false);
   const weekOf = (client) => {
     let ws = client && growth ? db.placements.filter((p) => p.clientId === client.id).map((p) => growth[p.id]).filter((w) => w && w.thisWeek != null && w.lastWeek != null) : [];
     // one real week, as on the Dashboard (lib/weekly.js sameWeek): the songs whose week ends last
@@ -5915,9 +5958,11 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
     // under 1,000 streams this week a % says little (1 → 2 is "▲ 100%"): streams only, as on the Dashboard
     return { thisWeek: t, wowPct: l > 0 && t >= WEEK_PCT_MIN ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null };
   };
-  const cols = [["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Gross streams"], ["net", "Net streams"], ["earn", "Their earnings"], ["fee", "Our fee"],
-    ...(forecast ? [["y1", "Our fee yr 1"], ["y2", "Our fee yr 2"], ["y3", "Our fee yr 3"], ["fc", "Our fee next 3 yrs"], ["tot", "Our fee in all"], ["share", "% of roster fee"]] : [])];
-  const val = { songs: (x) => x.r.songs, gross: (x) => x.r.grossStreams, net: (x) => x.r.netStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, y1: (x) => x.r.year1, y2: (x) => x.r.year2, y3: (x) => x.r.year3, fc: (x) => x.r.forecastTotal, tot: (x) => x.r.totalEstAdminFee, share: (x) => Number(x.r.pctOfRoster) };
+  const MORE_COLS = ["net", "earn", "share"];
+  const cols = [["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"], ...(more ? [["net", "Net streams"], ["earn", "Their earnings"]] : []), ["fee", "Our fee"],
+    ...(more ? [["share", "% of roster fee"]] : [])];
+  const val = { songs: (x) => x.r.songs, gross: (x) => x.r.grossStreams, net: (x) => x.r.netStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, share: (x) => Number(x.r.pctOfRoster) };
+  const cell = { writer: null, songs: (r) => r.songs, gross: (r) => fmt(r.grossStreams), net: (r) => fmt(r.netStreams), earn: (r) => money(r.grossRevenue), fee: (r) => money(r.adminFee), share: (r) => `${r.pctOfRoster}%` };
   const rows = (state.data?.rows || []).map((r) => { const client = findClient(r); return { r, client, wk: weekOf(client) }; });
   const name = (x) => (x.client ? x.client.name : x.r.writer).toLowerCase();
   // the days This week covers, said once in the source line (the Dashboard says the same)
@@ -5957,27 +6002,22 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
       {state.data && (
         <>
           <div className="cat-summary">
-            <div className="cat-summary-grid">
+            {/* three numbers (r7): the roster's streams, what they earned, and our fee so far (MASTER's own totals,
+                in the words of each client's page and the Advance calculator); the 3-year forecast is on the calculator */}
+            <div className="cat-summary-grid pub-tiles">
               {/* MASTER adds each writer's gross up: a song two roster writers share is in it twice */}
-              <div className="cat-stat"><span className="cat-stat-label">Gross Streams <span className="cat-stat-note">(added up by writer: a shared song counts once per writer)</span></span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Net Streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterNetStreams)}</span></div>
-              {/* the same words as each client's page; the fee figures are the sheet's own: the fee so far
-                  (MASTER's "CATALOG TO DATE", the table's "Our fee"), its 3-year forecast, and the two together. The words are the
-                  Advance calculator's: "Their earnings" and "Our fee" */}
-              <div className="cat-stat"><span className="cat-stat-label">Their earnings <span className="cat-stat-note">(est., paid to them directly)</span></span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Our fee so far <span className="cat-stat-note">(est. admin fee)</span></span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>
-              {/* the sheet's forecast: Year 1 = the fee so far × B9 × (1 − B8), then B8 less each year; a guess, said so */}
-              <div className="cat-stat"><span className="cat-stat-label">Our fee next 3 yrs <span className="cat-stat-note">(rough guess{yearOne(state.data) ? `: ${yearOne(state.data).share} of the fee so far in year 1, then ${yearOne(state.data).decay} less a year` : ""})</span></span><span className="cat-stat-val">{money(state.data.totals.threeYearForecast)}</span></div>
-              <div className="cat-stat"><span className="cat-stat-label">Our fee in all <span className="cat-stat-note">(so far + 3 years)</span></span><span className="cat-stat-val">{money(state.data.totals.totalEstAdminFee)}</span></div>
+              <div className="cat-stat" data-stat="streams" title="Added up by writer: a song two writers share counts once for each"><span className="cat-stat-label">Gross streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
+              <div className="cat-stat" data-stat="earnings"><span className="cat-stat-label">Their earnings</span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>
+              <div className="cat-stat" data-stat="fee"><span className="cat-stat-label">Our fee so far</span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>
             </div>
             {/* the one place the money's explained: everything below (and each client's page) is the same estimate */}
             <p className="hint cat-asof money-hint" title="The rate is ASSUMPTIONS!B7 on the pub sheet">
-              Estimates from the pub sheet: all-time streams × the writer's share × {rate ? `$${+rate.toFixed(6)} a stream` : "the sheet's blended rate"}. Clients are paid directly; our commission is billed through Stripe.
+              Estimates: streams × the writer's share × {rate ? `$${+rate.toFixed(6)} a stream` : "the sheet's rate"}.
             </p>
           </div>
 
           <div className="master-tools">
-            <button className="btn ghost sm" aria-pressed={forecast} onClick={() => { setForecast((f) => !f); if (forecast && ["y1", "y2", "y3", "fc", "tot", "share"].includes(sort.col)) setSort({ col: "week", dir: -1 }); }}>{forecast ? "Hide forecast columns" : "Show forecast columns"}</button>
+            <button className="btn ghost sm" data-more-cols aria-pressed={more} onClick={() => { setMore((f) => !f); if (more && MORE_COLS.includes(sort.col)) setSort({ col: "week", dir: -1 }); }}>{more ? "Fewer columns" : "More columns"}</button>
           </div>
           <div className="master-table-wrap">
             <table className="master-table">
@@ -6000,42 +6040,16 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
                     onClick={client ? () => onSelectClient(client.id) : undefined}
                     title={client ? `Open ${client.name}` : "Not linked to a client on the site"}
                   >
-                    <td>{client ? client.name : r.writer}</td>
-                    <td>{r.songs}</td>
-                    <td className="master-week">{wk ? <><WowPill pct={wk.wowPct} /><em>{fmt(wk.thisWeek)}</em></> : <span className="muted-dash" title="No last week to compare">—</span>}</td>
-                    <td>{fmt(r.grossStreams)}</td>
-                    <td>{fmt(r.netStreams)}</td>
-                    <td>{money(r.grossRevenue)}</td>
-                    <td>{money(r.adminFee)}</td>
-                    {forecast && <>
-                      <td>{money(r.year1)}</td>
-                      <td>{money(r.year2)}</td>
-                      <td>{money(r.year3)}</td>
-                      <td>{money(r.forecastTotal)}</td>
-                      <td>{money(r.totalEstAdminFee)}</td>
-                      <td>{r.pctOfRoster}%</td>
-                    </>}
+                    {cols.map(([id]) => (id === "writer" ? <td key={id}>{client ? client.name : r.writer}</td>
+                      : id === "week" ? <td key={id} className="master-week">{wk ? <><WowPill pct={wk.wowPct} /><em>{fmt(wk.thisWeek)}</em></> : <span className="muted-dash" title="No last week to compare">—</span>}</td>
+                      : <td key={id}>{cell[id](r)}</td>))}
                   </tr>
                 ))}
               </tbody>
               {state.data.rosterTotal && (
                 <tfoot>
                   <tr className="master-total-row">
-                    <td>Roster total</td>
-                    <td>{state.data.rosterTotal.songs}</td>
-                    <td />
-                    <td>{fmt(state.data.rosterTotal.grossStreams)}</td>
-                    <td>{fmt(state.data.rosterTotal.netStreams)}</td>
-                    <td>{money(state.data.rosterTotal.grossRevenue)}</td>
-                    <td>{money(state.data.rosterTotal.adminFee)}</td>
-                    {forecast && <>
-                      <td>{money(state.data.rosterTotal.year1)}</td>
-                      <td>{money(state.data.rosterTotal.year2)}</td>
-                      <td>{money(state.data.rosterTotal.year3)}</td>
-                      <td>{money(state.data.rosterTotal.forecastTotal)}</td>
-                      <td>{money(state.data.rosterTotal.totalEstAdminFee)}</td>
-                      <td>{state.data.rosterTotal.pctOfRoster}%</td>
-                    </>}
+                    {cols.map(([id]) => <td key={id}>{id === "writer" ? "Roster total" : id === "week" ? null : cell[id](state.data.rosterTotal)}</td>)}
                   </tr>
                 </tfoot>
               )}
@@ -6125,7 +6139,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub, chip = nul
         <button className={sec === "overview" ? "subpill active" : "subpill"} onClick={pick("overview")}>Overview &amp; clients</button>
         <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={pick("advance")}>Advance<span className="pill-long"> calculator</span></button>
       </div>
-      {sec === "advance" && <AdvanceTab pick={sub?.startsWith("advance:") ? sub.slice(8) : null} />}
+      {sec === "advance" && <AdvanceTab db={db} pick={sub?.startsWith("advance:") ? sub.slice(8) : null} />}
       {sec === "overview" && <div className="catalog-wrap">
         <div className="catalog-clients" ref={chips}>
           <button className={clientId === null ? "cc active" : "cc"} onClick={() => setClientId(null)}>
@@ -6171,7 +6185,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub, chip = nul
                   <option>Producer</option><option>Artist</option><option>Producer / Artist</option>
                 </select>
               </label>
-              <p className="hint">Starts hidden from the public roster. Add a photo, bio, socials, and publish them any time from Website → Roster. Their pub sheet tab is created automatically the first time you add a song for them.</p>
+              <p className="hint">Starts hidden from the public roster (Site › Website › Roster). Their sheet tab is made with their first song.</p>
             </div>
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setAddingClient(false)}>Cancel</button>
@@ -7572,6 +7586,7 @@ function AcctOverview({ d, onSec }) {
   const checkRow = new Set((d.toCheck?.items || []).map((x) => x.row).filter(Boolean)); // rows with an open To check line
   const diffText = (v) => (v ? money(v).replace("$-", "-$") : "—");
   const clean = yr && !cents2(yr.diff - covered) && !nLog && !nCheck;
+  const fold = foldMonths(M || []);
   return (
     <>
       {yr && (
@@ -7590,11 +7605,12 @@ function AcctOverview({ d, onSec }) {
       </div>
       <div className="fix-panel acct-panel" data-acct="months">
         <div className="fix-head"><h3>Stripe and the sheet, month by month</h3>
-          <span className="hint">Through Stripe is Defied's share, as on the Dashboard. In the sheet is the Income tab's DEFIED SHARE, added up by each row's date.</span></div>
+          <span className="hint">Defied's share: through Stripe, and on the Income tab by each row's date.</span></div>
         {!M ? <p className="home-muted"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the months can't be compared.</p> : (
           <div className="acct-mtable" role="table" aria-label="Stripe and the sheet by month">
             <div className="acct-mrow acct-mhead" role="row"><span role="columnheader">Month</span><span role="columnheader" className="acct-amt">Through Stripe</span><span role="columnheader" className="acct-amt">In the sheet</span><span role="columnheader" className="acct-amt">Difference</span><span role="columnheader">Why</span></div>
-            {[...M].reverse().map((m) => (
+            {/* only the months that differ get a row; the ones that match fold into one line (r7) */}
+            {fold.differ.map((m) => (
               <div key={m.month} className="acct-mrow" role="row" data-month={m.month} data-explained={m.explained ? "1" : "0"}>
                 <span role="cell" className="acct-mname">{m.label}</span>
                 <span role="cell" className="acct-amt" data-col="stripe">{money(m.stripe)}</span>
@@ -7613,6 +7629,7 @@ function AcctOverview({ d, onSec }) {
                 </span>
               </div>
             ))}
+            {fold.matched > 0 && <div className="acct-mrow acct-mfold" role="row" data-folded={fold.matched}><span role="cell" className="acct-match"><CheckCircle2 size={14} /> {fold.text}</span></div>}
             <div className="acct-mrow acct-mtotal" role="row" data-total="year">
               <span role="cell" className="acct-mname">This year</span>
               <span role="cell" className="acct-amt" data-col="stripe">{money(yr.stripe)}</span>
@@ -7638,7 +7655,7 @@ function AcctToLog({ d, onLog, onPick }) {
   return (
     <div className="fix-panel acct-panel" data-acct="log">
       <div className="fix-head"><h3>To log ({U.length})</h3>
-        <span className="hint">{d.toLog.canLog ? "Log it adds the row to the Income tab after showing it to you. When Log it can't tell the type or client (studio work, someone not on INFO), use Log with details. Newest first." : "Logging from the dashboard isn't switched on yet. For now, add each one in the sheet as a new row with the full amount paid."}</span></div>
+        <span className="hint">{d.toLog.canLog ? "Log it shows the row, then adds it to the Income tab. Log with details is for studio work or a payer not on INFO." : "Logging from here isn't switched on yet. Add each one to the sheet as a new row with the full amount paid."}</span></div>
       <div className="fix-sub"><span className="fix-client">{money(d.toLog.total)} paid in total{need ? <span className="acct-via"> · {need} {need === 1 ? "needs" : "need"} details</span> : null}</span>
         {easy.length > 1 && <button className="btn sm" data-log-all onClick={() => onLog(easy.map((p) => p.id))}>Log all {easy.length}</button>}</div>
       {U.map((p) => (
@@ -7689,7 +7706,7 @@ function AcctToCheck({ d, busy, err, onOk }) {
   return (
     <div className="fix-panel acct-panel" data-acct="check">
       <div className="fix-head"><h3>{X.length ? `To check (${X.length})` : "To check"}</h3>
-        <span className="hint">Read-only checks of the Income tab. Nothing here changes the sheet: open the row to fix it there, or mark it as OK if it's right.{d.toCheck?.okCount ? ` ${d.toCheck.okCount} marked as OK.` : ""}</span></div>
+        <span className="hint">Read only. Fix it in the sheet, or mark it as OK.{d.toCheck?.okCount ? ` ${d.toCheck.okCount} marked as OK.` : ""}</span></div>
       {err && <p className="hint err-text">{err}</p>}
       {!X.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Nothing to check in the Income tab.</p> : X.map((x) => (
         <div key={x.key} className="fix-row acct-crow" data-check={x.rule} data-row={x.row ?? ""}>
@@ -8371,7 +8388,7 @@ function NotableAdmin({ db, commit }) {
   ];
   return (
     <div>
-      <p className="muted mb">Manually curated — these are the exact songs shown on the About page (the “Notable Releases” grid and the credits band), independent of any artist’s song list. Paste a Spotify link below to auto-fill the song details, then enter which of our clients it's for.</p>
+      <p className="muted mb">The songs on the About page. Paste a Spotify link to fill in the details.</p>
       <Editor title="Notable releases" items={list} columns={cols} maxItems={10}
         blank={{ song: "", artist: "", client: "", releaseDate: "", link: "", cover: "" }}
         onSave={save} onDelete={del}
@@ -9398,6 +9415,7 @@ function StyleTag() {
       .app:not(.pub) .dash-main .admin-head h2{font-size:20px;background:none;-webkit-text-fill-color:currentColor;color:var(--d-ink)}  /* solid on phones: a wrapped chrome title bands badly */
       .app:not(.pub) .catalog-main .admin-head h2{font-size:14px}   /* second level stays second level (same specificity: after) */
       .app:not(.pub) .cat-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .app:not(.pub) .pub-tiles > .cat-stat:nth-child(3):last-child{grid-column:1 / -1}
       .app:not(.pub) .cat-stat:last-child:nth-child(odd){grid-column:1 / -1}
       /* one size: the full-width odd cell would otherwise scale its value up (11cqi) */
       .app:not(.pub) .cat-stat-val{font-size:17px}
@@ -10585,6 +10603,10 @@ function StyleTag() {
     .app:not(.pub) .acct-status.ok{color:var(--d-ink-2)}
     .app:not(.pub) .acct-status.ok>svg{color:var(--d-pos)}
     .app:not(.pub) .acct-round{color:var(--d-ink-4)}
+    .app:not(.pub) .acct-mrow.acct-mfold > .acct-match{grid-column:1 / -1}
+    .app:not(.pub) .adv-forecast{margin-top:32px}
+    .app:not(.pub) .adv-forecast .cat-summary{margin:12px 0}
+    .app:not(.pub) .adv-forecast .master-table-wrap{margin-top:12px}
     .app:not(.pub) .acct-mrow.acct-mtotal{border-top:1px solid var(--d-line-2);font-weight:500;color:var(--d-ink)}
     .app:not(.pub) .acct-blank{color:var(--d-ink-4)}
     .app:not(.pub) .acct-need{align-self:center;font-size:12.5px;color:var(--d-warn);white-space:nowrap}
