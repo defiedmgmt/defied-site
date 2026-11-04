@@ -6142,7 +6142,7 @@ function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose, onDone
   const keeps = [row != null && `row ${row} on the ${tab} tab`, keep.luminateId && "the Luminate id"].filter(Boolean);
   const takes = [fromOther("releaseDate") && "release date", fromOther("link") && "link", fromOther("cover") && "cover",
     fromOther("luminateId") && "Luminate id", merged.splits !== keep.splits && "split"].filter(Boolean);
-  const outcome = `One card is left, titled "${title || "Untitled"}"${keeps.length ? `: it keeps ${and(keeps)}` : ""}${takes.length ? `${keeps.length ? "," : ""} and takes the ${and(takes)} from the other card` : ""}. The other card comes off the site and Add to Luminate.`;
+  const outcome = `One card is left, titled "${title || "Untitled"}"${keeps.length ? `: it keeps ${and(keeps)}` : ""}${takes.length ? `${keeps.length ? "," : ""} and takes the ${and(takes)} from the other card` : ""}. The other card comes off the site.`;
   const keptHead = [row != null && "sheet row", keep.luminateId && "Luminate id"].filter(Boolean);
   // the second card's title is the one kept: not struck through
   const dropTitleKept = !!(drop.song || "").trim() && title.trim() === (drop.song || "").trim();
