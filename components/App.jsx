@@ -267,6 +267,12 @@ function PhotoUpload({ label, value, onChange }) {
   const [busy, setBusy] = useState(false);
   const [cropSrc, setCropSrc] = useState(null);
   const [err, setErr] = useState(null);
+  // the upload takes a moment: its link goes onto the form as it is then (typed changes kept), and is
+  // dropped if the form was closed meanwhile
+  const latest = useRef(onChange);
+  latest.current = onChange;
+  const open = useRef(true);
+  useEffect(() => () => { open.current = false; }, []);
   const pick = async (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = "";
@@ -279,8 +285,9 @@ function PhotoUpload({ label, value, onChange }) {
   const use = async (d) => {
     setCropSrc(null); setBusy("Uploading…"); setErr(null);
     const r = await storeImage(d);
+    if (!open.current) return;
     setBusy(false);
-    if (r.url) onChange(r.url); else setErr(r.error);
+    if (r.url) latest.current(r.url); else setErr(r.error);
   };
   return (
     <div className="fld" data-photo-upload="">
