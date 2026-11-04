@@ -10,6 +10,7 @@ import {
   setGiven, fixGiven, removeProspect, restoreProspect, undoEvent,
 } from "../../lib/ar-sheet";
 import { ArError, mergeProspect } from "../../lib/ar";
+import { afterAction } from "../../lib/area-tasks";
 
 const SHEET_ACTIONS = {
   createProspect, updateProspect, setStatus, setSlot, clearSlot, logContact,
@@ -35,7 +36,9 @@ export default async function handler(req, res) {
     const run = SHEET_ACTIONS[action];
     if (!run) return res.status(400).json({ error: "Unknown action." });
     if (!arWritesOn()) return res.status(503).json({ error: "Saving A&R changes to the pub sheet is switched off right now." });
-    return res.status(200).json(action === "setSlot" ? await setSlot(body, by, body) : await run(body, by));
+    const out = action === "setSlot" ? await setSlot(body, by, body) : await run(body, by);
+    await afterAction(["ar"]); // the A&R ClickUp task follows (CLICKUP_TASK_WRITES only)
+    return res.status(200).json(out);
   } catch (err) {
     if (err instanceof ArError) return res.status(err.status).json({ error: err.message, ...err.extra });
     console.error("ar-write failed:", err);

@@ -10,6 +10,7 @@ import { sql } from "../../lib/db";
 import { requireStaff, requireSameOrigin } from "../../lib/session";
 import { arSummary, arWatchNow, mergeProspect, trackedOut, checkTracked, ArError } from "../../lib/ar";
 import { uid } from "../../lib/id";
+import { afterAction } from "../../lib/area-tasks";
 
 // the panel's History: plain sentences only (the cells stay server-side); pending ones are left out
 // until the next load settles them
@@ -97,7 +98,9 @@ export default async function handler(req, res) {
     }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
-    return res.status(200).json(await act(req.body || {}, session.user.name || session.user.email || "staff"));
+    const out = await act(req.body || {}, session.user.name || session.user.email || "staff");
+    await afterAction(["ar"]); // the A&R ClickUp task follows (CLICKUP_TASK_WRITES only)
+    return res.status(200).json(out);
   } catch (err) {
     if (err instanceof ArError) return res.status(err.status).json({ error: err.message, ...err.extra });
     console.error("ar route failed:", err);

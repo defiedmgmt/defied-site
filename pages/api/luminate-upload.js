@@ -6,6 +6,7 @@
 import { requireStaff, requireSameOrigin } from "../../lib/session";
 import { parseExport, takeExports, previewLinks, areasFor, isAR } from "../../lib/luminate";
 import { afterExports, arLines, markArKept, notifyArKept } from "../../lib/luminate-run";
+import { afterAction } from "../../lib/area-tasks";
 
 // a 100-song portfolio export is ~30-46 KB: 60 of them stay under the 4 MB a request can carry
 export const config = { api: { bodyParser: { sizeLimit: "4mb" } }, maxDuration: 60 };
@@ -68,10 +69,11 @@ export default async function handler(req, res) {
     const kept = results.filter((r) => r.status === "taken" && isAR(r.area));
     const arUpload = kept.length ? await markArKept(kept, by) : null;
     if (!taken.length) {
-      if (kept.length) await notifyArKept(kept);
+      if (kept.length) { await notifyArKept(kept); await afterAction(["ar"]); }
       return res.status(200).json({ results, errors, updated: false, kept: kept.length, arUpload });
     }
     const run = await afterExports({ taken, by, extraLines: arLines(kept) });
+    if (!run.error) await afterAction(["luminate", "publishing", "ar"]);
     return res.status(run.error ? 502 : 200).json({ results, errors, updated: !run.error, kept: kept.length, arUpload, ...run, error: run.error || undefined });
   } catch (err) {
     console.error("luminate upload failed:", err);

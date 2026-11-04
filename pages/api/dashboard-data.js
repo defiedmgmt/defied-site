@@ -10,6 +10,7 @@ import bcrypt from "bcryptjs";
 import { sql, rowsOrNoneIfNoTable } from "../../lib/db";
 import { requireUser, requireSameOrigin, restampSession } from "../../lib/session";
 import { readSheetFacts } from "../../lib/sheet-facts-store";
+import { afterAction } from "../../lib/area-tasks";
 
 // photos are data: URIs inside the rows, so Next's default 1 MB body cap
 // turned every staff save into a 413 once ~5-8 had been uploaded. Vercel's
@@ -354,6 +355,8 @@ async function handlePost(req, res, session) {
   // signed in here; their other sessions end (see getCurrentSession)
   const own = userQueryData?.find((u) => u.id === session.user.id && u.password && u.password.trim());
   if (own) await restampSession(session, own.hash);
+  // a staff save that changed songs or clients: the Publishing ClickUp task follows (CLICKUP_TASK_WRITES only)
+  if (role === "staff" && (body.placements || body.clients)) await afterAction(["publishing"]);
 
   return res.status(200).json({ ok: true });
 }

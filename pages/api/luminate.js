@@ -8,6 +8,7 @@ import { afterExports } from "../../lib/luminate-run";
 import { syncSiteFromSheet } from "../../lib/site-sync";
 import { findIsrc, cleanIsrc, ISRC_RE } from "../../lib/isrc";
 import { normalizeTitle } from "../../lib/sheets";
+import { afterAction } from "../../lib/area-tasks";
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 const ids = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x).slice(0, 500) : []);
@@ -215,6 +216,8 @@ export default async function handler(req, res) {
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
     const [status, json] = await act(req.body || {}, session);
+    // the Luminate and Publishing ClickUp tasks follow what just changed (CLICKUP_TASK_WRITES only)
+    if (status === 200) await afterAction(["luminate", "publishing"]);
     return res.status(status).json(json);
   } catch (err) {
     console.error("luminate route failed:", err);
