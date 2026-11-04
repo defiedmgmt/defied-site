@@ -14,6 +14,7 @@ import { uid } from "../../lib/id";
 import { afterAction } from "../../lib/area-tasks";
 import { refreshDeezer } from "../../lib/ar-deezer";
 import { lookupArtist } from "../../lib/ar-lookup";
+import { addEntry, checkDays, TrackerError } from "../../lib/ar/trackers";
 
 // the panel's History: plain sentences only (the cells stay server-side); pending ones are left out
 // until the next load settles them
@@ -97,11 +98,17 @@ export default async function handler(req, res) {
     }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
+    // list B #5: a Watchlist add goes on the adder's own tracker, for the length they picked (30 days if none)
+    const days = req.body?.action === "addTracked" ? checkDays(req.body.days) : null;
     const out = await act(req.body || {}, session.user.name || session.user.email || "staff");
+    const noTable = (err) => { if (err?.code !== "42P01") throw err; };
+    if (req.body?.action === "addTracked" && out?.tracked?.id) await addEntry({ user: { id: session.user.id, name: session.user.name || session.user.email || "" }, subject: `w:${out.tracked.id}`, kind: out.tracked.kind === "song" ? "song" : "artist", days }).catch(noTable);
+    if (req.body?.action === "removeTracked") await sql`UPDATE ar_tracker SET removed_at = now(), removed_why = 'removed' WHERE subject = ${`w:${String(req.body.id || "")}`} AND removed_at IS NULL`.catch(noTable);
     await afterAction(["ar"]); // the A&R ClickUp task follows (CLICKUP_TASK_WRITES only)
     return res.status(200).json(out);
   } catch (err) {
     if (err instanceof ArError) return res.status(err.status).json({ error: err.message, ...err.extra });
+    if (err instanceof TrackerError) return res.status(err.status).json({ error: err.message });
     console.error("ar route failed:", err);
     return res.status(502).json({ error: "Couldn't load the A&R data just now — try again in a minute." });
   }
