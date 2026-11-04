@@ -6,11 +6,22 @@ import { requireStaff, requireSameOrigin } from "../../lib/session";
 import { lumState, portfolioIdOf, writeLuminateIds, knownAreas, isAR, isRoster, moveHeldToClients, getState, setState, portfolioName } from "../../lib/luminate";
 import { afterExports } from "../../lib/luminate-run";
 import { syncSiteFromSheet } from "../../lib/site-sync";
-import { findIsrc, cleanIsrc, ISRC_RE } from "../../lib/isrc";
+import { lookupIsrc, cleanIsrc, ISRC_RE, SOURCES } from "../../lib/isrc";
 import { normalizeTitle } from "../../lib/sheets";
 import { afterAction } from "../../lib/area-tasks";
+import { helperState } from "../../lib/luminate-helper";
 
 const newId = () => Math.random().toString(36).slice(2, 10);
+// the ISRC finder can take a few seconds a song (four services, each at its own pace): a call does
+// what fits in this budget and says which songs are left (later: true) for the page to send again
+export const config = { maxDuration: 60 };
+const FIND_BUDGET_MS = 40000;
+// what the finder offered for one song's ids, or [] to clear them (isrc_candidates; none before its migration)
+const saveCandidates = (ids, p, list) => (list.length
+  ? ids.map((id) => sql`INSERT INTO isrc_candidates (item, song, artist, candidates, checked_at) VALUES (${id}, ${p.song}, ${p.artist}, ${JSON.stringify(list)}, now())
+      ON CONFLICT (item) DO UPDATE SET song = EXCLUDED.song, artist = EXCLUDED.artist, candidates = EXCLUDED.candidates, checked_at = now()`)
+  : [sql`DELETE FROM isrc_candidates WHERE item = ANY(${ids})`]);
+const clearCandidates = (ids) => sql`DELETE FROM isrc_candidates WHERE item = ANY(${ids})`.catch((err) => { if (err?.code !== "42P01") throw err; });
 const ids = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x).slice(0, 500) : []);
 const upsertTracking = (id, set) => sql`
   INSERT INTO song_tracking (placement_id, isrc, isrc_source, isrc_checked_at, portfolio_id, added_at, skip, updated_at)
@@ -92,23 +103,41 @@ async function act(body, session) {
     const isrc = cleanIsrc(body.isrc);
     if (isrc && !ISRC_RE.test(isrc)) return [400, { error: "An ISRC is 12 letters and numbers, like USUM72506269." }];
     await sql.transaction(ids(body.placementIds).map((id) => upsertTracking(id, { isrc, isrc_source: isrc ? "manual" : "", isrc_checked_at: new Date().toISOString() })));
+    await clearCandidates(ids(body.placementIds));
     return [200, { ok: true, isrc }];
   }
+  if (action === "pickIsrc") {
+    // one tap on a candidate the finder offered: saved with the source it came from
+    const isrc = cleanIsrc(body.isrc);
+    const source = Object.hasOwn(SOURCES, body.source) && body.source !== "manual" ? body.source : null;
+    if (!ISRC_RE.test(isrc) || !source) return [400, { error: "Pick one of the songs offered." }];
+    const list = ids(body.placementIds);
+    if (!list.length) return [400, { error: "Pick the song first." }];
+    await sql.transaction(list.map((id) => upsertTracking(id, { isrc, isrc_source: source, isrc_checked_at: new Date().toISOString() })));
+    await clearCandidates(list);
+    return [200, { ok: true, isrc, source }];
+  }
   if (action === "findIsrcs") {
-    // groups: [[ids of one song across clients' pages], …]; a few per call keeps each request short
+    // groups: [[ids of one song across clients' pages], …]. A sure hit is saved (with its source); else
+    // up to 3 candidates are kept for one-tap picking (pickIsrc). A service that's down saves nothing.
     const groups = (Array.isArray(body.groups) ? body.groups : []).map(ids).filter((g) => g.length).slice(0, 8);
     const all = groups.flat();
-    const songs = Object.fromEntries((await sql`SELECT id, song, artist FROM placements WHERE id = ANY(${all})`).map((p) => [p.id, p]));
-    const results = {};
+    const songs = Object.fromEntries((await sql`SELECT id, song, artist, link FROM placements WHERE id = ANY(${all})`).map((p) => [p.id, p]));
+    const results = {}, start = Date.now();
     for (const g of groups) {
       const p = songs[g[0]];
       if (!p) continue;
-      let hit = null, error = null;
-      try { hit = await findIsrc({ song: p.song, artist: p.artist }); } catch (err) { error = err.message; }
-      if (error) { results[g[0]] = { error }; continue; } // Deezer down: try again later, nothing saved
+      if (Date.now() - start > FIND_BUDGET_MS) { results[g[0]] = { later: true }; continue; }
+      let r;
+      try { r = await lookupIsrc({ song: p.song, artist: p.artist, link: p.link }); } catch (err) { results[g[0]] = { error: err.message }; continue; }
+      if (r.failed) { results[g[0]] = { error: r.errors[0]?.message || "The lookup failed" }; continue; } // try again later, nothing saved
       const at = new Date().toISOString();
-      await sql.transaction(g.map((id) => upsertTracking(id, hit ? { isrc: hit.isrc, isrc_source: "deezer", isrc_checked_at: at } : { isrc_checked_at: at })));
-      results[g[0]] = hit ? { isrc: hit.isrc, match: hit.match, title: hit.title, artist: hit.artist } : { notFound: true };
+      const q = g.map((id) => upsertTracking(id, r.hit ? { isrc: r.hit.isrc, isrc_source: r.hit.source, isrc_checked_at: at } : { isrc_checked_at: at }));
+      await sql.transaction(q);
+      await Promise.all(saveCandidates(g, p, r.hit ? [] : r.candidates)).catch((err) => { if (err?.code !== "42P01") throw err; });
+      results[g[0]] = r.hit
+        ? { isrc: r.hit.isrc, match: "exact", source: r.hit.source, title: r.hit.title, artist: r.hit.artist, cover: r.hit.cover }
+        : { notFound: !r.candidates.length, candidates: r.candidates };
     }
     return [200, { results }];
   }
@@ -212,7 +241,11 @@ export default async function handler(req, res) {
   const session = await requireStaff(req, res);
   if (!session) return;
   try {
-    if (req.method === "GET") return res.status(200).json(await lumState());
+    // (with the Mac helper's state: the page's status line, the files it held back, To do's row)
+    if (req.method === "GET") {
+      const [st, helper] = await Promise.all([lumState(), helperState().catch((err) => { console.error("helper state:", err); return null; })]);
+      return res.status(200).json({ ...st, helper });
+    }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
     const [status, json] = await act(req.body || {}, session);

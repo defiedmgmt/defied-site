@@ -11,6 +11,8 @@ import { requireStaff, requireSameOrigin } from "../../lib/session";
 import { arSummary, arWatchNow, mergeProspect, trackedOut, checkTracked, ArError } from "../../lib/ar";
 import { uid } from "../../lib/id";
 import { afterAction } from "../../lib/area-tasks";
+import { refreshDeezer } from "../../lib/ar-deezer";
+import { lookupArtist } from "../../lib/ar-lookup";
 
 // the panel's History: plain sentences only (the cells stay server-side); pending ones are left out
 // until the next load settles them
@@ -39,7 +41,12 @@ async function trackedAct(action, b, by) {
     const v = checkTracked(b, { isNew: true }), id = uid();
     await sql`INSERT INTO ar_tracked (id, kind, name, artist, handle, spotify, isrc, genre, notes, luminate_id, person_id, stage, last_contact, created_by)
       VALUES (${id}, ${v.kind}, ${v.name}, ${v.artist}, ${v.handle}, ${v.spotify}, ${v.isrc}, ${v.genre}, ${v.notes}, ${v.luminateId}, ${v.personId ?? null}, ${v.stage ?? null}, ${v.lastContact || null}, ${by})`;
+    // (the photo column comes with 2026-12-ar-photo.sql: before it runs, the add still goes through)
+    if (v.photo) await sql`UPDATE ar_tracked SET photo = ${v.photo} WHERE id = ${id}`.catch((err) => { if (err?.code !== "42703") throw err; });
     await event(id, by, "created", `${by} added ${v.name} to the Watchlist.`);
+    // their Deezer page (fans, and the songs a songs-only artist is followed by) right away; the nightly
+    // check retries one Deezer didn't answer for
+    if (v.kind === "artist") await Promise.race([refreshDeezer({ ids: [id] }), new Promise((r) => setTimeout(r, 4000))]).catch(() => null);
     return { ok: true, tracked: trackedOut(await trackedRow(id)) };
   }
   const t = await trackedRow(String(b.id || ""));
@@ -49,6 +56,7 @@ async function trackedAct(action, b, by) {
     await sql`UPDATE ar_tracked SET name = ${c("name", "name")}, artist = ${c("artist", "artist")}, handle = ${c("handle", "handle")}, spotify = ${c("spotify", "spotify")},
       isrc = ${c("isrc", "isrc")}, genre = ${c("genre", "genre")}, notes = ${c("notes", "notes")}, luminate_id = ${c("luminateId", "luminate_id")},
       person_id = ${v.personId !== undefined ? v.personId : t.person_id}, last_contact = ${v.lastContact !== undefined ? v.lastContact || null : t.last_contact_day} WHERE id = ${t.id}`;
+    if (v.photo !== undefined && v.photo !== (t.photo || "")) await sql`UPDATE ar_tracked SET photo = ${v.photo} WHERE id = ${t.id}`.catch((err) => { if (err?.code !== "42703") throw err; });
     await event(t.id, by, "edit", `${by} changed ${t.name}'s details.`);
   } else if (action === "stageTracked") {
     const { stage } = checkTracked({ stage: b.stage ?? null }, { isNew: false });
@@ -92,6 +100,8 @@ export default async function handler(req, res) {
   try {
     if (req.method === "GET" && req.query.events) return res.status(200).json({ events: await eventsOf(String(req.query.events)) });
     if (req.method === "GET" && req.query.summary) return res.status(200).json(await arSummary());
+    // Add artist: a pasted Spotify / Instagram / TikTok link -> name, photo, genre (read-only, public pages)
+    if (req.method === "GET" && req.query.lookup) return res.status(200).json(await lookupArtist(String(req.query.lookup).slice(0, 400)));
     if (req.method === "GET") {
       const { state, tracked, arLists, watch, toLuminate } = await arWatchNow();
       return res.status(200).json({ ...state, tracked, arLists, watch, toLuminate });
