@@ -1,14 +1,17 @@
 import PageShell from "../components/PageShell";
+import { NotFound } from "../components/site/NotFound";
 
-// Any unknown URL. App (mounted in _app) sees router.pathname "/404" and shows its own
-// "page not found" view inside the site's nav and footer; this file only supplies <Head>.
+// Any unknown URL: the site's own "page not found" view, inside the site's nav and footer (the app shell's)
 export default function NotFoundPage() {
   return (
-    <PageShell
-      title="Page not found — Defied MGMT"
-      description="This page doesn't exist or has moved."
-      path="/404"
-      noindex
-    />
+    <>
+      <PageShell
+        title="Page not found — Defied MGMT"
+        description="This page doesn't exist or has moved."
+        path="/404"
+        noindex
+      />
+      <NotFound />
+    </>
   );
 }

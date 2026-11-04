@@ -3,9 +3,9 @@ import Head from "next/head";
 const SITE_URL = "https://www.defiedmgmt.com";
 const DEFAULT_IMAGE = `${SITE_URL}/icon-512.png`;
 
-// Each page file renders this for its <Head> metadata only — App itself is
-// mounted once in _app.jsx and persists across navigation; see the note
-// there for why it can't be mounted per-page.
+// Each page file renders this for its <Head> metadata, beside its own content —
+// the app shell (components/app/AppRoot.jsx) is mounted once in _app.jsx and
+// persists across navigation; see the note there for why.
 //
 // `path` (e.g. "/about") drives the canonical + Open Graph/Twitter URLs —
 // passed explicitly per page rather than read from the router, so these
@@ -33,14 +33,12 @@ export default function PageShell({ title, description, path = "/", image = DEFA
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <meta name="theme-color" content="#000000" />
       <meta name="color-scheme" content="dark" />
-      {/* the app's real stylesheet only arrives with its JS bundle — paint the
-          first frame black too, instead of flashing white while that loads */}
+      {/* the page is black before its stylesheet has loaded too, instead of flashing white */}
       <style dangerouslySetInnerHTML={{ __html: "html,body{background:#000;margin:0}" }} />
-      {/* the home wordmark is the first thing painted, but its <img> only exists once the
-          client-only App has run — start downloading it alongside the JS instead of after */}
+      {/* the home wordmark is the first thing painted: start downloading it with the HTML */}
       {preloadHero && <link rel="preload" as="image" href="/brand/wordmark.webp" fetchpriority="high" />}
-      {/* the same goes for the brand font and the site data: both start with the HTML, so they've
-          landed by the time the App bundle runs instead of being fetched one after another after it */}
+      {/* the same goes for the brand font and the site data (the browser's own fresh copy of what
+          the server drew): both start with the HTML instead of after the JS */}
       {/* the dashboard and portal set their titles and labels in it too, so they preload it as well */}
       {preloadFont && <link rel="preload" as="font" type="font/otf" href="/fonts/suntage.otf" crossOrigin="anonymous" />}
       <link rel="preload" as="fetch" href="/api/public-data" crossOrigin="anonymous" />
