@@ -8774,7 +8774,7 @@ function HomePayments({ home, failed, retry, refresh, onGo }) {
           {rows.map((p) => (
             <div key={p.id} className="hp-row" data-pay={p.id}>
               <span className="hp-day">{payDay(p.at)}</span>
-              <span className="hp-who"><strong>{p.client || p.payer || "Unknown payer"}</strong>{p.test && <> <TestChip /></>}<em>{viaText(p)}</em></span>
+              <span className="hp-who"><strong>{p.client || p.payer || "Unknown payer"}</strong>{p.test && <> <TestChip /></>}</span>
               <span className="hp-amt"><b>{money(p.fee)}</b>{p.fee !== p.amount && <em>of {money(p.amount)}</em>}</span>
               <span className="hp-act">{p.logged === false ? <button type="button" className="btn ghost sm pay-log" data-log={p.id} onClick={() => setLogIds([p.id])}>Log it</button>
                 : p.logged ? <span className="hp-in" title="In the accounting sheet"><CheckCircle2 size={14} /> In the sheet</span> : null}</span>
@@ -11522,7 +11522,7 @@ function StyleTag() {
     .app:not(.pub) .hw-panel-head strong{font-weight:500}
     .app:not(.pub) .hw-x{all:unset;cursor:pointer;display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;color:var(--d-ink-3)}
     @media (hover:hover){ .app:not(.pub) .hw-x:hover{background:var(--d-active);color:var(--d-ink)} }
-    /* Home's newest payments (r8): one line each, the date, who, Defied's share, Log it */
+    /* Home's newest payments (r8): one line each, the date, who, Defied's share, Log it (whose link: on Money) */
     .app:not(.pub) .home-pay .attn-head svg{color:var(--d-pos)}
     .app:not(.pub) .home-pay .attn-head .gainer-tabs{margin-left:10px}
     .app:not(.pub) .home-pay .attn-head .home-all{margin-left:auto}
