@@ -14,18 +14,20 @@ import { requireAccess, limited, ownSet } from "../../lib/access";
 import { roleOf, cleanAccess, ROLE_KEYS, sectionLabel } from "../../lib/roles";
 import { readSheetFacts } from "../../lib/sheet-facts-store";
 import { afterAction } from "../../lib/area-tasks";
+import { MAX_DATA_BYTES } from "../../lib/image-links";
 
-// photos are data: URIs inside the rows, so Next's default 1 MB body cap
-// turned every staff save into a 413 once ~5-8 had been uploaded. Vercel's
-// own request cap is 4.5 MB.
+// photos uploaded before list B #2 are data: URIs inside the rows (new ones are Blob links,
+// /api/upload-image), so Next's default 1 MB body cap turned every staff save into a 413 once ~5-8 had
+// been uploaded. Vercel's own request cap is 4.5 MB.
 export const config = { api: { bodyParser: { sizeLimit: "4mb" } } };
 
 // ...and Vercel cuts off any response over 4.5 MB too, so the staff GET, which
-// sends every photo and cover, must stay under it or the dashboard can't even
+// sends every row (and any photo still inside one), must stay under it or the dashboard can't even
 // load to remove one. A save that would take it past this is refused (one that
 // shrinks it always goes through). /api/public-data is a subset of the same
-// rows, so it stays under as well.
-const MAX_DATASET_BYTES = 3500000;
+// rows, so it stays under as well. It was 3.5 MB while every photo was inside the data; with links
+// the reply is a few hundred KB (lib/image-links.js).
+const MAX_DATASET_BYTES = MAX_DATA_BYTES;
 const TOO_BIG = "That's too much to save — the photos and covers are over the size limit. Remove or shrink some images and try again.";
 // a client can't see or shrink what fills it (other clients' photos and covers): they're told to ask
 const TOO_BIG_CLIENT = "Your change couldn't be saved right now — please let the Defied team know.";

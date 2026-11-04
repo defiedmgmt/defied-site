@@ -86,15 +86,17 @@ const nextConfig = {
   // any remote src instead of falling back to the (more permissive) default
   // it uses when no next.config.js exists at all. Every remote host actually
   // used as an image src across the site: Spotify cover art, and photos
-  // hosted on the public marketing site's own asset folder. User-uploaded
-  // photos become data: URIs (PhotoUpload -> fileToDataURL), not remote
-  // hosts, so they're unaffected by this list.
+  // hosted on the public marketing site's own asset folder, and the photos
+  // and covers uploaded in the dashboard (Vercel Blob's public store,
+  // /api/upload-image). Ones uploaded before that are data: URIs, which don't
+  // go through the optimizer at all.
   images: {
     // optimized photos are kept a day too (same rule as the originals above)
     minimumCacheTTL: 86400,
     remotePatterns: [
       { protocol: "https", hostname: "i.scdn.co" },
       { protocol: "https", hostname: "www.defiedmgmt.com" },
+      { protocol: "https", hostname: "*.public.blob.vercel-storage.com" },
     ],
   },
 };

@@ -20,6 +20,7 @@ import { biggestTasks, dueBucket, nyDay } from "../lib/todo-rank";
 import { shareFixes, autoConfirms, autoWords } from "../lib/split-fixes";
 import { foldMonths } from "../lib/months";
 import { SECTIONS, ROLES, ROLE_KEYS, TAB_SECTION, AREA_SECTION, accessFor, cleanAccess, sameManager } from "../lib/roles";
+import { MAX_DATA_BYTES } from "../lib/image-links";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
    this bundle instead of inside it). The chrome wordmark + D live in /public/brand as transparent
@@ -65,7 +66,8 @@ const Avatar = ({ src, name, size = 56 }) =>
 // modern-format copy instead. Needs a position:relative container.
 // next/image only fetches the hosts in next.config.js images.remotePatterns (and this site's own
 // files); a cover pasted from anywhere else would come back 400 from it, so it loads as-is instead
-const OPTIMIZABLE = /^(?:\/(?!\/)|https:\/\/(?:i\.scdn\.co|www\.defiedmgmt\.com)\/)/i;
+// (uploaded photos are Vercel Blob links, *.public.blob.vercel-storage.com, listed there too)
+const OPTIMIZABLE = /^(?:\/(?!\/)|https:\/\/(?:i\.scdn\.co|www\.defiedmgmt\.com|[a-z0-9-]+\.public\.blob\.vercel-storage\.com)\/)/i;
 function Photo({ src: rawSrc, alt, className = "", fill, sizes, ...rest }) {
   const [loaded, setLoaded] = useState(false);
   // the page's security policy only loads https images: an http:// one pasted in gets the secure copy
@@ -78,7 +80,7 @@ function Photo({ src: rawSrc, alt, className = "", fill, sizes, ...rest }) {
   // how every roster/team photo is stored) was silently capping at a fixed
   // 300x300 output no matter what width was requested — next/image's
   // remote-fetch path behaves differently from its local-file path here.
-  // Only real data: URIs (PhotoUpload's base64 output) skip this entirely.
+  // Only data: URIs (photos uploaded before they went to Blob) skip this entirely.
   if (fill && OPTIMIZABLE.test(src || "")) {
     return (
       <NextImage
@@ -243,6 +245,24 @@ function CropModal({ src, onCancel, onDone }) {
   );
 }
 
+// A cropped photo (a data: URI) goes to file storage (/api/upload-image, Vercel Blob) and the row keeps
+// only its link: { url } or { error }. Where storage isn't set up, the image stays inside the row as before.
+async function storeImage(dataUrl) {
+  const type = /^data:([^;,]+)/.exec(dataUrl)?.[1] || "image/jpeg";
+  const bin = atob(dataUrl.slice(dataUrl.indexOf(",") + 1));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  let res = null, data = null;
+  try {
+    res = await fetch("/api/upload-image", { method: "POST", headers: { "Content-Type": type, "X-Requested-With": "defied-site" }, body: bytes });
+    data = await res.json().catch(() => null);
+  } catch { return { error: "Couldn't reach the server, so the photo wasn't added. Check your connection and try again." }; }
+  if (res.ok && data?.url) return { url: data.url };
+  if (res.status === 503 && data?.code === "no-store") return { url: dataUrl };
+  if (res.status === 401) return { error: "You've been signed out. Sign in again, then add the photo." };
+  return { error: data?.error || "Couldn't add that photo. Try again." };
+}
+
 function PhotoUpload({ label, value, onChange }) {
   const [busy, setBusy] = useState(false);
   const [cropSrc, setCropSrc] = useState(null);
@@ -251,26 +271,32 @@ function PhotoUpload({ label, value, onChange }) {
     const file = e.target.files && e.target.files[0];
     e.target.value = "";
     if (!file) return;
-    setBusy(true); setErr(null);
+    setBusy("Loading…"); setErr(null);
     try { setCropSrc(await fileToDataURL(file)); }
     catch { setErr("Couldn't read that image. HEIC photos need a moment to convert — try again, or use a JPG/PNG."); }
     setBusy(false);
   };
+  const use = async (d) => {
+    setCropSrc(null); setBusy("Uploading…"); setErr(null);
+    const r = await storeImage(d);
+    setBusy(false);
+    if (r.url) onChange(r.url); else setErr(r.error);
+  };
   return (
-    <div className="fld">
+    <div className="fld" data-photo-upload="">
       <span>{label}</span>
       <div className="photo-up">
         {value ? <img className="photo-prev" src={value} alt="" /> : <div className="photo-prev photo-prev-empty">No photo</div>}
         <div className="photo-actions">
-          <label className="btn ghost sm photo-btn">
-            {busy ? "Loading…" : value ? "Replace photo" : "Upload photo"}
-            <input type="file" accept="image/*,.heic,.heif" onChange={pick} hidden />
+          <label className={`btn ghost sm photo-btn${busy ? " is-busy" : ""}`} aria-busy={!!busy}>
+            {busy || (value ? "Replace photo" : "Upload photo")}
+            <input type="file" accept="image/*,.heic,.heif" onChange={pick} hidden disabled={!!busy} />
           </label>
-          {value && <button type="button" className="photo-remove" onClick={() => onChange("")}>Remove</button>}
+          {value && !busy && <button type="button" className="photo-remove" onClick={() => onChange("")}>Remove</button>}
         </div>
       </div>
       {err && <p className="hint err-text" role="alert">{err}</p>}
-      {cropSrc && <CropModal src={cropSrc} onCancel={() => setCropSrc(null)} onDone={(d) => { onChange(d); setCropSrc(null); }} />}
+      {cropSrc && <CropModal src={cropSrc} onCancel={() => setCropSrc(null)} onDone={use} />}
     </div>
   );
 }
@@ -2488,8 +2514,9 @@ const ACCOUNT_CHANGED = "Your account was changed — reload the page.";
 const saveFailure = (res, data, fallback, role) => (!res ? SAVE_OFFLINE : res.status === 401 ? SIGNED_OUT
   : data?.error || (res.status === 413 ? (role === "client" ? TOO_BIG_CLIENT : TOO_BIG) : fallback));
 const holdUnload = (e) => { e.preventDefault(); e.returnValue = ""; }; // "leave the page?" while a save is unsent
-// the dashboard loads everything in one reply (photos and covers included), and Vercel won't send one over 4.5 MB
-const MAX_DATA = 3500000;
+// the dashboard loads everything in one reply, and Vercel won't send one over 4.5 MB (lib/image-links.js: photos
+// are links now, so only the ones from before still count much)
+const MAX_DATA = MAX_DATA_BYTES;
 // weighed the way the server weighs it: UTF-8 bytes, and no typed passwords (those are never stored or sent back)
 const dataBytes = (d) => new TextEncoder().encode(JSON.stringify(withoutPasswords(d))).length;
 // a save that can't go onto the server's copy as it is now: why, or null. A save that shrinks the data always goes,
