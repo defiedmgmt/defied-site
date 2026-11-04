@@ -16,7 +16,10 @@ export default async function handler(req, res) {
       if (req.query.fresh) clearTaskCache();
       const [{ lists, tasks }, people, own] = await Promise.all([allTasks(), members(), ownTasks()]);
       const mine = new Set(own.map((t) => t.taskId));
-      return res.status(200).json({ lists, tasks: tasks.filter((t) => !mine.has(t.id)), people, writes: writesOn(), own: own.filter((t) => t.open) });
+      // own: only a task that's really there (open in its list) and kept current (writes on), so "Done for
+      // you" never names one that doesn't exist
+      const there = new Set(tasks.map((t) => t.id));
+      return res.status(200).json({ lists, tasks: tasks.filter((t) => !mine.has(t.id)), people, writes: writesOn(), own: writesOn() ? own.filter((t) => t.open && there.has(t.taskId)) : [] });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
