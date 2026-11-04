@@ -40,6 +40,9 @@
      ("See all 13 ›", "Open calendar ›") keeps its look and gets the height */
   .app:not(.pub) :is(.dash-main,.portal-main,.modal) button.inline-link.home-all{display:inline-flex;align-items:center;min-height:44px}
   .m-tap{min-height:44px;min-width:44px}
+  /* a control that has to stay small to keep its row short (m-tap-off) still gets a 44px tap area:
+     an invisible ::after around it, as the Songs to update "+1" chip does */
+  .app:not(.pub) .upd-gap-more.m-tap-off::after{inset:-11px -11px !important}
 }
 
 /* 3. NO SIDEWAYS SCROLL on phones: long words and links wrap, media never outgrow their box, and a grid

@@ -6057,7 +6057,8 @@ function SongsToUpdate({ db, songInfo, onFix, focus, dupes = [], onDupe }) {
               <span className="fix-mid upd-gaps">
                 {gs.map((g, i) => <span key={g.k} className={`upd-gap${i >= 2 ? " upd-gap-x" : ""}`} data-gap={g.k}>{g.label}</span>)}
                 {x.splitSee && <span className={`upd-gap upd-split${gs.length >= 2 ? " upd-gap-x" : ""}`} data-gap="split-see">Split: see Splits to confirm</span>}
-                {extra > 0 && <button type="button" className="upd-gap upd-gap-more" data-gap-more aria-expanded={open} aria-label={open ? "Show fewer" : `Show ${extra} more`}
+                {/* m-tap-off: a chip-sized toggle so the row stays short; its ::after is the 44px tap area (mobile.css) */}
+                {extra > 0 && <button type="button" className="upd-gap upd-gap-more m-tap-off" data-gap-more aria-expanded={open} aria-label={open ? "Show fewer" : `Show ${extra} more`}
                   onClick={() => setOpened((o) => { const n = new Set(o); if (n.has(x.p.id)) n.delete(x.p.id); else n.add(x.p.id); return n; })}>{open ? "Less" : `+${extra}`}</button>}
               </span>
               <span className="fix-streams">{fmt(x.p.streams || 0)} streams</span>

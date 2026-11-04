@@ -106,7 +106,7 @@ async function act(body) {
 }
 
 export default async function handler(req, res) {
-  // every artist's songs at once (as /api/luminate was): an account limited to its own artists is refused
+  // every artist's songs at once (as the old Luminate route was): an account limited to its own artists is refused
   const session = await requireAccess(req, res, "publishing", { whole: true });
   if (!session) return;
   try {
