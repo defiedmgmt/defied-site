@@ -2592,11 +2592,13 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   useEffect(() => { if (tab === "todo") loadAcctN(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   const cu = useCuTasks(tab);
   const sync = useSyncChecks(tab);
+  const fixes = useSplitFixes();
+  const doneForYou = useAutoConfirm({ db, commit, lum, fixes });
   const todo = useMemo(() => todoItems({ db, lum, acct: acctN, ar: arSum, sync: sync.data }), [db, lum, acctN, arSum, sync.data]);
   const cuDue = (cu.data?.tasks || []).filter((t) => dueBucket(t.due) === "overdue" || dueBucket(t.due) === "today");
   const todoN = todo.length + cuDue.length;
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
-  const ctx = { db, commit, reloadDb, lum, lumErr, reloadLum, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN };
+  const ctx = { db, commit, reloadDb, lum, lumErr, reloadLum, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou };
   const tabs = [
     ["home", "Home", LayoutDashboard], ["todo", "To do", ListChecks, todoN],
     ["catalog", "Publishing", ListMusic, 0, "roster"], ["money", "Money", Receipt, 0, "money"],
@@ -5458,11 +5460,15 @@ async function fullSiteSync(tabDb, commit) {
 // even default, ready to Confirm; "Needs a look" can't be completed evenly, so Fix opens its editor. Confirm is
 // the song editor's Save (the site, then the client's own share to their writer tab); nothing reaches the
 // sheet before it. This isn't ours clears out a song that was never ours
+// the two shares with one clear answer (lib/split-fixes.js), from the last sheet pull's facts
+const shareFixesOf = (db) => shareFixes({ placements: db.placements || [], clients: db.clients || [], facts: db.sheetFacts || {}, makeId: uid });
 function splitsToConfirm(db, lum = null) {
   const assumed = [], look = [];
   // a card in a possible duplicate pair waits for the merge card: confirming the kept one first would
   // keep its even default and drop the other card's named split, and Save on the other one adds a sheet row
   const held = dupeIds(db, lum);
+  // (r7) no split here while the sheet has 100%: To do's own "Use the sheet's split" row, not a split to review
+  for (const x of shareFixesOf(db).site) held.add(x.p.id);
   for (const g of splitsToFix(db)) {
     for (const p of g.songs) {
       if (held.has(p.id)) continue;
@@ -6992,6 +6998,8 @@ function songsToUpdate(db, lum) {
   // a card in a possible duplicate pair is left out until the merge card is answered: Update and Save on the
   // card that would be removed adds a second row for the song to the pub sheet, and then the pair is never asked about
   const held = dupeIds(db, lum);
+  // (r7) a blank share on the sheet with 100% here is To do's own "Fill in 100%" row, not a gap here
+  const fillIds = new Set(shareFixesOf(db).sheet.map((x) => x.p.id));
   const out = [];
   for (const p of db.placements) {
     if (held.has(p.id)) continue;
@@ -6999,7 +7007,7 @@ function songsToUpdate(db, lum) {
     // in Luminate: it has an id (or shares one with its other copy), or staff excluded it on purpose
     const inLuminate = groups ? !!(g?.luminateId || g?.status === "skipped") : !!p.luminateId;
     const split = splitTotal(p.splits) === 100 ? "ok" : evenSplit(p.splits).status;
-    const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split, inLuminate });
+    const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split, inLuminate }).filter((x) => !(x.k === "share" && fillIds.has(p.id)));
     if (!gaps.some((x) => GAP_WORDS[x.k])) continue;
     // a split to confirm or review is Splits to confirm's (build I3): listed here only for the other gaps, with a pointer
     out.push({ p, client: (db.clients || []).find((c) => c.id === p.clientId) || null, gaps: gaps.filter((x) => GAP_WORDS[x.k]), splitSee: gaps.some((x) => !GAP_WORDS[x.k]) });
@@ -7815,6 +7823,13 @@ function todoItems({ db, lum, acct, ar, sync }) {
     else if (it.k === "update") out.push({ ...base, panel: "update", rank: { kind: "fix", value: streams(songsToUpdate(db, lum).map((x) => x.p)) } });
     else if (it.k === "tabs") out.push({ ...base, d: "The pub sheet has no tab by that name. Type the right one here.", cta: it.sub === "roster" ? "Set the sheet tabs" : it.cta, panel: "tabs", rank: { kind: "other" } });
   }
+  // (r7) the shares with one clear answer: One tap, each with its preview first (ShareFix)
+  const fx = shareFixesOf(db);
+  const few = (xs) => (xs.length > 3 ? `${xs.slice(0, 2).map((x) => x.p.song || "Untitled").join(", ")} and ${xs.length - 2} more` : xs.map((x) => `${x.p.song || "Untitled"} (${x.client.name})`).join(", "));
+  if (fx.site.length) out.push({ k: "shareSite", area: "roster", tap: true, t: fx.site.length === 1 ? `"${fx.site[0].p.song || "Untitled"}" has no split here; the sheet has 100%` : `${fx.site.length} songs have no split here; the sheet has 100%`,
+    d: fx.site.length > 1 ? few(fx.site) : `${fx.site[0].client.name}'s tab`, cta: "Use the sheet's split", panel: "shareSite", rank: { kind: "fix", value: streams(fx.site.map((x) => x.p)) } });
+  if (fx.sheet.length) out.push({ k: "shareSheet", area: "roster", tap: true, t: fx.sheet.length === 1 ? `"${fx.sheet[0].p.song || "Untitled"}" has a blank share on the sheet` : `${fx.sheet.length} songs have a blank share on the sheet`,
+    d: "100% here. A blank share earns nothing on the sheet.", cta: fx.sheet.length === 1 ? "Fill in 100%" : `Fill in ${fx.sheet.length}`, panel: "shareSheet", rank: { kind: "fix", value: streams(fx.sheet.map((x) => x.p)) } });
   const due = ar?.followUpsDue || 0;
   if (due) out.push({ k: "follow", area: "ar", t: `${due} A&R follow-up${due === 1 ? "" : "s"} due`, cta: "Review", panel: "follow", rank: { kind: "contacts", value: due } });
   if (ar?.toLuminate?.count) out.push({ k: "arLuminate", area: "ar", t: ar.toLuminate.text.replace(/\.$/, ""), cta: "View list", panel: "arLuminate", rank: { kind: "other" } });
@@ -7853,6 +7868,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
   switch (it.panel) {
     case "drop": case "add": case "match": case "missing": case "gone": return <LuminateAdmin {...lumProps} part={it.panel} />;
     case "splits": case "update": case "dupes": return <PubFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
+    case "shareSite": case "shareSheet": return <ShareFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
     case "tabs": return <SheetTabFix ctx={ctx} />;
     case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log" && viaCta} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
     case "follow": return <ArFollowUps ctx={ctx} />;
@@ -7889,6 +7905,107 @@ function PubFix({ kind, ctx, viaCta = false }) {
       {edit && <SongManager editorOnly db={db} commit={commit} clientId={edit.clientId} isStaff lum={lum} reloadLum={reloadLum} fix={{ id: edit.id, n: edit.n, field: edit.field }} onFix={openFix} onFixList={() => setEdit(null)} onGo={onGo} />}
     </>
   );
+}
+
+// The two shares with one clear answer (lib/split-fixes.js), each One tap with its preview first:
+//   shareSite  no split here while the sheet has 100%: the client at 100% on the site (DB only; the sheet has it)
+//   shareSheet 100% here while the sheet's Writer Share is blank (it earns nothing there): 100% goes into that one
+//              cell (PUB_SHARE_WRITES; off, the card says which cells to type it in)
+function ShareFix({ kind, ctx, viaCta = false }) {
+  const { db, commit, fixes } = ctx;
+  const fx = useMemo(() => shareFixesOf(db), [db]);
+  const items = kind === "shareSite" ? fx.site : fx.sheet;
+  const [ask, setAsk] = useState(viaCta && items.length > 0);
+  const tabOf = (c) => c.sheetTabName?.trim() || c.name;
+  const writes = !!fixes?.data?.writes;
+  const flash = (n) => (ctx.flash ? ctx.flash(n) : null);
+  const useSheet = async () => {
+    const by = new Map(items.map((x) => [x.p.id, x.splits]));
+    const done = await commit({ ...db, placements: db.placements.map((p) => (by.has(p.id) ? { ...p, splits: by.get(p.id) } : p)) });
+    setAsk(false);
+    if (done) flash({ text: `Done. ${items.length === 1 ? `"${items[0].p.song || "Untitled"}" has` : `${items.length} songs have`} the sheet's split now (100%). Nothing was written to the sheet.` });
+  };
+  const fill = async () => {
+    const ok = [], bad = [];
+    for (const x of items) { // one at a time, each re-checked on the server just before its cell is written
+      const r = await fetch("/api/split-fixes", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "fill", placementId: x.p.id }) }).catch(() => null);
+      const j = r ? await r.json().catch(() => ({})) : {};
+      if (r?.ok) ok.push(`${j.tab} ${j.cell}`); else bad.push(`"${x.p.song || "Untitled"}": ${j.error || "no answer"}`);
+    }
+    setAsk(false);
+    // the sheet's new earnings come back with a pull (it reads every tab again, as Pull from the sheet does)
+    if (ok.length) await fullSiteSync(db, commit).catch(() => {});
+    flash({ warn: !!bad.length, text: [ok.length && `Filled in 100% on the sheet (${ok.join(", ")}).`, bad.length && `Not written: ${bad.join("; ")}.`].filter(Boolean).join(" ") });
+  };
+  const cells = items.map((x) => `${tabOf(x.client)} tab, D${x.row}`);
+  return (
+    <div className="todo-sublist" data-share-fix={kind}>
+      {items.map((x) => (
+        <div key={x.p.id} className="fix-row" data-song={x.p.id}>
+          <span className="fix-song"><span className="fix-who">{x.client.name} · </span>{x.p.song || "Untitled"}</span>
+          <span className="fix-mid"><span className="fix-sheet" data-sheet-change={kind}>{kind === "shareSite" ? `no split here → ${x.client.name} 100%, as on the sheet` : `sheet blank (D${x.row}) → 100%, as here`}</span></span>
+        </div>
+      ))}
+      {!items.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every share matches the sheet.</p>
+        : <button className="btn sm" data-share-go={kind} onClick={() => setAsk(true)}>{kind === "shareSite" ? "Use the sheet's split" : items.length === 1 ? "Fill in 100%" : `Fill in ${items.length}`}</button>}
+      {ask && kind === "shareSite" && (
+        <AskCard title={items.length === 1 ? "Use the sheet's split?" : `Use the sheet's split for ${items.length} songs?`} goLabel="Use the sheet's split" busyLabel="Saving…" plain go={useSheet} onClose={() => setAsk(false)}>
+          <p data-ask-writes>Saved on the site only. The sheet already says 100%, so nothing is written to it.</p>
+          <ul className="ask-places">{items.map((x) => <li key={x.p.id}>{x.p.song || "Untitled"}: no split → {x.client.name} 100%</li>)}</ul>
+        </AskCard>
+      )}
+      {ask && kind === "shareSheet" && (
+        <AskCard title={items.length === 1 ? "Fill in the sheet's blank share?" : `Fill in ${items.length} blank shares?`} goLabel={items.length === 1 ? "Fill in 100%" : `Fill in ${items.length}`} busyLabel="Writing…" plain goDisabled={!writes} go={fill} onClose={() => setAsk(false)}>
+          <p data-ask-writes>Writes 100% into the Writer Share cell only ({cells.join("; ")}). Nothing else on the sheet changes. The song's earnings on the sheet go up with it.</p>
+          <ul className="ask-places">{items.map((x) => <li key={x.p.id}>{x.p.song || "Untitled"} ({x.client.name}): blank → 100%</li>)}</ul>
+          {!writes && <p className="hint" data-ask-off>Writing to the pub sheet from here isn't switched on yet. Type 100% into {cells.length === 1 ? "that cell" : "those cells"} instead.{fixes?.data?.sheetUrl && <> <ExtLink className="inline-link" href={fixes.data.sheetUrl}>Open the sheet ↗</ExtLink></>}</p>}
+        </AskCard>
+      )}
+    </div>
+  );
+}
+
+// rule 5: an assumed even split whose client share already is the sheet's is confirmed by itself (DB only, no
+// sheet write) and said once in "Done for you" with Undo. Undo puts the old split back and it's never confirmed by
+// itself again (it's back in Splits to confirm). fixes = useSplitFixes()
+async function splitFixPost(body) {
+  const r = await fetch("/api/split-fixes", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify(body) }).catch(() => null);
+  return r?.ok ? r.json().catch(() => ({})) : null;
+}
+function useSplitFixes() {
+  const [data, setData] = useState(null);
+  const load = () => fetch("/api/split-fixes", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => d?.auto && setData(d)).catch(() => {});
+  useEffect(() => { load(); }, []);
+  return { data, setData, load };
+}
+const AUTO_DAYS = 7; // how long "Done for you" names what was confirmed by itself
+const sameSplits = (a, b) => JSON.stringify((a || []).map((s) => [s.name || "", Number(s.percent) || 0])) === JSON.stringify((b || []).map((s) => [s.name || "", Number(s.percent) || 0]));
+function useAutoConfirm({ db, commit, lum, fixes }) {
+  const tried = useRef("");
+  useEffect(() => {
+    if (!fixes.data || !lum || !db?.sheetFacts) return;
+    const items = autoConfirms({ placements: db.placements, clients: db.clients, facts: db.sheetFacts, held: fixes.data.auto.held, skip: dupeIds(db, lum) });
+    const key = items.map((x) => x.p.id).sort().join(",");
+    if (!items.length || tried.current === key) return;
+    tried.current = key;
+    const by = new Map(items.map((x) => [x.p.id, x.after]));
+    commit({ ...db, placements: db.placements.map((p) => (by.has(p.id) ? { ...p, splits: by.get(p.id) } : p)) })
+      .then((saved) => saved && splitFixPost({ action: "auto", items: items.map((x) => ({ id: x.p.id, song: x.p.song, client: x.client.name, before: x.before, after: x.after })) }))
+      .then(() => fixes.load()).catch(() => {});
+  }, [db, lum, fixes.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const since = Date.now() - AUTO_DAYS * 864e5;
+  const recent = (fixes.data?.auto?.done || []).filter((d) => Date.parse(d.at) > since);
+  const undo = async () => {
+    const ids = recent.map((d) => d.id);
+    // held first, so the split put back isn't confirmed again on the next render
+    fixes.setData((x) => x && { ...x, auto: { done: x.auto.done.filter((d) => !ids.includes(d.id)), held: [...new Set([...x.auto.held, ...ids])] } });
+    await splitFixPost({ action: "undo", ids });
+    const cur = new Map(db.placements.map((p) => [p.id, p]));
+    const back = new Map(recent.filter((d) => cur.has(d.id) && sameSplits(cur.get(d.id).splits, d.after)).map((d) => [d.id, d.before]));
+    if (back.size) await commit({ ...db, placements: db.placements.map((p) => (back.has(p.id) ? { ...p, splits: back.get(p.id) } : p)) });
+    fixes.load();
+  };
+  return recent.length ? [{ k: "splitsAuto", text: autoWords(recent), undo }] : [];
 }
 
 // "X's numbers can't sync": each client's Sheet tab name, typed right here, then the sheet pull checks it
@@ -8143,7 +8260,7 @@ function DoneForYou({ ctx }) {
     <p className="todo-line todo-done-for-you" data-done-for-you>
       <CheckCircle2 size={14} /> <span>Done for you:{" "}
         {own.length > 0 && <>ClickUp's {own.map((t, i) => <React.Fragment key={t.taskId}>{i ? (i === own.length - 1 ? " and " : ", ") : ""}<ExtLink className="inline-link" href={t.url}>{OWN_NAMES[t.kind]}</ExtLink></React.Fragment>)} {own.length === 1 ? "task keeps" : "tasks keep"} themselves up to date.</>}
-        {extra.map((x) => <React.Fragment key={x.k}> {x.text}{x.undo && <> <button className="inline-link" onClick={x.undo}>Undo</button></>}</React.Fragment>)}
+        {extra.map((x) => <React.Fragment key={x.k}> {x.text}{x.undo && <> <button className="inline-link" data-undo={x.k} onClick={x.undo}>Undo</button></>}</React.Fragment>)}
       </span>
     </p>
   );
