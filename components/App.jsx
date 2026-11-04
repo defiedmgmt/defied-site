@@ -18,7 +18,7 @@ import { songGaps, netStreamsOf, SONG_GAPS } from "../lib/sheet-facts";
 import { likelyDuplicates, mergedCard, mergedTitle, plainTitle } from "../lib/duplicates";
 import { biggestTasks, dueBucket, nyDay } from "../lib/todo-rank";
 import { shareFixes, autoConfirms, autoWords } from "../lib/split-fixes";
-import { foldMonths } from "../lib/months";
+import { foldMonths, monthMatches } from "../lib/months";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
    this bundle instead of inside it). The chrome wordmark + D live in /public/brand as transparent
@@ -5356,6 +5356,10 @@ const isSheetSyncStale = (db) => {
 // revenue/adminFee/luminateId onto matching placements. Doesn't create new
 // placements or claim rows back to the sheet; fullSiteSync layers that on
 // top using rowsByClient.
+// stored the way the live site's pull stores them (the sheet's shown values): money to the cent, a new
+// card's share to one decimal (33.3, as the tab shows 1/3), the same as lib/site-sync.js
+const toCents = (n) => Math.round((Number(n) || 0) * 100 + (n >= 0 ? 1e-9 : -1e-9)) / 100;
+const toShare1 = (n) => Math.round((Number(n) || 0) * 10 + 1e-9) / 10;
 async function pullAndMergeSheetData(db, clients) {
   const res = await fetch("/api/sheets-pull", {
     method: "POST",
@@ -5403,8 +5407,8 @@ async function pullAndMergeSheetData(db, clients) {
     return {
       ...p,
       streams: row.grossStreams,
-      revenue: row.grossRevenue,
-      adminFee: row.adminFee,
+      revenue: toCents(row.grossRevenue),
+      adminFee: toCents(row.adminFee),
       // the sheet wins here, not fill-blanks-only like everything else on
       // this route — staff correct/update Luminate IDs directly on the
       // sheet as part of the weekly refresh, and a fill-blanks rule would
@@ -5481,8 +5485,8 @@ async function fullSiteSync(tabDb, commit) {
         releaseDate: "", link: "", cover: "", notable: false,
         luminateId: row.luminateId || "",
         // a blank Writer Share on the sheet comes in as 0%, never an invented 100%: the splits task flags it
-        splits: [{ id: uid(), name: c.name, role: c.role || "", percent: row.writerShare || 0 }],
-        streams: row.grossStreams, revenue: row.grossRevenue, adminFee: row.adminFee,
+        splits: [{ id: uid(), name: c.name, role: c.role || "", percent: toShare1(row.writerShare) }],
+        streams: row.grossStreams, revenue: toCents(row.grossRevenue), adminFee: toCents(row.adminFee),
       });
       const tabName = c.sheetTabName || c.name;
       claims.push({ tab: tabName, row: row.row, syncId: `${id}:${tabName.toLowerCase()}` });
@@ -6400,11 +6404,13 @@ const agoShort = (iso) => {
   return m < 2 ? "just now" : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
 };
 // The weekly exports' next due day: a week after the newest numbers (To do's Calendar counts from it too)
+// the day the clients' numbers are from (the oldest portfolio's newest export), and the next one a week on
+// (made: the Luminate page's "Last update", so "Next due" always comes after it)
 function lumDue(lum) {
   const made = lum?.lastUpload?.numbersFrom || lum?.lastUpload?.at || (lum?.portfolios || []).map((p) => p.exportedAt).filter(Boolean).sort().pop();
   if (!made) return null;
   const day = addDays(nyDay(made), 7);
-  return { day, late: day < nyDay(Date.now()) };
+  return { day, late: day < nyDay(Date.now()), made };
 }
 // The Mac helper in a few words, for the Luminate page's status line (warn: set up but not heard from in a day)
 function helperWords(h) {
@@ -6938,7 +6944,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo
   // what a portfolio's latest export holds, by type: "33 songs + 2 releases", "3 artists"
   const held = (p) => [p.songCount && `${p.songCount} song${p.songCount === 1 ? "" : "s"}`, p.artistCount && `${p.artistCount} artist${p.artistCount === 1 ? "" : "s"}`,
     p.releaseCount && `${p.releaseCount} release${p.releaseCount === 1 ? "" : "s"}`, p.otherTypes && `${p.otherTypes} other`].filter(Boolean).join(" + ") || "0 songs";
-  const last = lum.lastUpload, due = lumDue(lum), hw = helperWords(lum.helper);
+  const due = lumDue(lum), hw = helperWords(lum.helper);
   const pName = (id) => lum.portfolios.find((p) => p.id === id)?.name || "a portfolio";
   const candidates = groups.filter((g) => !g.luminateId && !g.skip);
   const skipped = groups.filter((g) => g.status === "skipped");
@@ -7127,7 +7133,8 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo
       </div>
       {/* one status line: the last update, the next one due, and the Mac helper */}
       <p className="hint overview-subhint lm-status" data-lm-status>
-        {last ? <>Last update {shortDay(last.at)} ({ago(last.at)}){last.by ? ` by ${last.by}` : ""}</> : "No exports taken in yet"}
+        {/* the numbers' own day (not when the file was dropped), and no one's name: a test login's would show */}
+        {due ? <>Last update {shortDay(due.made)} ({ago(due.made)})</> : "No exports taken in yet"}
         {due && <> · <span className={due.late ? "warn-text" : undefined} data-lm-due>{due.late ? `Next was due ${shortDay(due.day)}` : `Next due ${shortDay(due.day)}`}</span></>}
         {hw && <> · <span className={hw.warn ? "warn-text" : undefined} data-helper-state={hw.state}>{hw.text}</span></>}
       </p>
@@ -7149,7 +7156,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo
             return (
               <button key={p.id} className="lm-port" onClick={() => setEditing({ ...p })} title={p.fixedName ? "Edit link or size" : "Edit name, link or size"}>
                 <span className="lm-port-top"><strong>{p.name}</strong></span>
-                <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity ? ` · Full${room ? ` · new songs go in ${room.name}` : ""}` : ""}</span>
+                <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity && <> · Full{room && <span className="lm-port-room"> · new songs go in {room.name}</span>}</>}</span>
                 <span className={`lm-bar${pct >= 95 ? " full" : pct >= 80 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
                 <span className="lm-port-meta">{held(p)}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
                 <span className={age > 8 ? "lm-port-meta lm-port-old" : "lm-port-meta"}>{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}${age > 8 ? ` (${age} days ago)` : ""}${p.songCount ? ` · ${fmt(p.totalStreams)} all-time streams` : ""}` : "No export yet"}</span>
@@ -7415,6 +7422,8 @@ const HomeMore = ({ n, open, onToggle }) => (n > 0 ? <button className="btn ghos
 // Each list says the days it covers ("This week" on the Dashboard). The A&R lists' movers live on
 // the A&R tab, not here.
 const GAINER_TABS = [["songs", "Songs"], ["artists", "Artists"], ["ar", "A&R"]];
+// "A", "A and B", "A, B and C"
+const listWords = (xs) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 // "▲ 157.5%", "▼ 12.0%": the same as the A&R tab's
 const wowText = pctText;
 function useRosterTop() {
@@ -7471,7 +7480,7 @@ function TopGainers({ db, lum, onGo, arTop, arLoaded }) {
         </span>
       </div>
       <div className="home-scroll" ref={body}>
-        {span && <p className="gainer-sub">{dayRange(span.from, span.to)} · vs the week before</p>}
+        {span && <p className="gainer-sub">{dayRange(span.from, span.to)} · vs the week before{!isAR && top?.olderWeek && <span data-older-week> · the newest week with numbers</span>}</p>}
         {empty ? (
           <p className="gainers-empty">{empty}{!isAR && !top && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
         ) : isAR ? rows.map((r, i) => [split(i), (
@@ -7503,12 +7512,18 @@ function TopGainers({ db, lum, onGo, arTop, arLoaded }) {
             </button>
           )];
         })}
-        {/* a portfolio still exported the old way has no week to rank: one plain line each */}
-        {!isAR && top && (top.noWeekly || []).map((p) => (
-          <p key={p.name} className="gainers-noweek">
-            <i aria-hidden="true" /><span><span className="gainers-noweek-t">{p.name} has no weekly numbers yet. Drop its new export to include its songs.</span> <button className="inline-link" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></span>
-          </p>
-        ))}
+        {/* the portfolios still exported the old way have no week to rank: one plain line for all of them
+            (r8), under the newest week that has numbers when there is one */}
+        {!isAR && top?.noWeekly?.length > 0 && (() => {
+          const n = top.noWeekly.length, names = listWords(top.noWeekly.map((p) => p.name));
+          return (
+            <p className="gainers-noweek">
+              <i aria-hidden="true" /><span><span className="gainers-noweek-t">{top.olderWeek
+                ? `${names}: the newest export${n === 1 ? " has" : "s have"} no weekly numbers.`
+                : `${names} ${n === 1 ? "has" : "have"} no weekly numbers yet. Drop ${n === 1 ? "its new export" : "their new exports"} to include ${n === 1 ? "its" : "their"} songs.`}</span> <button className="inline-link" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></span>
+            </p>
+          );
+        })()}
       </div>
       <ScrollFoot n={hidden} box={body} />
     </div>
@@ -7531,13 +7546,13 @@ function useHome() {
   const loader = useRef(null);
   useEffect(() => {
     let alive = true;
-    const load = () => { setFailed(false); return fetch("/api/home", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+    const load = (fresh = false) => { setFailed(false); return fetch(`/api/home${fresh ? "?fresh=1" : ""}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (!alive) return; if (d?.money) { dashCache.home = d; setHome(d); } else setFailed(true); }).catch(() => alive && setFailed(true)); };
     loader.current = load;
     load();
     return () => { alive = false; };
   }, []);
-  return { home, failed, retry: () => loader.current?.() };
+  return { home, failed, retry: () => loader.current?.(), refresh: () => loader.current?.(true) };
 }
 const monthName = (ym) => (ym ? new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: "long" }) : "This month");
 
@@ -7617,20 +7632,21 @@ function HomeWait({ failed, retry, what }) {
     : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>;
 }
 
-// "October", "September": this month and the one before, in words
-const monthWord = (offset) => { const d = new Date(); d.setDate(15); d.setMonth(d.getMonth() + offset); return d.toLocaleDateString(undefined, { month: "long" }); };
+// "Nov", "Oct": this month and the one before, from the day the page is viewed
+const monthShort = (offset) => { const d = new Date(); d.setDate(15); d.setMonth(d.getMonth() + offset); return d.toLocaleDateString("en-US", { month: "short" }); };
 function MoneyRow({ money: m, failed, retry }) {
   if (!m || !m.connected || m.error) {
     return (
       <div className="home-money">
-        <span className="cat-stat-label">Through Stripe</span>
+        <span className="cat-stat-label">This month ({monthShort(0)})</span>
         {!m ? <HomeWait failed={failed} retry={retry} what="the commission" />
           : !m.connected ? <p className="home-muted"><CircleDollarSign size={15} /> Connect Stripe to see your commission here.</p>
           : <p className="home-muted"><AlertTriangle size={15} /> {m.error}</p>}
       </div>
     );
   }
-  const stats = [["thisMonth", `Through Stripe · ${m.month ? monthName(m.month) : monthWord(0)}`], ["lastMonth", monthWord(-1)], ["thisYear", "This year"]];
+  // the months named from the day the page is viewed: "This month (Nov)", "Last month (Oct)" (Stripe: the (i))
+  const stats = [["thisMonth", `This month (${monthShort(0)})`], ["lastMonth", `Last month (${monthShort(-1)})`], ["thisYear", "This year"]];
   return (
     <div className="cat-summary home-money-row">
       <div className="cat-summary-grid">
@@ -7834,6 +7850,26 @@ function AcctOverview({ d, onSec }) {
   const diffText = (v) => (v ? money(v).replace("$-", "-$") : "—");
   const clean = yr && !cents2(yr.diff - covered) && !nLog && !nCheck;
   const fold = foldMonths(M || []);
+  const [unfold, setUnfold] = useState(false); // the matching months' own rows, opened from the fold line
+  const monthRow = (m) => (
+    <div key={m.month} className="acct-mrow" role="row" data-month={m.month} data-explained={m.explained ? "1" : "0"}>
+      <span role="cell" className="acct-mname">{m.label}</span>
+      <span role="cell" className="acct-amt" data-col="stripe">{money(m.stripe)}</span>
+      <span role="cell" className="acct-amt" data-col="sheet">{money(m.sheet)}</span>
+      <span role="cell" className={m.diff ? "acct-amt acct-diff" : "acct-amt"} data-col="diff">{diffText(m.diff)}</span>
+      <span role="cell" className="acct-why" data-col="why">
+        {!m.diff && !m.parts.length ? <span className="acct-match"><CheckCircle2 size={14} /> Matches</span> : (
+          <>{m.parts.map((x, i) => (
+            <React.Fragment key={i}>{i ? " · " : ""}<span className={x.kind === "rounding" || x.kind === "covered" ? "acct-round" : undefined} data-part={x.kind}>{x.text}</span>
+              {x.kind === "unlogged" && <> (<button className="inline-link" data-part-log onClick={() => onSec("log")}>log them</button>)</>}
+              {(x.kind === "share" || x.kind === "extra") && x.url && <> (<ExtLink className="inline-link" href={x.url}>open row ↗</ExtLink>{checkRow.has(x.row) && <>, <button className="inline-link" onClick={() => onSec("check")}>see To check</button></>})</>}
+            </React.Fragment>
+          ))}
+            {!m.explained && <>{m.parts.length ? " · " : ""}<span className="acct-unexplained">Not explained yet: {money(Math.abs(m.residual))} · <button className="inline-link" onClick={() => onSec("check")}>see To check</button></span></>}</>
+        )}
+      </span>
+    </div>
+  );
   return (
     <>
       {yr && (
@@ -7856,27 +7892,16 @@ function AcctOverview({ d, onSec }) {
         {!M ? <p className="home-muted"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the months can't be compared.</p> : (
           <div className="acct-mtable" role="table" aria-label="Stripe and the sheet by month">
             <div className="acct-mrow acct-mhead" role="row"><span role="columnheader">Month</span><span role="columnheader" className="acct-amt">Through Stripe</span><span role="columnheader" className="acct-amt">In the sheet</span><span role="columnheader" className="acct-amt">Difference</span><span role="columnheader">Why</span></div>
-            {/* only the months that differ get a row; the ones that match fold into one line (r7) */}
-            {fold.differ.map((m) => (
-              <div key={m.month} className="acct-mrow" role="row" data-month={m.month} data-explained={m.explained ? "1" : "0"}>
-                <span role="cell" className="acct-mname">{m.label}</span>
-                <span role="cell" className="acct-amt" data-col="stripe">{money(m.stripe)}</span>
-                <span role="cell" className="acct-amt" data-col="sheet">{money(m.sheet)}</span>
-                <span role="cell" className={m.diff ? "acct-amt acct-diff" : "acct-amt"} data-col="diff">{diffText(m.diff)}</span>
-                <span role="cell" className="acct-why" data-col="why">
-                  {!m.diff && !m.parts.length ? <span className="acct-match"><CheckCircle2 size={14} /> Matches</span> : (
-                    <>{m.parts.map((x, i) => (
-                      <React.Fragment key={i}>{i ? " · " : ""}<span className={x.kind === "rounding" || x.kind === "covered" ? "acct-round" : undefined} data-part={x.kind}>{x.text}</span>
-                        {x.kind === "unlogged" && <> (<button className="inline-link" data-part-log onClick={() => onSec("log")}>log them</button>)</>}
-                        {(x.kind === "share" || x.kind === "extra") && x.url && <> (<ExtLink className="inline-link" href={x.url}>open row ↗</ExtLink>{checkRow.has(x.row) && <>, <button className="inline-link" onClick={() => onSec("check")}>see To check</button></>})</>}
-                      </React.Fragment>
-                    ))}
-                      {!m.explained && <>{m.parts.length ? " · " : ""}<span className="acct-unexplained">Not explained yet: {money(Math.abs(m.residual))} · <button className="inline-link" onClick={() => onSec("check")}>see To check</button></span></>}</>
-                  )}
-                </span>
+            {/* only the months that differ get a row; the ones that match fold into one line (r7), which opens
+                their own rows in place (r8: rarely needed, so behind the line) */}
+            {fold.differ.map(monthRow)}
+            {fold.matched > 0 && (
+              <div className="acct-mrow acct-mfold" role="row">
+                <span role="cell" className="acct-match" data-folded={fold.matched}><CheckCircle2 size={14} /> {fold.text}</span>
+                <button type="button" className="inline-link acct-unfold" data-unfold aria-expanded={unfold} onClick={() => setUnfold((x) => !x)}>{unfold ? "Hide them" : `Show ${fold.matched === 1 ? "it" : `the ${fold.matched}`}`}</button>
               </div>
-            ))}
-            {fold.matched > 0 && <div className="acct-mrow acct-mfold" role="row" data-folded={fold.matched}><span role="cell" className="acct-match"><CheckCircle2 size={14} /> {fold.text}</span></div>}
+            )}
+            {unfold && (M || []).filter(monthMatches).reverse().map(monthRow)}
             <div className="acct-mrow acct-mtotal" role="row" data-total="year">
               <span role="cell" className="acct-mname">This year</span>
               <span role="cell" className="acct-amt" data-col="stripe">{money(yr.stripe)}</span>
@@ -8521,7 +8546,7 @@ function DoneForYou({ ctx }) {
   return (
     <p className="todo-line todo-done-for-you" data-done-for-you>
       <CheckCircle2 size={14} /> <span>Done for you:{" "}
-        {own.length > 0 && <>ClickUp's {own.map((t, i) => <React.Fragment key={t.taskId}>{i ? (i === own.length - 1 ? " and " : ", ") : ""}<ExtLink className="inline-link" href={t.url}>{OWN_NAMES[t.kind]}</ExtLink></React.Fragment>)} {own.length === 1 ? "task keeps" : "tasks keep"} themselves up to date.</>}
+        {own.length > 0 && <>ClickUp's {own.map((t, i) => <React.Fragment key={t.taskId}>{i ? (i === own.length - 1 ? " and " : ", ") : ""}<ExtLink className="inline-link" href={t.url}>{OWN_NAMES[t.kind]}</ExtLink></React.Fragment>)} {own.length === 1 ? "task keeps itself" : "tasks keep themselves"} up to date.</>}
         {extra.map((x) => <React.Fragment key={x.k}> {x.text}{x.undo && <> <button className="inline-link" data-undo={x.k} onClick={x.undo}>Undo</button></>}</React.Fragment>)}
       </span>
     </p>
@@ -8614,10 +8639,11 @@ function TodoCalendar({ ctx }) {
   );
 }
 
-// Home: the numbers, the sync pill and the biggest tasks (at most five, ranked across ClickUp and the
-// site by lib/todo-rank.js), each opening and finished right here; "See all N" opens To do
+// Home: the numbers, the sync pill, then the biggest tasks (at most five, ranked across ClickUp and the
+// site by lib/todo-rank.js, each opening and finished right here; "See all N" opens To do) beside This
+// week (the roster's biggest gainers), then this week's calendar and the newest payments (r8)
 function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
-  const { home, failed, retry } = useHome();
+  const { home, failed, retry, refresh } = useHome();
   const unlogged = home?.accounting?.unlogged, toCheck = home?.accounting?.toCheck || 0;
   useEffect(() => {
     if (!unlogged) return;
@@ -8642,6 +8668,130 @@ function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
         </div>
         <TopGainers db={ctx.db} lum={ctx.lum} onGo={ctx.onGo} arTop={ctx.ar?.top} arLoaded={!!ctx.ar} />
       </div>
+      <HomeWeek ctx={ctx} home={home} todo={todo} />
+      <HomePayments home={home} failed={failed} retry={retry} refresh={refresh} onGo={ctx.onGo} />
+    </div>
+  );
+}
+
+// Home's week: Monday to Sunday with To do Calendar's own sources (ClickUp's due tasks, the Luminate
+// day, payments to log), today marked, at most two a day plus "+N". A day's items open right here, in a
+// small panel under it: a ClickUp task with Done ✓, a site item as its To do row (opening in place). An
+// empty day stays empty.
+const HOME_WEEK_CHIPS = 2;
+const SITE_ITEM_OF = { money: (it) => it.k === "log", luminate: (it) => it.area === "luminate" && it.rank?.kind === "luminate" };
+function HomeWeek({ ctx, home, todo }) {
+  const today = nyDay(Date.now());
+  const dow = (iso) => new Date(`${iso}T12:00:00Z`).getUTCDay();
+  const start = addDays(today, -((dow(today) + 6) % 7)); // Monday
+  const days = [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(start, i));
+  const events = CAL_SOURCES.flatMap((f) => f({ ...ctx, home }, days[0], days[6]));
+  const on = (d) => events.filter((e) => e.day === d);
+  const [pick, setPick] = useState(null); // { day, at: the day's box } | null
+  const [openK, setOpenK] = useState(null); // the site item open in the panel
+  const close = () => { setPick(null); setOpenK(null); };
+  useEscape(close, !!pick);
+  const show = (day, el) => { const b = el.closest(".hw-day").getBoundingClientRect(); setOpenK(null); setPick(pick?.day === day ? null : { day, b }); };
+  const loading = !ctx.cu.data && !ctx.cu.failed;
+  const label = (e) => <><span className="hw-chip-t">{e.label}</span></>;
+  return (
+    <div className="home-card home-week" data-home-week>
+      <div className="attn-head hw-head"><CalendarDays size={15} /> This week's calendar <span className="hw-range">{shortDay(days[0])} – {shortDay(days[6])}</span>
+        <button type="button" className="inline-link home-all" data-open-cal onClick={() => ctx.onGo("todo", "calendar")}>Open calendar ›</button></div>
+      <div className="hw-grid" role="list">
+        {days.map((d) => {
+          const evs = on(d), more = evs.length - HOME_WEEK_CHIPS;
+          return (
+            <div key={d} role="listitem" className={["hw-day", d === today && "today", d < today && "past", pick?.day === d && "picked"].filter(Boolean).join(" ")} data-day={d}>
+              <span className="hw-name">{WEEKDAY_SHORT[dow(d)]} <b>{Number(d.slice(8))}</b>{d === today && <em className="hw-today">Today</em>}</span>
+              {evs.slice(0, more > 0 ? HOME_WEEK_CHIPS - 1 : HOME_WEEK_CHIPS).map((e, i) => (
+                <button key={i} type="button" className={`hw-chip${e.late ? " late" : ""}`} data-kind={e.kind} data-area={e.kind} title={e.label} onClick={(ev) => show(d, ev.currentTarget)}>{label(e)}</button>
+              ))}
+              {more > 0 && <button type="button" className="hw-more" data-more={d} onClick={(ev) => show(d, ev.currentTarget)}>+{more + 1} more</button>}
+              {!evs.length && loading && d === today && <span className="hw-wait"><RefreshCw size={12} className="spin" /></span>}
+            </div>
+          );
+        })}
+      </div>
+      {pick && (
+        <HomeWeekPanel at={pick.b} onClose={close}>
+          <div className="hw-panel-head"><strong>{new Date(`${pick.day}T12:00:00Z`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" })}</strong>
+            <button type="button" className="hw-x" aria-label="Close" onClick={close}><X size={16} /></button></div>
+          {on(pick.day).map((e, i) => {
+            if (e.task) return <CuTodoRow key={e.task.id} t={e.task} cu={ctx.cu} />;
+            const it = SITE_ITEM_OF[e.kind] && todo.find(SITE_ITEM_OF[e.kind]);
+            return it ? <TodoRow key={it.k} it={it} open={openK === it.k} onToggle={() => setOpenK((k) => (k === it.k ? null : it.k))} ctx={ctx} />
+              : <div key={i} className="attn-row" data-area={e.kind}><span className="attn-main"><b>{e.label}</b></span></div>;
+          })}
+          {!on(pick.day).length && <p className="todo-line">Nothing on this day.</p>}
+        </HomeWeekPanel>
+      )}
+    </div>
+  );
+}
+// the day's panel: placed under the day (or over it when there's no room below), inside the window;
+// a click outside closes it
+function HomeWeekPanel({ at, onClose, children }) {
+  const box = useRef(null);
+  useEffect(() => {
+    const out = (e) => { if (box.current && !box.current.contains(e.target) && !e.target.closest?.(".hw-day, .modal")) onClose(); };
+    document.addEventListener("mousedown", out);
+    return () => document.removeEventListener("mousedown", out);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const vw = typeof window === "undefined" ? 1440 : window.innerWidth, vh = typeof window === "undefined" ? 900 : window.innerHeight;
+  const w = Math.min(460, vw - 32), left = Math.max(16, Math.min(at.left, vw - w - 16));
+  const below = vh - at.bottom - 16, above = at.top - 16;
+  const pos = below >= 260 || below >= above ? { top: at.bottom + 6, maxHeight: below - 6 } : { bottom: vh - at.top + 6, maxHeight: above - 6 };
+  return <div ref={box} className="hw-panel attn todo" role="dialog" aria-label="This day" style={{ left, width: w, ...pos }}>{children}</div>;
+}
+
+// Home's newest payments: the last five from Stripe (the same rows and Log it as Money › All payments),
+// and the accounting sheet's four numbers as the card's second tab; "All payments ›" opens Money
+const HOME_PAY_N = 5;
+function HomePayments({ home, failed, retry, refresh, onGo }) {
+  const [sec, setSec] = useState("payments");
+  const [logIds, setLogIds] = useState(null);
+  const P = home?.payments, A = home?.accounting;
+  const rows = P?.items?.slice(0, HOME_PAY_N) || [];
+  let body;
+  if (!home) body = <HomeWait failed={failed} retry={retry} what="the payments" />;
+  else if (sec === "accounting") {
+    body = !A?.connected ? <p className="home-muted">Accounting sheet: not connected yet.</p>
+      : A.error ? <p className="home-muted"><AlertTriangle size={15} /> {A.error}</p>
+      : (
+        <div className="cat-summary-grid acct-grid home-acct">
+          {[["monthNet", `Net · ${monthName(A.month)}`, `${money(A.monthRevenue)} in · ${money(A.monthExpenses)} out`], ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]].map(([k, l, note]) => (
+            <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{l}</span><span className="cat-stat-val">{money(A[k])}</span>{note && <span className="acct-note">{note}</span>}</div>
+          ))}
+        </div>
+      );
+  } else {
+    body = !P?.connected ? <p className="home-muted"><CircleDollarSign size={15} /> Connect Stripe to see payments here.</p>
+      : P.error ? <p className="home-muted"><AlertTriangle size={15} /> {P.error}</p>
+      : !rows.length ? <p className="home-muted">No payments yet.</p>
+      : (
+        <div className="hp-list">
+          {rows.map((p) => (
+            <div key={p.id} className="hp-row" data-pay={p.id}>
+              <span className="hp-day">{payDay(p.at)}</span>
+              <span className="hp-who"><strong>{p.client || p.payer || "Unknown payer"}</strong>{p.test && <> <TestChip /></>}<em>{viaText(p)}</em></span>
+              <span className="hp-amt"><b>{money(p.fee)}</b>{p.fee !== p.amount && <em>of {money(p.amount)}</em>}</span>
+              <span className="hp-act">{p.logged === false ? <button type="button" className="btn ghost sm pay-log" data-log={p.id} onClick={() => setLogIds([p.id])}>Log it</button>
+                : p.logged ? <span className="hp-in" title="In the accounting sheet"><CheckCircle2 size={14} /> In the sheet</span> : null}</span>
+            </div>
+          ))}
+        </div>
+      );
+  }
+  return (
+    <div className="home-card home-pay" data-home-pay>
+      <div className="attn-head"><CircleDollarSign size={15} /> Recent payments
+        <span className="gainer-tabs" role="tablist" aria-label="Money">
+          {[["payments", "Payments"], ["accounting", "Accounting"]].map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} data-pay-tab={k} className={sec === k ? "active" : ""} onClick={() => setSec(k)}>{l}</button>)}
+        </span>
+        <button type="button" className="inline-link home-all" data-all-payments onClick={() => onGo("money", sec === "accounting" ? null : "payments")}>{sec === "accounting" ? "Open Money" : P?.total ? `All payments (${fmt(P.total)})` : "All payments"} ›</button></div>
+      {body}
+      {logIds && <LogConfirm ids={logIds} canLog={!!A?.canLog} onClose={() => setLogIds(null)} onDone={refresh} onDetails={() => onGo("todo", "log")} />}
     </div>
   );
 }
@@ -10644,7 +10794,9 @@ function StyleTag() {
     .app:not(.pub) .lm-port:focus-visible{outline:1px solid #f5f5f5;outline-offset:-1px}
     .app:not(.pub) .lm-port-top{grid-row:1 / span 2;display:flex;align-items:center;gap:8px;min-width:0}
     .app:not(.pub) .lm-port-top strong{font-size:14px;font-weight:600;color:var(--d-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .app:not(.pub) .lm-port-count{grid-column:2;grid-row:1;font-size:12.5px;white-space:nowrap} .app:not(.pub) .lm-port-count b{font-size:15px;font-weight:600;color:var(--d-ink)}
+    .app:not(.pub) .lm-port-count{grid-column:2;grid-row:1;min-width:0;font-size:12.5px;line-height:1.35;white-space:nowrap}
+    .app:not(.pub) .lm-port-room{white-space:normal}   /* "· new songs go in Admin Catalog 2" wraps in its own column, never over the next */
+    .app:not(.pub) .lm-port-count:has(.lm-port-room){white-space:normal} .app:not(.pub) .lm-port-count b{font-size:15px;font-weight:600;color:var(--d-ink)}
     .app:not(.pub) .lm-port > .lm-bar{grid-column:2;grid-row:2;height:4px}
     .app:not(.pub) .lm-port-meta{font-size:12px;color:var(--d-ink-4);min-width:0}
     .app:not(.pub) .lm-port > .lm-port-meta{grid-row:1 / span 2}
@@ -11027,7 +11179,8 @@ function StyleTag() {
     .app:not(.pub) .acct-status.ok{color:var(--d-ink-2)}
     .app:not(.pub) .acct-status.ok>svg{color:var(--d-pos)}
     .app:not(.pub) .acct-round{color:var(--d-ink-4)}
-    .app:not(.pub) .acct-mrow.acct-mfold > .acct-match{grid-column:1 / -1}
+    .app:not(.pub) .acct-mrow.acct-mfold{display:flex;align-items:center;gap:12px}
+    .app:not(.pub) .acct-unfold{font-size:13px}
     .app:not(.pub) .adv-forecast{margin-top:32px}
     .app:not(.pub) .adv-forecast .cat-summary{margin:12px 0}
     .app:not(.pub) .adv-forecast .master-table-wrap{margin-top:12px}
@@ -11304,28 +11457,34 @@ function StyleTag() {
       .app:not(.pub) .home-money-info:is(:hover,:focus) + .home-money-note{opacity:1;visibility:visible}
     }
     @media (min-width:900px) and (min-height:640px){
+      /* r8: the head and the money strip; Biggest tasks beside This week (one height, the taller one's);
+         the week's calendar; the newest payments in what's left, showing the rows that fit */
       .app:not(.pub) .dash-main:has(> .home){padding-bottom:20px}
-      .app:not(.pub) .home{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);grid-template-rows:auto auto minmax(0,auto) minmax(200px,1fr);gap:12px;
+      .app:not(.pub) .home{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);grid-template-rows:auto auto auto auto minmax(96px,1fr);gap:10px 12px;
         height:calc(100vh - 52px);height:calc(100dvh - 52px)}   /* the page's 32px top and 20px bottom padding */
       .app:not(.pub):has(> .storage-warn) .home{height:calc(100dvh - 52px - var(--d-ban-h))}
-      .app:not(.pub) .home > :is(.admin-head,.home-money-row,.home-money){grid-column:1 / -1;margin:0}
+      .app:not(.pub) .home > :is(.admin-head,.home-money-row,.home-money,.home-week,.home-pay){grid-column:1 / -1;margin:0}
       .app:not(.pub) .home-row{display:contents}
-      /* To do (the longest list) takes the whole left column; This week sits top-right at its own
-         height (its top 5), and Money gets the rest of the right column under it */
-      .app:not(.pub) .home-row > .todo{grid-column:1;grid-row:3 / span 2;min-height:0}
-      .app:not(.pub) .home-row > .todo.clear{align-self:start}   /* "All caught up" stays one line */
+      .app:not(.pub) .home-row > .todo{grid-column:1;grid-row:3;min-height:0}
       .app:not(.pub) .home-row > .gainers{grid-column:2;grid-row:3;min-height:0}
-      .app:not(.pub) .home > .home-money-card{grid-column:2;grid-row:4;min-height:0;margin:0}
       .app:not(.pub) .home .home-card{max-height:none}
       .app:not(.pub) .home .home-card > .attn-head{flex:none}   /* the head never gives way to the list */
-      .app:not(.pub) .home-money-card{container-type:inline-size}
-      @container (max-width:560px){ .app:not(.pub) .pay-all-w{display:none} }
-      @container (max-width:500px){ .app:not(.pub) .money-tabs .tab-the{display:none} }   /* "Not in sheet" keeps the head on one line at 1280 */
-      /* Not in the sheet's head sits above the list. On a short window (1366x768, 1280x800) the card is
-         small: the head is one line ("Add these 5 · $… paid", Log all 5) and the column labels go, so a
-         whole payment row shows without scrolling */
-      .app:not(.pub) .home-money-card .acct-unlogged-top{flex:none}
-      .app:not(.pub) .home-money-card .acct-log-all{flex:none}
+      .app:not(.pub) .home .attn-head{min-height:44px;padding-top:6px;padding-bottom:6px}
+      /* one window's worth: rows a little tighter than To do's own, the text the same size */
+      .app:not(.pub) .home .home-top > :is(.todo-item,.cu-todo) > .attn-row,.app:not(.pub) .home .home-top > .cu-todo{min-height:50px;padding-top:6px;padding-bottom:6px}
+      .app:not(.pub) .home .gainers .gainer{padding-top:5px;padding-bottom:5px}
+      .app:not(.pub) .home .gainers .lm-cover{width:36px;height:36px}
+      .app:not(.pub) .home .gainer-sub{padding:8px 16px 4px}
+      .app:not(.pub) .home .hw-day{min-height:66px;padding:6px 8px 8px;gap:3px}
+      .app:not(.pub) .home .gainers .gainer-num{gap:1px}
+      .app:not(.pub) .home .gainers .lm-song-main{gap:1px}
+      .app:not(.pub) .home .hw-chip{padding:1px 7px}
+      .app:not(.pub) .home .hp-row{min-height:40px;padding-top:4px;padding-bottom:4px}
+      .app:not(.pub) .home .hp-row .btn.sm{height:30px;min-height:30px;padding-inline:12px}
+      /* a payment row that doesn't fit wraps into a second column, which the card hides: whole rows only */
+      .app:not(.pub) .home-pay{min-height:0}
+      .app:not(.pub) .home-pay .hp-list{flex:1 1 0;min-height:0;flex-wrap:wrap;align-content:flex-start;overflow:hidden}
+      .app:not(.pub) .home-pay .hp-row{width:100%}
     }
     /* the same one-line head on phones, so the Money card stays inside its phone cap with the list under it */
     @media (min-width:900px) and (max-height:820px), (max-width:599px){
@@ -11338,6 +11497,65 @@ function StyleTag() {
     @media (min-width:900px) and (max-width:1399px) and (min-height:640px){
       .app:not(.pub) .home{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
     }
+    /* Home's week (r8): seven days in a row, today marked, at most two chips a day */
+    .app:not(.pub) .hw-head .hw-range{font-weight:400;font-size:12.5px;color:var(--d-ink-4)}
+    .app:not(.pub) .hw-head svg{color:var(--d-a-cu)}
+    .app:not(.pub) .hw-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--d-line)}
+    .app:not(.pub) .hw-day{display:flex;flex-direction:column;gap:4px;min-width:0;min-height:82px;padding:8px 8px 10px;border-left:1px solid var(--d-line)}
+    .app:not(.pub) .hw-day:first-child{border-left:0}
+    .app:not(.pub) .hw-day.today{background:var(--d-s2)}
+    .app:not(.pub) .hw-day.picked{box-shadow:inset 0 0 0 1px var(--d-ink-3)}
+    .app:not(.pub) .hw-name{display:flex;align-items:center;gap:5px;min-height:18px;font:600 11px/1.2 var(--d-body);letter-spacing:.08em;text-transform:uppercase;color:var(--d-ink-4)}
+    .app:not(.pub) .hw-name b{font-size:12px;font-weight:600;letter-spacing:0;color:var(--d-ink-3)}
+    .app:not(.pub) .hw-day.today .hw-name,.app:not(.pub) .hw-day.today .hw-name b{color:var(--d-ink)}
+    .app:not(.pub) .hw-day.past .hw-name b{color:var(--d-ink-4)}
+    .app:not(.pub) .hw-today{margin-left:auto;padding:1px 7px;border-radius:100px;background:#f5f5f5;color:#000;font:600 10px/1.5 var(--d-body);letter-spacing:.04em;font-style:normal;text-transform:none}
+    .app:not(.pub) .hw-chip{all:unset;box-sizing:border-box;display:block;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:3px 7px;border-radius:6px;
+      box-shadow:inset 3px 0 0 var(--area,var(--d-ink-3));background:var(--d-s3);font-size:12.5px;line-height:1.4;color:var(--d-ink-2);cursor:pointer}
+    @media (hover:hover){ .app:not(.pub) .hw-chip:hover{background:var(--d-active);color:var(--d-ink)} .app:not(.pub) .hw-more:hover{color:var(--d-ink)} }
+    .app:not(.pub) .hw-chip.late{color:var(--d-neg)}
+    .app:not(.pub) .hw-more{all:unset;cursor:pointer;padding:0 7px;font-size:12px;line-height:1.5;color:var(--d-ink-3)}
+    .app:not(.pub) :is(.hw-chip,.hw-more,.hw-x):focus-visible{outline:1px solid #f5f5f5;outline-offset:1px}
+    .app:not(.pub) .hw-wait{color:var(--d-ink-4)}
+    .app:not(.pub) .hw-panel{position:fixed;z-index:60;overflow-y:auto;overscroll-behavior:contain;box-shadow:var(--d-shadow-pop)}
+    .app:not(.pub) .hw-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px 8px 16px;font-size:13.5px;color:var(--d-ink)}
+    .app:not(.pub) .hw-panel-head strong{font-weight:500}
+    .app:not(.pub) .hw-x{all:unset;cursor:pointer;display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;color:var(--d-ink-3)}
+    @media (hover:hover){ .app:not(.pub) .hw-x:hover{background:var(--d-active);color:var(--d-ink)} }
+    /* Home's newest payments (r8): one line each, the date, who, Defied's share, Log it */
+    .app:not(.pub) .home-pay .attn-head svg{color:var(--d-pos)}
+    .app:not(.pub) .home-pay .attn-head .gainer-tabs{margin-left:10px}
+    .app:not(.pub) .home-pay .attn-head .home-all{margin-left:auto}
+    .app:not(.pub) .hp-list{display:flex;flex-direction:column;border-top:1px solid var(--d-line)}
+    .app:not(.pub) .hp-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto 112px;align-items:center;gap:14px;min-height:42px;padding:5px 16px;border-bottom:1px solid var(--d-line)}
+    .app:not(.pub) .hp-day{font-size:13px;color:var(--d-ink-3);white-space:nowrap}
+    .app:not(.pub) .hp-who{display:flex;align-items:baseline;gap:8px;min-width:0;white-space:nowrap;overflow:hidden}
+    .app:not(.pub) .hp-who strong{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;font-size:14px;font-weight:500;color:var(--d-ink)}
+    .app:not(.pub) .hp-who em{min-width:0;overflow:hidden;text-overflow:ellipsis;font-style:normal;font-size:12.5px;color:var(--d-ink-4)}
+    .app:not(.pub) .hp-amt{display:flex;align-items:baseline;justify-content:flex-end;gap:6px;white-space:nowrap}
+    .app:not(.pub) .hp-amt b{font-size:14px;font-weight:600;color:var(--d-pos)}
+    .app:not(.pub) .hp-amt em{font-style:normal;font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .hp-act{display:flex;justify-content:flex-end}
+    .app:not(.pub) .hp-in{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--d-ink-4);white-space:nowrap}
+    .app:not(.pub) .hp-in svg{color:var(--d-pos)}
+    .app:not(.pub) .home-acct{margin:0;padding:12px 16px 14px;border-top:1px solid var(--d-line);grid-template-columns:repeat(4,minmax(0,1fr))}
+    @media (max-width:599px){
+      .app:not(.pub) .hw-grid{grid-template-columns:minmax(0,1fr)}
+      .app:not(.pub) .hw-day{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:center;column-gap:10px;min-height:44px;padding:6px 12px;border-left:0;border-top:1px solid var(--d-line)}
+      .app:not(.pub) .hw-day:first-child{border-top:0}
+      .app:not(.pub) .hw-day > :not(.hw-name){grid-column:2}
+      .app:not(.pub) .hw-name{grid-row:1 / span 3}
+      .app:not(.pub) .hw-today,.app:not(.pub) .hw-head .hw-range{display:none}
+      .app:not(.pub) .hw-chip{padding:9px 9px;min-height:40px}
+      .app:not(.pub) .hw-more{min-height:40px;display:inline-flex;align-items:center}
+      .app:not(.pub) .hp-row{grid-template-columns:minmax(0,1fr) auto;row-gap:2px;padding:8px 14px}
+      .app:not(.pub) .hp-who{grid-column:1;grid-row:1} .app:not(.pub) .hp-day{grid-column:1;grid-row:2;font-size:12.5px}
+      .app:not(.pub) .hp-amt{grid-column:2;grid-row:1} .app:not(.pub) .hp-act{grid-column:2;grid-row:2}
+      .app:not(.pub) .home-pay .attn-head{flex-wrap:wrap;row-gap:10px}
+      .app:not(.pub) .home-pay .attn-head .gainer-tabs{margin-left:0;order:3}
+      .app:not(.pub) .home-acct{grid-template-columns:repeat(2,minmax(0,1fr))}
+    }
+    @media (max-width:899px){ .app:not(.pub) .home > :is(.home-week,.home-pay){margin:0 0 12px} }
     /* To do: caps labels in each area's colour, a 3px bar on each row */
     .app:not(.pub) .todo .attn-head svg{color:var(--d-warn)}
     .app:not(.pub) .todo.clear .attn-head svg{color:var(--d-pos)}
@@ -11669,11 +11887,7 @@ function StyleTag() {
     .app:not(.pub) .home-all{margin-left:auto;font-size:12.5px;text-decoration:none;color:var(--d-ink-3)}
     .app:not(.pub) .home-top{overflow:visible}
     .app:not(.pub) .home-top .attn-head{display:flex;align-items:center;gap:8px}
-    @media (min-width:900px) and (min-height:640px){
-      .app:not(.pub) .home{height:auto;grid-template-rows:auto auto auto}
-      .app:not(.pub) .home-row > .todo{grid-row:3}
-      .app:not(.pub) .home-row > .todo,.app:not(.pub) .home-row > .gainers{align-self:start}
-    }
+    /* (r8: Home's one-screen grid is the block under "One screen" above) */
     .app:not(.pub) .sync-pill{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border:1px solid var(--d-line-2);border-radius:999px;background:none;color:var(--d-ink-3);font:500 12.5px/1 var(--d-body);cursor:pointer;white-space:nowrap}
     .app:not(.pub) .sync-pill.ok{border-color:var(--d-pos-line);color:var(--d-pos)}
     .app:not(.pub) .sync-pill.warn{border-color:var(--d-warn-line);color:var(--d-warn);background:var(--d-warn-bg)}
