@@ -3240,7 +3240,7 @@ const pctText = (p) => (flatPct(p) ? "0.0%" : `${p >= 0 ? "▲" : "▼"} ${Math.
 const WowPill = ({ pct, big }) => (pct == null ? null : <span className={big ? "wow-pill big" : "wow-pill"} data-dir={flatPct(pct) ? "flat" : pct >= 0 ? "up" : "down"}>{pctText(pct)}</span>);
 // someone we track by hand with no row in the Luminate A&R list yet (producers from OUTREACH
 // rarely have one, and Passed is done, so neither counts)
-const needsLumRow = (r) => r.ref?.type === "tracked" && !r.luminateId && r.stage !== "passed";
+const needsLumRow = (r) => r.ref?.type === "tracked" && !r.luminateId && !r.songsOnly && r.stage !== "passed";
 const UpDown = ({ r }) => (r.current == null ? <span className="muted">No numbers yet</span>
   : r.changePct == null ? <span className="muted-dash" title="No last week to compare">—</span>
   : <WowPill pct={r.changePct} />);
@@ -3336,8 +3336,8 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
 // no money anywhere (only producers have estimates)
 function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }) {
   const isNew = !t;
-  const init = t || { name: prefill?.name || "", artist: "", handle: "", spotify: "", isrc: "", genre: "", notes: "", luminateId: prefill?.luminateId || "", personId: null, stage: null };
-  const [f, setF] = useState({ ...init, stage: init.stage || "" });
+  const init = t || { name: prefill?.name || "", artist: "", handle: "", spotify: "", isrc: "", genre: "", notes: "", luminateId: prefill?.luminateId || "", personId: null, stage: null, photo: "" };
+  const [f, setF] = useState({ ...init, stage: init.stage || "", photo: init.photo || "" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const dirty = ["name", "artist", "handle", "spotify", "isrc", "genre", "notes", "luminateId", "personId", "stage"].some((k) => String(f[k] ?? "") !== String((k === "stage" ? init.stage || "" : init[k]) ?? ""));
@@ -3345,13 +3345,42 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
   useEscape(guard.tryClose, !busy);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const type = kind === "song" ? "song" : "artist";
+  // Add artist (r7 C2): paste a Spotify or Instagram link and the name, photo and genre fill in (GET
+  // /api/ar?lookup=); then Watching or Signed. No Luminate row to pick: they're matched by name later.
+  const simple = isNew && type === "artist";
+  const [link, setLink] = useState("");
+  const [look, setLook] = useState(null); // null | { busy: true } | the lookup's answer
+  const auto = useRef({}); // what the last lookup filled in: replaced by the next one unless typed over
+  useEffect(() => {
+    const v = link.trim();
+    if (!simple || !v) { setLook(null); return undefined; }
+    if (!/(spotify\.com|spotify\.link|instagram\.com|instagr\.am|tiktok\.com)\//i.test(v)) { setLook({ ok: false, error: "Paste a Spotify artist link or an Instagram or TikTok profile." }); return undefined; }
+    let gone = false;
+    const timer = setTimeout(async () => {
+      setLook({ busy: true });
+      const r = await fetch(`/api/ar?lookup=${encodeURIComponent(v)}`, { cache: "no-store" }).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+      if (gone) return;
+      if (!r) { setLook({ ok: false, error: "Couldn't look that up just now. Type their details in." }); return; }
+      setLook(r);
+      if (!r.ok) return;
+      setF((x) => {
+        const keep = (k) => x[k].trim() && x[k] !== auto.current[k];
+        const next = { ...x, name: keep("name") || !r.name ? x.name : r.name, genre: keep("genre") || !r.genre ? x.genre : r.genre, photo: r.photo || x.photo };
+        if (r.spotify) next.spotify = r.spotify;
+        if (r.handle) next.handle = r.handle;
+        auto.current = { name: next.name, genre: next.genre };
+        return next;
+      });
+    }, 350);
+    return () => { gone = true; clearTimeout(timer); };
+  }, [link, simple]);
   // rows of that A&R list nobody has taken yet (plus this one's own)
   const taken = new Set((pg?.watch?.[type === "song" ? "songs" : "people"] || []).filter((r) => r.ref && r.luminateId && r.ref.id !== t?.id).map((r) => r.luminateId));
   const rows = (pg?.arLists || []).flatMap((l) => l.rows.filter((r) => r.type === type && !taken.has(r.id)));
   const people = (pg?.watch?.people || []).filter((r) => r.ref);
   const save = async () => {
     setBusy(true); setErr(null);
-    const body = { name: f.name, artist: f.artist, handle: f.handle, spotify: f.spotify, isrc: f.isrc, genre: f.genre, notes: f.notes, luminateId: f.luminateId, personId: f.personId || null };
+    const body = { name: f.name, artist: f.artist, handle: f.handle, spotify: f.spotify, isrc: f.isrc, genre: f.genre, notes: f.notes, luminateId: f.luminateId, personId: f.personId || null, ...(type === "artist" && { photo: f.photo || "" }) };
     try {
       if (isNew) await arPost({ action: "addTracked", kind: type, ...body, stage: type === "artist" ? f.stage || null : null });
       else {
@@ -3361,11 +3390,17 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
       await onSaved();
     } catch (e) { setErr(e.message); setBusy(false); }
   };
+  // an A&R song the ISRC finder wasn't sure about: one tap saves the right one
+  const pickIsrc = async (c) => {
+    setBusy(true); setErr(null);
+    try { await arPost({ action: "editTracked", id: t.id, isrc: c.isrc }); await onSaved(); } catch (e) { setErr(e.message); setBusy(false); }
+  };
   const [askStop, setAskStop] = useState(false);
   const remove = async () => {
     setAskStop(false); setBusy(true);
     try { await arPost({ action: "removeTracked", id: t.id }); await onSaved(); } catch (e) { setErr(e.message); setBusy(false); }
   };
+  const whereFrom = (r) => (r.kind === "spotify" ? "from Spotify" : `${r.kind === "instagram" ? "Instagram" : "TikTok"} ${r.handle}`);
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && guard.tryClose()}>
       <div className="modal-card ar-tracked-form" data-kind={type}>
@@ -3376,10 +3411,35 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
           {isNew && prefill?.nums && (
             <p className="ar-nums ar-prefill-nums">This week {fmt(prefill.nums.thisWeek ?? 0)}{prefill.nums.wowPct != null && ` · ${pctText(prefill.nums.wowPct)} vs last week`}{prefill.nums.atd != null && ` · ${bigNum(prefill.nums.atd)} all-time`}</p>
           )}
-          {isNew && prefill?.name && <p className="hint mb">Their numbers already come in from Luminate. Add a handle or Spotify link, or put them on the board.</p>}
+          {isNew && prefill?.name && !simple && <p className="hint mb">Their numbers already come in from Luminate. Add a handle or Spotify link, or put them on the board.</p>}
           {err && <p className="hint err-text" role="alert">{err}</p>}
+          {simple && <>
+            <label className="fld"><span>Spotify or Instagram link</span>
+              <input data-ar-link value={link} onChange={(e) => setLink(e.target.value)} placeholder="open.spotify.com/artist/… or instagram.com/…" aria-label="Spotify or Instagram link" autoFocus inputMode="url" />
+            </label>
+            {look?.busy && <p className="hint ar-look-wait"><RefreshCw size={12} className="spin" /> Looking them up…</p>}
+            {look && !look.busy && !look.ok && <p className="hint err-text" data-ar-look-err>{look.error}</p>}
+            {look?.ok && (
+              <div className="ar-look" data-ar-look>
+                <Avatar src={f.photo} name={f.name || "?"} size={48} />
+                <span className="ar-look-main">
+                  <strong>{f.name || "We couldn't read their name: type it below"}</strong>
+                  <span>{[f.genre, look.fans != null && `${fmt(look.fans)} Deezer fans`, whereFrom(look)].filter(Boolean).join(" · ")}</span>
+                </span>
+              </div>
+            )}
+          </>}
           <Field label={type === "song" ? "Song title" : "Name"} value={f.name} onChange={set("name")} />
-          {type === "artist" && (
+          {simple && (
+            <div className="fld"><span>Watching or signed?</span>
+              <span className="gainer-tabs ar-watch-signed" role="tablist" aria-label="Watching or signed">
+                {[["", "Watching"], ["signed", "Signed"]].map(([id, label]) => (
+                  <button key={label} type="button" role="tab" aria-selected={f.stage === id} className={f.stage === id ? "active" : ""} data-stage-pick={id || "watching"} onClick={() => setF({ ...f, stage: id })}>{label}</button>
+                ))}
+              </span>
+            </div>
+          )}
+          {type === "artist" && !simple && (
             <label className="fld"><span>Stage</span>
               <select value={f.stage} onChange={set("stage")} aria-label="Stage">
                 <option value="">Just watching (not on the Board)</option>
@@ -3389,16 +3449,19 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
             </label>
           )}
           {type === "song" && <Field label="Artist" value={f.artist} onChange={set("artist")} />}
-          {type === "artist" && <Field label="Instagram or TikTok" value={f.handle} onChange={set("handle")} />}
-          <Field label="Spotify link" value={f.spotify} onChange={set("spotify")} />
+          {type === "artist" && !simple && <Field label="Instagram or TikTok" value={f.handle} onChange={set("handle")} />}
+          {!simple && <Field label="Spotify link" value={f.spotify} onChange={set("spotify")} />}
           {type === "song" && <Field label="ISRC (if you have it)" value={f.isrc} onChange={set("isrc")} />}
-          <label className="fld"><span>Their row in your {type === "song" ? "Song Tracker" : "Artist Tracker"} list in Luminate</span>
-            <select value={f.luminateId} onChange={set("luminateId")} aria-label="Their row in Luminate">
-              <option value="">None yet</option>
-              {rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-            <span className="hint">Not there? Add them in Luminate. They show up here after your next export.</span>
-          </label>
+          {type === "song" && t?.isrcCandidates?.length > 0 && !f.isrc && <IsrcPicks list={t.isrcCandidates} busy={busy} onPick={pickIsrc} />}
+          {!simple && (
+            <label className="fld"><span>Their row in your {type === "song" ? "Song Tracker" : "Artist Tracker"} list in Luminate</span>
+              <select value={f.luminateId} onChange={set("luminateId")} aria-label="Their row in Luminate">
+                <option value="">None yet</option>
+                {rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+              <span className="hint">Not there? Add them in Luminate. They show up here after your next export.</span>
+            </label>
+          )}
           {type === "artist" && <Field label="Genre" value={f.genre} onChange={set("genre")} />}
           {type === "song" && (
             <label className="fld"><span>Tied to (optional)</span>
@@ -3409,13 +3472,13 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
             </label>
           )}
           <Area label="Notes" value={f.notes} onChange={set("notes")} />
-          <p className="hint">Saved here in the dashboard only. Nothing goes into the pub sheet.</p>
+          <p className="hint" data-ar-form-line>{simple ? "No Luminate id needed. If Luminate has no artist page for them yet, add their songs to the Song Tracker: we add them up here." : "Saved here in the dashboard only. Nothing goes into the pub sheet."}</p>
         </div>
         {guard.bar}
         <div className="modal-foot">
           {!isNew && <button className="btn ghost sm err-text arb-remove" onClick={() => setAskStop(true)} disabled={busy}>Stop tracking</button>}
           <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="btn sm" onClick={save} disabled={busy || !f.name.trim()}>{busy ? "Saving…" : isNew ? "Save" : "Save changes"}</button>
+          <button className="btn sm" onClick={save} disabled={busy || look?.busy || !f.name.trim()}>{busy ? "Saving…" : isNew ? "Save" : "Save changes"}</button>
         </div>
       </div>
       {askStop && (
@@ -3821,7 +3884,7 @@ function ArWatch({ ar, onGo, at }) {
     const s = r.ref?.type === "prospect" ? sheetById[r.ref.id] : null, t = r.ref?.type === "tracked" ? tracked[r.ref.id] : null;
     const key = r.ref ? `${r.ref.type === "prospect" ? "p" : "t"}:${r.ref.id}` : r.key;
     return { ...r, handle: s?.contact || t?.handle || "", value: s ? s.money.totalEstValue : null, stage: stageBy[key] ?? r.stage,
-      lastContact: s?.lastContact?.date || t?.lastContact || null, lastText: s?.lastContact?.text || "" };
+      lastContact: s?.lastContact?.date || t?.lastContact || null, lastText: s?.lastContact?.text || "", photo: t?.photo || r.deezer?.picture || "" };
   });
   const songs = (pg?.watch?.songs || []).map((r) => ({ ...r, name: r.title, tiedTo: r.personId ? nameOfPerson(r.personId) : "" }));
   const needle = find.trim().toLowerCase();
@@ -3869,7 +3932,8 @@ function ArWatch({ ar, onGo, at }) {
   const cols = pill === "songs" ? "minmax(0,2.2fr) 118px minmax(0,.9fr) minmax(0,.9fr)"
     : `minmax(0,1.7fr) 112px minmax(84px,.8fr)${tight ? "" : " minmax(84px,.8fr)"} minmax(112px,1fr) minmax(104px,.8fr)${producers ? " minmax(84px,.8fr)" : ""}`;
   const dash = (title) => <span className="muted-dash" title={title}>—</span>;
-  const subOf = (r) => (pill === "people" ? [r.role === "producer" ? "Producer" : "Artist", r.handle]
+  // (an artist Luminate has no artist page for: their songs' numbers added up, and their Deezer fans)
+  const subOf = (r) => (pill === "people" ? [r.role === "producer" ? "Producer" : "Artist", r.handle, r.songsOnly && `${r.songCount} ${r.songCount === 1 ? "song" : "songs"}`, r.deezer?.fans != null && `${fmt(r.deezer.fans)} Deezer fans`]
     : [r.artist || (r.release ? "Release" : ""), r.tiedTo && `tied to ${r.tiedTo}`]).filter(Boolean).join(" · ");
   const rowKey = (e, r) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openRow(r, e); } };
   return (
@@ -3913,7 +3977,7 @@ function ArWatch({ ar, onGo, at }) {
             return (
               <div key={r.key} role="button" tabIndex={0} className={`admin-row ar-link ar-row${lit === r.key ? " ar-flash" : ""}`} data-focus={`w:${r.key}`} data-key={r.key} style={{ "--cols": cols }}
                 onClick={(e) => openRow(r, e)} onKeyDown={(e) => rowKey(e, r)}>
-                <span className="cell ar-who" data-col="name"><strong>{r.name}</strong>
+                <span className="cell ar-who" data-col="name">{r.photo ? <span className="ar-who-top"><Avatar src={r.photo} name={r.name} size={24} /><strong>{r.name}</strong></span> : <strong>{r.name}</strong>}
                   {(sub || needsLumRow(r)) && (
                     <span className="ar-who-sub">
                       {sub && <span>{sub}</span>}
@@ -3922,6 +3986,7 @@ function ArWatch({ ar, onGo, at }) {
                     </span>
                   )}
                   {r.clientId ? <span className="tag ar-client-tag" data-tone="pos" title="One of our signed clients">Client</span>
+                    : r.songsOnly ? <span className="tag ar-songs-only" data-songs-only title="Luminate has no artist page for them yet: these are their Song Tracker songs added up">Songs only</span>
                     : r.fromLuminate && <span className="ar-add-hint" aria-hidden="true">+ Add details</span>}
                 </span>
                 <span className="cell" data-col="pct">{r.current == null ? dash("No numbers yet") : r.changePct == null ? dash("No last week to compare") : <WowPill pct={r.changePct} />}</span>
@@ -6289,6 +6354,172 @@ async function lumPost(body) {
   return data;
 }
 
+// The Mac helper's door for staff (POST /api/luminate-helper): a held file applied or discarded.
+// Answers { status, data } so a 409 (the checks refused it) or a 400 (a new portfolio) can ask.
+async function helperPost(body) {
+  const res = await fetch("/api/luminate-helper", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+    body: JSON.stringify(body),
+  }).catch(() => null);
+  if (!res) throw new Error("That didn't go through — check your connection and try again.");
+  return { status: res.status, data: (await res.json().catch(() => null)) || {} };
+}
+// where an ISRC came from, in lib/isrc.js SOURCES' words (App.jsx can't import server code)
+const ISRC_SOURCES = { "spotify-link": "the song's Spotify link", deezer: "Deezer", "deezer-artist": "the artist's Deezer page", musicbrainz: "MusicBrainz", manual: "typed in" };
+// the finder's guesses for a song (any of its pages' ids), or []
+const isrcPicksOf = (lum, g) => (g.isrc ? [] : g.ids.map((id) => lum?.isrcCandidates?.[id]).find((x) => x?.length) || []);
+// "5 min ago", "3 h ago", "2 days ago"
+const agoShort = (iso) => {
+  const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  return m < 2 ? "just now" : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+};
+// The weekly exports' next due day: a week after the newest numbers (To do's Calendar counts from it too)
+function lumDue(lum) {
+  const made = lum?.lastUpload?.numbersFrom || lum?.lastUpload?.at || (lum?.portfolios || []).map((p) => p.exportedAt).filter(Boolean).sort().pop();
+  if (!made) return null;
+  const day = addDays(nyDay(made), 7);
+  return { day, late: day < nyDay(Date.now()) };
+}
+// The Mac helper in a few words, for the Luminate page's status line (warn: set up but not heard from in a day)
+function helperWords(h) {
+  if (!h) return null;
+  if (!h.on) return { text: "Mac helper: off", state: "off" };
+  if (!h.lastSeen) return { text: "Mac helper: set up, not checked in yet", state: "waiting", warn: true };
+  const late = Date.now() - new Date(h.lastSeen).getTime() > 864e5;
+  return { text: `Mac helper: ${late ? "last" : "on,"} checked in ${agoShort(h.lastSeen)}`, state: late ? "late" : "on", warn: late };
+}
+
+// A row's ⋯ menu (rule 3: one button per row; the rest goes here). Placed on the screen itself like the
+// Board's, so a list that scrolls can't cut it off; it follows its button and closes on a tap elsewhere.
+function RowMenu({ label, items }) {
+  const [menu, setMenu] = useState(null);
+  const box = useRef(null), dots = useRef(null);
+  useEscape(() => setMenu(null), !!menu);
+  const place = () => {
+    const r = dots.current?.getBoundingClientRect();
+    if (!r || r.bottom < 0 || r.top > window.innerHeight) return null;
+    const up = window.innerHeight - r.bottom < 24 + items.length * 40;
+    return { right: Math.max(8, window.innerWidth - r.right), ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }) };
+  };
+  const isOpen = !!menu;
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const follow = () => setMenu(place());
+    const off = (e) => { if (!box.current?.contains(e.target)) setMenu(null); };
+    window.addEventListener("scroll", follow, true); window.addEventListener("resize", follow);
+    document.addEventListener("mousedown", off); document.addEventListener("touchstart", off);
+    return () => { window.removeEventListener("scroll", follow, true); window.removeEventListener("resize", follow); document.removeEventListener("mousedown", off); document.removeEventListener("touchstart", off); };
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!items.length) return null;
+  return (
+    <span className="row-more" ref={box}>
+      <button ref={dots} type="button" className="btn ghost sm row-dots" aria-label={label} title={label} aria-haspopup="menu" aria-expanded={isOpen} onClick={() => setMenu(menu ? null : place())}>⋯</button>
+      {menu && (
+        <span className="arb-menu arb-menu-fixed row-menu" role="menu" style={menu}>
+          {items.map((x) => (
+            <button key={x.label} type="button" role="menuitem" className={x.className} title={x.title} disabled={x.disabled} {...(x.attrs || {})} onClick={() => { setMenu(null); x.onClick(); }}>{x.label}</button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
+// The ISRC finder's guesses where it wasn't sure (up to 3, each with its cover, title, artist and where
+// it came from): one tap saves that one
+function IsrcPicks({ list, busy, onPick }) {
+  return (
+    <span className="isrc-picks" data-isrc-picks>
+      <span className="hint">Is it one of these?</span>
+      {list.map((c) => (
+        <button key={`${c.isrc}:${c.source}`} type="button" className="isrc-pick" data-isrc-pick={c.isrc} disabled={busy} onClick={() => onPick(c)} title={`${c.isrc} · from ${ISRC_SOURCES[c.source] || c.source}`}>
+          <span className="isrc-pick-cover">{c.cover ? <img src={c.cover} alt="" loading="lazy" /> : <Disc3 size={14} />}</span>
+          <span className="isrc-pick-main"><b>{c.title}</b><em>{c.artist}{c.artist ? " · " : ""}{ISRC_SOURCES[c.source] || c.source}</em></span>
+        </button>
+      ))}
+    </span>
+  );
+}
+
+// The files the Mac helper held back for a person (a file that covers more than a week, one the checks
+// refused, a portfolio it has never seen): Apply takes one in the way the drop zone does. A refused one
+// asks "Apply anyway", a new portfolio asks what it holds. Discard is in the ⋯ menu. On the Luminate page
+// and in To do's "Apply the new Luminate files".
+const AREA_WORDS = [["clients", "Clients' songs"], ["ar_artists", "A&R artists"], ["ar_songs", "A&R songs"]];
+const firstLine = (s) => String(s || "").split(/(?<=\.)\s/)[0];
+function HeldFiles({ lum, reload, onAllDone = null }) {
+  const held = lum?.helper?.held || [];
+  const [busy, setBusy] = useState(null);
+  const [ask, setAsk] = useState({}); // file id -> { blocked: why } | { needsArea: true, area }
+  const [force, setForce] = useState(null); // the file "Apply anyway" asks about
+  const [note, setNote] = useState(null);
+  const ports = [...(lum?.portfolios || []), ...(lum?.arPortfolios || [])];
+  const nameOf = (h) => ports.find((p) => p.luminateId === h.portfolioId || p.id === h.portfolioId)?.name || (h.portfolioId ? `New portfolio …${String(h.portfolioId).slice(-4)}` : h.fileName);
+  const decide = async (h, body) => {
+    setBusy(h.id); setNote(null);
+    try {
+      const { status, data } = await helperPost({ id: h.id, ...body });
+      if (status === 409 && data.blocked) { setAsk((a) => ({ ...a, [h.id]: { blocked: data.error } })); return 0; }
+      if (status === 400 && data.needsArea) { setAsk((a) => ({ ...a, [h.id]: { needsArea: true, area: data.guess || "" } })); return 0; }
+      if (status !== 200 && status !== 502) { setNote({ warn: true, text: data.error || "That didn't go through. Try again in a minute." }); if (status === 404) await reload(); return 0; }
+      setAsk((a) => { const n = { ...a }; delete n[h.id]; return n; });
+      if (status === 502) setNote({ warn: true, text: `${nameOf(h)} is in, but the sheet didn't update (${data.error || "try again"}). Press "Update the sheet again".` });
+      if (body.action === "apply") window.dispatchEvent(new Event(STREAMS_EVENT));
+      return 1;
+    } catch (e) { setNote({ warn: true, text: e.message }); return 0; } finally { setBusy(null); }
+  };
+  const one = async (h, body) => { const n = await decide(h, body); if (n) { await reload(); if (body.action === "apply" && held.length === 1) onAllDone?.({ text: `${nameOf(h)} is in. The sheet and the clients' numbers are updated.` }); } };
+  const all = async () => {
+    let n = 0;
+    for (const h of held.filter((x) => !ask[x.id])) n += await decide(h, { action: "apply" });
+    await reload();
+    if (n) (n === held.length && onAllDone ? onAllDone : setNote)({ text: `Applied ${n} file${n === 1 ? "" : "s"}. The sheet and the clients' numbers are updated.` });
+  };
+  if (!held.length) return note ? <DropNote note={note} /> : null;
+  return (
+    <div className="lm-block lm-held" data-sec="held">
+      <div className="lm-block-head">
+        <div><strong>{held.length === 1 ? "1 file the Mac helper held back" : `${held.length} files the Mac helper held back`}</strong></div>
+        {held.length > 1 && <div className="lm-block-acts"><button className="btn sm" data-held-all disabled={!!busy} onClick={all}><Check size={14} /> {busy ? "Applying…" : `Apply all ${held.length}`}</button></div>}
+      </div>
+      <div className="lm-list">
+        {held.map((h) => {
+          const a = ask[h.id];
+          return (
+            <div key={h.id} className="lm-song lm-held-row" data-held={h.id}>
+              <span className="lm-cover"><UploadCloud size={16} /></span>
+              <span className="lm-song-main">
+                <strong>{nameOf(h)}</strong>
+                <span>{h.exportedAt ? `Exported ${shortDay(h.exportedAt)} · ` : ""}{a?.blocked ? firstLine(a.blocked) : firstLine(h.reason) || "Held back for you to look at."}</span>
+              </span>
+              <span className="lm-unl-acts">
+                {a?.needsArea ? <>
+                  <select className="lm-pick" data-held-area value={a.area} aria-label={`What ${nameOf(h)} holds`} disabled={!!busy} onChange={(e) => setAsk((x) => ({ ...x, [h.id]: { ...a, area: e.target.value } }))}>
+                    <option value="" disabled>What's in it?</option>
+                    {AREA_WORDS.map(([id, w]) => <option key={id} value={id}>{w}</option>)}
+                  </select>
+                  <button className="btn sm" data-held-apply disabled={!!busy || !a.area} onClick={() => one(h, { action: "apply", area: a.area })}>{busy === h.id ? "Applying…" : "Apply"}</button>
+                </> : a?.blocked
+                  ? <button className="btn sm" data-held-force disabled={!!busy} onClick={() => setForce(h)}>Apply anyway</button>
+                  : <button className="btn sm" data-held-apply disabled={!!busy} onClick={() => one(h, { action: "apply" })}>{busy === h.id ? "Applying…" : "Apply"}</button>}
+                <RowMenu label={`More for ${nameOf(h)}`} items={[{ label: "Discard this file", className: "lm-held-discard", attrs: { "data-held-discard": "" }, disabled: !!busy, onClick: () => one(h, { action: "discard" }) }]} />
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <DropNote note={note} />
+      {force && (
+        <AskCard title={`Apply ${nameOf(force)} anyway?`} goLabel="Apply anyway" busyLabel="Applying…" onClose={() => setForce(null)}
+          go={async () => { const h = force; await one(h, { action: "apply", force: true }); setForce(null); }}>
+          <p>Its lower numbers will replace the current ones for every song in that portfolio.</p>
+        </AskCard>
+      )}
+    </div>
+  );
+}
+
 // stream history for the songs this session can see ({ [placementId]: growth }); refetched after a
 // Luminate update lands anywhere on the page. failed = it couldn't load (retry tries again); the song
 // cards just go without, the Dashboard's gainers say so.
@@ -6642,7 +6873,11 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo
         for (let batch = next(); batch.length; batch = next()) {
           batch.forEach((g) => looked.current.add(g.key));
           setFinding((s) => new Set([...s, ...batch.map((g) => g.key)]));
-          try { await lumPost({ action: "findIsrcs", groups: batch.map((g) => g.ids) }); } catch { /* Deezer down: a box to type it in, until the next visit */ }
+          try {
+            const r = await lumPost({ action: "findIsrcs", groups: batch.map((g) => g.ids) });
+            // { later: true } = the server ran out of time for it: it goes in the next batch
+            batch.forEach((g) => { if (r?.results?.[g.ids[0]]?.later) looked.current.delete(g.key); });
+          } catch { /* the services are down: a box to type it in, until the next visit */ }
           setFinding((s) => { const n = new Set(s); batch.forEach((g) => n.delete(g.key)); return n; });
           await reloadLum();
         }
@@ -6661,6 +6896,8 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo
     });
   };
   const toggle = (k) => setChecked((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const [typing, setTyping] = useState(() => new Set()); // songs whose guesses were all wrong: the box to type it
+  const pickIsrc = (g, c) => run(`pick:${g.key}`, () => lumPost({ action: "pickIsrc", placementIds: g.ids, isrc: c.isrc, source: c.source }));
 
   if (!lum) return lumErr
     ? <p className="hint err-text"><span>Couldn't load the Luminate page.</span> <button className="btn ghost sm" onClick={reloadLum}>Try again</button></p>
@@ -6675,7 +6912,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo
   // what a portfolio's latest export holds, by type: "33 songs + 2 releases", "3 artists"
   const held = (p) => [p.songCount && `${p.songCount} song${p.songCount === 1 ? "" : "s"}`, p.artistCount && `${p.artistCount} artist${p.artistCount === 1 ? "" : "s"}`,
     p.releaseCount && `${p.releaseCount} release${p.releaseCount === 1 ? "" : "s"}`, p.otherTypes && `${p.otherTypes} other`].filter(Boolean).join(" + ") || "0 songs";
-  const last = lum.lastUpload;
+  const last = lum.lastUpload, due = lumDue(lum), hw = helperWords(lum.helper);
   const pName = (id) => lum.portfolios.find((p) => p.id === id)?.name || "a portfolio";
   const candidates = groups.filter((g) => !g.luminateId && !g.skip);
   const skipped = groups.filter((g) => g.status === "skipped");
@@ -6723,7 +6960,7 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo
                     ))}
                   </div>
                 </div>
-              )}</>, add: (plan.slots.length > 0 || plan.left.length > 0) && <>{plan.slots.length > 0 && <p className="hint lm-acts-hint">Exclude from Luminate: it's ours, it just stays out of Luminate. Remove from catalog: takes it off the site and the pub sheet too.</p>}
+              )}</>, add: (plan.slots.length > 0 || plan.left.length > 0) && <>
       {plan.slots.map((slot, i) => (
         <div key={slot.p.id} className={i === 0 && flash === "add" ? "lm-block lm-flash" : "lm-block"} data-sec={i === 0 ? "add" : undefined}>
           <div className="lm-block-head">
@@ -6752,6 +6989,8 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo
                     <><code>{g.isrc}</code><CopyButton text={g.isrc} onCopied={() => setCopied((s) => new Set([...s, g.key]))} /></>
                   ) : finding.has(g.key) ? (
                     <span className="hint"><RefreshCw size={12} className="spin" /> Finding ISRC…</span>
+                  ) : isrcPicksOf(lum, g).length && !typing.has(g.key) ? (
+                    <IsrcPicks list={isrcPicksOf(lum, g)} busy={!!busy} onPick={(c) => pickIsrc(g, c)} />
                   ) : (
                     <span className="lm-isrc-in">
                       <input value={typed[g.key] ?? ""} placeholder="Type the ISRC" aria-label={`ISRC for ${g.song}`}
@@ -6763,8 +7002,11 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo
                   )}
                 </span>
                 <span className="lm-row-acts">
-                  <button className="quiet-act lm-skip" title="Leave this song out of Luminate. It stays on the site." disabled={!!busy} onClick={() => run(`skip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: true }))}>Exclude from Luminate</button>
-                  <button className="quiet-act lm-not-ours" data-not-ours disabled={!!busy} onClick={() => setAsk({ notOurs: db.placements.find((p) => p.id === g.ids[0]) })}>Remove from catalog</button>
+                  <RowMenu label={`More for ${g.song || "this song"}`} items={[
+                    !g.isrc && isrcPicksOf(lum, g).length > 0 && !typing.has(g.key) && { label: "None of these: type the ISRC", className: "lm-type", onClick: () => setTyping((s) => new Set([...s, g.key])) },
+                    { label: "Exclude from Luminate", className: "lm-skip", title: "It's ours, it just stays out of Luminate. It stays on the site.", disabled: !!busy, onClick: () => run(`skip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: true })) },
+                    { label: "Remove from catalog", className: "lm-not-ours", title: "Takes it off the site and the pub sheet too.", attrs: { "data-not-ours": "" }, disabled: !!busy, onClick: () => setAsk({ notOurs: db.placements.find((p) => p.id === g.ids[0]) }) },
+                  ].filter(Boolean)} />
                 </span>
               </div>
             ))}
@@ -6857,27 +7099,18 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo
           <button className="btn ghost sm" onClick={() => setEditing({ name: "", url: "", kind: "roster", capacity: lum.cap })}><Plus size={14} /> Add portfolio</button>
         </div>
       </div>
-      <p className="hint overview-subhint">
-        {last ? <>Last update {shortDay(last.at)} ({ago(last.at)}){last.by ? ` by ${last.by}` : ""}.</> : "No exports taken in yet. Drop the portfolio exports below to start."}
-        {last?.weekTotal != null && last.gainers?.length ? ` That week: ${signed(last.weekTotal)} streams.` : ""}
-        {(last?.files || []).filter((f) => f.longWeeks).map((f) => ` ${f.portfolio}'s file covered about ${f.longWeeks} weeks, so its weekly numbers weren't used.`).join("")}
+      {/* one status line: the last update, the next one due, and the Mac helper */}
+      <p className="hint overview-subhint lm-status" data-lm-status>
+        {last ? <>Last update {shortDay(last.at)} ({ago(last.at)}){last.by ? ` by ${last.by}` : ""}</> : "No exports taken in yet"}
+        {due && <> · <span className={due.late ? "warn-text" : undefined} data-lm-due>{due.late ? `Next was due ${shortDay(due.day)}` : `Next due ${shortDay(due.day)}`}</span></>}
+        {hw && <> · <span className={hw.warn ? "warn-text" : undefined} data-helper-state={hw.state}>{hw.text}</span></>}
       </p>
       {err && <p className="hint err-text overview-subhint" role="alert">{err}</p>}
       {lum.alertsConnected === false && <p className="hint overview-subhint">ClickUp alerts aren't connected yet: they start once the Dashboard Alerts channel is set up.</p>}
 
-      <ol className="lm-steps">
-        <li>
-          <span className="lm-step-n">1</span>
-          <div><strong>{allExports.length > 1 ? `Export all ${countWord(allExports.length)} with 1 week · Worldwide` : "Export each portfolio with 1 week · Worldwide"}</strong><span>Open each one, then Export CSV.</span>
-            {openLinks}
-          </div>
-        </li>
-        <li>
-          <span className="lm-step-n">2</span>
-          <div><strong>Drop the files here</strong><span>The sheet, every client's numbers and this week's growth update by themselves.</span></div>
-        </li>
-      </ol>
-
+      <HeldFiles lum={lum} reload={refresh} />
+      <p className="hint lm-export-hint">{allExports.length > 1 ? `Export all ${countWord(allExports.length)} with 1 week · Worldwide, then drop the files here.` : "Export each portfolio with 1 week · Worldwide, then drop the files here."}</p>
+      {openLinks}
       <ExportDrop onDone={refresh} saved={allExports} />
 
       {allExports.length > 0 && (
@@ -6891,8 +7124,8 @@ function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo
               <button key={p.id} className="lm-port" onClick={() => setEditing({ ...p })} title={p.fixedName ? "Edit link or size" : "Edit name, link or size"}>
                 <span className="lm-port-top"><strong>{p.name}</strong></span>
                 <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity ? ` · Full${room ? ` · new songs go in ${room.name}` : ""}` : ""}</span>
-                <span className="lm-port-meta">{held(p)}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
                 <span className={`lm-bar${pct >= 95 ? " full" : pct >= 80 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
+                <span className="lm-port-meta">{held(p)}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
                 <span className={age > 8 ? "lm-port-meta lm-port-old" : "lm-port-meta"}>{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}${age > 8 ? ` (${age} days ago)` : ""}${p.songCount ? ` · ${fmt(p.totalStreams)} all-time streams` : ""}` : "No export yet"}</span>
                 {/* its newest file was made for longer than a week: no weekly numbers from it */}
                 {p.longWeeks && <span className="lm-port-meta lm-port-old">That file covers about {p.longWeeks} weeks, so it gave no weekly numbers. Export it again with 1 week.</span>}
@@ -7803,9 +8036,19 @@ function todoItems({ db, lum, acct, ar, sync }) {
   if (ar?.toLuminate?.count) out.push({ k: "arLuminate", area: "ar", t: ar.toLuminate.text.replace(/\.$/, ""), cta: "View list", panel: "arLuminate", rank: { kind: "other" } });
   const unread = (db.submissions || []).filter((x) => !x.read).length;
   if (unread) out.push({ k: "messages", area: "site", t: `${unread} new website message${unread === 1 ? "" : "s"}`, cta: "Read", panel: "messages", rank: { kind: "other" } });
-  // the sync checks that aren't a row already (Stripe = payments to log, OUTREACH = the A&R list, ClickUp = its tasks)
+  // the new Luminate files: what the Mac helper held back for a person, or a newer export STREAM DATA
+  // hasn't taken in (the sync check's "behind"): one row, one button (r7 C2)
+  const heldFiles = lum?.helper?.held || [];
+  const behind = (sync?.checks || []).find((c) => c.id === "streamData" && c.ok === false && c.fix?.kind === "resync") || null;
+  if (heldFiles.length || behind) {
+    out.push({ k: "lumApply", area: "luminate", tap: true, t: "Apply the new Luminate files", panel: "lumApply", check: behind, rank: { kind: "luminate", due: true },
+      d: heldFiles.length ? `The Mac helper held back ${heldFiles.length === 1 ? "1 file" : `${heldFiles.length} files`} for you to look at` : behind.text.replace(/\.$/, ""),
+      cta: heldFiles.length > 1 ? `Apply all ${heldFiles.length}` : "Apply" });
+  }
+  // the sync checks that aren't a row already (Stripe = payments to log, OUTREACH = the A&R list, ClickUp = its tasks;
+  // STREAM DATA behind = the row above)
   for (const c of sync?.checks || []) {
-    if (c.ok !== false || !SYNC_ROWS[c.id] || (c.id === "streamData" && c.fix?.kind !== "resync")) continue;
+    if (c.ok !== false || !SYNC_ROWS[c.id] || c.id === "streamData") continue;
     const [area, cta] = SYNC_ROWS[c.id];
     out.push({ k: `sync:${c.id}`, area, tap: c.fix?.kind === "pull" || c.fix?.kind === "resync", t: c.text.replace(/\.$/, ""), cta, panel: "syncfix", check: c, rank: { kind: "sync" } });
   }
@@ -7842,6 +8085,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "arLuminate": return ctx.ar?.toLuminate ? <ArToLuminateModal inline t={ctx.ar.toLuminate} onClose={onClose} /> : null;
     case "messages": return <SubsAdmin db={db} commit={commit} />;
     case "syncfix": return <SyncFix check={it.check} ctx={ctx} />;
+    case "lumApply": return <LumApply it={it} ctx={ctx} />;
     default: return null;
   }
 }
@@ -7924,6 +8168,18 @@ function ArFollowUps({ ctx }) {
           </div>
         ))}
       <ArPanels ar={ar} open={open} openPanel={setOpen} closePanel={() => setOpen(null)} onGo={ctx.onGo} />
+    </div>
+  );
+}
+
+// "Apply the new Luminate files" in place: the helper's held files (Apply / Apply all, the same list as
+// the Luminate page), then STREAM DATA's update when it's behind the newest export
+function LumApply({ it, ctx }) {
+  const reload = async () => { await ctx.reloadLum(); await ctx.reloadDb?.(); await ctx.sync?.load(true); };
+  return (
+    <div className="todo-sublist lm-apply">
+      {(ctx.lum?.helper?.held || []).length > 0 && <HeldFiles lum={ctx.lum} reload={reload} onAllDone={ctx.flash} />}
+      {it.check && <SyncFix check={it.check} ctx={ctx} />}
     </div>
   );
 }
@@ -8140,10 +8396,10 @@ const CAL_SOURCES = [
   ({ cu }) => (cu.data?.tasks || []).filter((t) => t.due).map((t) => ({ day: nyDay(t.due), label: t.name, kind: "clickup", late: dueBucket(t.due) === "overdue", task: t })),
   // Luminate: the weekly exports, a week after the newest ones (and every week after)
   ({ lum }, from, to) => {
-    const made = lum?.lastUpload?.numbersFrom || lum?.lastUpload?.at || (lum?.portfolios || []).map((p) => p.exportedAt).filter(Boolean).sort().pop();
-    if (!made) return [];
+    const due = lumDue(lum);
+    if (!due) return [];
     const today = nyDay(Date.now()), out = [];
-    let d = addDays(nyDay(made), 7);
+    let d = due.day;
     if (d < today) { out.push({ day: today, label: `Luminate exports (due ${shortDay(d)})`, kind: "luminate", late: true }); d = addDays(today, 7); }
     for (; d <= to; d = addDays(d, 7)) if (d >= from) out.push({ day: d, label: "Luminate exports due", kind: "luminate" });
     return out;
@@ -10237,18 +10493,63 @@ function StyleTag() {
     .app:not(.pub) .lm-result-row em{font-style:normal;color:var(--d-ink-4)}
     .app:not(.pub) .lm-result-row em.lm-note{display:block;margin-top:2px}
     .app:not(.pub) .lm-result-sum{margin:2px 0 0;color:var(--d-pos)}
-    .app:not(.pub) .lm-ports{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin:0 0 28px}
-    .app:not(.pub) .lm-port{font:inherit;display:flex;flex-direction:column;gap:8px;padding:16px;text-align:left;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);color:var(--d-ink-3);cursor:pointer;
-      transition:border-color var(--d-t-fast) ease,background-color var(--d-t-fast) ease}
-    .app:not(.pub) .lm-port:hover{border-color:var(--d-line-3);background:var(--d-s2)}
-    .app:not(.pub) .lm-port:focus-visible{outline:1px solid #f5f5f5;outline-offset:2px}
-    .app:not(.pub) .lm-port-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
-    .app:not(.pub) .lm-port-top strong{font-size:14.5px;font-weight:600;color:var(--d-ink)}
-    .app:not(.pub) .lm-port-count{font-size:13px} .app:not(.pub) .lm-port-count b{font-size:20px;font-weight:600;color:var(--d-ink);letter-spacing:-.01em}
-    .app:not(.pub) .lm-port-meta{font-size:12px;color:var(--d-ink-4)}
-    .app:not(.pub) .lm-arcard{display:flex;flex-direction:column;gap:8px;padding:16px;border:1px dashed var(--d-line-2);border-radius:var(--d-r-card);color:var(--d-ink-3)}
+    /* r7 C2: one compact row per portfolio (name · used / size + bar · what it holds · its export) */
+    .app:not(.pub) .lm-ports{display:flex;flex-direction:column;margin:0 0 28px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden}
+    .app:not(.pub) .lm-port,.app:not(.pub) .lm-arcard{font:inherit;display:grid;grid-template-columns:minmax(120px,1.1fr) minmax(150px,1fr) minmax(0,1.1fr) minmax(0,1.6fr);align-items:center;column-gap:16px;row-gap:4px;width:100%;
+      padding:11px 16px;text-align:left;border:0;border-bottom:1px solid var(--d-line);border-radius:0;background:none;color:var(--d-ink-3)}
+    .app:not(.pub) .lm-ports > :last-child{border-bottom:0}
+    .app:not(.pub) .lm-port{cursor:pointer;transition:background-color var(--d-t-fast) ease}
+    .app:not(.pub) .lm-port:hover{background:var(--d-s2)}
+    .app:not(.pub) .lm-port:focus-visible{outline:1px solid #f5f5f5;outline-offset:-1px}
+    .app:not(.pub) .lm-port-top{grid-row:1 / span 2;display:flex;align-items:center;gap:8px;min-width:0}
+    .app:not(.pub) .lm-port-top strong{font-size:14px;font-weight:600;color:var(--d-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .app:not(.pub) .lm-port-count{grid-column:2;grid-row:1;font-size:12.5px;white-space:nowrap} .app:not(.pub) .lm-port-count b{font-size:15px;font-weight:600;color:var(--d-ink)}
+    .app:not(.pub) .lm-port > .lm-bar{grid-column:2;grid-row:2;height:4px}
+    .app:not(.pub) .lm-port-meta{font-size:12px;color:var(--d-ink-4);min-width:0}
+    .app:not(.pub) .lm-port > .lm-port-meta{grid-row:1 / span 2}
+    .app:not(.pub) .lm-port > .lm-port-meta:last-child:not(:nth-child(5)){grid-column:1 / -1;grid-row:auto}
     .app:not(.pub) .lm-arcard strong{font-size:14px;font-weight:600;color:var(--d-ink-2)}
-    .app:not(.pub) .lm-arcard .lm-open{align-self:flex-start;font-size:13px}
+    .app:not(.pub) .lm-arcard .lm-port-meta{grid-column:2 / span 2}
+    .app:not(.pub) .lm-arcard .lm-open{justify-self:start;font-size:13px}
+    .app:not(.pub) .lm-export-hint{margin:0 0 4px}
+    @media (max-width:700px){
+      .app:not(.pub) .lm-port,.app:not(.pub) .lm-arcard{grid-template-columns:minmax(0,1fr) auto;padding:12px 14px}
+      .app:not(.pub) .lm-port-top{grid-row:1}
+      .app:not(.pub) .lm-port-count{grid-column:2;grid-row:1;text-align:right}
+      .app:not(.pub) .lm-port > .lm-bar{grid-column:1 / -1;grid-row:2}
+      .app:not(.pub) .lm-port > .lm-port-meta,.app:not(.pub) .lm-arcard .lm-port-meta{grid-column:1 / -1;grid-row:auto}
+      .app:not(.pub) .lm-arcard .lm-open{grid-column:1 / -1;min-height:40px;display:inline-flex;align-items:center}
+    }
+    /* a row's ⋯ menu (rule 3) */
+    .app:not(.pub) .row-more{position:relative;display:inline-flex;flex:none}
+    .app:not(.pub) .row-dots{min-width:34px;padding:0 8px;font-size:16px;letter-spacing:.05em}
+    .app:not(.pub) .row-menu{display:flex;flex-direction:column;min-width:210px}
+    .app:not(.pub) .row-menu > button.lm-not-ours{color:var(--d-neg)}
+    @media (max-width:700px){.app:not(.pub) .row-dots{min-height:40px;min-width:40px} .app:not(.pub) .row-menu > button{min-height:40px}}
+    /* the ISRC finder's guesses, one tap each */
+    .app:not(.pub) .isrc-picks{display:flex;flex-wrap:wrap;align-items:center;gap:6px;max-width:520px}
+    .app:not(.pub) .isrc-picks > .hint{flex-basis:100%;margin:0}
+    .app:not(.pub) .isrc-pick{display:flex;align-items:center;gap:8px;max-width:250px;min-height:40px;padding:4px 10px 4px 4px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-s2);color:var(--d-ink-2);font:inherit;text-align:left;cursor:pointer}
+    .app:not(.pub) .isrc-pick:hover:not(:disabled){border-color:var(--d-line-3);background:var(--d-s3)}
+    .app:not(.pub) .isrc-pick:disabled{opacity:.5;cursor:default}
+    .app:not(.pub) .isrc-pick-cover{flex:none;display:grid;place-items:center;width:32px;height:32px;border-radius:var(--d-r-xs);overflow:hidden;background:var(--d-s3);color:var(--d-ink-off)}
+    .app:not(.pub) .isrc-pick-cover img{width:100%;height:100%;object-fit:cover}
+    .app:not(.pub) .isrc-pick-main{display:flex;flex-direction:column;min-width:0}
+    .app:not(.pub) .isrc-pick-main b{font-size:12.5px;font-weight:600;color:var(--d-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .app:not(.pub) .isrc-pick-main em{font-style:normal;font-size:11.5px;color:var(--d-ink-4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    /* Add artist from a link, and the Watchlist's photos */
+    .app:not(.pub) .ar-look{display:flex;align-items:center;gap:12px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-md);background:var(--d-s2)}
+    .app:not(.pub) .ar-look .avatar{flex:none;border-radius:50%;object-fit:cover}
+    .app:not(.pub) .ar-look-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+    .app:not(.pub) .ar-look-main strong{font-size:14.5px;color:var(--d-ink)} .app:not(.pub) .ar-look-main span{font-size:12.5px;color:var(--d-ink-4)}
+    .app:not(.pub) .ar-look-wait{display:flex;align-items:center;gap:6px}
+    .app:not(.pub) .ar-watch-signed{align-self:flex-start}
+    .app:not(.pub) .ar-who-top{display:flex;align-items:center;gap:8px;min-width:0}
+    .app:not(.pub) .ar-who-top .avatar{flex:none;border-radius:50%;object-fit:cover}
+    .app:not(.pub) .tag.ar-songs-only{margin-left:6px}
+    /* the files the Mac helper held back */
+    .app:not(.pub) .lm-held{border-color:var(--d-warn-line)}
+    .app:not(.pub) .lm-held .lm-cover{color:var(--d-warn)}
     .app:not(.pub) .lm-bar{display:block;height:6px;border-radius:100px;background:var(--d-s3);overflow:hidden}
     .app:not(.pub) .lm-bar i{display:block;height:100%;border-radius:inherit;background:var(--d-ink-3);transition:width .5s cubic-bezier(.2,.8,.2,1)}
     .app:not(.pub) .lm-bar.near i{background:var(--d-warn)} .app:not(.pub) .lm-bar.full i{background:var(--d-warn)}
