@@ -1,23 +1,26 @@
 // A&R › Trackers (list B #5) and the momentum score (#8), plus Home's momentum card and the Watchlist's
 // scores. Built mobile-first: cards everywhere (one column on a phone, two from 900px), 44px taps, no
-// sideways scroll at 390px. Styles: components/ar/ar.css (imported in pages/_app.jsx).
+// sideways scroll at 390px. Styles: components/ar/ar.css (imported in pages/_app.jsx). Adding is the shared
+// paste box (components/LinkBox.jsx, context "tracker").
 import React, { useEffect, useState } from "react";
-import { Plus, Clock, TrendingUp, MoreHorizontal, Info, ExternalLink } from "lucide-react";
+import { Clock, TrendingUp, MoreHorizontal, Info, ExternalLink } from "lucide-react";
+import LinkBox from "../LinkBox";
 
 export const post = (url, body) => fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-requested-with": "defied-site" }, body: JSON.stringify(body) })
   .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok || j.error) throw new Error(j.error || "That didn't save — try again."); return j; });
 const fmt = (n) => Number(n || 0).toLocaleString("en-US");
 export const day = (iso) => (iso ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00` : iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "");
 const KIND = { artist: "Artist", song: "Song", sound: "Sound" };
-// what a pasted link (or typed name) adds
-export function linkKind(v) {
-  const s = String(v || "").trim();
-  if (/tiktok\.com\/music\//i.test(s) || /^\d{15,22}$/.test(s)) return { kind: "sound", url: s };
-  if (/spotify\.com\/(intl-[a-z-]+\/)?track\//i.test(s) || /^spotify:track:/.test(s)) return { kind: "song", spotify: s };
-  if (/spotify\.com\/(intl-[a-z-]+\/)?artist\//i.test(s) || /^spotify:artist:/.test(s)) return { kind: "artist", spotify: s };
-  if (/^https?:\/\//i.test(s)) return { error: "Paste a Spotify artist or song link, or a TikTok sound link." };
-  return s.length >= 2 ? { kind: "artist", name: s } : { error: "Paste a link or type a name." };
+// what a pasted link adds (the paste box's result: { link, card, links, already })
+export function trackBody(r) {
+  const l = r?.link || {}, c = r?.card || {};
+  if (l.platform === "tiktok" && l.kind === "sound") return { kind: "sound", url: l.url, clip: l.id, name: c.name || "", artist: c.artist || "" };
+  if (l.platform === "spotify" && l.kind === "song") return { kind: "song", spotify: l.url, name: c.name || "", artist: c.artist || "", image: c.image || c.photo || "" };
+  if (l.platform === "spotify" && l.kind === "artist") return { kind: "artist", spotify: l.url, name: c.name || "", image: c.photo || c.image || "" };
+  // an Instagram / TikTok / YouTube profile: the artist by name (and their Spotify, when one was confirmed)
+  return { kind: "artist", name: String(c.name || "").replace(/^@/, ""), spotify: r?.links?.spotify || "", image: c.photo || "" };
 }
+export const TRACK_KINDS = ["artist", "song", "sound", "profile", "channel"];
 
 export function Trend({ m }) {
   if (!m || m.score == null) return null;
@@ -92,25 +95,19 @@ export function ArTrackers() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const [link, setLink] = useState("");
   const [days, setDays] = useState(30);
   const [showW, setShowW] = useState(false);
   const load = (w = who) => fetch(`/api/ar-trackers?who=${encodeURIComponent(w)}`, { cache: "no-store" }).then((r) => r.json())
     .then((j) => { if (j.error) throw new Error(j.error); setD(j); setErr(""); }).catch((e) => setErr(e.message || "Couldn't load the trackers."));
   useEffect(() => { load(who); }, [who]); // eslint-disable-line react-hooks/exhaustive-deps
   const act = (body, done) => { setBusy(true); setMsg(""); return post("/api/ar-trackers", body).then((j) => { setMsg(done(j) || ""); return load(); }).catch((e) => setMsg(e.message)).finally(() => setBusy(false)); };
-  const add = async (e) => {
-    e.preventDefault();
-    const k = linkKind(link);
-    if (k.error) { setMsg(k.error); return; }
+  const add = async (r) => {
     setBusy(true); setMsg("");
     try {
-      const others = k.name ? [] : (await fetch(`/api/ar-trackers?find=${encodeURIComponent(link.trim())}`).then((r) => r.json()).catch(() => ({}))).tracked || [];
-      const j = await post("/api/ar-trackers", { action: "add", days, ...k });
-      const on = [...new Set(others.filter((o) => o.trackerOwnerId !== d?.me).map((o) => (o.roster ? "the roster" : `${o.who}'s tracker`)))];
+      const j = await post("/api/ar-trackers", { action: "add", days, ...trackBody(r) });
+      const on = [...new Set((r.already || []).filter((o) => o.where === "tracker" && o.ownerId !== d?.me).map((o) => (o.text || "").replace(/^Already on /, "")))].filter(Boolean);
       const roster = String(j.subject || "").startsWith("a:");
       setMsg(j.already ? "Already on your tracker." : `${roster ? "Added (roster artists never expire)" : `Added for ${days} days`}.${on.length ? ` Also on ${on.join(" and ")}.` : ""}${j.restored ? " Its old numbers are back." : ""}`);
-      setLink("");
       await load();
     } catch (e2) { setMsg(e2.message); } finally { setBusy(false); }
   };
@@ -121,12 +118,10 @@ export function ArTrackers() {
       <div className="admin-head ar-head"><div className="ar-head-text"><p className="ar-sub">Everyone's trackers in one list, best momentum first.</p></div>
         <button className="btn ghost sm art-icon" aria-label="Score weights" aria-expanded={showW} onClick={() => setShowW(!showW)}><Info size={15} /> Score</button></div>
       {showW && d && <Weights w={d.weights} onSaved={(w) => { setD({ ...d, weights: w }); load(); }} />}
-      {/* LINKBOX-SLOT: the paste box (components/LinkBox.jsx, context "tracker") replaces this plain input */}
-      <form className="art-add" onSubmit={add} data-linkbox-slot="tracker">
-        <input type="text" inputMode="url" placeholder="Paste a Spotify or TikTok sound link, or type a name" value={link} onChange={(e) => setLink(e.target.value)} aria-label="Add by link" data-add-link />
-        <span className="art-days" role="group" aria-label="Track for">{(d?.durations || [30, 60, 90]).map((n) => <button type="button" key={n} className={`art-seg${days === n ? " on" : ""}`} aria-pressed={days === n} onClick={() => setDays(n)}>{n}d</button>)}</span>
-        <button className="btn sm" type="submit" disabled={busy || !link.trim()} data-add><Plus size={15} /> Add</button>
-      </form>
+      <div className="art-add" data-tracker-add>
+        <LinkBox context="tracker" kinds={TRACK_KINDS} allowDuplicate busy={busy} placeholder="Paste a Spotify, TikTok sound, Instagram or YouTube link" onAdd={add} />
+        <span className="art-days" role="group" aria-label="Track for"><span className="art-days-label">Track for</span>{(d?.durations || [30, 60, 90]).map((n) => <button type="button" key={n} className={`art-seg m-tap${days === n ? " on" : ""}`} aria-pressed={days === n} onClick={() => setDays(n)}>{n}d</button>)}</span>
+      </div>
       {msg && <p className="art-msg" data-msg>{msg}</p>}
       <div className="art-people" role="tablist" aria-label="Whose tracker">
         {[["team", "Team"], ["me", "Mine"], ...people.map((p) => [p.id, p.name])].map(([id, label]) => (

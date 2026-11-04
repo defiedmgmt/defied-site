@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { evenSplit, splitWords, filledSplits, orderSplits } from "../lib/splits";
 import LinkBox from "./LinkBox";
+import { ArTrackers, HomeMomentum } from "./ar/ArTrackers";
+import { ArRadar } from "./ar/ArRadar";
 import { songGaps, netStreamsOf, SONG_GAPS } from "../lib/sheet-facts";
 import { likelyDuplicates, mergedCard, mergedTitle, plainTitle } from "../lib/duplicates";
 import { biggestTasks, dueBucket, nyDay } from "../lib/todo-rank";
@@ -3506,7 +3508,7 @@ const ArDataError = ({ err, retry }) => <p className="hint err-text mb"><span>{e
 
 // A&R: Summary (default) · Watchlist · Board. One read of the pub sheet (useArData) and one of
 // Postgres (/api/ar) serve all three; the sub-page last opened is remembered for the session.
-const AR_SECS = [["summary", "Summary"], ["watch", "Watchlist"], ["board", "Board"]];
+const AR_SECS = [["summary", "Summary"], ["watch", "Watchlist"], ["board", "Board"], ["trackers", "Trackers"], ["radar", "Radar"]];
 const AR_SEC_KEY = "dm-ar-sec";
 // /api/ar's last answer: Summary, Watchlist and Board share it while it's under 30s old; a save
 // always reads it again (loadPg() with no argument)
@@ -3528,16 +3530,18 @@ function useArAll() {
   return { ...sheet, pg, pgErr, loadPg };
 }
 // the Dashboard's This week › A&R rows: "watch:open:<key>" (their panel) / "watch:flash:<key>" (a row only the old Artist Tracker had)
+const arSecOf = (sub) => ({ trackers: "trackers", tracker: "trackers", radar: "radar", watchlist: "watch", watch: "watch", board: "board" })[sub] || null; // Home's momentum card, the digests' links
 const arWatchAt = (sub) => { const m = /^watch:(open|flash):(.+)$/.exec(sub || ""); return m ? { pill: "people", [m[1]]: m[2] } : null; };
 function ARAdmin({ onGo, sub, chip = null }) {
   const [sec, setSecState] = useState(() => {
     if (arWatchAt(sub)) return "watch";
+    if (arSecOf(sub)) return arSecOf(sub);
     try { const s = sessionStorage.getItem(AR_SEC_KEY); return AR_SECS.some(([id]) => id === s) ? s : "summary"; } catch { return "summary"; }
   });
   const [watchAt, setWatchAt] = useState(() => arWatchAt(sub)); // where Summary sends the Watchlist: {pill, open}
   const setSec = (id, at = null) => { setSecState(id); setWatchAt(at); try { sessionStorage.setItem(AR_SEC_KEY, id); } catch { /* private mode */ } };
   // Back / Forward to another Dashboard row while A&R is open
-  useEffect(() => { const at = arWatchAt(sub); if (at) setSec("watch", at); }, [sub]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const at = arWatchAt(sub); if (at) setSec("watch", at); else if (arSecOf(sub)) setSec(arSecOf(sub)); }, [sub]); // eslint-disable-line react-hooks/exhaustive-deps
   const ar = useArAll();
   // each page opens on the latest from Postgres (another page may have added someone)
   const opened = useRef(false);
@@ -3554,6 +3558,8 @@ function ARAdmin({ onGo, sub, chip = null }) {
       {sec === "summary" && <ArSummary ar={ar} onGo={onGo} goBoard={() => setSec("board")} goWatch={(at) => setSec("watch", at)} />}
       {sec === "board" && <ArBoard ar={ar} onGo={onGo} />}
       {sec === "watch" && <ArWatch key={JSON.stringify(watchAt)} ar={ar} onGo={onGo} at={watchAt} />}
+      {sec === "trackers" && <ArTrackers />}
+      {sec === "radar" && <ArRadar />}
     </div>
   );
 }
@@ -8155,6 +8161,7 @@ function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
         <TopGainers db={ctx.db} onGo={ctx.onGo} arTop={ctx.ar?.top} arLoaded={!!ctx.ar} />
       </div>
       {ctx.can("publishing") && <HomeNumbers onGo={ctx.onGo} />}
+      {ctx.can("ar") && <HomeMomentum onGo={ctx.onGo} />}
       <HomeWeek ctx={ctx} home={home} todo={todo} />
       {/* the last card: on a phone it's drawn once it nears the screen (or the page is idle), after what's on screen */}
       {money && <LazySection minHeight={240}><HomePayments home={home} failed={failed} retry={retry} refresh={refresh} onGo={ctx.onGo} /></LazySection>}
