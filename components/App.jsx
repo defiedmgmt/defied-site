@@ -7767,7 +7767,8 @@ function useSyncChecks(tab) {
     return fetch("/api/sync", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.checks) { syncCache.d = d; syncCache.at = Date.now(); setData(d); } else setFailed(true); }).catch(() => setFailed(true)).finally(() => setBusy(false));
   };
-  useEffect(() => { if (tab === "home" || tab === "todo" || tab === "site") load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (any tab's first load reads them too: the sidebar's count and each tab's chip include the amber ones)
+  useEffect(() => { if (tab === "home" || tab === "todo" || tab === "site" || !syncCache.d) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   return { data, failed, busy, load };
 }
 
@@ -7866,7 +7867,8 @@ function PubFix({ kind, ctx, viaCta = false }) {
         ? <p className="pub-tasks dupe-line" data-dupe-line>{dupeWords(dupes)} · <button className="inline-link" data-dupe-review onClick={openDupe}>Review</button></p>
         : <p className="home-muted acct-clear"><CheckCircle2 size={15} /> No possible duplicates left.</p>)}
       <DropNote note={note} />
-      {dupeOpen && <DupeMerge db={db} commit={commit} lum={lum} reloadLum={reloadLum} pair={dupeOpen} onClose={() => setDupeKey(null)} onDone={(r) => { setDupeKey(null); setNote(r); }} />}
+      {/* a merge can clear the row this sits in: its result goes on To do's own line (ctx.flash) when there is one */}
+      {dupeOpen && <DupeMerge db={db} commit={commit} lum={lum} reloadLum={reloadLum} pair={dupeOpen} onClose={() => setDupeKey(null)} onDone={(r) => { setDupeKey(null); if (ctx.flash) ctx.flash(r); else setNote(r); }} />}
       {edit && <SongManager editorOnly db={db} commit={commit} clientId={edit.clientId} isStaff lum={lum} reloadLum={reloadLum} fix={{ id: edit.id, n: edit.n, field: edit.field }} onFix={openFix} onFixList={() => setEdit(null)} onGo={onGo} />}
     </>
   );
@@ -8055,6 +8057,9 @@ function TodoPage({ ctx, todo, sub, onSub, areaN }) {
   const [open, setOpen] = useState(() => new Set(sub && !isArea && sub !== "calendar" ? [sub] : []));
   const [list, setList] = useState("all"), [person, setPerson] = useState("all");
   const [newTask, setNewTask] = useState(false);
+  // what an action just did, said once above the list (its own row may be gone with it)
+  const [flash, setFlash] = useState(null);
+  ctx = { ...ctx, flash: setFlash };
   // a link or Back / Forward to an area, an item or the calendar
   useEffect(() => {
     if (TODO_AREAS.includes(sub)) setArea(sub);
@@ -8090,6 +8095,7 @@ function TodoPage({ ctx, todo, sub, onSub, areaN }) {
               <button key={a} role="tab" aria-selected={area === a} className={area === a ? "upd-filter on" : "upd-filter"} data-area-chip={a} data-area={a === "all" ? undefined : a} onClick={() => pick(a)}>{label} <span className="todo-chip-n">{n}</span></button>
             ); })}
           </div>
+          <DropNote note={flash} />
           <div className="attn home-card todo">
             {tap.length > 0 && <div className="todo-group" data-group="tap">One tap</div>}
             {tap.map((it) => <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />)}
@@ -11256,12 +11262,19 @@ function StyleTag() {
     .app:not(.pub) .cal-wname{font-size:12.5px;color:var(--d-ink-3)}
     .app:not(.pub) .cal-wevs{display:flex;flex-direction:column;gap:4px;min-width:0}
     .app:not(.pub) .cal-wevs .cal-ev{white-space:normal}
+    /* phones: every control a thumb can hit (easy-d B9: at least 40px tall) */
+    @media (max-width:700px){
+      .app:not(.pub) :is(.sync-pill,.todo-chip){height:40px}
+      .app:not(.pub) :is(.home-all,.cal-today){min-height:40px;display:inline-flex;align-items:center}
+      .app:not(.pub) .todo-chips .upd-filter,.app:not(.pub) .todo-cu-tools select{height:40px}
+      .app:not(.pub) .todo-open{min-height:40px;justify-content:center}
+      .app:not(.pub) .cu-todo .cu-name{display:inline-flex;align-items:center;gap:4px;min-height:40px}
+    }
     @media (max-width:599px){
       .app:not(.pub) .todo-page .attn-row{flex-direction:row;align-items:center}
       .app:not(.pub) .todo-cu-tools{width:100%}
       .app:not(.pub) .todo-cu-tools select{flex:1;min-width:0}
       .app:not(.pub) .todo-panel{padding:4px 12px 14px 15px}
-      .app:not(.pub) .todo-panel .fix-row{flex-wrap:wrap}
       .app:not(.pub) .todo-view{margin-left:0}
     }
     `}</style>
