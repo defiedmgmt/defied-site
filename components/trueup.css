@@ -1,0 +1,42 @@
+/* The monthly Luminate true-up in To do (components/TrueUp.jsx). Mobile first: one column, rows that wrap,
+   44px taps on a phone (mobile.css). Uses the dashboard's tokens (--d-*). Imported once in pages/_app.jsx. */
+.app:not(.pub) .tu { gap: 12px; }
+.app:not(.pub) .tu-drop { margin: 0; }
+.app:not(.pub) .tu-drop .lm-drop { min-height: 112px; }
+.app:not(.pub) .tu-note { margin: 6px 0 0; }
+.app:not(.pub) .tu-files { margin: 0; font-size: 12px; color: var(--d-ink-4); overflow-wrap: anywhere; }
+.app:not(.pub) .tu-line { margin: 0; font-size: 13px; color: var(--d-ink-2); overflow-wrap: anywhere; }
+.app:not(.pub) .tu-line b { color: var(--d-ink); font-weight: 600; }
+.app:not(.pub) .tu-rows, .app:not(.pub) .tu-songs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; min-width: 0; }
+.app:not(.pub) .tu-rows li, .app:not(.pub) .tu-songs li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; padding: 7px 0; border-top: 1px solid var(--d-line-2); min-width: 0; }
+.app:not(.pub) .tu-rows li:first-child, .app:not(.pub) .tu-songs li:first-child { border-top: 0; }
+.app:not(.pub) .tu-name { display: flex; flex-direction: column; min-width: 0; flex: 1 1 180px; font-size: 13px; color: var(--d-ink); overflow-wrap: anywhere; }
+.app:not(.pub) .tu-name b { font-weight: 600; }
+.app:not(.pub) .tu-name em { font-style: normal; font-size: 12px; color: var(--d-ink-4); }
+.app:not(.pub) .tu-num { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--d-ink-3); white-space: nowrap; }
+.app:not(.pub) .tu-num b { color: var(--d-ink); }
+.app:not(.pub) .tu-meta { display: flex; align-items: baseline; gap: 10px; flex: none; font-size: 12px; color: var(--d-ink-4); }
+.app:not(.pub) .tu-meta code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--d-ink-3); }
+.app:not(.pub) .tu-songs .isrc-picks { flex-basis: 100%; }
+.app:not(.pub) .tu-report, .app:not(.pub) .tu-part { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--d-line-2); border-radius: var(--d-r-sm); background: var(--d-s2); min-width: 0; }
+.app:not(.pub) .tu-part { padding: 10px 0 0; border: 0; border-top: 1px solid var(--d-line-2); border-radius: 0; background: none; }
+.app:not(.pub) .tu-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.app:not(.pub) .tu-head b { font-size: 13.5px; font-weight: 600; color: var(--d-ink); }
+.app:not(.pub) .tu-toggle { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer; min-height: 32px; border-radius: var(--d-r-sm); }
+.app:not(.pub) .tu-toggle:focus-visible { outline: 1px solid #f5f5f5; outline-offset: 3px; }
+.app:not(.pub) .tu-toggle::after { content: "▾"; font-size: 11px; color: var(--d-ink-4); }
+.app:not(.pub) .tu-toggle[aria-expanded="true"]::after { content: "▴"; }
+.app:not(.pub) .tu-count { font-size: 12px; font-variant-numeric: tabular-nums; padding: 2px 8px; border-radius: 100px; background: var(--d-s3); color: var(--d-ink-3); }
+.app:not(.pub) .tu-count.warn { color: var(--d-warn); background: var(--d-warn-bg); }
+.app:not(.pub) .tu-count.over { color: var(--d-neg); background: var(--d-neg-bg); }
+.app:not(.pub) .tu-report .hint, .app:not(.pub) .tu-part .hint { margin: 0; }
+.app:not(.pub) .tu-more { align-self: flex-start; }
+.app:not(.pub) .tu-sched { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.app:not(.pub) .tu-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.app:not(.pub) .tu-date { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--d-ink-3); }
+.app:not(.pub) .tu-date input { height: var(--d-ctl-sm); padding: 0 8px; border: 1px solid var(--d-line-2); border-radius: var(--d-r-sm); background: var(--d-field); color: var(--d-ink); font: inherit; font-size: 13px; }
+.app:not(.pub) .tu-last { margin: 8px 0 0; }
+@media (max-width: 599px) {
+  .app:not(.pub) .tu-toggle, .app:not(.pub) .tu-date input { min-height: 44px; }
+  .app:not(.pub) .tu-meta { flex-basis: 100%; }
+}
