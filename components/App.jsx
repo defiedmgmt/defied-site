@@ -7916,7 +7916,7 @@ function todoItems({ db, lum, acct, ar, sync }) {
     else if (it.k === "dupes") out.push({ ...base, tap: true, cta: "Merge", panel: "dupes", rank: { kind: "fix", value: 0 } });
     else if (it.k === "splits") out.push({ ...base, panel: "splits", rank: { kind: "fix", value: streams(splitsToConfirm(db, lum).all.map((x) => x.p)) } });
     else if (it.k === "update") out.push({ ...base, panel: "update", rank: { kind: "fix", value: streams(songsToUpdate(db, lum).map((x) => x.p)) } });
-    else if (it.k === "tabs") out.push({ ...base, cta: "Set the sheet tab", panel: "tabs", rank: { kind: "other" } });
+    else if (it.k === "tabs") out.push({ ...base, d: "The pub sheet has no tab by that name. Type the right one here.", cta: "Set the sheet tab", panel: "tabs", rank: { kind: "other" } });
   }
   const due = ar?.followUpsDue || 0;
   if (due) out.push({ k: "follow", area: "ar", t: `${due} A&R follow-up${due === 1 ? "" : "s"} due`, cta: "Review", panel: "follow", rank: { kind: "contacts", value: due } });
