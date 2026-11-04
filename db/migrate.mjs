@@ -1,5 +1,7 @@
-// One-time migration: loads a real "Export data" JSON dump (see the staff
-// sidebar button in components/App.jsx) into the Postgres schema (db/schema.sql).
+// One-time IMPORT (not the schema migrations — those are scripts/migrate.mjs):
+// loads an old "Export data" JSON dump into the Postgres schema (db/schema.sql).
+// It EMPTIES the clients, placements, users, submissions, notable releases and
+// team tables first, so it's only for restoring a whole site from an export.
 // Usage: node db/migrate.mjs path/to/export.json
 import { readFileSync } from "fs";
 import { neon } from "@neondatabase/serverless";
