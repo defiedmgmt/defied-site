@@ -9,6 +9,7 @@
 import { requireStaff, requireSameOrigin } from "../../lib/session";
 import { helperOn, deviceOf, helperPing, helperUpload, helperState, decideHeld } from "../../lib/luminate-helper";
 import { notifyClickUp } from "../../lib/clickup";
+import { afterAction } from "../../lib/area-tasks";
 
 // the same size as the drop zone: a portfolio export is ~30-46 KB
 export const config = { api: { bodyParser: { sizeLimit: "4mb" } }, maxDuration: 60 };
@@ -32,6 +33,8 @@ async function fromHelper(req, res) {
   if (!files.length) return res.status(400).json({ error: "No files came through." });
   try {
     const out = await helperUpload(files, { device, version });
+    // the area tasks follow what came in or was held (CLICKUP_TASK_WRITES only)
+    if (out.applied || out.held) await afterAction(["luminate", "publishing", "ar"]);
     return res.status(out.error ? 502 : 200).json(out);
   } catch (err) {
     console.error("luminate helper upload failed:", err);
@@ -48,6 +51,7 @@ export default async function handler(req, res) {
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
     const [status, json] = await decideHeld(req.body || {}, session.user.name || session.user.email || "staff");
+    if (status === 200 || status === 502) await afterAction(["luminate", "publishing", "ar"]);
     return res.status(status).json(json);
   } catch (err) {
     console.error("luminate helper route failed:", err);

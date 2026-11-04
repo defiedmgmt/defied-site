@@ -9,6 +9,7 @@ import { syncSiteFromSheet } from "../../lib/site-sync";
 import { lookupIsrc, cleanIsrc, ISRC_RE, SOURCES } from "../../lib/isrc";
 import { normalizeTitle } from "../../lib/sheets";
 import { afterAction } from "../../lib/area-tasks";
+import { helperState } from "../../lib/luminate-helper";
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 // the ISRC finder can take a few seconds a song (four services, each at its own pace): a call does
@@ -240,7 +241,11 @@ export default async function handler(req, res) {
   const session = await requireStaff(req, res);
   if (!session) return;
   try {
-    if (req.method === "GET") return res.status(200).json(await lumState());
+    // (with the Mac helper's state: the page's status line, the files it held back, To do's row)
+    if (req.method === "GET") {
+      const [st, helper] = await Promise.all([lumState(), helperState().catch((err) => { console.error("helper state:", err); return null; })]);
+      return res.status(200).json({ ...st, helper });
+    }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
     const [status, json] = await act(req.body || {}, session);
