@@ -1,6 +1,9 @@
 /* The site's and the dashboard's stylesheet (was the inline <style> in components/App.jsx's StyleTag).
    Imported once in pages/_app.jsx, after components/ui/mobile.css and components/ar/ar.css, so it keeps
-   the same place in the cascade it had as the last stylesheet on the page. */
+   the same place in the cascade it had as the last stylesheet on the page.
+   Next's CSS build (postcss-flexbugs-fixes + the minifier) rewrites "flex:1 1 0" and "1 1 0px" to "1 1" (a 0%
+   basis), which a column card of unknown height treats as its full content height: Home's payments card then
+   stopped giving way and squeezed Biggest tasks. So a zero basis here is written "0rem", which the build keeps. */
 @font-face{
   font-family:'Suntage';
   src:url(/fonts/suntage.otf) format('opentype');
@@ -995,7 +998,7 @@ html:has(.app:not(.pub) .modal){overflow:hidden}
   .app:not(.pub) .admin-table .admin-hd{display:none}
   .app:not(.pub) .admin-table .admin-row:not(.admin-hd){display:flex;flex-wrap:wrap;align-items:center;column-gap:8px;row-gap:0;min-height:60px;padding:8px 8px 10px 14px}
   .app:not(.pub) .admin-row:not(.admin-hd) > .cell{display:block;order:3;flex:0 1 auto;min-width:0;max-width:100%;font-size:13px;line-height:20px;color:var(--d-ink-3)}
-  .app:not(.pub) .admin-row:not(.admin-hd) > .cell:first-child{order:0;flex:1 1 0;font-size:15px;line-height:24px;font-weight:500;color:var(--d-ink)}
+  .app:not(.pub) .admin-row:not(.admin-hd) > .cell:first-child{order:0;flex:1 1 0rem;font-size:15px;line-height:24px;font-weight:500;color:var(--d-ink)}
   .app:not(.pub) .admin-row:not(.admin-hd) > .admin-act{order:1;flex:none}
   .app:not(.pub) .admin-row:not(.admin-hd)::after{content:"";order:2;flex-basis:100%;height:0}
   .app:not(.pub) .admin-row:not(.admin-hd) > .cell:nth-child(n+3)::before{content:"·";margin-right:8px;color:var(--d-ink-off)}
@@ -1003,13 +1006,13 @@ html:has(.app:not(.pub) .modal){overflow:hidden}
   /* line 2 stays one line (no "·" orphaned onto a third): the last column takes what's left and ellipsizes;
      on Roster that's the credit, so the Live/Hidden chip lines up on the right */
   .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link) > .cell:not(:first-child){max-width:70%}
-  .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link) > .cell:nth-last-child(2){flex:1 1 0;max-width:none}
+  .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link) > .cell:nth-last-child(2){flex:1 1 0rem;max-width:none}
   .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link):has(.badge-yes,.badge-no) > .cell:nth-last-child(2){flex:none}
   .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link):has(.badge-yes,.badge-no) > .cell:nth-last-child(2)::before{content:none}
-  .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link):has(.badge-yes,.badge-no) > .cell:nth-last-child(3){flex:1 1 0;max-width:none}
+  .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link):has(.badge-yes,.badge-no) > .cell:nth-last-child(3){flex:1 1 0rem;max-width:none}
   /* Notable: thumb + song on line 1 */
   .app:not(.pub) .admin-row:has(.rel-thumb) > .cell:first-child{flex:none}
-  .app:not(.pub) .admin-row:has(.rel-thumb) > .cell:nth-child(2){order:0;flex:1 1 0;margin-left:0;font-size:15px;line-height:24px;font-weight:500;color:var(--d-ink)}
+  .app:not(.pub) .admin-row:has(.rel-thumb) > .cell:nth-child(2){order:0;flex:1 1 0rem;margin-left:0;font-size:15px;line-height:24px;font-weight:500;color:var(--d-ink)}
   .app:not(.pub) .admin-row:has(.rel-thumb) > .cell:nth-child(3){margin-left:44px}
   .app:not(.pub) .admin-row:has(.rel-thumb) > .cell:nth-child(3)::before{content:none}
   /* Outreach: name + status chip on line 1; contact · Net · revenue on line 2 (gross + songs hidden) */
@@ -1049,7 +1052,7 @@ html:has(.app:not(.pub) .modal){overflow:hidden}
   .app:not(.pub) .modal:not(.crop-overlay) .modal-foot{padding-bottom:calc(12px + env(safe-area-inset-bottom))}
   .app:not(.pub):has(> .storage-warn) .modal.crop-overlay{padding-top:96px}
   .app:not(.pub) .modal-foot{flex-wrap:wrap}
-  .app:not(.pub) .modal-foot .btn{flex:1 1 0;height:var(--d-ctl-lg)}
+  .app:not(.pub) .modal-foot .btn{flex:1 1 0rem;height:var(--d-ctl-lg)}
   .app:not(.pub) p.hint.err-text > .btn{margin-left:26px}   /* A&R's Try again wraps here: under the text, not the icon */
   /* Delete prospect = a full-width row under Cancel/Save, but quieter than them (not the biggest thumb target).
      Selector weight matches the destructive :is() rule above, so this one (later) wins */
@@ -2505,7 +2508,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .arb-card.moving{opacity:.6}
 .app:not(.pub) .arb-sub{font-size:12px;color:var(--d-ink-4)}
 .app:not(.pub) .arb-card-acts{display:flex;align-items:center;gap:6px}
-.app:not(.pub) .arb-next{flex:1 1 0;min-width:0;justify-content:center;padding-inline:10px}
+.app:not(.pub) .arb-next{flex:1 1 0rem;min-width:0;justify-content:center;padding-inline:10px}
 /* 1280-1366: the card is too narrow for "Started talking →" on one line, so the words wrap inside the button
    (balanced, so the arrow never sits alone on the second line). .arb-card-acts .btn: outranks .btn.sm's height and size */
 @media (max-width:1366px){ .app:not(.pub) .arb-card-acts .btn.arb-next{height:auto;min-height:var(--d-ctl-sm);padding:5px 8px;font-size:12.5px;white-space:normal;text-wrap:balance;text-align:center;line-height:1.2;border-radius:14px} }
@@ -2639,7 +2642,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .home .hp-row .btn.sm{height:30px;min-height:30px;padding-inline:12px}
   /* a payment row that doesn't fit wraps into a second column, which the card hides: whole rows only */
   .app:not(.pub) .home-pay{min-height:0}
-  .app:not(.pub) .home-pay .hp-list{flex:1 1 0;min-height:0;flex-wrap:wrap;align-content:flex-start;overflow:hidden}
+  .app:not(.pub) .home-pay .hp-list{flex:1 1 0rem;min-height:0;flex-wrap:wrap;align-content:flex-start;overflow:hidden}
   .app:not(.pub) .home-pay .hp-row{width:100%}
 }
 /* the same one-line head on phones, so the Money card stays inside its phone cap with the list under it */
