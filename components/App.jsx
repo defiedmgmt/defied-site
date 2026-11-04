@@ -2788,7 +2788,7 @@ function ArtistNums({ a, open, onToggle, onSaved }) {
               {songs.map((s) => (
                 <div key={s.id} className="nums-song" data-song={s.id}>
                   <span className="nums-song-t">{s.name}{s.isNew && <span className="nums-tag hot">New</span>}<em>{s.artist}</em></span>
-                  <span data-l="All-time">{s.streams ? big(s.streams.latest) : "—"}{s.streams?.stale && <em className="nums-when"> last updated {shortDay(s.streams.day)}</em>}</span>
+                  <span data-l="All-time" title={s.under1k ? "Spotify shows no count under 1,000 plays" : undefined}>{s.streams ? big(s.streams.latest) : s.under1k ? "Under 1K" : "—"}{s.streams?.stale && <em className="nums-when"> last updated {shortDay(s.streams.day)}</em>}</span>
                   <span data-l="Yesterday">{s.streams?.daily != null ? compact(s.streams.daily) : "—"}</span>
                   <span data-l="This week">{s.streams?.thisWeek != null ? compact(s.streams.thisWeek) : "—"}</span>
                   <span data-l="vs last week" className={s.streams?.pct == null ? "" : s.streams.pct >= 0 ? "pos" : "neg"}>{pctWord(s.streams?.pct) || "—"}</span>
