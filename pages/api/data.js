@@ -89,12 +89,13 @@ async function seeds(req, res) {
     if (!row) return res.status(404).json({ error: "That one isn't on the list any more." });
     if (!areas.includes(row.area)) return res.status(403).json({ error: row.area === "ar" ? "That one is A&R's." : "That one is Publishing's." });
     const by = session.user.name || session.user.email || session.user.id || "";
-    const r = await decideSeed(row.lum_id, { op: String(b.op || ""), url: String(b.url || "").slice(0, 400), socials: b.socials && typeof b.socials === "object" ? b.socials : {} }, by);
+    const source = ["deezer", "deezer-artist", "musicbrainz", "spotify-link"].includes(b.source) ? b.source : "manual";
+    const r = await decideSeed(row.lum_id, { op: String(b.op || ""), url: String(b.url || "").slice(0, 400), socials: b.socials && typeof b.socials === "object" ? b.socials : {}, isrc: String(b.isrc || "").slice(0, 20), source }, by);
     if (r.error) return res.status(400).json(r);
     // tracked from the next numbers on (no paid run starts here)
     await syncEntities().catch((err) => console.error("seed sync:", err));
     const s = r.row;
-    return res.status(200).json({ ok: true, status: s.status, spotify: s.spotify_id ? { id: s.spotify_id, name: s.spotify_name } : null, socials: s.socials });
+    return res.status(200).json({ ok: true, status: s.status, isrc: s.isrc, spotify: s.spotify_id ? { id: s.spotify_id, name: s.spotify_name } : null, socials: s.socials });
   } catch (err) {
     console.error("seeds failed:", err);
     return res.status(503).json({ error: "Couldn't load that — try again in a minute." });

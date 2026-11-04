@@ -9,7 +9,7 @@ import { requireAccess } from "../../lib/access";
 import { findByName } from "../../lib/names";
 import { readArSheet, readChecks, sheetCheck, sheetProspect, seenProspect, settlePending } from "../../lib/ar-sheet";
 import { reconcile, OUTREACH_STATUSES, OUTREACH_TAB, ADVANCE_TAB } from "../../lib/ar";
-import { getState } from "../../lib/luminate";
+import { getState } from "../../lib/app-state";
 import { tabLink, getSheetId } from "../../lib/sheets";
 import { readSheetFacts } from "../../lib/sheet-facts-store";
 import { netStreamsOf } from "../../lib/sheet-facts";

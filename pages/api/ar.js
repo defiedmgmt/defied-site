@@ -2,9 +2,9 @@
 // while the pub sheet can't be read. GET = every prospect with its follow-up, socials and tracked
 // songs (?summary=1: the counts for the sidebar badge and the Dashboard's tasks; ?events=<id>: one
 // prospect's History for the panel, newest first). GET also carries the Watchlist: tracked artists and
-// songs (ar_tracked), each A&R portfolio's newest export (arLists, streams only) and who matches which
-// row (watch, sorted by week-on-week %, with Summary's top lists) and who you added that no A&R list
-// has yet (toLuminate; ?summary=1 carries it too, for the Dashboard). POST takes one {action} that never touches the sheet. Pub-sheet changes go through
+// songs (ar_tracked), the A&R numbers (arLists: Spotify monthly listeners and streams, lib/ar.js
+// arListsOf) and who matches which row (watch, sorted by week-on-week %, with Summary's top lists).
+// POST takes one {action} that never touches the sheet. Pub-sheet changes go through
 // /api/ar-write; tracked artists and songs are saved here alone, so they can never reach the sheet.
 import { sql } from "../../lib/db";
 import { requireSameOrigin } from "../../lib/session";
@@ -72,17 +72,6 @@ async function trackedAct(action, b, by) {
   return { ok: true, tracked: trackedOut(await trackedRow(t.id)) };
 }
 
-// a producer's own row in an A&R Artists list ("Their Luminate numbers"): Postgres only
-async function linkLuminate(b, by) {
-  const prospectId = String(b.prospectId || ""), luminateId = String(b.luminateId || "").trim().slice(0, 64);
-  const [p] = await sql`SELECT id, name FROM ar_prospects WHERE id = ${prospectId} AND merged_into IS NULL`;
-  if (!p) throw new ArError(404, "That prospect was removed somewhere else. Reload to see the latest.");
-  await sql`UPDATE ar_tracking SET removed_at = now(), updated_at = now() WHERE prospect_id = ${p.id} AND kind = 'artist' AND removed_at IS NULL`;
-  if (luminateId) await sql`INSERT INTO ar_tracking (id, prospect_id, kind, name, luminate_id, via) VALUES (${uid()}, ${p.id}, 'artist', ${p.name}, ${luminateId}, 'ar')`;
-  await event(p.id, by, "luminate", luminateId ? `${by} linked ${p.name} to their row in the A&R Artists list.` : `${by} unlinked ${p.name}'s Luminate numbers.`);
-  return { ok: true };
-}
-
 async function act(body, by) {
   const { action } = body;
   if (action === "mergeProspect") return mergeProspect(String(body.fromId || ""), String(body.intoId || ""), by);
@@ -91,7 +80,6 @@ async function act(body, by) {
     return { ok: true };
   }
   if (["addTracked", "editTracked", "stageTracked", "removeTracked"].includes(action)) return trackedAct(action, body, by);
-  if (action === "linkLuminate") return linkLuminate(body, by);
   throw new ArError(400, "Unknown action.");
 }
 
@@ -104,8 +92,8 @@ export default async function handler(req, res) {
     // Add artist: a pasted Spotify / Instagram / TikTok link -> name, photo, genre (read-only, public pages)
     if (req.method === "GET" && req.query.lookup) return res.status(200).json(await lookupArtist(String(req.query.lookup).slice(0, 400)));
     if (req.method === "GET") {
-      const { state, tracked, arLists, watch, toLuminate } = await arWatchNow();
-      return res.status(200).json({ ...state, tracked, arLists, watch, toLuminate });
+      const { state, tracked, arLists, watch } = await arWatchNow();
+      return res.status(200).json({ ...state, tracked, arLists, watch });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;

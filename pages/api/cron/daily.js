@@ -1,17 +1,15 @@
 // Runs once a day (vercel.json "crons"): pulls the sheet onto the site so a
 // change typed straight into the sheet shows up without anyone signed in,
-// looks up a few missing ISRCs (and the A&R artists' Deezer pages), pings ClickUp when no Luminate update has
-// come in for over a week, and keeps the two ClickUp tasks the dashboard owns
-// (the weekly sync one, "Log new payments") up to date, and reads each client's manager off the
+// looks up a few missing ISRCs (and the A&R artists' Deezer pages), keeps the ClickUp tasks the dashboard
+// owns ("Log new payments", one per area) up to date, and reads each client's manager off the
 // accounting sheet's INFO tab (roles: a Co-manager limited to their own artists). Vercel sends
 // Authorization: Bearer $CRON_SECRET; without that secret set, this refuses
 // to run at all.
 import { sql } from "../../../lib/db";
 import { syncSiteFromSheet } from "../../../lib/site-sync";
-import { getState, setState } from "../../../lib/luminate";
+import { setState } from "../../../lib/app-state";
 import { lookupIsrc } from "../../../lib/isrc";
 import { refreshDeezer, refreshArIsrcs } from "../../../lib/ar-deezer";
-import { runLuminateWeek } from "../../../lib/luminate-week";
 import { normalizeTitle } from "../../../lib/sheets";
 import { notifyClickUp } from "../../../lib/clickup";
 import { checkClickUpTasks } from "../../../lib/money";
@@ -19,9 +17,6 @@ import { refreshManagers } from "../../../lib/access";
 
 // the sheet pull plus the Stripe read behind the ClickUp tasks (see pages/api/home.js)
 export const config = { maxDuration: 60 };
-
-const STALE_DAYS = 8;
-const DAY = 86400000;
 
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
@@ -35,11 +30,12 @@ export default async function handler(req, res) {
   }
 
   // up to 10 songs a night that have no ISRC yet and weren't looked up in the last 2 weeks: a sure hit
-  // is saved with its source, else the finder's candidates wait for one tap on the Luminate page
+  // is saved with its source, else the finder's candidates wait for one tap on the song (the ISRC is how
+  // one song with several Spotify ids is counted once, and how a song without a link is found on Spotify)
   try {
     const rows = await sql`
       SELECT p.id, p.song, p.artist, p.link FROM placements p LEFT JOIN song_tracking t ON t.placement_id = p.id
-      WHERE p.luminate_id = '' AND COALESCE(t.isrc, '') = '' AND NOT COALESCE(t.skip, false)
+      WHERE COALESCE(t.isrc, '') = '' AND NOT COALESCE(t.skip, false)
         AND (t.isrc_checked_at IS NULL OR t.isrc_checked_at < now() - interval '14 days')
       LIMIT 40
     `;
@@ -74,32 +70,11 @@ export default async function handler(req, res) {
   // the A&R artists' Deezer pages (fans, and the tracks a songs-only artist is followed by): a few a night
   try { report.deezer = await refreshDeezer({ limit: 8 }); report.arIsrc = await refreshArIsrcs({ limit: 3 }); } catch (err) { report.deezerError = err.message; }
 
-  // nothing new from Luminate in over a week: say so once a day until it comes in. lastUpload is the
-  // clients' exports only (A&R files don't count), and the day only counts once ClickUp took the
-  // message, so an outage doesn't swallow it. The age is the numbers' own (numbersFrom: when
-  // Luminate made the oldest portfolio's newest export), so dropping month-old files doesn't reset it.
-  const last = await getState("lastUpload");
-  const at = last?.at ? new Date(last.at).getTime() : null, made = last?.numbersFrom ? new Date(last.numbersFrom).getTime() : null;
-  const byNumbers = made !== null && (at === null || made < at);
-  const age = byNumbers ? (Date.now() - made) / DAY : at !== null ? (Date.now() - at) / DAY : null;
-  const alerted = await getState("staleAlert");
-  if ((age === null || age > STALE_DAYS) && (!alerted?.at || Date.now() - new Date(alerted.at).getTime() > DAY - 3600000)) {
-    const when = age === null ? "No Luminate update has come in yet."
-      : byNumbers ? `The newest Luminate numbers${last.numbersPortfolio ? ` for ${last.numbersPortfolio}` : ""} are ${Math.floor(age)} days old.`
-      : `The last Luminate update was ${Math.floor(age)} days ago.`;
-    const sent = await notifyClickUp(`**Streams are getting stale**: ${when}\nDownload the portfolio exports and drop them on the dashboard's Luminate page. [Open dashboard](https://www.defiedmgmt.com/dashboard)`);
-    if (sent) {
-      await setState("staleAlert", { at: new Date().toISOString() });
-      report.staleAlert = true;
-    } else report.staleAlertFailed = true; // tried again at the next run
-  }
   // the weekly "clear the sync tasks" task (Mondays) and "Log new payments" (H.3/H.4): one stored
   // task each, written only with CLICKUP_TASK_WRITES=on
   // each client's manager from the accounting sheet's INFO tab (Site › Users; reads the sheet only)
   try { const m = await refreshManagers(); report.managers = m.error ? { error: m.error } : { matched: m.matched }; } catch (err) { report.managersError = err.message; }
   try { report.clickupTasks = await checkClickUpTasks({ force: true }); } catch (err) { report.clickupTasksError = err.message; }
-  // the week's "Luminate update" task: made on the Luminate day while a portfolio's file is missing
-  report.luminateWeek = await runLuminateWeek();
   await setState("cron", report);
   return res.status(200).json(report);
 }

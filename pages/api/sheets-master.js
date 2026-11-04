@@ -6,7 +6,6 @@ import { getSheetsClient, getSheetId, readMasterRollup, readMasterLinks, readAss
 import { requireAccess, limited, ownSet } from "../../lib/access";
 import { ownerOf } from "../../lib/names";
 import { sql } from "../../lib/db";
-import { portfolioName } from "../../lib/luminate";
 
 // An account limited to its own artists (lib/roles.js): their writers' rows only, and the roster's totals
 // as the sum of those rows, so no other artist's number reaches it
@@ -19,8 +18,6 @@ export function scopeRollup(rollup, keep) {
   const rosterTotal = { writer: "ROSTER TOTAL", sheetTab: "", ...Object.fromEntries(ROW_KEYS.map((k) => [k, sum(k)])), pctOfRoster: rows.length ? 1 : 0 };
   return { ...rollup, totals, rows: rows.map((r) => ({ ...r, pctOfRoster: totals.rosterGrossStreams ? r.grossStreams / totals.rosterGrossStreams : 0 })), rosterTotal };
 }
-// the POR id in one of MASTER's ↗A / ↗B links, so the button reads Luminate's name for it ("Admin Catalog 1")
-const porIn = (url) => (/POR[0-9A-F]{16,}/i.exec(String(url || "")) || [])[0] || "";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
@@ -34,7 +31,6 @@ export default async function handler(req, res) {
       rollup = scopeRollup(rollup, (r) => mine.has(ownerOf(known, r.sheetTab || r.writer)?.id));
     }
     const links = await readMasterLinks(sheets, spreadsheetId);
-    links.names = { portfolioA: portfolioName(porIn(links.portfolioA), null), portfolioB: portfolioName(porIn(links.portfolioB), null) };
     // the $ a stream every estimate uses (ASSUMPTIONS!B7), for the overview's one line explaining
     // the money; without it the line just says "the sheet's blended rate"
     const a = await readAssumptions(sheets, spreadsheetId).catch(() => ({}));

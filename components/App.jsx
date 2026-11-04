@@ -9,7 +9,7 @@ import {
   Instagram, Mail, X, LogOut, Plus, Trash2, Pencil, Disc3,
   ListMusic, UserCog, Inbox, Check, ChevronUp, ChevronDown, LayoutGrid,
   Folder, ExternalLink, RefreshCw, Download, Handshake, Calculator, Copy,
-  Radar, UploadCloud, AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
+  AlertTriangle, CheckCircle2, Clock, Link2, TrendingUp,
   LayoutDashboard, ListChecks, Receipt, CircleDollarSign, Flag, ChevronRight, Info, Eye, MoreHorizontal,
   Globe, CalendarDays, ChevronLeft, List as ListIcon,
 } from "lucide-react";
@@ -431,14 +431,15 @@ function splitsToFix(db) {
     .map(([clientId, songs]) => ({ clientId, client: (db.clients || []).find((c) => c.id === clientId) || null, songs: songs.sort((a, b) => (b.streams || 0) - (a.streams || 0)) }))
     .sort((a, b) => sum(b.songs) - sum(a.songs) || (a.client?.name || "").localeCompare(b.client?.name || ""));
 }
-// one wording for how fresh the streams are (Publishing's subline, a client's page, a song window): the
-// day of the Luminate export they come from, and when the site last pulled the pub sheet
-function streamsAsOf({ luminateDay, pulledAt }) {
+// one wording for how fresh the sheet's streams are (Publishing's subline, a client's page, a song window):
+// they're the pub sheet's, whose STREAM DATA tab keeps Luminate's last numbers (lumDay) and isn't updated
+// any more (list B #3), and when the site last pulled the sheet
+function streamsAsOf({ lumDay, pulledAt }) {
   const pulled = pulledAt ? ` · sheet pulled ${new Date(pulledAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "";
-  return luminateDay
-    ? `Luminate numbers from ${new Date(`${luminateDay}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}${pulled}`
-    : `Not tracked in Luminate yet${pulled}`;
+  return `Pub sheet streams${lumDay ? ` (Luminate's last numbers, ${new Date(`${lumDay}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })})` : ""}${pulled}`;
 }
+// the one line staff see about it (Publishing's overview and a client's page): the owner decides what feeds the sheet next
+const STREAM_DATA_NOTE = "The pub sheet's STREAM DATA tab isn't updated any more: its streams and money stay at Luminate's last numbers. The new numbers are under Numbers.";
 
 // recharts (~350KB min / ~90KB gzip) is only drawn in the song-splits view (staff Clients tab +
 // client portal) — loaded on demand so the public pages never carry it
@@ -580,13 +581,12 @@ function landOn(el) {
   el.scrollIntoView({ block: "start" });
 }
 
-// the line a Delete or "This isn't ours" leaves, with its one next step when there is one
-function DropNote({ note, onShow }) {
+// the line a Delete, "This isn't ours" or a To do answer leaves
+function DropNote({ note }) {
   if (!note) return null;
   return (
     <p className={note.warn ? "hint del-note warn" : "hint del-note"} role="status">
-      {note.warn ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} <span>{note.text}
-        {note.go && onShow && <> <button className="inline-link" data-show-me onClick={() => onShow(note.go)}>View</button></>}</span>
+      {note.warn ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />} <span>{note.text}</span>
     </p>
   );
 }
@@ -846,7 +846,7 @@ export default function App() {
     return run;
   };
 
-  // after the server changed data itself (a Luminate update, a link): swap in its copy once the
+  // after the server changed data itself (a sheet tab fixed, a song removed): swap in its copy once the
   // saves queued in this tab have landed. A save started meanwhile brings its own fresh copy.
   const reloadDb = async () => {
     const s = saves.current, gen = s.gen;
@@ -2554,8 +2554,8 @@ const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d
 const canUse = (db, k) => !db?.access || db.access.sections.includes(k);
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
-const DASH_TABS = ["home", "todo", "catalog", "numbers", "money", "ar", "luminate", "site"];
-const TODO_AREAS = ["money", "roster", "luminate", "ar", "clickup", "site"];
+const DASH_TABS = ["home", "todo", "catalog", "numbers", "money", "ar", "site"];
+const TODO_AREAS = ["money", "roster", "ar", "clickup", "site"];
 function placeOf(t, s) {
   const sub = typeof s === "string" && s ? s : null;
   if (t === "accounting") return sub === "log" || sub === "check" ? { tab: "todo", sub } : { tab: "money", sub: sub === "payments" ? "payments" : null };
@@ -2563,8 +2563,8 @@ function placeOf(t, s) {
   if (t === "users") return { tab: "site", sub: "users" };
   if (t === "subs") return { tab: "site", sub: "messages" };
   if (t === "catalog" && ["splits", "update", "dupes"].includes(sub)) return { tab: "todo", sub };
-  if (t === "luminate" && ["add", "full", "match", "missing", "gone", "ar"].includes(sub)) return { tab: "todo", sub: { full: "add", match: "unlinked", ar: "arLuminate" }[sub] || sub };
-  if (t === "luminate" && sub === "drop") return { tab: "luminate", sub };
+  // (list B #3: the Luminate tab is gone; its old links open Numbers, where the new numbers are)
+  if (t === "luminate") return { tab: "numbers", sub: null };
   const tab = DASH_TABS.includes(t) ? t : "home";
   return { tab, sub: tab !== "home" ? sub : null };
 }
@@ -2595,23 +2595,25 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
     if (router.query.tab && (router.query.tab !== at.tab || (router.query.sub || null) !== at.sub)) toUrl(at.tab, at.sub, "replace");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router.isReady, router.query.tab, router.query.sub]);
-  // the Luminate page's data (portfolios, ISRCs, songs to link): loaded first, then again whenever
-  // Home or To do opens and after anything that changes it (Luminate's actions, "Refresh numbers").
-  // lumErr = it couldn't load, so the cards say so instead of spinning.
-  const [lum, setLum] = useState(null);
-  const [lumErr, setLumErr] = useState(false);
-  const reloadLum = () => {
-    setLumErr(false);
-    return fetch("/api/luminate", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.portfolios) setLum(d); else setLumErr(true); }).catch(() => setLumErr(true));
+  // each song's extra facts (GET /api/songs: ISRCs, the finder's guesses, the pairs that aren't the same
+  // song, the sheet tabs the last pull couldn't find): loaded first, then again whenever Home or To do
+  // opens and after anything that changes them. songInfoErr = it couldn't load, so the cards say so.
+  const [songInfo, setSongInfo] = useState(null);
+  const [songInfoErr, setSongInfoErr] = useState(false);
+  const reloadSongInfo = () => {
+    setSongInfoErr(false);
+    return fetch("/api/songs", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.tracking) setSongInfo(d); else setSongInfoErr(true); }).catch(() => setSongInfoErr(true));
   };
   const can = (k) => canUse(db, k);
-  const lumOff = !can("luminate");
+  const songInfoOff = !can("publishing");
   useEffect(() => {
-    if (lumOff) return;
-    if (tab === "home" || tab === "todo" || !lum) reloadLum();
+    if (songInfoOff) return;
+    if (tab === "home" || tab === "todo" || !songInfo) reloadSongInfo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+  // what the old Luminate portfolios' starting list still needs (list B #3): To do's two rows
+  const seeds = useSeeds(tab, can("publishing") || can("ar"));
   // db.sheetSync is the site's last sheet sync (site_settings.last_synced_at
   // in the database) — a copy that's stale (never synced, or synced a while
   // ago, including before some bug fix here) would otherwise sit stale until
@@ -2627,7 +2629,7 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
     fullSiteSync(db, commit).catch((err) => console.error("Background sync failed:", err)).finally(() => { syncing.current = false; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
-  // A&R's counts (follow-ups due, people and songs to add to its Luminate lists), Money's (payments to
+  // A&R's counts (follow-ups due), Money's (payments to
   // log, rows to check), ClickUp's open tasks and the sync checks: To do's rows, its one count in the
   // sidebar, Home's biggest tasks and each tab's count chip all come from these
   const arSum = useArSummary(tab === "todo" ? "home" : tab);
@@ -2638,17 +2640,17 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const cu = useCuTasks(tab);
   const sync = useSyncChecks(tab);
   const fixes = useSplitFixes();
-  const doneForYou = useAutoConfirm({ db, commit, lum, fixes });
+  const doneForYou = useAutoConfirm({ db, commit, songInfo, fixes });
   // only the areas this account may use (lib/roles.js)
-  const todo = useMemo(() => todoItems({ db, lum, acct: acctN, ar: arSum, sync: sync.data }).filter((it) => can(AREA_SECTION[it.area] || "todo")), [db, lum, acctN, arSum, sync.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const todo = useMemo(() => todoItems({ db, songInfo, acct: acctN, ar: arSum, sync: sync.data, seeds: seeds.data }).filter((it) => can(AREA_SECTION[it.area] || "todo")), [db, songInfo, acctN, arSum, sync.data, seeds.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const cuDue = (cu.data?.tasks || []).filter((t) => dueBucket(t.due) === "overdue" || dueBucket(t.due) === "today");
   const todoN = todo.length + cuDue.length;
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
-  const ctx = { db, commit, reloadDb, lum, lumErr, lumOff, reloadLum, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou, can };
+  const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou, can, seeds };
   const allTabs = [
     ["home", "Home", LayoutDashboard], ["todo", "To do", ListChecks, todoN],
     ["catalog", "Publishing", ListMusic, 0, "roster"], ["numbers", "Numbers", TrendingUp, 0, "roster"], ["money", "Money", Receipt, 0, "money"],
-    ["ar", "A&R", Handshake, 0, "ar"], ["luminate", "Luminate", Radar, 0, "luminate"], ["site", "Site", Globe, 0, "site"],
+    ["ar", "A&R", Handshake, 0, "ar"], ["site", "Site", Globe, 0, "site"],
   ];
   // the tabs this account may use: Site holds Users too. Any other address opens the first of them.
   const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : id === "numbers" ? can("publishing") : can(TAB_SECTION[id])));
@@ -2678,8 +2680,7 @@ function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} />}
         {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} chip={<TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
         {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={<TodoChip n={areaN("site")} area="site" onGo={go} />} />}
-        {at === "catalog" && <CatalogAdmin db={db} commit={commit} lum={lum} reloadLum={reloadLum} sub={sub} onGo={go} onSub={setSub} chip={<TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
-        {at === "luminate" && <LuminateAdmin db={db} commit={commit} lum={lum} lumErr={lumErr} reloadLum={reloadLum} reloadDb={reloadDb} sub={sub} onGo={go} chip={<TodoChip n={areaN("luminate")} area="luminate" onGo={go} />} />}
+        {at === "catalog" && <CatalogAdmin db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={<TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} chip={<TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
         {at === "numbers" && <NumbersPage ctx={ctx} />}
       </main>
@@ -2779,12 +2780,14 @@ function ArtistNums({ a, open, onToggle, onSaved }) {
         <ChevronDown size={16} className="nums-chev" aria-hidden="true" />
       </button>
       <div className="nums-tiles">{tiles.length ? tiles : <span className="hint">No links to read numbers from yet. Add their Spotify, Instagram, TikTok or YouTube in Site › Roster.</span>}</div>
+      {/* list B #3: what Luminate last had for them, all platforms, kept as history (read only) */}
+      {a.lum?.atd != null && <p className="nums-lum" data-nums-lum>Luminate, all platforms: {fmt(a.lum.atd)} all-time streams on {shortDay(a.lum.on)}{a.lum.songs ? ` (${a.lum.songs} song${a.lum.songs === 1 ? "" : "s"})` : ""}{a.lum.week != null ? ` · ${fmt(a.lum.week)} that week` : ""}</p>}
       {open && (
         <div className="nums-more" data-nums-more>
           <ModeSwitch id={a.id} mode={a.mode} onSaved={onSaved} />
           {a.songs.length > 0 && (
             <div className="nums-songs" data-nums-songs>
-              <div className="nums-song nums-song-hd"><span>Song</span><span>Spotify streams, global</span><span>Yesterday</span><span>This week</span><span>vs last week</span></div>
+              <div className="nums-song nums-song-hd"><span>Song</span><span>Spotify streams, global</span><span>Yesterday</span><span>This week</span><span>vs last week</span><span title="Luminate's last all-time streams, all platforms (history)">Luminate, all-time</span></div>
               {songs.map((s) => (
                 <div key={s.id} className="nums-song" data-song={s.id}>
                   <span className="nums-song-t">{s.name}{s.isNew && <span className="nums-tag hot">New</span>}<em>{s.artist}</em></span>
@@ -2792,6 +2795,7 @@ function ArtistNums({ a, open, onToggle, onSaved }) {
                   <span data-l="Yesterday">{s.streams?.daily != null ? compact(s.streams.daily) : "—"}</span>
                   <span data-l="This week">{s.streams?.thisWeek != null ? compact(s.streams.thisWeek) : "—"}</span>
                   <span data-l="vs last week" className={s.streams?.pct == null ? "" : s.streams.pct >= 0 ? "pos" : "neg"}>{pctWord(s.streams?.pct) || "—"}</span>
+                  <span data-l="Luminate, all-time" className="nums-song-lum" title={s.lum ? `Luminate, all platforms, ${shortDay(s.lum.on)}` : undefined}>{s.lum?.atd != null ? big(s.lum.atd) : "—"}</span>
                 </div>
               ))}
               {a.songs.length > 12 && <button type="button" className="inline-link" onClick={() => setAll(!all)}>{all ? "Show fewer" : `Show all ${a.songs.length} songs`}</button>}
@@ -3067,9 +3071,9 @@ const NAME_TAKEN = "Another client already uses that name or sheet tab.";
 const nameTaken = (clients, id, value) => !!String(value || "").trim()
   && clients.some((o) => o.id !== id && [o.name, o.sheetTabName].some((s) => String(s || "").trim() && sameName(s, value)));
 
-function ClientsAdmin({ db, commit, openId = null, lum = null }) {
+function ClientsAdmin({ db, commit, openId = null, songInfo = null }) {
   // the clients the "numbers can't sync" To do names: each row says so, and its form says why
-  const noTab = noTabNames(db, lum).map((n) => findTabClient(db, n)).filter(Boolean);
+  const noTab = noTabNames(db, songInfo).map((n) => findTabClient(db, n)).filter(Boolean);
   const noTabIds = new Set(noTab.map((c) => c.id));
   const cols = [
     { key: "name", label: "Name", render: (c) => <span className="cell-name"><Avatar src={c.photo} name={c.name} size={30} />{c.name}{noTabIds.has(c.id) && <span className="tab-missing" data-tab-missing title="The pub sheet has no tab by this name">No sheet tab</span>}</span> },
@@ -3369,7 +3373,7 @@ function UsersAdmin({ db, commit, reloadDb }) {
             <fieldset className="fld sec-picks" data-sections>
               <legend>What they can open</legend>
               {SECTIONS.map(([k]) => {
-                const locked = (k === "users" && pick === "founder") || (a.ownOnly && k === "luminate");
+                const locked = k === "users" && pick === "founder";
                 return (
                   <label key={k} className={`sec-pick${locked ? " locked" : ""}`} data-section={k}>
                     <input type="checkbox" checked={a.sections.includes(k)} disabled={locked} onChange={(ev) => setSection(e, set, k, ev.target.checked)} />
@@ -3377,7 +3381,7 @@ function UsersAdmin({ db, commit, reloadDb }) {
                   </label>
                 );
               })}
-              <p className="hint">{ROLES[pick].label} starts with {pick === "founder" ? "everything" : pick === "comanager" ? "everything but Money and Users" : "Site only"}. Tick or untick to change it for this person.{a.ownOnly ? " Luminate needs every artist, so it's off while they see only their own." : ""}</p>
+              <p className="hint">{ROLES[pick].label} starts with {pick === "founder" ? "everything" : pick === "comanager" ? "everything but Money and Users" : "Site only"}. Tick or untick to change it for this person.</p>
             </fieldset>
           )}
           <p className="hint">Clients only see their own placements and splits. They can never edit the website.</p>
@@ -3484,7 +3488,7 @@ function useArAll() {
   useEffect(() => { if (sheet.data) loadPg(); }, [sheet.data]);
   return { ...sheet, pg, pgErr, loadPg };
 }
-// the Dashboard's This week › A&R rows: "watch:open:<key>" (their panel) / "watch:flash:<key>" (a Luminate-only row)
+// the Dashboard's This week › A&R rows: "watch:open:<key>" (their panel) / "watch:flash:<key>" (a row only the old Artist Tracker had)
 const arWatchAt = (sub) => { const m = /^watch:(open|flash):(.+)$/.exec(sub || ""); return m ? { pill: "people", [m[1]]: m[2] } : null; };
 function ARAdmin({ onGo, sub, chip = null }) {
   const [sec, setSecState] = useState(() => {
@@ -3554,9 +3558,10 @@ const flatPct = (p) => Math.abs(p) < 0.05;
 const pctText = (p) => (flatPct(p) ? "0.0%" : `${p >= 0 ? "▲" : "▼"} ${Math.abs(p).toFixed(1)}%`);
 // the week-on-week % as one pill everywhere: ▲ green up, ▼ red down, grey when flat; nothing when there's no last week
 const WowPill = ({ pct, big }) => (pct == null ? null : <span className={big ? "wow-pill big" : "wow-pill"} data-dir={flatPct(pct) ? "flat" : pct >= 0 ? "up" : "down"}>{pctText(pct)}</span>);
-// someone we track by hand with no row in the Luminate A&R list yet (producers from OUTREACH
-// rarely have one, and Passed is done, so neither counts)
-const needsLumRow = (r) => r.ref?.type === "tracked" && !r.luminateId && !r.songsOnly && r.stage !== "passed";
+// someone we track by hand with no numbers yet (Passed is done, so it doesn't count): the "no numbers" filter
+const noNums = (r) => r.ref?.type === "tracked" && r.current == null && r.stage !== "passed";
+// a row's number in words: an artist's Spotify monthly listeners, a song's Spotify streams this week
+const unitWords = (r, old = false) => (r.unit === "listeners" ? "monthly listeners" : old ? "streams that week" : "streams this week");
 const UpDown = ({ r }) => (r.current == null ? <span className="muted">No numbers yet</span>
   : r.changePct == null ? <span className="muted-dash" title="No last week to compare">—</span>
   : <WowPill pct={r.changePct} />);
@@ -3595,7 +3600,6 @@ function usePanel() {
 function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
   const { data, pg, load, loadPg } = ar;
   const [kind, setKind] = useState(open?.kind || "producer");
-  const [linkErr, setLinkErr] = useState(null);
   useEffect(() => { if (open?.type === "add") setKind(open.kind || "producer"); }, [open]);
   if (!open) return null;
   const canSave = !!data && data.sheet?.ok !== false;
@@ -3623,25 +3627,16 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
   const s = (data?.prospects || []).find((p) => p.id === open.id);
   const p = (pg?.prospects || []).find((x) => x.id === open.id);
   if (!s || !data) return null;
-  const artistRows = (pg?.arLists || []).flatMap((l) => l.rows.filter((r) => r.type === "artist"));
-  const link = (p?.tracked || []).find((x) => x.kind === "artist" && x.luminateId)?.luminateId || "";
   const mine = (pg?.watch?.people || []).find((r) => r.ref?.id === open.id);
   return (
     <ProspectForm key={s.id} prospect={s} pg={p} blendedRate={data.assumptions.blendedRate} assume={data.assumptions} canSave={canSave} reload={load}
       onClose={closePanel} onChanged={async () => { await load(); closePanel(); }}
       extra={(
         <div className="ar-panel-extra">
-          <p className="fld-label mb">Their Luminate numbers</p>
+          <p className="fld-label mb">Their numbers</p>
           {mine?.current != null
-            ? <p className="ar-nums">{fmt(mine.current)} streams this week <UpDown r={mine} /> · {fmt(mine.atd ?? 0)} all-time</p>
-            : <p className="muted ar-nums">No numbers yet. Add them to your A&amp;R list in Luminate, then pick their row here.</p>}
-          <label className="fld"><span>Their row in your Artist Tracker list in Luminate</span>
-            <select value={link} onChange={(e) => { setLinkErr(null); arPost({ action: "linkLuminate", prospectId: s.id, luminateId: e.target.value }).then(() => loadPg()).catch((e2) => setLinkErr(e2.message)); }} aria-label="Their row in your Artist Tracker list in Luminate">
-              <option value="">{mine?.luminateId && !link ? `Matched by name: ${artistRows.find((r) => r.id === mine.luminateId)?.name || ""}` : "None yet"}</option>
-              {artistRows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
-            {linkErr && <span className="hint err-text" role="alert">{linkErr}</span>}
-          </label>
+            ? <p className="ar-nums">{fmt(mine.current)} {unitWords(mine)} <UpDown r={mine} />{mine.lum?.atd != null && ` · Luminate: ${fmt(mine.lum.atd)} all-time on ${shortDay(mine.lum.on)}`}</p>
+            : <p className="muted ar-nums">No numbers yet: they come in once an artist on the Watchlist with their name has a Spotify link.</p>}
           <button className="btn ghost sm" onClick={() => onGo("catalog", `advance:${s.id}`)}>Calculate an advance</button>
         </div>
       )} />
@@ -3652,7 +3647,8 @@ function ArPanels({ ar, open, openPanel, closePanel, onGo }) {
 // no money anywhere (only producers have estimates)
 function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }) {
   const isNew = !t;
-  const init = t || { name: prefill?.name || "", artist: "", handle: "", spotify: "", isrc: "", genre: "", notes: "", luminateId: prefill?.luminateId || "", personId: null, stage: null, photo: "" };
+  // (luminateId: an Artist / Song Tracker row this one was added from, so its numbers and history stay with it)
+  const init = t || { name: prefill?.name || "", artist: prefill?.artist || "", handle: "", spotify: prefill?.spotify || "", isrc: "", genre: "", notes: "", luminateId: prefill?.luminateId || "", personId: null, stage: null, photo: "" };
   const [f, setF] = useState({ ...init, stage: init.stage || "", photo: init.photo || "" });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -3662,7 +3658,7 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const type = kind === "song" ? "song" : "artist";
   // Add artist (r7 C2): paste a Spotify or Instagram link and the name, photo and genre fill in (GET
-  // /api/ar?lookup=); then Watching or Signed. No Luminate row to pick: they're matched by name later.
+  // /api/ar?lookup=); then Watching or Signed. Their numbers follow their Spotify link.
   const simple = isNew && type === "artist";
   const [link, setLink] = useState("");
   const [look, setLook] = useState(null); // null | { busy: true } | the lookup's answer
@@ -3691,9 +3687,6 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
     }, 350);
     return () => { gone = true; clearTimeout(timer); };
   }, [link, simple]);
-  // rows of that A&R list nobody has taken yet (plus this one's own)
-  const taken = new Set((pg?.watch?.[type === "song" ? "songs" : "people"] || []).filter((r) => r.ref && r.luminateId && r.ref.id !== t?.id).map((r) => r.luminateId));
-  const rows = (pg?.arLists || []).flatMap((l) => l.rows.filter((r) => r.type === type && !taken.has(r.id)));
   const people = (pg?.watch?.people || []).filter((r) => r.ref);
   const save = async () => {
     setBusy(true); setErr(null);
@@ -3724,11 +3717,11 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
         <div className="modal-head"><h3>{isNew ? title || "Add an artist" : t.name}</h3><button onClick={guard.tryClose} aria-label="Close" disabled={busy}><X size={18} /></button></div>
         <div className="modal-body">
           {picker}
-          {/* a Luminate-only row: its numbers first, from the row that was clicked */}
+          {/* a row only the old Tracker had: its numbers first, from the row that was clicked */}
           {isNew && prefill?.nums && (
-            <p className="ar-nums ar-prefill-nums">This week {fmt(prefill.nums.thisWeek ?? 0)}{prefill.nums.wowPct != null && ` · ${pctText(prefill.nums.wowPct)} vs last week`}{prefill.nums.atd != null && ` · ${bigNum(prefill.nums.atd)} all-time`}</p>
+            <p className="ar-nums ar-prefill-nums">{fmt(prefill.nums.thisWeek ?? 0)} {unitWords(prefill.nums)}{prefill.nums.wowPct != null && ` · ${pctText(prefill.nums.wowPct)} vs a week ago`}{prefill.nums.atd != null && ` · ${bigNum(prefill.nums.atd)} all-time`}</p>
           )}
-          {isNew && prefill?.name && !simple && <p className="hint mb">Tracked from your Luminate list. Add a handle, or put them on the board.</p>}
+          {isNew && prefill?.name && !simple && <p className="hint mb">Tracked from the old Luminate {type === "song" ? "Song" : "Artist"} Tracker. Add a handle, or put them on the board.</p>}
           {err && <p className="hint err-text" role="alert">{err}</p>}
           {simple && <>
             <label className="fld"><span>Spotify or Instagram link</span>
@@ -3770,15 +3763,6 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
           {!simple && <Field label="Spotify link" value={f.spotify} onChange={set("spotify")} />}
           {type === "song" && <Field label="ISRC (if you have it)" value={f.isrc} onChange={set("isrc")} />}
           {type === "song" && t?.isrcCandidates?.length > 0 && !f.isrc && <IsrcPicks list={t.isrcCandidates} busy={busy} onPick={pickIsrc} />}
-          {!simple && (
-            <label className="fld"><span>Their row in your {type === "song" ? "Song Tracker" : "Artist Tracker"} list in Luminate</span>
-              <select value={f.luminateId} onChange={set("luminateId")} aria-label="Their row in Luminate">
-                <option value="">None yet</option>
-                {rows.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
-              <span className="hint">Not there? Add them in Luminate. They show up here after your next export.</span>
-            </label>
-          )}
           {type === "artist" && <Field label="Genre" value={f.genre} onChange={set("genre")} />}
           {type === "song" && (
             <label className="fld"><span>Tied to (optional)</span>
@@ -3789,7 +3773,7 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
             </label>
           )}
           <Area label="Notes" value={f.notes} onChange={set("notes")} />
-          <p className="hint" data-ar-form-line>{simple ? "No Luminate id needed. If Luminate has no artist page for them yet, add their songs to the Song Tracker: we add them up here." : "Saved here in the dashboard only. Nothing goes into the pub sheet."}</p>
+          <p className="hint" data-ar-form-line>{simple ? "Their Spotify link brings in their numbers. No Spotify artist page yet? Add their songs: we add them up here." : "Saved here in the dashboard only. Nothing goes into the pub sheet."}</p>
         </div>
         {guard.bar}
         <div className="modal-foot">
@@ -3800,7 +3784,7 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
       </div>
       {askStop && (
         <AskCard title={`Stop tracking ${t.name}?`} goLabel="Stop tracking" busyLabel="Stopping…" go={remove} onClose={() => setAskStop(false)}>
-          <p>Nothing in Luminate or the pub sheet changes.</p>
+          <p>Nothing in the pub sheet changes.</p>
         </AskCard>
       )}
     </div>
@@ -3820,10 +3804,10 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
   const people = ranked(watch?.people || [], watch?.top?.people), songs = ranked(watch?.songs || [], watch?.top?.songs);
   const to = watch?.period?.to;
   const old = to && daysSince(to) > 8;
-  // its to-dos (follow-ups, the Luminate A&R lists, ClickUp's A&R Tasks) are To do's now (r7): the chip counts them
+  // its to-dos (follow-ups, ClickUp's A&R Tasks, the old Trackers' rows to find on Spotify) are To do's now (r7): the chip counts them
   const value = data?.totals?.totalValue;
   const stageN = (id) => cards.filter((c) => c.stage === id).length;
-  // someone tracked here opens their panel on the Watchlist; a Luminate-only row is just shown there
+  // someone tracked here opens their panel on the Watchlist; a row only the old Artist Tracker had is just shown there
   const openGainer = (r, kind) => goWatch(r.ref ? { pill: kind, open: r.key } : { pill: kind, flash: r.key });
   const Gainers = ({ list, kind }) => (
     <div className="gainers ar-gainers" data-list={kind} data-wait={!pg ? "" : undefined}>
@@ -3831,7 +3815,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
       {!pg ? <p className="gainers-empty">Loading…</p> : !list.length && (watch?.[kind] || []).some((r) => r.wowPct != null) ? (
         <p className="gainers-empty">No rises this week.</p>
       ) : !list.length ? (
-        <p className="gainers-empty">{kind === "people" ? "Nobody" : "No songs"} with numbers yet. <button className="btn ghost sm" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></p>
+        <p className="gainers-empty">{kind === "people" ? "Nobody" : "No songs"} with a week of Spotify numbers yet.</p>
       ) : list.map((r, i) => {
         const pct = r.ranked && r.wowPct != null;
         const rose = pct && r.wowPct > 0;
@@ -3844,7 +3828,7 @@ function ArSummary({ ar, onGo, goBoard, goWatch }) {
                 : r.artist && <span>{r.artist}</span>}
             </span>
             <span className="gainer-num" data-wow={pct ? (r.wowPct >= 0 ? "up" : "down") : "none"}>
-              {pct && <WowPill pct={r.wowPct} big />}<em>{fmt(r.thisWeek)} {old ? "that week" : "this week"}</em>
+              {pct && <WowPill pct={r.wowPct} big />}<em>{fmt(r.thisWeek)} {unitWords(r, old)}</em>
             </span>
           </button>
         );
@@ -4181,8 +4165,8 @@ function ArList({ rows, onOpen }) {
   );
 }
 
-// Watchlist: everyone and every song tracked (and every row of the A&R Luminate lists), up or down
-const SORTS = { name: (r) => String(r.name ?? r.title ?? "").toLowerCase(), current: (r) => r.current, changePct: (r) => r.changePct, atd: (r) => r.atd, value: (r) => r.value };
+// Watchlist: everyone and every song tracked (and every row the old Artist and Song Trackers had), up or down
+const SORTS = { name: (r) => String(r.name ?? r.title ?? "").toLowerCase(), current: (r) => r.current, changePct: (r) => r.changePct, atd: (r) => r.atd ?? r.lum?.atd, value: (r) => r.value };
 const SHOW_TABS = [["everyone", "Everyone"], ["artists", "Artists"], ["producers", "Producers"]];
 // the Watchlist opens in the server's order: biggest week-on-week % first, no % last (by this week's streams)
 function ArWatch({ ar, onGo, at }) {
@@ -4193,7 +4177,6 @@ function ArWatch({ ar, onGo, at }) {
   const [onlyNone, setOnlyNone] = useState(!!at?.noNumbers);
   const [sort, setSort] = useState({ k: "changePct", dir: -1, server: true }); // biggest % first (the server's order) until a column is clicked
   const [lit, setLit] = useState(null); // the row a Summary click points at, lit for about 2 seconds
-  const [showToLum, setShowToLum] = useState(false);
   const { open, openPanel, closePanel } = usePanel();
   const { cards, sheetById } = arCards(data, pg);
   const stageBy = Object.fromEntries(cards.map((c) => [c.key, c.stage]));
@@ -4209,7 +4192,7 @@ function ArWatch({ ar, onGo, at }) {
   const needle = find.trim().toLowerCase();
   const list = (pill === "people" ? people.filter((r) => show === "everyone" || (show === "artists" ? r.role === "artist" : r.role === "producer")) : songs)
     .filter((r) => !needle || `${r.name} ${r.handle || ""} ${r.artist || ""}`.toLowerCase().includes(needle))
-    .filter((r) => !onlyNone || needsLumRow(r));
+    .filter((r) => !onlyNone || noNums(r));
   const by = SORTS[sort.k];
   const rows = sort.server ? list : [...list].sort((a, b) => {
     const x = by(a), y = by(b);
@@ -4218,8 +4201,11 @@ function ArWatch({ ar, onGo, at }) {
   });
   // a signed client's row opens their page on Publishing, not the add form
   const openRow = (r, e) => (r.clientId && !r.ref ? onGo("catalog", `client:${r.clientId}`)
-    : openPanel(r.ref ? { type: r.ref.type, id: r.ref.id } : { type: "add", kind: pill === "songs" ? "song" : "artist", prefill: { name: r.name, luminateId: r.luminateId, nums: r.current != null ? { thisWeek: r.current, wowPct: r.changePct ?? null, atd: r.atd ?? null } : null } }, e));
-  // Summary's row click: open that person's panel once it has drawn, or (a Luminate-only row) light it up
+    : openPanel(r.ref ? { type: r.ref.type, id: r.ref.id } : { type: "add", kind: pill === "songs" ? "song" : "artist", prefill: { name: r.name, artist: r.artist || "",
+      // a row from the old Artist / Song Tracker: its Luminate id (so the numbers and history stay with it) and its Spotify song
+      luminateId: r.entityId?.startsWith("l:") ? r.entityId.slice(2) : "", spotify: r.entityId?.startsWith("t:") ? `https://open.spotify.com/track/${r.entityId.slice(2)}` : "",
+      nums: r.current != null ? { thisWeek: r.current, unit: r.unit, wowPct: r.changePct ?? null, atd: r.atd ?? null } : null } }, e));
+  // Summary's row click: open that person's panel once it has drawn, or (a row only the old Artist Tracker had) light it up
   const jumped = useRef(false);
   useEffect(() => {
     if (jumped.current || !pg) return;
@@ -4251,9 +4237,9 @@ function ArWatch({ ar, onGo, at }) {
   const cols = pill === "songs" ? "minmax(0,2.2fr) 118px minmax(0,.9fr) minmax(0,.9fr)"
     : `minmax(0,1.7fr) 112px minmax(84px,.8fr)${tight ? "" : " minmax(84px,.8fr)"} minmax(112px,1fr) minmax(104px,.8fr)${producers ? " minmax(84px,.8fr)" : ""}`;
   const dash = (title) => <span className="muted-dash" title={title}>—</span>;
-  // someone only in your Luminate Artist Tracker (not on OUTREACH) is tracked all the same (the owner): said so;
-  // an artist Luminate has no artist page for: their songs' numbers added up, and their Deezer fans
-  const subOf = (r) => (pill === "people" ? [r.role === "producer" ? "Producer" : "Artist", r.fromLuminate ? "In your Artist Tracker" : r.handle, r.songsOnly && `${r.songCount} ${r.songCount === 1 ? "song" : "songs"}`, r.deezer?.fans != null && `${fmt(r.deezer.fans)} Deezer fans`]
+  // someone only the old Artist Tracker had (not on OUTREACH) is tracked all the same (the owner): said so;
+  // an artist with no Spotify artist link: their songs' numbers added up, and their Deezer fans
+  const subOf = (r) => (pill === "people" ? [r.role === "producer" ? "Producer" : "Artist", r.fromList ? "From the old Artist Tracker" : r.handle, r.songsOnly && `${r.songCount} ${r.songCount === 1 ? "song" : "songs"}`, r.deezer?.fans != null && `${fmt(r.deezer.fans)} Deezer fans`]
     : [r.artist || (r.release ? "Release" : ""), r.tiedTo && `tied to ${r.tiedTo}`]).filter(Boolean).join(" · ");
   const rowKey = (e, r) => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openRow(r, e); } };
   return (
@@ -4263,8 +4249,8 @@ function ArWatch({ ar, onGo, at }) {
       </ArHead>
       {pgErr && <ArDataError err={pgErr} retry={loadPg} />}
       <p className="arb-status ar-period">
-        {to ? <span>{old ? "Latest week" : "This week"}: {dayRange(period.from, to)} · compared with {dayRange(shiftDay(period.from, -7), shiftDay(to, -7))}</span> : "No numbers from your Luminate A&R lists yet."}
-        {(old || (pg && !to)) && <button className="btn ghost sm" onClick={() => onGo("luminate", "drop")}>Drop new exports</button>}
+        {to ? <span>{old ? "Latest week" : "This week"}: {dayRange(period.from, to)} · compared with {dayRange(shiftDay(period.from, -7), shiftDay(to, -7))} · {pill === "people" ? "Spotify monthly listeners" : "Spotify streams, global"}</span>
+          : "No Spotify numbers here yet: they come in with the daily update once someone has a Spotify link."}
       </p>
       <div className="ar-watch-tools">
         <span className="gainer-tabs" role="tablist" aria-label="People or songs">
@@ -4288,7 +4274,7 @@ function ArWatch({ ar, onGo, at }) {
       {pg && rows.length > 0 && (
         <div className="admin-table ar-watch-list ar-table" data-pill={pill}>
           <div className="admin-row admin-hd" style={{ "--cols": cols }}>
-            {head("name", pill === "people" ? "Name" : "Title", "name")}{head("changePct", "vs last week", "pct")}{head("current", "This week", "week")}{!tight && head("atd", "All-time", "atd")}
+            {head("name", pill === "people" ? "Name" : "Title", "name")}{head("changePct", pill === "people" ? "vs a week ago" : "vs last week", "pct")}{head("current", pill === "people" ? "Listeners" : "This week", "week")}{!tight && head("atd", pill === "people" ? "Luminate, all-time" : "All-time", "atd")}
             {pill === "people" && <><span data-col="stage">Stage</span><span data-col="contact">Last contact</span></>}
             {producers && head("value", "≈ Value", "value")}
           </div>
@@ -4298,20 +4284,18 @@ function ArWatch({ ar, onGo, at }) {
               <div key={r.key} role="button" tabIndex={0} className={`admin-row ar-link ar-row${lit === r.key ? " ar-flash" : ""}`} data-focus={`w:${r.key}`} data-key={r.key} style={{ "--cols": cols }}
                 onClick={(e) => openRow(r, e)} onKeyDown={(e) => rowKey(e, r)}>
                 <span className="cell ar-who" data-col="name">{r.photo ? <span className="ar-who-top"><Avatar src={r.photo} name={r.name} size={24} /><strong>{r.name}</strong></span> : <strong>{r.name}</strong>}
-                  {(sub || needsLumRow(r)) && (
+                  {sub && (
                     <span className="ar-who-sub">
-                      {sub && <span>{sub}</span>}
-                      {/* added here but not in Luminate yet: the same list the To do opens */}
-                      {needsLumRow(r) && <button type="button" className="ar-lum-chip" onClick={(e) => { e.stopPropagation(); setShowToLum(true); }}>Add to Luminate</button>}
+                      <span>{sub}</span>
                     </span>
                   )}
                   {r.clientId ? <span className="tag ar-client-tag" data-tone="pos" title="One of our signed clients">Client</span>
-                    : r.songsOnly ? <span className="tag ar-songs-only" data-songs-only title="Luminate has no artist page for them yet: these are their Song Tracker songs added up">Songs only</span>
-                    : r.fromLuminate && <span className="ar-add-hint" aria-hidden="true">+ Add details</span>}
+                    : r.songsOnly ? <span className="tag ar-songs-only" data-songs-only title="No Spotify artist link yet: these are their songs added up">Songs only</span>
+                    : r.fromList && <span className="ar-add-hint" aria-hidden="true">+ Add details</span>}
                 </span>
                 <span className="cell" data-col="pct">{r.current == null ? dash("No numbers yet") : r.changePct == null ? dash("No last week to compare") : <WowPill pct={r.changePct} />}</span>
-                <span className="cell ar-num" data-col="week">{r.current == null ? <>{dash()}<em>No numbers yet</em></> : <><b>{fmt(r.current)}</b><em> {old ? "that week" : "this week"}</em></>}</span>
-                {!tight && <span className="cell ar-num" data-col="atd">{r.atd == null ? dash() : fmt(r.atd)}</span>}
+                <span className="cell ar-num" data-col="week">{r.current == null ? <>{dash()}<em>No numbers yet</em></> : <><b>{fmt(r.current)}</b><em> {r.unit === "listeners" ? "listeners" : old ? "that week" : "this week"}</em></>}</span>
+                {!tight && <span className="cell ar-num" data-col="atd">{pill === "people" ? (r.lum?.atd == null ? dash() : <span title={`Luminate's last all-time streams, ${shortDay(r.lum.on)}`}>{fmt(r.lum.atd)}</span>) : r.atd == null ? dash() : fmt(r.atd)}</span>}
                 {pill === "people" && <>
                   <span className="cell" data-col="stage">{r.stage ? <StagePill id={r.stage} /> : dash()}</span>
                   <span className="cell" data-col="contact">{r.lastContact ? shortDay(r.lastContact) : r.lastText || dash()}</span>
@@ -4323,7 +4307,6 @@ function ArWatch({ ar, onGo, at }) {
         </div>
       )}
       <ArPanels ar={ar} open={open} openPanel={openPanel} closePanel={closePanel} onGo={onGo} />
-      {showToLum && pg?.toLuminate && <ArToLuminateModal t={pg.toLuminate} onGo={onGo} onClose={() => setShowToLum(false)} />}
     </div>
   );
 }
@@ -5068,7 +5051,7 @@ async function dropSong(db, commit, target, client) {
   }
 }
 // the last sheet sync found no tab for this client: a Delete or "This isn't ours" has no row to clear
-const noSheetTab = (lum, client) => !!client && (lum?.missingTabs || []).includes(client.name);
+const noSheetTab = (songInfo, client) => !!client && (songInfo?.missingTabs || []).includes(client.name);
 // the one line a Delete leaves under the client's header: what happened on the pub sheet
 const dropNote = (o) => ({
   cleared: { text: `Deleted. Its row on the ${o.tab} tab is cleared.` },
@@ -5078,37 +5061,29 @@ const dropNote = (o) => ({
 }[o.sheet] || { text: "Deleted. It had no row on the pub sheet." });
 
 // "This isn't ours": every place the app knows the song is, then one step takes it out of all of
-// them (site, its sheet row) and notes it, so the sheet never brings it back and Luminate gets a
-// To do. Luminate itself can't be changed from here. onDone gets the result line.
-function NotOursAsk({ db, commit, lum, target, client, onDone, onClose }) {
+// them (site, its sheet row) and notes it, so the sheet never brings it back. onDone gets the result line.
+function NotOursAsk({ db, commit, songInfo, target, client, onDone, onClose }) {
   const tab = client?.sheetTabName?.trim() || client?.name || "";
-  // another client's page still linked to the same Luminate song keeps it in the portfolio: its numbers come from there
-  const sharedLum = target.luminateId && db.placements.some((p) => p.id !== target.id && p.luminateId === target.luminateId);
-  const lumPort = !sharedLum && target.luminateId && lum?.inPortfolio?.[target.luminateId] && (lum.portfolios || []).find((p) => p.id === lum.inPortfolio[target.luminateId]);
   const places = [
     target.notable ? `On public page (${client?.name}'s page on the site)` : `On ${client?.name}'s page here (not public)`,
-    ownSplit(target, client) && (noSheetTab(lum, client) ? `Not on the pub sheet (there's no ${tab} tab)` : `Its row on the ${tab} tab of the pub sheet`),
-    lumPort && `In Luminate: ${lumPort.name} (uses 1 of ${lumPort.capacity || lum.cap} slots)`,
+    ownSplit(target, client) && (noSheetTab(songInfo, client) ? `Not on the pub sheet (there's no ${tab} tab)` : `Its row on the ${tab} tab of the pub sheet`),
   ].filter(Boolean);
   const go = async () => {
     const out = await dropSong(db, commit, target, client);
     if (!out) return onClose(); // the save's own error banner says why
     let noted = null;
-    try { await lumPost({ action: "notOurs", clientId: target.clientId, song: target.song, artist: target.artist, luminateId: target.luminateId || "", placementId: target.id }); } catch (e) { noted = e.message; }
+    try { await songsPost({ action: "notOurs", clientId: target.clientId, song: target.song, artist: target.artist, luminateId: target.luminateId || "", placementId: target.id }); } catch (e) { noted = e.message; }
     const sheetBad = out.sheet === "notFound" || out.sheet === "failed";
     const text = [
       out.sheet === "cleared" ? "Removed from the catalog and the pub sheet." : sheetBad ? `Removed from the catalog, but its row on the ${out.tab} tab ${out.sheet === "failed" ? "couldn't be cleared" : "wasn't found"}. Delete that row in the pub sheet by hand.` : "Removed from the catalog.",
-      lumPort && `1 thing left: take it out of ${lumPort.name} in Luminate.`,
       noted && `It couldn't be recorded as removed (${noted}), so a numbers sync may bring it back.`,
     ].filter(Boolean).join(" ");
-    onDone({ warn: sheetBad || !!noted, text, go: lumPort ? "gone" : null });
+    onDone({ warn: sheetBad || !!noted, text });
   };
   return (
     <AskCard title={`Remove "${target.song || "Untitled"}" from the catalog?`} goLabel="Remove from catalog" busyLabel="Removing…" go={go} onClose={onClose}>
       <p>This takes it out of everywhere the app can reach:</p>
       <ul className="ask-places">{places.map((x) => <li key={x}>{x}</li>)}</ul>
-      {lumPort && <p className="hint">The app can't remove songs from Luminate. You'll get a To do to take it out of {lumPort.name} yourself.</p>}
-      {sharedLum && <p className="hint">It stays in Luminate: another client's page uses the same Luminate song.</p>}
     </AskCard>
   );
 }
@@ -5143,7 +5118,7 @@ async function pushOwnShare(saved, client, liveIds, keepPercent = null) {
 }
 
 // editorOnly (To do's Fix / Update): only the song's editor and the strip after its Save, none of the client's page
-function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix, onFixList, onGo, onDeleteClient, editorOnly = false }) {
+function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSongInfo, fix, onFix, onFixList, onGo, onDeleteClient, editorOnly = false }) {
   // staff's db has a `clients` array; a client session's db has just their
   // own `client` record (no `clients` array — that's not sent to them).
   const client = db.clients ? db.clients.find((c) => c.id === clientId) : db.client;
@@ -5170,19 +5145,17 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
   // only an estimate, used where the sheet has no tab read for this client yet (build G3)
   const netShown = netStreamsOf(db.sheetFacts?.clients?.[clientId], summary.net);
   const growth = useGrowth();
-  // this week = Luminate's own This Period from the export, as the Publishing table says (the songs
-  // whose week ends last); an older all-time export's songs fall back to the gain between snapshots
+  // this week = Spotify streams this week (the automated numbers, lib/data/growth.js), the songs whose week
+  // ends last, as the Publishing table says
   const weekGain = useMemo(() => {
     if (!growth) return null;
     const gs = songs.map((p) => growth[p.id]).filter(Boolean);
     const end = gs.map((g) => g.thisWeek != null && g.weekOf?.to).filter(Boolean).sort().pop();
     const wk = gs.filter((g) => g.thisWeek != null && (!end || !g.weekOf || g.weekOf.to === end));
-    if (wk.length) return wk.reduce((a, g) => a + g.thisWeek, 0);
-    const known = gs.filter((g) => g.week != null);
-    return known.length ? known.reduce((a, g) => a + g.week, 0) : null;
+    return wk.length ? wk.reduce((a, g) => a + g.thisWeek, 0) : null;
   }, [growth, songs]);
-  // when Luminate made these numbers (the newest export's day), not when the site last pulled the sheet
-  const numbersOn = useMemo(() => songs.map((p) => growth?.[p.id]?.latestOn).filter(Boolean).sort().pop() || null, [growth, songs]);
+  // the sheet's streams are Luminate's last numbers (db.streamsOn), not the day the site last pulled the sheet
+  const numbersOn = db.streamsOn || null;
   const [openId, setOpenId] = useState(null);
   const [editing, setEditing] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -5214,7 +5187,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
     const u = updating.current;
     if (editing || !u) return;
     updating.current = null;
-    const now = songsToUpdate(db, lum), at = new Map(now.map((x) => [x.p.id, x]));
+    const now = songsToUpdate(db, songInfo), at = new Map(now.map((x) => [x.p.id, x]));
     const after = u.order.slice(u.order.indexOf(u.id) + 1).find((id) => at.has(id));
     setFixNote({ upd: true, saved: u.saved, next: at.get(after) || now.find((x) => x.p.id !== u.id) || null });
   }, [editing]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -5224,7 +5197,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
     // a split Fix says what's left after Save; an Update from Songs to update says what's next when it closes
     const onSplits = !fix.field || fix.field === "splits";
     setOpenId(null); setFixNote(null); fixing.current = fix.field ? null : p.id;
-    updating.current = fix.field ? { id: p.id, order: songsToUpdate(db, lum).map((x) => x.p.id), saved: false } : null;
+    updating.current = fix.field ? { id: p.id, order: songsToUpdate(db, songInfo).map((x) => x.p.id), saved: false } : null;
     editFrom.current = p; setEditing({ ...p }); setSplitsFirst(onSplits ? fix.n : 0); setFieldFirst(onSplits ? null : { f: fix.field, n: fix.n });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fix?.n, clientId]);
@@ -5277,7 +5250,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
     const saved = done.placements.find((p) => p.id === placementId);
     if (!saved) return setFormErr(goneText(done.clients && !done.clients.some((c) => c.id === clientId) ? "client" : "song"));
     if (isStaff && fixing.current === placementId) {
-      const left = splitsToConfirm(done, lum).all; // the list's own order: biggest streams first
+      const left = splitsToConfirm(done, songInfo).all; // the list's own order: biggest streams first
       setFixNote({ left: left.length, next: left.find((x) => x.p.id !== placementId) || null });
     }
     fixing.current = null;
@@ -5321,7 +5294,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
           <div className="client-head-text">
             <div className="client-head-name">{client.name}</div>
             <div className="client-head-meta">{client.role || "Client"} · {!songs.length ? "No songs yet. Their pub sheet tab is made with their first song."
-              : noSheetTab(lum, client) ? <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span>
+              : noSheetTab(songInfo, client) ? <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span>
               : `Sheet tab: ${client.sheetTabName?.trim() || client.name}`}</div>
           </div>
           {onDeleteClient && <ClientMore onDelete={() => onDeleteClient(client)} />}
@@ -5343,7 +5316,7 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
           {" · "}<button className="inline-link" onClick={() => onFixList?.()}>Back to the list</button>
         </p>
       )}
-      {isStaff && <DropNote note={delNote} onShow={onGo && ((sec) => onGo("luminate", sec))} />}
+      {isStaff && <DropNote note={delNote} />}
       {!editorOnly && <>
       <div className="portal-block-head">
         <div>
@@ -5380,9 +5353,9 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
             )}
           </div>
           <p className="hint cat-asof">
-            {isStaff ? streamsAsOf({ luminateDay: numbersOn, pulledAt: db.sheetSync.lastSyncedAt })
+            {isStaff ? streamsAsOf({ lumDay: numbersOn, pulledAt: db.sheetSync.lastSyncedAt })
               : `Streams as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}
-            {isStaff && weekGain != null && ` · ${signed(weekGain)} this week`}
+            {isStaff && weekGain != null && ` · ${signed(weekGain)} Spotify streams this week`}
           </p>
         </div>
       )}
@@ -5455,8 +5428,8 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
                       <div className="split-list-row"><span className="split-name">Our fee so far <em>(est. admin fee)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
                     </>
                   )}
-                  <p className="hint song-asof">{isStaff ? streamsAsOf({ luminateDay: growth?.[active.id]?.latestOn, pulledAt: db.sheetSync.lastSyncedAt })
-                    : `as of ${new Date(growth?.[active.id]?.latestOn ? `${growth[active.id].latestOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}</p>
+                  <p className="hint song-asof">{isStaff ? streamsAsOf({ lumDay: numbersOn, pulledAt: db.sheetSync.lastSyncedAt })
+                    : `as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}</p>
                 </div>
               )}
               <SplitsPie splits={activeEven ? activeEven.splits : active.splits} size={230} />
@@ -5476,17 +5449,16 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
                 <div className="song-growth">
                   <div className="song-growth-nums">
                     {growth[active.id].thisWeek != null ? <span><b className="grow-val">{signed(growth[active.id].thisWeek)}</b> this week{growth[active.id].weekOf ? ` (${dayRange(growth[active.id].weekOf.from, growth[active.id].weekOf.to)})` : ""}</span>
-                      : growth[active.id].week != null ? <span><b className="grow-val">{signed(growth[active.id].week)}</b> since {shortDay(growth[active.id].weekFrom)}</span>
-                      : growth[active.id].gain != null && <span><b className="grow-val">{signed(growth[active.id].gain)}</b> since {shortDay(growth[active.id].gainFrom)}</span>}
-                    {growth[active.id].ytd != null && <span><b>{fmt(growth[active.id].ytd)}</b> this year</span>}
+                      : growth[active.id].daily != null && <span><b className="grow-val">{signed(growth[active.id].daily)}</b> yesterday</span>}
+                    <span><b>{fmt(growth[active.id].latest)}</b> on Spotify</span>
                   </div>
                   <Sparkline series={growth[active.id].series} />
-                  <p className="hint">All-time streams, from {shortDay(growth[active.id].series[0][0])} to {shortDay(growth[active.id].latestOn)}</p>
+                  <p className="hint">Spotify streams, global, all-time, from {shortDay(growth[active.id].series[0][0])} to {shortDay(growth[active.id].latestOn)}</p>
                 </div>
               )}
             </div>
             {/* the two ways a song leaves the page read alike, so say which is which */}
-            {isStaff && <p className="hint song-foot-help" data-foot-help>Remove from catalog: a song that was never ours (it comes off the site, the pub sheet and Luminate tracking). Delete: a duplicate or a mistake on the site.</p>}
+            {isStaff && <p className="hint song-foot-help" data-foot-help>Remove from catalog: a song that was never ours (it comes off the site and the pub sheet). Delete: a duplicate or a mistake on the site.</p>}
             <div className="modal-foot">
               {isStaff && <button className="btn ghost sm" data-not-ours onClick={() => setAsk({ kind: "notOurs", p: active })}>Remove from catalog</button>}
               <button className="btn ghost sm" data-del onClick={() => setAsk({ kind: "delete", p: active })}>Delete</button>
@@ -5498,13 +5470,13 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
 
       {ask?.kind === "delete" && (
         <AskCard title={`Delete "${ask.p.song || "Untitled"}"?`} goLabel="Delete song" busyLabel="Deleting…" go={() => removeSong(ask.p)} onClose={() => setAsk(null)}>
-          <p>It comes off {client?.name}'s page here.{ownSplit(ask.p, client) && !noSheetTab(lum, client) ? ` Its row on the ${client?.sheetTabName?.trim() || client?.name} tab of the pub sheet is cleared too.` : ""} This can't be undone.</p>
+          <p>It comes off {client?.name}'s page here.{ownSplit(ask.p, client) && !noSheetTab(songInfo, client) ? ` Its row on the ${client?.sheetTabName?.trim() || client?.name} tab of the pub sheet is cleared too.` : ""} This can't be undone.</p>
           {ask.p.notable && <p>It's also shown on {client?.name}'s public page; it goes from there too.</p>}
         </AskCard>
       )}
       {ask?.kind === "notOurs" && (
-        <NotOursAsk db={db} commit={commit} lum={lum} target={ask.p} client={client} onClose={() => setAsk(null)}
-          onDone={(n) => { setAsk(null); setOpenId(null); setDelNote(n); reloadLum?.(); }} />
+        <NotOursAsk db={db} commit={commit} songInfo={songInfo} target={ask.p} client={client} onClose={() => setAsk(null)}
+          onDone={(n) => { setAsk(null); setOpenId(null); setDelNote(n); reloadSongInfo?.(); }} />
       )}
 
       {editing && (
@@ -5519,9 +5491,6 @@ function SongManager({ db, commit, clientId, isStaff, lum, reloadLum, fix, onFix
               <Field label="Release date" type="date" data-field="releaseDate" value={editing.releaseDate} onChange={(ev) => setEditing({ ...editing, releaseDate: ev.target.value })} />
               <Field label="Streaming link" data-field="link" value={editing.link} onChange={(ev) => setEditing({ ...editing, link: ev.target.value })} />
               <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} focusPct={splitsFirst} assume={!!isStaff} owner={client} />
-              {isStaff && (
-                <Field label="Luminate ID" data-field="luminateId" value={editing.luminateId || ""} onChange={(ev) => setEditing({ ...editing, luminateId: ev.target.value })} hint="Leave blank if you haven't looked it up yet — the pub sheet row will just come through blank until you fill it in there." />
-              )}
               <label className="check-row">
                 <input type="checkbox" checked={!!editing.notable} onChange={(ev) => setEditing({ ...editing, notable: ev.target.checked })} />
                 <span>Feature as a Notable Release on your artist profile.</span>
@@ -5846,11 +5815,11 @@ async function fullSiteSync(tabDb, commit) {
 // sheet before it. This isn't ours clears out a song that was never ours
 // the two shares with one clear answer (lib/split-fixes.js), from the last sheet pull's facts
 const shareFixesOf = (db) => shareFixes({ placements: db.placements || [], clients: db.clients || [], facts: db.sheetFacts || {}, makeId: uid });
-function splitsToConfirm(db, lum = null) {
+function splitsToConfirm(db, songInfo = null) {
   const assumed = [], look = [];
   // a card in a possible duplicate pair waits for the merge card: confirming the kept one first would
   // keep its even default and drop the other card's named split, and Save on the other one adds a sheet row
-  const held = dupeIds(db, lum);
+  const held = dupeIds(db, songInfo);
   // (r7) no split here while the sheet has 100%: To do's own "Use the sheet's split" row, not a split to review
   for (const x of shareFixesOf(db).site) held.add(x.p.id);
   for (const g of splitsToFix(db)) {
@@ -5871,8 +5840,8 @@ const sheetRowOf = (p, rows, live) => rows.find((r) => r.syncId && r.syncId.spli
   || (p.luminateId && rows.find((r) => r.luminateId && r.luminateId === p.luminateId))
   || rows.find((r) => (!r.syncId || !live.has(r.syncId.split(":")[0])) && normalizeTitle(r.song) === normalizeTitle(p.song)) || null;
 const pctOf = (v) => `${splitPct([{ percent: v }])}%`;
-function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo, dupes = [], onDupe }) {
-  const { assumed, look, all: flat } = useMemo(() => splitsToConfirm(db, lum), [db, lum]);
+function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus, onGo, dupes = [], onDupe }) {
+  const { assumed, look, all: flat } = useMemo(() => splitsToConfirm(db, songInfo), [db, songInfo]);
   const n = assumed.length + look.length;
   const [ask, setAsk] = useState(null);
   const [note, setNote] = useState(null);
@@ -5888,7 +5857,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo, dupes = [
   // and the real tab would stay as it is. A share that changes what the sheet holds now is said before it's written
   const [sheetNow, setSheetNow] = useState({}); // placementId -> { found, share (null = blank) }; absent = not read
   const [reads, setReads] = useState(0);
-  const pushes = (x) => !!(x.client && ownSplit({ splits: x.r.splits }, x.client) && !noSheetTab(lum, x.client));
+  const pushes = (x) => !!(x.client && ownSplit({ splits: x.r.splits }, x.client) && !noSheetTab(songInfo, x.client));
   const readKey = [...new Set(assumed.filter(pushes).map((x) => x.client.id))].sort().join(",");
   useEffect(() => {
     if (!readKey) return;
@@ -5916,7 +5885,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo, dupes = [
   const plan = (x) => {
     const own = x.client && ownSplit({ splits: x.r.splits }, x.client);
     if (!own) return { kind: "none" };
-    if (noSheetTab(lum, x.client)) return { kind: "tabless" };
+    if (noSheetTab(songInfo, x.client)) return { kind: "tabless" };
     const will = Number(own.percent), now = sheetNow[x.p.id];
     if (!now) return { kind: "unread", will };
     if (!now.found) return { kind: "new", will };
@@ -5941,7 +5910,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo, dupes = [
       const saved = done.placements.find((p) => p.id === x.p.id);
       const client = done.clients?.find((c) => c.id === x.p.clientId) || x.client;
       if (!saved || !client || !ownSplit(saved, client)) continue; // not on their own split: nothing to write
-      if (noSheetTab(lum, client)) { tabless.push(`${saved.song || "Untitled"} (${client.name})`); continue; }
+      if (noSheetTab(songInfo, client)) { tabless.push(`${saved.song || "Untitled"} (${client.name})`); continue; }
       const err = await pushOwnShare(saved, client, live);
       if (err) { failed.push(`${saved.song || "Untitled"} (${err})`); continue; }
       wrote.push(x);
@@ -5982,7 +5951,7 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo, dupes = [
         <h3>{n ? `Splits to confirm (${n})` : "Splits"}</h3>
         <span className="hint">{n ? "Even by default: 50% artist side, 50% producer side. Confirm writes only the client's own share to the sheet." : "All splits add up."}</span>
       </div>
-      <DropNote note={note} onShow={onGo && ((sec) => onGo("luminate", sec))} />
+      <DropNote note={note} />
       <HeldDupes dupes={dupes} onDupe={onDupe} />
       {n > 0 && (
         <div className="fix-group" data-group="all">
@@ -6027,8 +5996,8 @@ function SplitsToFix({ db, commit, lum, reloadLum, onFix, focus, onGo, dupes = [
         </AskCard>
       )}
       {ask && (
-        <NotOursAsk db={db} commit={commit} lum={lum} target={ask.p} client={ask.client} onClose={() => setAsk(null)}
-          onDone={(r) => { setAsk(null); setNote(r); reloadLum?.(); }} />
+        <NotOursAsk db={db} commit={commit} songInfo={songInfo} target={ask.p} client={ask.client} onClose={() => setAsk(null)}
+          onDone={(r) => { setAsk(null); setNote(r); reloadSongInfo?.(); }} />
       )}
     </div>
   );
@@ -6046,12 +6015,12 @@ function HeldDupes({ dupes, onDupe }) {
   );
 }
 const UPDATE_FIRST = 8;
-// a row's chips, the money gaps first (no writer share, not on the sheet, not in Luminate), as updateWords names them
-const GAP_RANK = ["share", "sheet", "lum", "date", "link"];
+// a row's chips, the money gaps first (no writer share, not on the sheet), as updateWords names them
+const GAP_RANK = ["share", "sheet", "date", "link"];
 const gapRank = (k) => (GAP_RANK.includes(k) ? GAP_RANK.indexOf(k) : GAP_RANK.length);
 // Publishing › Songs to update: what each song is missing, one button that opens the song at the first gap
-function SongsToUpdate({ db, lum, onFix, focus, dupes = [], onDupe }) {
-  const list = useMemo(() => songsToUpdate(db, lum), [db, lum]);
+function SongsToUpdate({ db, songInfo, onFix, focus, dupes = [], onDupe }) {
+  const list = useMemo(() => songsToUpdate(db, songInfo), [db, songInfo]);
   const box = useRef(null);
   useEffect(() => { if (focus) landOn(box.current); }, [focus]);
   // the biggest 8 first, so Overview's totals stay close; a gap chip narrows the list to that gap
@@ -6065,7 +6034,7 @@ function SongsToUpdate({ db, lum, onFix, focus, dupes = [], onDupe }) {
     <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="update">
       <div className="fix-head">
         <h3>{list.length ? `Songs to update (${list.length})` : "Songs to update"}</h3>
-        <span className="hint">{list.length ? "What each song is missing, from the last sheet pull. Update opens the song there." : "Every song has its sheet row, writer share, release date, link and Luminate id."}</span>
+        <span className="hint">{list.length ? "What each song is missing, from the last sheet pull. Update opens the song there." : "Every song has its sheet row, writer share, release date and link."}</span>
       </div>
       <HeldDupes dupes={dupes} onDupe={onDupe} />
       {Object.keys(counts).length > 1 && (
@@ -6102,21 +6071,21 @@ function SongsToUpdate({ db, lum, onFix, focus, dupes = [], onDupe }) {
 // The merge card (build H1): the two cards side by side and the card the merge leaves. The kept card is the one
 // with the pub sheet row and the Luminate id; it keeps its title, streams, row and id, and takes what it lacks
 // (release date, link, cover) and the split that adds up to 100% from the other. The other card comes off the
-// site, and with it off Add to Luminate. It has no row, so nothing is written to the sheet for it; the kept
-// card's row is written only when the client's own share changes (the song editor's Save step, pushOwnShare).
-// "Not the same song" is kept (app_state, /api/luminate) so the pair never comes back.
+// site. It has no row, so nothing is written to the sheet for it; the kept card's row is written only when the
+// client's own share changes (the song editor's Save step, pushOwnShare). (The Luminate id is the sheet row's
+// own column M, which the sheet's formulas still read; the site never writes it.) "Not the same song" is kept
+// (app_state, /api/songs) so the pair never comes back.
 const splitLine = (splits) => {
   const list = orderSplits(splits || []);
   if (!list.length) return "No split yet";
   const t = splitTotal(list);
   return `${list.map((x) => `${x.name || x.label || "Unnamed"} ${splitPct([x])}%`).join(" · ")}${t === 100 ? "" : ` (adds up to ${splitPct(list)}%)`}`;
 };
-function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
+function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose, onDone }) {
   const { keep, drop, client } = pair;
   const facts = db.sheetFacts?.songs || {};
-  // the title it keeps (build I2): Luminate's for the kept id when that's the same song, which staff can switch
-  const lumT = lum?.lumTitles?.[keep.luminateId || drop.luminateId] || null;
-  const pick = mergedTitle(keep, drop, lumT?.name);
+  // the title it keeps (build I2), which staff can switch
+  const pick = mergedTitle(keep, drop);
   const [title, setTitle] = useState(pick.title);
   const merged = { ...mergedCard(keep, drop), song: title };
   const tab = client?.sheetTabName?.trim() || client?.name || "";
@@ -6149,7 +6118,7 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
   const will = own ? Number(own.percent) : null;
   const planFor = (f) => {
     const r = f?.ok ? f.keepRow : facts[keep.id]?.row ?? null, now = f?.ok ? f.share : facts[keep.id]?.share ?? null;
-    return !own ? { kind: "none" } : r == null ? { kind: "norow" } : noSheetTab(lum, client) ? { kind: "tabless" }
+    return !own ? { kind: "none" } : r == null ? { kind: "norow" } : noSheetTab(songInfo, client) ? { kind: "tabless" }
       : now != null && Math.abs(now - will) <= 0.05 ? { kind: "same", will } : { kind: "change", from: now, will };
   };
   const share = planFor(fresh), now = share.from ?? null;
@@ -6164,7 +6133,7 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
     change: `${client?.name}'s writer share on the ${tab} tab changes from ${now == null ? "blank" : pctOf(now)} to ${pctOf(will)}, and the song's earnings on the sheet change with it.`,
   }[share.kind];
   const fromOther = (k) => !keep[k] && !!drop[k];
-  // the merged card takes another title (Luminate's, "TRUST WHO #jerseyclub"): the card is told by its outcome, one
+  // the merged card takes another title (the other card's, "TRUST WHO #jerseyclub"): the card is told by its outcome, one
   // card with that title, since "X is removed" would read as the real song going (owner, Nov 2)
   const retitled = title.trim() !== (keep.song || "").trim();
   const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0] || "");
@@ -6175,10 +6144,10 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
   const keptHead = [row != null && "sheet row", keep.luminateId && "Luminate id"].filter(Boolean);
   // the second card's title is the one kept: not struck through
   const dropTitleKept = !!(drop.song || "").trim() && title.trim() === (drop.song || "").trim();
-  // the merged card's title: two choices, the rule's first (Luminate's title for this song when it has one)
+  // the merged card's title: two choices, the kept card's first
   const titleChoice = pick.other ? (
     <span className="dupe-title-pick" role="radiogroup" aria-label="Title after merging">
-      {[[pick.title, pick.fromLuminate ? "Luminate's title for this song" : "The kept card's title"],
+      {[[pick.title, "The kept card's title"],
         [pick.other, pick.other === (keep.song || "").trim() ? "The kept card's title" : "The other card's title"]].map(([t, why]) => (
         <label key={t} className={title === t ? "on" : ""}><input type="radio" name="dupe-title" checked={title === t} onChange={() => setTitle(t)} /><span><b>{t}</b><small>{why}</small></span></label>
       ))}
@@ -6193,11 +6162,6 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
     ["Link", p.link ? <ExtLink className="inline-link" href={p.link}>Open track ↗</ExtLink> : "None", side === "merged" && fromOther("link")],
     ["Cover", p.cover ? <span className="dupe-cover"><Photo src={p.cover} alt="" /></span> : "None", side === "merged" && fromOther("cover")],
     ["Split", splitLine(p.splits), side === "merged" && p.splits !== keep.splits],
-    // Luminate's release group rows of this song ("TRUST WHO (SLOWED & REVERB)"): a note here, never a card
-    // (nothing keeps it after the merge: it's what Luminate says, shown only here)
-    ...(side === "merged" && lumT?.releases?.length ? [["Also in Luminate", lumT.releases.length === 1
-      ? `Luminate also lists "${lumT.releases[0]}" as a release group of this song. It isn't made into a card.`
-      : `Luminate also lists ${and(lumT.releases.map((r) => `"${r}"`))} as release groups of this song. They aren't made into cards.`]] : []),
   ];
   const col = (p, side, head) => (
     <div className={`dupe-col ${side}${side === "drop" && dropTitleKept ? " title-kept" : ""}`} data-dupe-col={side}>
@@ -6234,27 +6198,27 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
     if (share.kind === "change" && saved && ownSplit(saved, c)) err = await pushOwnShare(saved, c, done.placements.map((p) => p.id));
     // only the song name changes: the share goes back exactly as the sheet has it
     else if (renameNow && saved && ownSplit(saved, c)) err = await pushOwnShare(saved, c, done.placements.map((p) => p.id), f.share);
-    reloadLum?.();
+    reloadSongInfo?.();
     const n = done.placements.filter((p) => p.clientId === keep.clientId).length;
     onDone(err
       ? { warn: true, text: `Merged into "${title}", but the pub sheet wasn't updated (${err}). Open the song and Save again.` }
       : { text: `${title === keep.song ? `Merged "${drop.song || "Untitled"}" into "${keep.song || "Untitled"}".` : `Merged "${keep.song || "Untitled"}" and "${drop.song || "Untitled"}" into one card, "${title || "Untitled"}".`} ${client?.name || "The client"} has ${n} song${n === 1 ? "" : "s"}.${share.kind === "change" ? ` The writer share on the ${tab} tab is now ${pctOf(share.will)}.` : ""}${renameNow ? ` Row ${f.keepRow} on the ${tab} tab is now "${title}".` : ""}` });
   };
   const notSame = async () => {
-    try { await lumPost({ action: "notDuplicate", ids: [keep.id, drop.id] }); } catch (e) { onDone({ warn: true, text: `Couldn't save that: ${e.message}` }); return; }
-    reloadLum?.();
+    try { await songsPost({ action: "notDuplicate", ids: [keep.id, drop.id] }); } catch (e) { onDone({ warn: true, text: `Couldn't save that: ${e.message}` }); return; }
+    reloadSongInfo?.();
     onDone({ text: `Kept both "${keep.song}" and "${drop.song}". They won't be asked about again.` });
   };
   return (
     <AskCard title="Merge these two cards?" goLabel="Merge cards" busyLabel="Working…" plain wide go={merge} onClose={onClose} alt={{ label: "Not the same song", run: notSame }}>
       <p data-dupe-why>{client?.name ? `${client.name}'s page has` : "These are"} two cards with {pair.why}.{retitled ? "" : " After merging, one card is left."}</p>
       {/* what happens, above the columns so it's in view at 1280x800 before Merge cards */}
-      <p data-merge-drop>{retitled ? outcome : `"${drop.song || "Untitled"}" is removed from the site and from Add to Luminate.`} {!fresh ? `Checking the ${tab} tab for its row…`
+      <p data-merge-drop>{retitled ? outcome : `"${drop.song || "Untitled"}" is removed from the site.`} {!fresh ? `Checking the ${tab} tab for its row…`
         : !fresh.ok ? `The ${tab} tab couldn't be checked just now; Merge checks it again first.`
         : fresh.dropRow != null ? `It has its own row on the ${tab} tab (row ${fresh.dropRow}), so it can't be merged here.`
         : `It has no row on the ${tab} tab (checked just now), so nothing is written there for it.`}</p>
       <p data-merge-share>{shareText}{rename && <> <span data-merge-rename>Row {fresh.keepRow} on the {tab} tab is renamed to "{title}".</span></>}</p>
-      {/* the weekly ClickUp task counts Add to Luminate and the rest: it's checked at a Dashboard load (every 10 minutes at most) */}
+      {/* the weekly ClickUp task counts the Publishing to-dos: it's checked at a Dashboard load (every 10 minutes at most) */}
       <p className="hint" data-merge-clickup>The weekly ClickUp task updates its counts at the next Dashboard load.</p>
       {blocked && <p className="warn-text" role="alert" data-merge-blocked>{blocked}</p>}
       <div className="dupe-cols">
@@ -6267,9 +6231,9 @@ function DupeMerge({ db, commit, lum, reloadLum, pair, onClose, onDone }) {
 }
 
 // (Splits to confirm, Songs to update and the merge card are To do's now, r7: PubFix there shows them)
-function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
+function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient }) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
-  const [streamSync, setStreamSync] = useState({ syncing: false, error: null });
+  const [streamSync, setStreamSync] = useState({ syncing: false, error: null }); // "Refresh numbers": the sheet pulled again
   const dbNow = useRef(db); // the sheet pull below starts from the db as it is then, not at the click
   dbNow.current = db;
 
@@ -6290,21 +6254,14 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
     return () => { alive = false; };
   }, []);
 
-  // rebuilds STREAM DATA from the newest exports dropped on the Luminate page
-  // (the same as its "Update the sheet again"), then chains a full site sync
-  // (fullSiteSync) so this one click updates the sheet AND every client's
-  // numbers together, with the "as of" date below reflecting that exact
-  // moment. It no longer runs the sheet's Apps Script: that reads the Drive
-  // folder, which stops getting new exports once they're dropped here, so
-  // one press would roll every client back to older numbers. (The
-  // /api/sync-streams route stays as a fallback.)
+  // pulls every client's numbers from the pub sheet again (fullSiteSync) and re-reads MASTER, with the
+  // "as of" line below reflecting that moment. Nothing is written to the sheet (list B #3: STREAM DATA
+  // isn't rebuilt any more)
   const runStreamSync = async () => {
     setStreamSync({ syncing: true, error: null });
     try {
-      await lumPost({ action: "resync" });
-      window.dispatchEvent(new Event(STREAMS_EVENT));
-      reloadLum?.(); // the resync linked songs and re-checked sheet tabs: the task counts and badge follow
       const { missing } = await fullSiteSync(dbNow.current, commit);
+      reloadSongInfo?.(); // the pull re-checked the sheet tabs: the task counts and badge follow
       const res2 = await fetch("/api/sheets-master");
       const data2 = await res2.json();
       if (res2.ok) setState({ loading: false, error: null, data: data2 });
@@ -6380,18 +6337,17 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
       <div className="admin-head">
         <h2>Overview</h2>
         <div className="overview-links">
-          <button className="btn ghost sm" onClick={runStreamSync} disabled={streamSync.syncing} title="Rebuild STREAM DATA from the newest exports dropped on the Luminate page and pull every client's numbers again">
+          <button className="btn ghost sm" onClick={runStreamSync} disabled={streamSync.syncing} title="Pull every client's numbers from the pub sheet again">
             <RefreshCw size={14} className={streamSync.syncing ? "spin" : ""} /> {streamSync.syncing ? "Refreshing numbers…" : "Refresh numbers"}
           </button>
           {links.folder && <ExtLink href={links.folder} className="btn ghost sm" title="Open the pub sheet's Drive folder"><Folder size={14} /> Folder</ExtLink>}
-          {links.portfolioA && <ExtLink href={links.portfolioA} className="btn ghost sm" title={`Open ${links.names?.portfolioA || "Portfolio 1"} in Luminate`}><ExternalLink size={14} /> {links.names?.portfolioA || "Portfolio 1"}</ExtLink>}
-          {links.portfolioB && <ExtLink href={links.portfolioB} className="btn ghost sm" title={`Open ${links.names?.portfolioB || "Portfolio 2"} in Luminate`}><ExternalLink size={14} /> {links.names?.portfolioB || "Portfolio 2"}</ExtLink>}
         </div>
       </div>
       <p className="hint overview-subhint">
-        From the pub sheet · {streamsAsOf({ luminateDay: growth ? Object.values(growth).map((g) => g?.latestOn).filter(Boolean).sort().pop() : null, pulledAt: db.sheetSync?.lastSyncedAt })}
-        {span && <span className="overview-week"> · This week = {dayRange(span.from, span.to)} vs the week before</span>}
+        {streamsAsOf({ lumDay: songInfo?.lumLastDay, pulledAt: db.sheetSync?.lastSyncedAt })}
+        {span && <span className="overview-week"> · This week = Spotify streams, {dayRange(span.from, span.to)} vs the week before</span>}
       </p>
+      <p className="hint overview-subhint" data-stream-data-note>{STREAM_DATA_NOTE}</p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
@@ -6461,7 +6417,7 @@ function CatalogOverview({ db, commit, lum, reloadLum, onSelectClient }) {
 
 // Publishing: the clients, their songs and splits, the MASTER totals, and the Advance calculator.
 // A Dashboard task can open it on a client ("client:<id>") or on the calculator ("advance").
-function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub, chip = null }) {
+function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, onSub, chip = null }) {
   const [sec, setSec] = useState(sub === "advance" || sub?.startsWith("advance:") ? "advance" : "overview");
   const editSong = sub?.startsWith("edit:") ? db.placements.find((p) => p.id === sub.slice(5)) : null;
   // null clientId = the read-only Overview landing page, not "no selection"
@@ -6478,7 +6434,7 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub, chip = nul
     if (!p) return;
     setSec("overview"); setClientIdOnly(p.clientId); onSub?.(`client:${p.clientId}`); setFix({ id, n: ++fixN.current, field });
   };
-  const toFix = useMemo(() => splitsToConfirm(db, lum).all.reduce((a, x) => ({ ...a, [x.p.clientId]: (a[x.p.clientId] || 0) + 1 }), {}), [db, lum]);
+  const toFix = useMemo(() => splitsToConfirm(db, songInfo).all.reduce((a, x) => ({ ...a, [x.p.clientId]: (a[x.p.clientId] || 0) + 1 }), {}), [db, songInfo]);
   const client = db.clients.find((c) => c.id === clientId);
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;
   const [addingClient, setAddingClient] = useState(false);
@@ -6560,8 +6516,8 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub, chip = nul
         </div>
         <div className="catalog-main">
           {clientId === null
-            ? <CatalogOverview db={db} commit={commit} lum={lum} reloadLum={reloadLum} onSelectClient={setClientId} />
-            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff lum={lum} reloadLum={reloadLum} fix={fix} onFix={openFix} onFixList={(to) => { setFix(null); onGo("todo", to === "update" ? "update" : "splits"); }} onGo={onGo} onDeleteClient={setDelAsk} />
+            ? <CatalogOverview db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onSelectClient={setClientId} />
+            : (client ? <SongManager db={db} commit={commit} clientId={clientId} isStaff songInfo={songInfo} reloadSongInfo={reloadSongInfo} fix={fix} onFix={openFix} onFixList={(to) => { setFix(null); onGo("todo", to === "update" ? "update" : "splits"); }} onGo={onGo} onDeleteClient={setDelAsk} />
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
         </div>
@@ -6596,79 +6552,12 @@ function CatalogAdmin({ db, commit, lum, reloadLum, sub, onGo, onSub, chip = nul
   );
 }
 
-/* staff: Luminate — the songs to add to its portfolios, and this week's exports ------------- */
-// One entry per real-world song: the same song on two co-writers' pages is one thing to add to a
-// Luminate portfolio and one Luminate id. Status: tracked (its Luminate song is in a clients'
-// portfolio's latest export), unplaced (has a Luminate id no export holds), waiting (added in
-// Luminate, no numbers yet), missing (marked as added before its portfolio's latest export but not
-// in it: takes no room), toAdd, or skipped ("don't track").
-function lumGroups(db, lum) {
-  const t = lum?.tracking || {}, inPortfolio = lum?.inPortfolio || {};
-  const ports = (lum?.portfolios || []).filter((p) => p.kind === "roster");
-  const hasExports = ports.some((p) => p.exportedAt);
-  // the same rule as the server's pendingCount: added before the file was made, and not in it
-  const missed = (g) => {
-    const p = ports.find((x) => x.id === g.portfolioId);
-    if (!p) return true;
-    const made = p.exportedAt || p.uploadedAt;
-    return !!(made && g.addedAt && new Date(g.addedAt) < new Date(made));
-  };
-  // a song is its Luminate id once it has one; a copy with no id joins the only linked copy of the
-  // same title and artist (the next update gives it that id too)
-  const title = (p) => `${normalizeTitle(p.song)}|${normalizeTitle(p.artist)}`;
-  const idsOf = new Map();
-  for (const p of db.placements) if (p.luminateId) idsOf.set(title(p), new Set([...(idsOf.get(title(p)) || []), p.luminateId]));
-  const byKey = new Map();
-  for (const p of db.placements) {
-    const only = !p.luminateId && idsOf.get(title(p))?.size === 1 ? [...idsOf.get(title(p))][0] : null;
-    const key = p.luminateId || only ? `lum:${p.luminateId || only}` : `t:${title(p)}`;
-    const g = byKey.get(key) || { key, song: p.song, artist: p.artist, cover: "", ids: [], clientIds: [], isrc: "", checked: false, portfolioId: null, addedAt: null, skip: true, luminateId: "" };
-    const tr = t[p.id] || {};
-    g.ids.push(p.id);
-    if (!g.clientIds.includes(p.clientId)) g.clientIds.push(p.clientId);
-    g.cover ||= p.cover;
-    g.isrc ||= tr.isrc || "";
-    g.checked ||= !!tr.isrcCheckedAt;
-    g.portfolioId ||= tr.portfolioId || null;
-    g.addedAt ||= tr.addedAt || null;
-    g.skip &&= !!tr.skip;
-    g.luminateId ||= p.luminateId || only || "";
-    byKey.set(key, g);
-  }
-  // a song Luminate already has under a matching title (offered in "which song is this?") is matched
-  // there, never added a second time, nor called missing from an export that holds it (it was only
-  // not linked by itself: two rows or two songs share the title). The server's missingCount agrees.
-  const offered = new Set((lum?.unlinked || []).flatMap((u) => u.suggestions));
-  for (const g of byKey.values()) {
-    g.inPortfolio = g.luminateId ? inPortfolio[g.luminateId] || null : null;
-    g.status = g.skip ? "skipped" : g.inPortfolio || (g.luminateId && !hasExports) ? "tracked"
-      : !g.luminateId && g.ids.some((id) => offered.has(id)) ? "match"
-      : g.portfolioId ? (missed(g) ? "missing" : "waiting") : g.luminateId ? "unplaced" : "toAdd";
-  }
-  return [...byKey.values()];
-}
-
-// the songs to add, split over the roster portfolios that still have room (in their order)
-function lumPlan(groups, lum) {
-  const todo = groups.filter((g) => g.status === "toAdd" || g.status === "unplaced");
-  const slots = (lum?.portfolios || []).filter((p) => p.kind === "roster")
-    .map((p) => ({ p, room: Math.max(0, p.capacity - (p.usedCount ?? p.songCount) - p.pendingCount), songs: [] }));
-  const left = [];
-  for (const g of todo) {
-    const s = slots.find((x) => x.songs.length < x.room);
-    if (s) s.songs.push(g); else left.push(g);
-  }
-  return { slots: slots.filter((s) => s.songs.length), left };
-}
-
+/* staff: small shared helpers (days, numbers, each song's extra facts) ------------------------ */
 const ago = (iso) => {
   if (!iso) return "";
   const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
   return d <= 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`;
 };
-// a bare date ("2026-10-14", a snapshot's day) is that day wherever this is read, not UTC midnight
-// "all four" on the Luminate page's step 2 (digits past ten)
-const countWord = (n) => ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"][n] || String(n);
 const shortDay = (iso) => (iso ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00` : iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
 // a payment's day, with its year when it isn't this year's ("Dec 19, 2025" in a list of 2026 rows)
 const payDay = (iso) => (iso && new Date(iso).getFullYear() !== new Date().getFullYear()
@@ -6690,8 +6579,9 @@ const compact = (n) => {
   return a >= 1e6 ? `${s}${(a / 1e6).toFixed(a >= 1e7 ? 0 : 1)}M` : a >= 1e3 ? `${s}${(a / 1e3).toFixed(a >= 1e4 ? 0 : 1)}K` : `${s}${a}`;
 };
 
-async function lumPost(body) {
-  const res = await fetch("/api/luminate", {
+// POST /api/songs (lib/song-info.js): an ISRC typed or picked, "This isn't ours", "Not the same song"
+async function songsPost(body) {
+  const res = await fetch("/api/songs", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
     body: JSON.stringify(body),
@@ -6701,44 +6591,10 @@ async function lumPost(body) {
   return data;
 }
 
-// The Mac helper's door for staff (POST /api/luminate-helper): a held file applied or discarded.
-// Answers { status, data } so a 409 (the checks refused it) or a 400 (a new portfolio) can ask.
-async function helperPost(body) {
-  const res = await fetch("/api/luminate-helper", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-    body: JSON.stringify(body),
-  }).catch(() => null);
-  if (!res) throw new Error("That didn't go through — check your connection and try again.");
-  return { status: res.status, data: (await res.json().catch(() => null)) || {} };
-}
 // where an ISRC came from, in lib/isrc.js SOURCES' words (App.jsx can't import server code)
 const ISRC_SOURCES = { "spotify-link": "the song's Spotify link", deezer: "Deezer", "deezer-artist": "the artist's Deezer page", musicbrainz: "MusicBrainz", manual: "typed in" };
 // the finder's guesses for a song (any of its pages' ids), or []
-const isrcPicksOf = (lum, g) => (g.isrc ? [] : g.ids.map((id) => lum?.isrcCandidates?.[id]).find((x) => x?.length) || []);
-// "5 min ago", "3 h ago", "2 days ago"
-const agoShort = (iso) => {
-  const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-  return m < 2 ? "just now" : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
-};
-// The weekly exports' next due day: a week after the newest numbers (To do's Calendar counts from it too)
-// the day the clients' numbers are from (the oldest portfolio's newest export), and the next one a week on
-// (made: the Luminate page's "Last update", so "Next due" always comes after it)
-function lumDue(lum) {
-  const made = lum?.lastUpload?.numbersFrom || lum?.lastUpload?.at || (lum?.portfolios || []).map((p) => p.exportedAt).filter(Boolean).sort().pop();
-  if (!made) return null;
-  const day = addDays(nyDay(made), 7);
-  return { day, late: day < nyDay(Date.now()), made };
-}
-// The Mac helper in a few words, for the Luminate page's status line (warn: set up but not heard from in a day)
-function helperWords(h) {
-  if (!h) return null;
-  if (!h.on) return { text: "Mac helper: off", state: "off" };
-  if (!h.lastSeen) return { text: "Mac helper: set up, not checked in yet", state: "waiting", warn: true };
-  const late = Date.now() - new Date(h.lastSeen).getTime() > 864e5;
-  return { text: `Mac helper: ${late ? "last" : "on,"} checked in ${agoShort(h.lastSeen)}`, state: late ? "late" : "on", warn: late };
-}
-
+const isrcPicksOf = (info, ids) => ids.map((id) => info?.isrcCandidates?.[id]).find((x) => x?.length) || [];
 // A row's ⋯ menu (rule 3: one button per row; the rest goes here). Placed on the screen itself like the
 // Board's, so a list that scrolls can't cut it off; it follows its button and closes on a tap elsewhere.
 function RowMenu({ label, items }) {
@@ -6791,89 +6647,8 @@ function IsrcPicks({ list, busy, onPick }) {
   );
 }
 
-// The files the Mac helper held back for a person (a file that covers more than a week, one the checks
-// refused, a portfolio it has never seen): Apply takes one in the way the drop zone does. A refused one
-// asks "Apply anyway", a new portfolio asks what it holds. Discard is in the ⋯ menu. On the Luminate page
-// and in To do's "Apply the new Luminate files".
-const AREA_WORDS = [["clients", "Clients' songs"], ["ar_artists", "A&R artists"], ["ar_songs", "A&R songs"]];
-// why a file was held, in at most two short sentences
-const firstLine = (s) => { const p = String(s || "").split(/(?<=\.)\s/); return p[0].length < 90 && p[1] ? `${p[0]} ${p[1]}` : p[0]; };
-function HeldFiles({ lum, reload, onAllDone = null }) {
-  const held = lum?.helper?.held || [];
-  const [busy, setBusy] = useState(null);
-  const [ask, setAsk] = useState({}); // file id -> { blocked: why } | { needsArea: true, area }
-  const [force, setForce] = useState(null); // the file "Apply anyway" asks about
-  const [note, setNote] = useState(null);
-  const ports = [...(lum?.portfolios || []), ...(lum?.arPortfolios || [])];
-  const nameOf = (h) => ports.find((p) => p.luminateId === h.portfolioId || p.id === h.portfolioId)?.name || (h.portfolioId ? `New portfolio …${String(h.portfolioId).slice(-4)}` : h.fileName);
-  const decide = async (h, body) => {
-    setBusy(h.id); setNote(null);
-    try {
-      const { status, data } = await helperPost({ id: h.id, ...body });
-      if (status === 409 && data.blocked) { setAsk((a) => ({ ...a, [h.id]: { blocked: data.error } })); return 0; }
-      if (status === 400 && data.needsArea) { setAsk((a) => ({ ...a, [h.id]: { needsArea: true, area: data.guess || "" } })); return 0; }
-      if (status !== 200 && status !== 502) { setNote({ warn: true, text: data.error || "That didn't go through. Try again in a minute." }); if (status === 404) await reload(); return 0; }
-      setAsk((a) => { const n = { ...a }; delete n[h.id]; return n; });
-      if (status === 502) setNote({ warn: true, text: `${nameOf(h)} is in, but the sheet didn't update (${data.error || "try again"}). Press "Update the sheet again".` });
-      if (body.action === "apply") window.dispatchEvent(new Event(STREAMS_EVENT));
-      return 1;
-    } catch (e) { setNote({ warn: true, text: e.message }); return 0; } finally { setBusy(null); }
-  };
-  const one = async (h, body) => { const n = await decide(h, body); if (n) { await reload(); if (body.action === "apply" && held.length === 1) onAllDone?.({ text: `${nameOf(h)} is in. The sheet and the clients' numbers are updated.` }); } };
-  const all = async () => {
-    let n = 0;
-    for (const h of held.filter((x) => !ask[x.id])) n += await decide(h, { action: "apply" });
-    await reload();
-    if (n) (n === held.length && onAllDone ? onAllDone : setNote)({ text: `Applied ${n} file${n === 1 ? "" : "s"}. The sheet and the clients' numbers are updated.` });
-  };
-  if (!held.length) return note ? <DropNote note={note} /> : null;
-  return (
-    <div className="lm-block lm-held" data-sec="held">
-      <div className="lm-block-head">
-        <div><strong>{held.length === 1 ? "1 file the Mac helper held back" : `${held.length} files the Mac helper held back`}</strong></div>
-        {held.length > 1 && <div className="lm-block-acts"><button className="btn sm" data-held-all disabled={!!busy} onClick={all}><Check size={14} /> {busy ? "Applying…" : `Apply all ${held.length}`}</button></div>}
-      </div>
-      <div className="lm-list">
-        {held.map((h) => {
-          const a = ask[h.id];
-          return (
-            <div key={h.id} className="lm-song lm-held-row" data-held={h.id}>
-              <span className="lm-cover"><UploadCloud size={16} /></span>
-              <span className="lm-song-main">
-                <strong>{nameOf(h)}</strong>
-                <span>{h.exportedAt ? `Exported ${shortDay(h.exportedAt)} · ` : ""}{a?.blocked ? firstLine(a.blocked) : firstLine(h.reason) || "Held back for you to look at."}</span>
-              </span>
-              <span className="lm-unl-acts">
-                {a?.needsArea ? <>
-                  <select className="lm-pick" data-held-area value={a.area} aria-label={`What ${nameOf(h)} holds`} disabled={!!busy} onChange={(e) => setAsk((x) => ({ ...x, [h.id]: { ...a, area: e.target.value } }))}>
-                    <option value="" disabled>What's in it?</option>
-                    {AREA_WORDS.map(([id, w]) => <option key={id} value={id}>{w}</option>)}
-                  </select>
-                  <button className="btn sm" data-held-apply disabled={!!busy || !a.area} onClick={() => one(h, { action: "apply", area: a.area })}>{busy === h.id ? "Applying…" : "Apply"}</button>
-                </> : a?.blocked
-                  ? <button className="btn sm" data-held-force disabled={!!busy} onClick={() => setForce(h)}>Apply anyway</button>
-                  : <button className="btn sm" data-held-apply disabled={!!busy} onClick={() => one(h, { action: "apply" })}>{busy === h.id ? "Applying…" : "Apply"}</button>}
-                <RowMenu label={`More for ${nameOf(h)}`} items={[{ label: "Discard this file", className: "lm-held-discard", attrs: { "data-held-discard": "" }, disabled: !!busy, onClick: () => one(h, { action: "discard" }) }]} />
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      <DropNote note={note} />
-      {force && (
-        <AskCard title={`Apply ${nameOf(force)} anyway?`} goLabel="Apply anyway" busyLabel="Applying…" onClose={() => setForce(null)}
-          go={async () => { const h = force; await one(h, { action: "apply", force: true }); setForce(null); }}>
-          <p>Its lower numbers will replace the current ones for every song in that portfolio.</p>
-        </AskCard>
-      )}
-    </div>
-  );
-}
-
-// stream history for the songs this session can see ({ [placementId]: growth }); refetched after a
-// Luminate update lands anywhere on the page. failed = it couldn't load (retry tries again); the song
-// cards just go without, the Dashboard's gainers say so.
-const STREAMS_EVENT = "dm-streams";
+// Spotify stream history for the songs this session can see ({ [placementId]: growth }, the automated
+// numbers). failed = it couldn't load (retry tries again); the song cards just go without.
 function useGrowthState() {
   const [growth, setGrowth] = useState(null);
   const [failed, setFailed] = useState(false);
@@ -6884,8 +6659,7 @@ function useGrowthState() {
       .then((d) => { if (!alive) return; if (d?.growth) setGrowth(d.growth); else setFailed(true); }).catch(() => alive && setFailed(true)); };
     loader.current = load;
     load();
-    window.addEventListener(STREAMS_EVENT, load);
-    return () => { alive = false; window.removeEventListener(STREAMS_EVENT, load); };
+    return () => { alive = false; };
   }, []);
   return { growth, failed, retry: () => loader.current?.() };
 }
@@ -6908,708 +6682,68 @@ function Sparkline({ series, height = 56 }) {
   );
 }
 
-// "+12K this week" when the last two numbers are about a week apart, else the real gain with its
-// date ("+30K since Oct 16"), never stretched or squeezed into a week
+// "+12K this week": this week's Spotify streams (the automated numbers), when there's a week of them
 function GrowthChip({ g }) {
-  if (!g) return null;
-  // the export's own week first (Luminate's This Period), the same number the Publishing table shows
-  if (g.thisWeek != null) return g.thisWeek > 0 ? <span className="grow-chip" title={`${fmt(g.thisWeek)} streams${g.weekOf ? `, ${dayRange(g.weekOf.from, g.weekOf.to)}` : " this week"}`}>{compact(g.thisWeek)} this week</span> : null;
-  if (g.week != null) return g.week > 0 ? <span className="grow-chip" title={`${signed(g.week)} streams since ${shortDay(g.weekFrom)}`}>{compact(g.week)} this week</span> : null;
-  if (!(g.gain > 0)) return null;
-  return <span className="grow-chip" title={`${signed(g.gain)} streams since ${shortDay(g.gainFrom)}`}>{compact(g.gain)} since {shortDay(g.gainFrom)}</span>;
-}
-
-function CopyButton({ text, label = "Copy", onCopied }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button className={done ? "btn ghost sm lm-copy done" : "btn ghost sm lm-copy"} onClick={async () => {
-      await copyText(text); setDone(true); onCopied?.(); setTimeout(() => setDone(false), 1600);
-    }}>
-      {done ? <><Check size={13} /> Copied</> : <><Copy size={13} /> {label}</>}
-    </button>
-  );
-}
-
-function PortfolioForm({ initial, onClose, onSaved }) {
-  const [f, setF] = useState(initial);
-  const [busy, setBusy] = useState(false), [err, setErr] = useState(null);
-  const [canMove, setCanMove] = useState(0); // its link is a portfolio taken in as A&R: how many files it has
-  const [askMove, setAskMove] = useState(false);
-  useEscape(onClose, !busy && !askMove);
-  const save = async (action, sure = false) => {
-    // "It's a clients' portfolio": a wrong "What's in it?" answer, taken back on purpose
-    if (action === "move" && !sure) return setAskMove(true);
-    setAskMove(false); setBusy(true); setErr(null);
-    try {
-      await lumPost(f.ar ? { action: "arLink", portfolioId: f.luminateId, url: f.url }
-        : action === "remove" ? { action: "removePortfolio", id: f.id } : { action: "savePortfolio", ...f, fromAR: action === "move" });
-      onSaved();
-    }
-    catch (e) { setErr(e.message); setCanMove(e.data?.canMove ? e.data.heldFiles || 1 : 0); setBusy(false); }
-  };
-  return (
-    <div className="modal" onClick={(e) => e.target === e.currentTarget && !busy && onClose()}>
-      <div className="modal-card">
-        <div className="modal-head"><h3>{f.ar ? `The ${f.name} link` : f.id ? "Edit portfolio" : "Add a portfolio"}</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
-        <div className="modal-body">
-          {f.ar ? <>
-            <Field label="Link to it in Luminate" value={f.url} placeholder="https://…" onChange={(e) => setF({ ...f, url: e.target.value })}
-              hint="Open the portfolio in Luminate and copy the address bar. Used for its Open button." />
-            {err && <p className="hint err-text" role="alert">{err}</p>}
-          </> : <>
-          {/* one of the four Luminate names (PORTFOLIO_NAMES): it always reads that, so a typed name would be thrown away */}
-          {f.fixedName ? <Field label="Name" value={f.name} readOnly aria-readonly="true" data-fixed-name hint="Luminate's own name for it." />
-            : <Field label="Name" value={f.name} placeholder="Portfolio C" onChange={(e) => setF({ ...f, name: e.target.value })} />}
-          <Field label="Link to it in Luminate" value={f.url} placeholder="https://…" onChange={(e) => setF({ ...f, url: e.target.value })}
-            hint="Open the portfolio in Luminate and copy the address bar. Used for the Open buttons, and to recognize its exports." />
-          <Field label="Slots it holds (songs, artists and releases)" type="number" min={1} max={1000} value={f.capacity} onChange={(e) => setF({ ...f, capacity: e.target.value })}
-            hint="For your clients' songs. A&R portfolios aren't added here: their exports are recognized by themselves." />
-          {err && <p className="hint err-text" role="alert">{err}</p>}
-          </>}
-        </div>
-        <div className="modal-foot">
-          {canMove > 0 && <button className="btn ghost sm" onClick={() => save("move")} disabled={busy}>Move to client portfolios</button>}
-          {f.id && !f.ar && <button className="btn ghost sm" onClick={() => save("remove")} disabled={busy}>Remove</button>}
-          <button className="btn ghost sm" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="btn sm" onClick={() => save()} disabled={busy || !String(f.name).trim()}>{busy ? "Saving…" : "Save"}</button>
-        </div>
-      </div>
-      {askMove && (
-        <AskCard title="Move it to your clients' portfolios?" goLabel="Move" busyLabel="Moving…" plain go={() => save("move", true)} onClose={() => setAskMove(false)}>
-          <p>Its {canMove} saved export{canMove === 1 ? "" : "s"} become{canMove === 1 ? "s" : ""} clients' numbers: the sheet and every client's page update now, and its songs show up to match and to add.</p>
-        </AskCard>
-      )}
-    </div>
-  );
-}
-
-// one line per portfolio in an upload's answer: its newest file, with the older ones of the same drop
-// folded in (kept as growth history, or skipped as duplicates)
-function lumByPortfolio(results) {
-  const by = new Map();
-  for (const r of results) by.set(r.portfolioId, [...(by.get(r.portfolioId) || []), r]);
-  return [...by.values()].map((list) => {
-    const used = list.filter((r) => r.status === "ready" || r.status === "taken").sort((a, b) => String(a.exportedAt).localeCompare(String(b.exportedAt)));
-    const r = used[used.length - 1] || list.find((x) => x.status === "blocked") || list[list.length - 1];
-    return { r, history: used.filter((x) => x !== r), dupes: list.filter((x) => x.status === "older").length };
-  });
-}
-
-const AR_AREAS = ["ar_artists", "ar_songs"];
-// An A&R file's growth line: the all-time growth of the rows both files hold, since when, leaving out
-// any whose all-time went down (each has its own line), and how many rows are new. "+6,612,612
-// all-time streams since Aug 27 (9 weeks) across the 2 artists in both files (5 artists are new to the list)"
-function lumGainText(r) {
-  const p = r.preview || {}, what = r.area === "ar_artists" || r.artists === r.entities ? "artist" : "song";
-  const n = (k, w) => `${k} ${w}${k === 1 ? "" : "s"}`;
-  const days = p.gainFrom && r.exportedAt ? Math.round((new Date(r.exportedAt) - new Date(p.gainFrom)) / 864e5) : null;
-  const since = p.gainFrom ? `since ${shortDay(p.gainFrom)}${days >= 14 ? ` (${Math.round(days / 7)} weeks)` : ""}` : "since its last export";
-  const fresh = p.newCount ? ` (${n(p.newCount, what)} ${p.newCount === 1 ? "is" : "are"} new to the list)` : "";
-  return `${signed(p.gain || 0)} all-time streams ${since} across the ${n(p.gainRows ?? 0, what)} in both files${fresh}`;
-}
-// what one drop can carry: the upload route's 60 files and its 4 MB request (a long-uncleaned Downloads
-// folder holds more), kept with room to spare for the request's own wrapping
-const DROP_MAX_FILES = 60, DROP_MAX_CHARS = 3_500_000;
-// Dropped CSVs are checked first and nothing changes yet: the preview says what each file would do
-// (songs and slots, growth since the last export, new songs, songs that would link), then Apply
-// takes them in. A blocked file can be applied on purpose ("use it anyway") after a warning. A
-// portfolio this page has never seen asks "What's in it?": one that looks like A&R (only artists,
-// or weekly numbers) has no answer picked for it, so it's never taken by accident. A&R files are
-// only kept for the A&R tab; they never touch STREAM DATA or the clients' numbers.
-function ExportDrop({ onDone, saved = [] }) {
-  const [over, setOver] = useState(false);
-  const [busy, setBusy] = useState(null); // "checking" | "applying"
-  const [out, setOut] = useState(null);
-  const [areas, setAreas] = useState({}); // POR id -> the picker's answer, for portfolios never seen
-  const [askBlocked, setAskBlocked] = useState(false);
-  const files = useRef(null);
-  const leftOut = useRef(null); // "Only 60 files at a time…": said on the preview and after Apply
-  const checked = useRef([]); // the preview's rows: the files skipped there (already in) are still said after Apply
-  const post = async (body) => {
-    const res = await fetch("/api/luminate-upload", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-      body: JSON.stringify(body),
-    }).catch(() => null);
-    const data = res && await res.json().catch(() => null);
-    if (!data) throw new Error("That didn't go through — check your connection and try again.");
-    return { ok: res.ok, data };
-  };
-  const check = async (list) => {
-    setBusy("checking"); setOut(null);
-    try {
-      const { data } = await post({ files: list, dryRun: true });
-      // a clients'-looking new portfolio starts on "Clients' songs", an all-artist one on "A&R artists";
-      // anything else that looks A&R waits for an answer
-      const first = {};
-      for (const r of data.results || []) if (r.unknown) first[r.portfolioId] = !r.needsArea ? "clients" : r.entities && r.artists === r.entities ? "ar_artists" : "";
-      setAreas(first);
-      checked.current = data.results || [];
-      setOut(data.error && !data.results ? { fatal: data.error } : withLeftOut(data));
-    }
-    catch (e) { setOut({ fatal: e.message }); }
-    finally { setBusy(null); }
-  };
-  const apply = async (force = false) => {
-    const pick = (out?.results || []).filter((r) => r.status === "ready" || (force && r.status === "blocked")).map((r) => r.fileName);
-    setBusy("applying");
-    try {
-      const { data } = await post({ files: files.current.filter((f) => pick.includes(f.name)), force, areas });
-      // Apply only sends the files it takes: the ones the preview skipped as already in (an A&R pair
-      // dropped again) stay listed, so they're never called "Not in this drop" (list A 5)
-      const skipped = checked.current.filter((r) => r.status === "older" && !pick.includes(r.fileName) && !(data.results || []).some((x) => x.fileName === r.fileName));
-      setOut(withLeftOut({ ...data, results: [...(data.results || []), ...skipped], applied: true, fatal: data.updated ? null : data.error || null }));
-      if (data.updated) window.dispatchEvent(new Event(STREAMS_EVENT));
-      if (data.updated || data.kept) onDone();
-    } catch (e) { setOut({ ...out, fatal: e.message }); }
-    finally { setBusy(null); }
-  };
-  const withLeftOut = (data) => (leftOut.current ? { ...data, errors: [leftOut.current, ...(data.errors || [])] } : data);
-  const take = async (list) => {
-    const read = await Promise.all([...list].filter((f) => /\.csv$/i.test(f.name) || f.type === "text/csv").map(async (f) => ({ name: f.name, text: await f.text() })));
-    if (!read.length) return setOut({ fatal: "Those weren't CSV files. Drop the portfolio exports (portfolio-export-POR….csv)." });
-    // more than one request can carry is cut here, the way the route cuts at 60 files, and said the
-    // same way; sent whole, it would only come back as "check your connection"
-    let size = 0;
-    const fit = read.filter((f, i) => i < DROP_MAX_FILES && (size += f.text.length) <= DROP_MAX_CHARS);
-    const n = read.length - fit.length;
-    leftOut.current = n ? { fileName: "", leftOut: n, message: fit.length === DROP_MAX_FILES
-      ? `Only ${DROP_MAX_FILES} files at a time: ${n} ${n === 1 ? "was" : "were"} left out. Drop ${n === 1 ? "it" : "them"} again.`
-      : `Only ${fit.length} of these files fit in one drop: ${n} ${n === 1 ? "was" : "were"} left out. Drop ${n === 1 ? "it" : "them"} again.` } : null;
-    files.current = fit;
-    check(fit);
-  };
-  const results = out?.results || [];
-  const ready = results.filter((r) => r.status === "ready"), blocked = results.filter((r) => r.status === "blocked");
-  const slots = (r) => [r.songs && `${r.songs} song${r.songs === 1 ? "" : "s"}`, r.artists && `${r.artists} artist${r.artists === 1 ? "" : "s"}`,
-    r.releases && `${r.releases} release${r.releases === 1 ? "" : "s"}`, r.otherTypes && `${r.otherTypes} other (${(r.otherNames || []).join(", ")})`].filter(Boolean).join(" + ") || "nothing";
-  const areaOf = (r) => (r.unknown ? areas[r.portfolioId] || "" : r.area);
-  const unanswered = lumByPortfolio(results).filter(({ r }) => r.unknown && r.status === "ready" && !areas[r.portfolioId]);
-  // a saved portfolio (either area) with no file in this drop: easy to forget one of the four
-  const notIn = results.length ? saved.filter((p) => p.luminateId && !results.some((r) => r.portfolioId === p.luminateId)).map((p) => p.name) : [];
-  return (
-    <div className="lm-drop-wrap" data-sec="drop">
-      <label
-        className={`lm-drop${over ? " over" : ""}${busy ? " busy" : ""}`}
-        onDragOver={(e) => { e.preventDefault(); setOver(true); }}
-        onDragLeave={() => setOver(false)}
-        onDrop={(e) => { e.preventDefault(); setOver(false); if (!busy) take(e.dataTransfer.files); }}
-      >
-        <input type="file" accept=".csv,text/csv" multiple disabled={!!busy} onChange={(e) => { take(e.target.files); e.target.value = ""; }} />
-        {busy ? <RefreshCw size={22} className="spin" /> : <UploadCloud size={22} />}
-        <strong>{busy === "checking" ? "Checking the files…" : busy === "applying" ? "Updating the sheet and every client's numbers…" : saved.length > 1 ? `Drop all ${saved.length} of this week's exports here` : "Drop this week's portfolio exports here"}</strong>
-        <span>{busy ? "This takes a few seconds." : "or click to choose them. The A&R ones go to the A&R tab by themselves. Nothing changes until you press Apply."}</span>
-      </label>
-      {out && (
-        <div className={`lm-result${out.preview ? " lm-preview" : ""}`} role="status">
-          {out.preview && <p className="lm-result-title">{ready.length ? "Here's what this update would do. Nothing has changed yet." : "Nothing in these files can be used."}</p>}
-          {out.fatal && <p className="hint err-text">{out.fatal}</p>}
-          {lumByPortfolio(results).map(({ r, history, dupes }) => (
-            <div key={r.fileName} className={`lm-result-row ${r.status}`}>
-              {r.status === "taken" || r.status === "ready" ? <CheckCircle2 size={15} /> : r.status === "blocked" || r.status === "needsArea" ? <AlertTriangle size={15} /> : <Clock size={15} />}
-              <span>
-                <strong>{r.portfolioName || `New portfolio …${String(r.portfolioId).slice(-4)}`}</strong>
-                {r.status === "ready" && <>
-                  {AR_AREAS.includes(areaOf(r)) ? ` · ${slots(r)}` : ` · ${slots(r)} (${r.entities} of ${r.capacity || 100} slots)`}
-                  {r.preview?.first ? ` · first export of this portfolio · ${fmt(r.preview.totalStreams)} all-time streams`
-                    : AR_AREAS.includes(areaOf(r)) ? ` · ${lumGainText(r)}`
-                    : ` · ${signed(r.preview?.gain || 0)} streams since its last export`}
-                  {r.preview?.newCount && !r.preview.first ? <em> {r.preview.newCount} new: {r.preview.newSongs.slice(0, 6).join(", ")}{r.preview.newCount > 6 ? "…" : ""}.</em> : null}
-                  {r.preview?.goneCount ? <em> {r.preview.goneCount} no longer in it: {r.preview.goneSongs.slice(0, 4).join(", ")}{r.preview.goneCount > 4 ? "…" : ""}.</em> : null}
-                  {AR_AREAS.includes(areaOf(r)) && <em> A&amp;R export: saved for the A&amp;R tab. It doesn't change any client numbers.</em>}
-                </>}
-                {r.status === "taken" && (AR_AREAS.includes(r.area) ? ` · ${slots(r)} · ${r.message}` : ` · ${slots(r)} taken in`)}
-                {r.status !== "ready" && r.status !== "taken" && ` · ${r.message}`}
-                {r.unknown && r.status === "ready" && (
-                  <span className="lm-area">
-                    <label>What's in it?{" "}
-                      <select className="lm-pick" value={areas[r.portfolioId] || ""} disabled={!!busy} onChange={(e) => setAreas((a) => ({ ...a, [r.portfolioId]: e.target.value }))}>
-                        <option value="" disabled>Pick one…</option>
-                        <option value="clients">Clients' songs</option>
-                        <option value="ar_artists">A&amp;R artists</option>
-                        <option value="ar_songs">A&amp;R songs</option>
-                      </select>
-                    </label>
-                    {r.needsArea && <em> {r.entities && r.artists === r.entities ? "It only holds artists" : "It has weekly numbers"}, so it looks like an A&amp;R portfolio.{areas[r.portfolioId] ? "" : " Pick what it holds before you apply."}</em>}
-                  </span>
-                )}
-                {/* each note on its own line (one per artist whose all-time went down) */}
-                {(r.notes || []).map((n) => <em key={n} className="lm-note"> {n}</em>)}
-                {history.length > 0 && <em> Plus {history.length} earlier export{history.length === 1 ? "" : "s"} ({shortDay(history[0].exportedAt)} – {shortDay(history[history.length - 1].exportedAt)}) {r.status === "ready" ? "to keep" : "kept"} as growth history.</em>}
-                {dupes > 0 && <em> {dupes} duplicate{dupes === 1 ? "" : "s"} or older file{dupes === 1 ? "" : "s"} skipped.</em>}
-              </span>
-            </div>
-          ))}
-          {(out.errors || []).map((e) => (
-            <div key={e.fileName || e.message} className="lm-result-row blocked"><AlertTriangle size={15} /><span>{e.message}</span></div>
-          ))}
-          {notIn.length > 0 && <div className="lm-result-row lm-notin"><Clock size={15} /><span>Not in this drop: {notIn.join(", ")}.</span></div>}
-          {out.preview && out.links?.length > 0 && <p className="hint">Would link {out.links.length} song{out.links.length === 1 ? "" : "s"} you marked as added: {[...new Set(out.links.map((l) => l.song))].join(", ")}.</p>}
-          {out.preview && out.copied?.length > 0 && <p className="hint">Would also give {out.copied.length === 1 ? "a co-writer's copy" : `${out.copied.length} co-writers' copies`} the Luminate id the same song already has on another page, so {out.copied.length === 1 ? "that share counts" : "those shares count"} in the sheet: {[...new Set(out.copied.map((l) => l.song))].join(", ")}.</p>}
-          {out.applied && out.updated && (
-            <p className="hint lm-result-sum">
-              Done: sheet and site updated{out.summary?.linked ? ` · ${out.summary.linked} new song${out.summary.linked === 1 ? "" : "s"} linked` : ""}
-              {out.summary?.weekTotal != null && out.summary.gainers?.length ? ` · ${signed(out.summary.weekTotal)} streams this week` : ""}.
-            </p>
-          )}
-          {out.applied && !out.updated && out.kept > 0 && !out.error && (
-            <p className="hint lm-result-sum">Kept {out.kept === 1 ? "the A&R export" : `${out.kept} A&R exports`} for the A&amp;R tab. Nothing else changed.</p>
-          )}
-          {out.applied && out.summary?.copied?.length > 0 && (
-            <p className="hint">Gave {out.summary.copied.length === 1 ? "a co-writer's copy" : `${out.summary.copied.length} co-writers' copies`} the Luminate id their song already had: {[...new Set(out.summary.copied)].join(", ")}.</p>
-          )}
-          {out.applied && out.error && <p className="hint err-text">{out.error} The exports are saved: press "Update the sheet again" up top.</p>}
-          {out.preview && (
-            <div className="lm-result-acts">
-              {ready.length > 0 && <button className="btn sm" disabled={!!busy || unanswered.length > 0} onClick={() => apply(false)}><Check size={14} /> {busy === "applying" ? "Applying…" : `Apply this update${blocked.length ? ` (${ready.length} file${ready.length === 1 ? "" : "s"})` : ""}`}</button>}
-              {unanswered.length > 0 && <span className="hint">Pick what {unanswered.length === 1 ? "the new portfolio holds" : `the ${unanswered.length} new portfolios hold`} first.</span>}
-              {blocked.length > 0 && <button className="btn ghost sm" disabled={!!busy} onClick={() => setAskBlocked(true)}>Use the blocked file anyway</button>}
-              <button className="btn ghost sm" disabled={!!busy} onClick={() => setOut(null)}>Cancel</button>
-            </div>
-          )}
-        </div>
-      )}
-      {askBlocked && (
-        <AskCard title="Use the blocked file anyway?" goLabel="Use anyway" busyLabel="Applying…" go={async () => { setAskBlocked(false); await apply(true); }} onClose={() => setAskBlocked(false)}>
-          <p>Its lower numbers will replace the current ones for every song in that portfolio.</p>
-        </AskCard>
-      )}
-    </div>
-  );
-}
-
-// part (To do, r7): only that to-do's block, in place: "drop" (the exports to drop), "add" (the songs to
-// add, with their ISRCs, Copy and Mark as added), "match", "missing" or "gone". Without it, the Luminate
-// tab: the steps, the drop zone, the portfolios and the records, with its to-dos counted on the chip.
-function LuminateAdmin({ db, commit, lum, lumErr, reloadLum, reloadDb, sub, onGo, part = null, chip = null }) {
-  const groups = useMemo(() => lumGroups(db, lum), [db, lum]);
-  const plan = useMemo(() => lumPlan(groups, lum), [groups, lum]);
-  const clientName = (id) => db.clients.find((c) => c.id === id)?.name || "";
-  const [editing, setEditing] = useState(null); // a portfolio form
-  const [checked, setChecked] = useState(() => new Set()); // group keys ticked as added
-  const [copied, setCopied] = useState(() => new Set());
-  const [finding, setFinding] = useState(() => new Set());
-  const [typed, setTyped] = useState({}); // group key -> ISRC being typed
-  const [busy, setBusy] = useState(null), [err, setErr] = useState(null);
-  const [arList, setArList] = useState(false); // the A&R names to add (the same list the Dashboard opens)
-  const [ask, setAsk] = useState(null); // a confirm card: { notOurs: placement } | { lumOnly: unlinked row }
-  const [note, setNote] = useState(null); // what the last "This isn't ours" did
-  const [flash, setFlash] = useState(null); // the block a jump landed on, lit up for a moment
-  const refresh = async () => { await reloadLum(); await reloadDb(); };
-  const run = async (what, fn) => {
-    setBusy(what); setErr(null);
-    try { await fn(); await refresh(); } catch (e) { setErr(e.message); } finally { setBusy(null); }
-  };
-
-  // songs still needing an ISRC are looked up in the background, a few at a time: one run at a
-  // time, picking up whatever still needs one after each batch (the list moves as it goes)
-  // a Dashboard task can point at a list further down ("add", "match", "missing", "gone"): shown once
-  // it has drawn, lit up for a moment so the eye finds it
-  const jumpTo = (sec) => {
-    const el = document.querySelector(`.lm [data-sec="${CSS.escape(String(sec))}"]`); // sec comes from the address bar
-    if (!el) return;
-    el.scrollIntoView({ block: "start" });
-    setFlash(sec); setTimeout(() => setFlash((f) => (f === sec ? null : f)), 1200);
-  };
-  const jumped = useRef(false);
-  useEffect(() => {
-    if (!sub || !lum || jumped.current) return;
-    jumped.current = true;
-    jumpTo(sub);
-  }, [sub, lum]);
-  const looked = useRef(new Set()), looking = useRef(false), latest = useRef(groups);
-  latest.current = groups;
-  useEffect(() => {
-    const next = () => latest.current.filter((g) => (g.status === "toAdd" || g.status === "unplaced") && !g.isrc && !g.checked && !looked.current.has(g.key)).slice(0, 4);
-    if (!lum || looking.current || (part && part !== "add") || !next().length) return;
-    looking.current = true;
-    (async () => {
-      try {
-        for (let batch = next(); batch.length; batch = next()) {
-          batch.forEach((g) => looked.current.add(g.key));
-          setFinding((s) => new Set([...s, ...batch.map((g) => g.key)]));
-          try {
-            const r = await lumPost({ action: "findIsrcs", groups: batch.map((g) => g.ids) });
-            // { later: true } = the server ran out of time for it: it goes in the next batch
-            batch.forEach((g) => { if (r?.results?.[g.ids[0]]?.later) looked.current.delete(g.key); });
-          } catch { /* the services are down: a box to type it in, until the next visit */ }
-          setFinding((s) => { const n = new Set(s); batch.forEach((g) => n.delete(g.key)); return n; });
-          await reloadLum();
-        }
-      } finally { looking.current = false; }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lum, groups]);
-
-  const saveIsrc = (g) => run(`isrc:${g.key}`, () => lumPost({ action: "setIsrc", placementIds: g.ids, isrc: typed[g.key] || "" }).then(() => setTyped((t) => ({ ...t, [g.key]: undefined }))));
-  const markAdded = (slot) => {
-    const chosen = slot.songs.filter((g) => checked.has(g.key));
-    if (!chosen.length) return;
-    run(`mark:${slot.p.id}`, async () => {
-      await lumPost({ action: "markAdded", portfolioId: slot.p.id, placementIds: chosen.flatMap((g) => g.ids) });
-      setChecked((s) => { const n = new Set(s); chosen.forEach((g) => n.delete(g.key)); return n; });
-    });
-  };
-  const toggle = (k) => setChecked((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
-  const [typing, setTyping] = useState(() => new Set()); // songs whose guesses were all wrong: the box to type it
-  const pickIsrc = (g, c) => run(`pick:${g.key}`, () => lumPost({ action: "pickIsrc", placementIds: g.ids, isrc: c.isrc, source: c.source }));
-
-  if (!lum) return lumErr
-    ? <p className="hint err-text"><span>Couldn't load the Luminate page.</span> <button className="btn ghost sm" onClick={reloadLum}>Try again</button></p>
-    : <p className="muted">Loading…</p>;
-  const roster = lum.portfolios.filter((p) => p.kind === "roster");
-  // every weekly export, the clients' portfolios first, then A&R (an A&R one's link form saves by POR id)
-  const arPorts = (lum.arPortfolios || []).map((p) => ({ ...p, ar: true }));
-  const allExports = [...lum.portfolios, ...arPorts];
-  const waiting = groups.filter((g) => g.status === "waiting");
-  const missing = groups.filter((g) => g.status === "missing");
-  const portOf = (id) => lum.portfolios.find((p) => p.id === id);
-  // what a portfolio's latest export holds, by type: "33 songs + 2 releases", "3 artists"
-  const held = (p) => [p.songCount && `${p.songCount} song${p.songCount === 1 ? "" : "s"}`, p.artistCount && `${p.artistCount} artist${p.artistCount === 1 ? "" : "s"}`,
-    p.releaseCount && `${p.releaseCount} release${p.releaseCount === 1 ? "" : "s"}`, p.otherTypes && `${p.otherTypes} other`].filter(Boolean).join(" + ") || "0 songs";
-  const due = lumDue(lum), hw = helperWords(lum.helper);
-  const pName = (id) => lum.portfolios.find((p) => p.id === id)?.name || "a portfolio";
-  const candidates = groups.filter((g) => !g.luminateId && !g.skip);
-  const skipped = groups.filter((g) => g.status === "skipped");
-
-  const openLinks = (
-    <div className="lm-step-links">
-      {lum.portfolios.length === 0 && <span className="hint">Your portfolios appear here after the first drop.</span>}
-      {allExports.map((p) => (p.url
-        ? <ExtLink key={p.id} href={p.url} className="btn ghost sm"><ExternalLink size={13} /> Open {p.name} ↗</ExtLink>
-        : <button key={p.id} className="btn ghost sm" onClick={() => setEditing({ ...p })}><Link2 size={13} /> Add the {p.name} link</button>))}
-    </div>
-  );
-  const modals = (
-    <>
-      {ask?.notOurs && (
-        <NotOursAsk db={db} commit={commit} lum={lum} target={ask.notOurs} client={db.clients.find((c) => c.id === ask.notOurs.clientId)} onClose={() => setAsk(null)}
-          onDone={(n) => { setAsk(null); setNote(n); refresh(); }} />
-      )}
-      {ask?.lumOnly && (
-        <AskCard title={`Mark "${ask.lumOnly.name}" as not in our catalog?`} goLabel="Not in our catalog" busyLabel="Saving…" onClose={() => setAsk(null)}
-          go={async () => { const u = ask.lumOnly; await run(`ign:${u.luminateId}`, () => lumPost({ action: "notOurs", song: u.name, luminateId: u.luminateId })); setAsk(null); }}>
-          <p>The app stops asking about it. It's still in {pName(ask.lumOnly.portfolioId)} in Luminate and uses a slot; you'll get a To do to take it out.</p>
-        </AskCard>
-      )}
-      {editing && <PortfolioForm initial={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reloadLum(); }} />}
-    </>
-  );
-  // To do: one block in place
-  if (part) {
-    const blocks = { gone: lum.notOursLeft?.length > 0 && <>{/* removed as "not ours" but still in a portfolio: the app can't take it out of Luminate */}
-              {lum.notOursLeft?.length > 0 && (
-                <div className={flash === "gone" ? "lm-block lm-gone lm-flash" : "lm-block lm-gone"} data-sec="gone">
-                  <div className="lm-block-head"><div><strong>Taken off the site, still in Luminate</strong><span className="hint"> The next export after you take it out clears this by itself.</span></div></div>
-                  <div className="lm-list">
-                    {lum.notOursLeft.map((r) => (
-                      <div key={r.luminateId} className="lm-song lm-gone-row">
-                        <span className="lm-cover"><Radar size={16} /></span>
-                        <span className="lm-song-main"><strong>{r.name}</strong><span>In {r.portfolioName}{r.lumName && r.lumName !== r.name ? ` as "${r.lumName}"` : ""} · uses 1 slot</span></span>
-                        <span className="lm-unl-acts">
-                          {r.url ? <ExtLink href={r.url} className="btn ghost sm"><ExternalLink size={13} /> Open {r.portfolioName} ↗</ExtLink>
-                            : portOf(r.portfolioId) && <button className="btn ghost sm" onClick={() => setEditing({ ...portOf(r.portfolioId) })}><Link2 size={13} /> Add the {r.portfolioName} link</button>}
-                          <button className="btn sm" disabled={!!busy} onClick={() => run(`out:${r.luminateId}`, () => lumPost({ action: "notOursOut", luminateId: r.luminateId }))}><Check size={13} /> Mark as removed</button>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}</>, add: (plan.slots.length > 0 || plan.left.length > 0) && <>
-      {plan.slots.map((slot, i) => (
-        <div key={slot.p.id} className={i === 0 && flash === "add" ? "lm-block lm-flash" : "lm-block"} data-sec={i === 0 ? "add" : undefined}>
-          <div className="lm-block-head">
-            <div>
-              <strong>Add {slot.songs.length === 1 ? "this song" : `these ${slot.songs.length}`} to {slot.p.name}</strong>
-              <span className="hint"> In Luminate: open {slot.p.name} → Add songs → paste each ISRC, select the song, repeat. Then tick them here.</span>
-            </div>
-            <div className="lm-block-acts">
-              {slot.p.url && <ExtLink href={slot.p.url} className="btn ghost sm"><ExternalLink size={13} /> Open {slot.p.name}</ExtLink>}
-              <button className="btn sm" disabled={!slot.songs.some((g) => checked.has(g.key)) || !!busy} onClick={() => markAdded(slot)}>
-                <Check size={14} /> {busy === `mark:${slot.p.id}` ? "Saving…" : `Mark ${slot.songs.filter((g) => checked.has(g.key)).length || ""} as added`}
-              </button>
-            </div>
-          </div>
-          <div className="lm-list">
-            {slot.songs.map((g) => (
-              <div key={g.key} className={`lm-song${checked.has(g.key) ? " on" : ""}${copied.has(g.key) ? " copied" : ""}`}>
-                <label className="lm-tick"><input type="checkbox" checked={checked.has(g.key)} onChange={() => toggle(g.key)} aria-label={`Added ${g.song}`} /></label>
-                <span className="lm-cover">{g.cover ? <Photo src={g.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
-                <span className="lm-song-main">
-                  <strong>{g.song || "Untitled"}</strong>
-                  <span>{g.artist}{g.clientIds.length ? ` · ${g.clientIds.map(clientName).filter(Boolean).join(", ")}` : ""}{g.status === "unplaced" ? " · has a Luminate id but isn't in a portfolio" : ""}</span>
-                </span>
-                <span className="lm-isrc">
-                  {g.isrc ? (
-                    <><code>{g.isrc}</code><CopyButton text={g.isrc} onCopied={() => setCopied((s) => new Set([...s, g.key]))} /></>
-                  ) : finding.has(g.key) ? (
-                    <span className="hint"><RefreshCw size={12} className="spin" /> Finding ISRC…</span>
-                  ) : isrcPicksOf(lum, g).length && !typing.has(g.key) ? (
-                    <IsrcPicks list={isrcPicksOf(lum, g)} busy={!!busy} onPick={(c) => pickIsrc(g, c)} />
-                  ) : (
-                    <span className="lm-isrc-in">
-                      <input value={typed[g.key] ?? ""} placeholder="Type the ISRC" aria-label={`ISRC for ${g.song}`}
-                        onChange={(e) => setTyped((t) => ({ ...t, [g.key]: e.target.value }))}
-                        onKeyDown={(e) => e.key === "Enter" && saveIsrc(g)} />
-                      <button className="btn ghost sm" disabled={!typed[g.key] || !!busy} onClick={() => saveIsrc(g)}>Save</button>
-                      <ExtLink href="https://isrcsearch.ifpi.org/" className="inline-link lm-find" title="IFPI's free ISRC search">Find it ↗</ExtLink>
-                    </span>
-                  )}
-                </span>
-                <span className="lm-row-acts">
-                  <RowMenu label={`More for ${g.song || "this song"}`} items={[
-                    !g.isrc && isrcPicksOf(lum, g).length > 0 && !typing.has(g.key) && { label: "None of these: type the ISRC", className: "lm-type", onClick: () => setTyping((s) => new Set([...s, g.key])) },
-                    { label: "Exclude from Luminate", className: "lm-skip", title: "It's ours, it just stays out of Luminate. It stays on the site.", disabled: !!busy, onClick: () => run(`skip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: true })) },
-                    { label: "Remove from catalog", className: "lm-not-ours", title: "Takes it off the site and the pub sheet too.", attrs: { "data-not-ours": "" }, disabled: !!busy, onClick: () => setAsk({ notOurs: db.placements.find((p) => p.id === g.ids[0]) }) },
-                  ].filter(Boolean)} />
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-      {plan.left.length > 0 && (
-        <div className="lm-block lm-full" data-sec={plan.slots.length ? undefined : "full"}>
-          <AlertTriangle size={16} />
-          <div>
-            <strong>{roster.length ? `Every portfolio is full: ${plan.left.length} more song${plan.left.length === 1 ? " needs" : "s need"} a new one.` : `${plan.left.length} songs to add, and no portfolio yet.`}</strong>
-            <span className="hint"> {roster.length ? "Make a new portfolio in Luminate, then add it here with its link." : "Drop your current exports above and your portfolios appear by themselves, or add one by hand."}</span>
-          </div>
-          <button className="btn sm" onClick={() => setEditing({ name: `Portfolio ${String.fromCharCode(65 + lum.portfolios.length)}`, url: "", kind: "roster", capacity: lum.cap })}><Plus size={14} /> Add portfolio</button>
-        </div>
-      )}</>, match: lum.unlinked.length > 0 && <>{lum.unlinked.length > 0 && (
-        <>
-          <h3 className="lm-h3" data-sec="match">New in Luminate: which song is this?</h3>
-          <div className="lm-list">
-            {lum.unlinked.map((u) => {
-              const sugg = groups.filter((g) => g.ids.some((id) => u.suggestions.includes(id)));
-              return (
-                <div key={u.luminateId} className="lm-song lm-unl">
-                  <span className="lm-cover"><Radar size={16} /></span>
-                  <span className="lm-song-main"><strong>{u.name}</strong><span>{pName(u.portfolioId)} · {fmt(u.streams)} streams</span></span>
-                  <span className="lm-unl-acts">
-                    {sugg.map((g) => (
-                      <button key={g.key} className="btn sm" disabled={!!busy} onClick={() => run(`link:${u.luminateId}`, () => lumPost({ action: "link", luminateId: u.luminateId, placementIds: g.ids }).then(() => window.dispatchEvent(new Event(STREAMS_EVENT))))}>
-                        <Link2 size={13} /> It's {g.song} · {g.clientIds.map(clientName).join(", ")}
-                      </button>
-                    ))}
-                    {!sugg.length && (
-                      <select className="lm-pick" value="" aria-label={`Link ${u.name} to a song`} disabled={!!busy}
-                        onChange={(e) => { const g = candidates.find((x) => x.key === e.target.value); if (g) run(`link:${u.luminateId}`, () => lumPost({ action: "link", luminateId: u.luminateId, placementIds: g.ids })); }}>
-                        <option value="">Link to a song…</option>
-                        {candidates.map((g) => <option key={g.key} value={g.key}>{g.song} · {g.clientIds.map(clientName).join(", ")}</option>)}
-                      </select>
-                    )}
-                    <button className="btn ghost sm" disabled={!!busy} onClick={() => setAsk({ lumOnly: u })}>Not in our catalog</button>
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}</>, missing: missing.length > 0 && <>{missing.length > 0 && (
-        <>
-          <h3 className="lm-h3" data-sec="missing">Marked as added, but not in the latest export</h3>
-          <p className="hint lm-h3-sub">Luminate didn't keep {missing.length === 1 ? "this song" : "these songs"}, or {missing.length === 1 ? "it was" : "they were"} added to another portfolio. {missing.length === 1 ? "It doesn't" : "They don't"} take up a slot until {missing.length === 1 ? "it's" : "they're"} added again.</p>
-          <div className="lm-list">
-            {missing.map((g) => {
-              const p = portOf(g.portfolioId);
-              return (
-                <div key={g.key} className="lm-song lm-missing">
-                  <span className="lm-cover">{g.cover ? <Photo src={g.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
-                  <span className="lm-song-main">
-                    <strong>{g.song || "Untitled"}</strong>
-                    <span>{p ? `Marked as added to ${p.name} on ${shortDay(g.addedAt)}, but not in the ${shortDay(p.exportedAt || p.uploadedAt)} export. Add it again?` : "Marked as added to a portfolio that isn't on this page any more."}{g.isrc ? ` · ${g.isrc}` : ""}</span>
-                  </span>
-                  <span className="lm-unl-acts">
-                    {p && <button className="btn sm" disabled={!!busy} onClick={() => run(`re:${g.key}`, () => lumPost({ action: "markAdded", portfolioId: p.id, placementIds: g.ids }))}><Check size={13} /> Mark as added again</button>}
-                    <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`un:${g.key}`, () => lumPost({ action: "unmark", placementIds: g.ids }))}>Return to the add list</button>
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}</> };
-    return (
-      <div className="lm lm-part" data-lm-part={part}>
-        {err && <p className="hint err-text overview-subhint" role="alert">{err}</p>}
-        <DropNote note={note} />
-        {part === "drop"
-          ? <><p className="hint">{allExports.length > 1 ? `Export all ${countWord(allExports.length)} with 1 week · Worldwide, then drop the files here.` : "Export each portfolio with 1 week · Worldwide, then drop the files here."}</p>{openLinks}<ExportDrop onDone={refresh} saved={allExports} /></>
-          : blocks[part] || <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Nothing left here.</p>}
-        {modals}
-      </div>
-    );
-  }
-  return (
-    <div className="lm">
-      <div className="admin-head lm-head">
-        <h2>Luminate</h2>
-        {chip}
-        <div className="overview-links">
-          <button className="btn ghost sm" disabled={!!busy} onClick={() => run("resync", () => lumPost({ action: "resync" }).then(() => window.dispatchEvent(new Event(STREAMS_EVENT))))} title="Rebuild STREAM DATA from the newest exports and pull every client's numbers again">
-            <RefreshCw size={14} className={busy === "resync" ? "spin" : ""} /> {busy === "resync" ? "Updating…" : "Update the sheet again"}
-          </button>
-          <button className="btn ghost sm" onClick={() => setEditing({ name: "", url: "", kind: "roster", capacity: lum.cap })}><Plus size={14} /> Add portfolio</button>
-        </div>
-      </div>
-      {/* one status line: the last update, the next one due, and the Mac helper */}
-      <p className="hint overview-subhint lm-status" data-lm-status>
-        {/* the numbers' own day (not when the file was dropped), and no one's name: a test login's would show */}
-        {due ? <>Last update {shortDay(due.made)} ({ago(due.made)})</> : "No exports taken in yet"}
-        {due && <> · <span className={due.late ? "warn-text" : undefined} data-lm-due>{due.late ? `Next was due ${shortDay(due.day)}` : `Next due ${shortDay(due.day)}`}</span></>}
-        {hw && <> · <span className={hw.warn ? "warn-text" : undefined} data-helper-state={hw.state}>{hw.text}</span></>}
-      </p>
-      {err && <p className="hint err-text overview-subhint" role="alert">{err}</p>}
-      {lum.alertsConnected === false && <p className="hint overview-subhint">ClickUp alerts aren't connected yet: they start once the Dashboard Alerts channel is set up.</p>}
-
-      <HeldFiles lum={lum} reload={refresh} />
-      <p className="hint lm-export-hint">{allExports.length > 1 ? `Export all ${countWord(allExports.length)} with 1 week · Worldwide, then drop the files here.` : "Export each portfolio with 1 week · Worldwide, then drop the files here."}</p>
-      {openLinks}
-      <ExportDrop onDone={refresh} saved={allExports} />
-
-      {allExports.length > 0 && (
-        <div className="lm-ports">
-          {lum.portfolios.map((p) => {
-            const used = (p.usedCount ?? p.songCount) + p.pendingCount, pct = Math.min(100, (used / p.capacity) * 100);
-            // a full one says where new songs go; an export over 8 days old breaks the weekly %, so it's amber
-            const room = used >= p.capacity && lum.portfolios.find((q) => q.id !== p.id && q.area === p.area && (q.usedCount ?? q.songCount) + q.pendingCount < q.capacity);
-            const age = p.exportedAt ? Math.floor((Date.now() - new Date(p.exportedAt).getTime()) / 86400000) : null;
-            return (
-              <button key={p.id} className="lm-port" onClick={() => setEditing({ ...p })} title={p.fixedName ? "Edit link or size" : "Edit name, link or size"}>
-                <span className="lm-port-top"><strong>{p.name}</strong></span>
-                <span className="lm-port-count"><b>{used}</b> / {p.capacity}{used >= p.capacity && <> · Full{room && <span className="lm-port-room"> · new songs go in {room.name}</span>}</>}</span>
-                <span className={`lm-bar${pct >= 95 ? " full" : pct >= 80 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
-                <span className="lm-port-meta">{held(p)}{p.pendingCount ? ` + ${p.pendingCount} just added` : ""}</span>
-                <span className={age > 8 ? "lm-port-meta lm-port-old" : "lm-port-meta"}>{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}${age > 8 ? ` (${age} days ago)` : ""}${p.songCount ? ` · ${fmt(p.totalStreams)} all-time streams` : ""}` : "No export yet"}</span>
-                {/* its newest file was made for longer than a week: no weekly numbers from it */}
-                {p.longWeeks && <span className="lm-port-meta lm-port-old">That file covers about {p.longWeeks} weeks, so it gave no weekly numbers. Export it again with 1 week.</span>}
-              </button>
-            );
-          })}
-          {/* the A&R ones, read-only: their numbers go to the A&R tab */}
-          {arPorts.map((p) => (
-            <div key={p.id} className="lm-arcard">
-              <strong>{p.name}</strong>
-              <span className="lm-port-meta">{p.exportedAt ? `Exported ${shortDay(p.exportedAt)}` : "No export yet"} · for the A&amp;R tab</span>
-              {p.url && <ExtLink href={p.url} className="inline-link lm-open" data-open-lum>Open in Luminate ↗</ExtLink>}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <DropNote note={note} onShow={jumpTo} />
-      {waiting.length > 0 && (
-        <>
-          <h3 className="lm-h3">Added, waiting for their first numbers</h3>
-          <p className="hint lm-h3-sub">They link up by themselves when the next export of their portfolio is dropped here.</p>
-          <div className="lm-list">
-            {waiting.map((g) => (
-              <div key={g.key} className="lm-song lm-wait">
-                <span className="lm-cover">{g.cover ? <Photo src={g.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
-                <span className="lm-song-main"><strong>{g.song}</strong><span>{pName(g.portfolioId)} · added {shortDay(g.addedAt)}{g.isrc ? ` · ${g.isrc}` : ""}</span></span>
-                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`un:${g.key}`, () => lumPost({ action: "unmark", placementIds: g.ids }))}>Mark as not added</button>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* everything set aside, folded: Don't track and "Not ours" can be undone from here */}
-      {(skipped.length + (lum.ignoredList || []).length + (lum.notOursList || []).length) > 0 && (
-        <details className="lm-hidden" data-sec="hidden">
-          <summary>Excluded from Luminate ({skipped.length + (lum.ignoredList || []).length + (lum.notOursList || []).length})</summary>
-          <div className="lm-list">
-            {skipped.map((g) => (
-              <div key={g.key} className="lm-song lm-hidden-row">
-                <span className="lm-song-main"><strong>{g.song || "Untitled"}</strong><span>{g.clientIds.map(clientName).filter(Boolean).join(", ")} · excluded from Luminate</span></span>
-                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`unskip:${g.key}`, () => lumPost({ action: "skip", placementIds: g.ids, skip: false }))}>Include in Luminate</button>
-              </div>
-            ))}
-            {(lum.ignoredList || []).map((r) => (
-              <div key={r.luminateId} className="lm-song lm-hidden-row">
-                <span className="lm-song-main"><strong>{r.name}</strong><span>In Luminate · not in our catalog</span></span>
-                <button className="btn ghost sm" disabled={!!busy} onClick={() => run(`unign:${r.luminateId}`, () => lumPost({ action: "ignore", luminateId: r.luminateId, ignore: false }))}>Include in Luminate</button>
-              </div>
-            ))}
-            {(lum.notOursList || []).map((r) => (
-              <div key={`${r.clientId}:${r.song}:${r.luminateId}`} className="lm-song lm-hidden-row">
-                <span className="lm-song-main"><strong>{r.song}</strong><span>Removed from the catalog · {shortDay(r.removedAt)}</span></span>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-
-      {modals}
-    </div>
-  );
+  if (!g || g.thisWeek == null || !(g.thisWeek > 0)) return null;
+  return <span className="grow-chip" title={`${fmt(g.thisWeek)} Spotify streams${g.weekOf ? `, ${dayRange(g.weekOf.from, g.weekOf.to)}` : " this week"}`}>{compact(g.thisWeek)} this week</span>;
 }
 
 // What needs a person, across the whole company: a short headline each (t), an optional detail line
 // under it (d), and the one place it's fixed ({ tab, sub } for onGo). Pure, so Publishing can count
-// its own share (area "roster"). lum = null while the Luminate page's data loads: only what the db
-// alone shows, until then. Every task has an area for its colour: luminate | roster | money | ar |
-// clickup | site.
+// its own share (area "roster"). songInfo = null while each song's facts load: only what the db
+// alone shows, until then. Every task has an area for its colour: roster | money | ar | clickup | site.
 // the sheet-tab To do's names: tabs the last sync didn't find, only clients with songs (a brand-new
 // client with no tab yet has no numbers to miss). Website › Roster marks the same clients.
 const findTabClient = (db, n) => db.clients.find((x) => x.name === n || (x.sheetTabName || "").trim() === n);
-const noTabNames = (db, lum) => (lum?.missingTabs || []).filter((n) => { const c = findTabClient(db, n); return !c || db.placements.some((p) => p.clientId === c.id); });
+const noTabNames = (db, songInfo) => (songInfo?.missingTabs || []).filter((n) => { const c = findTabClient(db, n); return !c || db.placements.some((p) => p.clientId === c.id); });
 // Songs to update (build G2): every song the pub sheet or the site is missing something for, from what the
 // last sheet pull read (db.sheetFacts, lib/sheet-facts.js). A split alone doesn't list a song (Splits to
 // confirm has those); on a listed song its split shows as one more chip. Biggest streams first.
-const GAP_WORDS = { share: "no writer share in the sheet", sheet: "not on the pub sheet", date: "no release date", link: "no link", lum: "not in Luminate" };
-function songsToUpdate(db, lum) {
+const GAP_WORDS = { share: "no writer share in the sheet", sheet: "not on the pub sheet", date: "no release date", link: "no link" };
+function songsToUpdate(db, songInfo) {
   const facts = db.sheetFacts || { songs: {}, clients: {} };
-  const groups = lum ? lumGroups(db, lum) : null;
-  const lumOf = new Map((groups || []).flatMap((g) => g.ids.map((id) => [id, g])));
   // a card in a possible duplicate pair is left out until the merge card is answered: Update and Save on the
   // card that would be removed adds a second row for the song to the pub sheet, and then the pair is never asked about
-  const held = dupeIds(db, lum);
+  const held = dupeIds(db, songInfo);
   // (r7) a blank share on the sheet with 100% here is To do's own "Fill in 100%" row, not a gap here
   const fillIds = new Set(shareFixesOf(db).sheet.map((x) => x.p.id));
   const out = [];
   for (const p of db.placements) {
     if (held.has(p.id)) continue;
-    const g = lumOf.get(p.id);
-    // in Luminate: it has an id (or shares one with its other copy), or staff excluded it on purpose
-    const inLuminate = groups ? !!(g?.luminateId || g?.status === "skipped") : !!p.luminateId;
     const split = splitTotal(p.splits) === 100 ? "ok" : evenSplit(p.splits).status;
-    const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split, inLuminate }).filter((x) => !(x.k === "share" && fillIds.has(p.id)));
+    const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split }).filter((x) => !(x.k === "share" && fillIds.has(p.id)));
     if (!gaps.some((x) => GAP_WORDS[x.k])) continue;
     // a split to confirm or review is Splits to confirm's (build I3): listed here only for the other gaps, with a pointer
     out.push({ p, client: (db.clients || []).find((c) => c.id === p.clientId) || null, gaps: gaps.filter((x) => GAP_WORDS[x.k]), splitSee: gaps.some((x) => !GAP_WORDS[x.k]) });
   }
   return out.sort((a, b) => (b.p.streams || 0) - (a.p.streams || 0));
 }
-// Two cards that look like the same song (build H1, lib/duplicates.js): only once Luminate's data is in (the ISRCs
+// Two cards that look like the same song (build H1, lib/duplicates.js): only once each song's facts are in (the ISRCs
 // and the pairs staff marked "Not the same song" come with it), and only for clients whose tab the last pull read
-function likelyDupes(db, lum) {
-  if (!lum) return [];
-  return likelyDuplicates(db.placements, { facts: db.sheetFacts || {}, isrcOf: (id) => lum.tracking?.[id]?.isrc || "", dismissed: lum.notDuplicates || [] })
+function likelyDupes(db, songInfo) {
+  if (!songInfo) return [];
+  return likelyDuplicates(db.placements, { facts: db.sheetFacts || {}, isrcOf: (id) => songInfo.tracking?.[id]?.isrc || "", dismissed: songInfo.notDuplicates || [] })
     .map((x) => ({ ...x, client: (db.clients || []).find((c) => c.id === x.clientId) || null }));
 }
 // every card in a pair, both the kept one and the other: Songs to update and Splits to confirm leave them out
-const dupeIds = (db, lum) => new Set(likelyDupes(db, lum).flatMap((x) => [x.keep.id, x.drop.id]));
+const dupeIds = (db, songInfo) => new Set(likelyDupes(db, songInfo).flatMap((x) => [x.keep.id, x.drop.id]));
 // "TRUST WHO (Stack!e)": the To do and Publishing's line name the song once, without its version tags
 const dupeName = (x) => `${plainTitle(x.keep.song) || "Untitled"} (${x.client?.name || "no client"})`;
 const dupeWords = (list) => (list.length === 1 ? `Possible duplicate: ${dupeName(list[0])}` : `${list.length} possible duplicate songs`);
-// the To do's detail (build I3): the gaps that matter for money first (no writer share, not on the sheet, not in
-// Luminate), then a missing date or link counted once per song; short words so it stays one line on a laptop
+// the To do's detail (build I3): the gaps that matter for money first (no writer share, not on the sheet),
+// then a missing date or link counted once per song; short words so it stays one line on a laptop
 const UPDATE_WORDS_MAX = 60;
 function updateWords(list) {
   const n = (f) => list.filter((x) => x.gaps.some(f)).length;
-  const share = n((g) => g.k === "share"), sheet = n((g) => g.k === "sheet"), lum = n((g) => g.k === "lum"), dl = n((g) => g.k === "date" || g.k === "link");
-  const parts = [share && `${share} no writer share`, sheet && `${sheet} not on the sheet`,
-    lum && `${lum} not in Luminate`, dl && `${dl} no date or link`].filter(Boolean);
+  const share = n((g) => g.k === "share"), sheet = n((g) => g.k === "sheet"), dl = n((g) => g.k === "date" || g.k === "link");
+  const parts = [share && `${share} no writer share`, sheet && `${sheet} not on the sheet`, dl && `${dl} no date or link`].filter(Boolean);
   let out = parts[0] || "";
   for (const x of parts.slice(1)) if (`${out} · ${x}`.length <= UPDATE_WORDS_MAX) out = `${out} · ${x}`; else break;
   return out;
 }
-function dashTasks(db, lum) {
+function dashTasks(db, songInfo) {
   // both groups of Splits to confirm, in plain words: the even default ready to confirm, and the ones to fix by hand
-  const { assumed, look } = splitsToConfirm(db, lum);
+  const { assumed, look } = splitsToConfirm(db, songInfo);
   const nSplits = assumed.length + look.length;
   const splits = nSplits && {
     k: "splits", area: "roster", t: `${nSplits} song${nSplits === 1 ? "'s split needs" : "s' splits need"} confirming`,
@@ -7617,49 +6751,22 @@ function dashTasks(db, lum) {
     tab: "catalog", sub: "splits", cta: "Review splits",
   };
   // one line for every song missing something on the sheet or the site (Publishing › Songs to update)
-  const upd = songsToUpdate(db, lum);
+  const upd = songsToUpdate(db, songInfo);
   const update = upd.length > 0 && {
     k: "update", area: "roster", t: `${upd.length} song${upd.length === 1 ? " needs" : "s need"} updating`,
     d: updateWords(upd), tab: "catalog", sub: "update", cta: "Review",
   };
-  if (!lum) return [splits, update].filter(Boolean);
+  const noTab = noTabNames(db, songInfo);
+  const noTabOne = noTab.length === 1 ? findTabClient(db, noTab[0]) : null;
+  const tabNames = noTab.length > 1 ? `${noTab.slice(0, -1).join(", ")} or ${noTab[noTab.length - 1]}` : noTab[0];
+  if (!songInfo) return [splits, update].filter(Boolean);
   // one line for every pair of cards that look like the same song: Review opens the merge card
-  const dupes = likelyDupes(db, lum);
+  const dupes = likelyDupes(db, songInfo);
   const dupe = dupes.length > 0 && {
     k: "dupes", area: "roster", t: dupeWords(dupes), d: dupes.length > 1 ? dupes.slice(0, 2).map(dupeName).join(" · ") : undefined,
     tab: "catalog", sub: "dupes", cta: "Review",
   };
-  const groups = lumGroups(db, lum);
-  // one row for every song that still has to go into a portfolio (the Luminate badge counts the same)
-  const toAdd = groups.filter((g) => g.status === "toAdd" || g.status === "unplaced").length;
-  const noIsrc = groups.filter((g) => (g.status === "toAdd" || g.status === "unplaced") && !g.isrc && g.checked).length;
-  const missing = groups.filter((g) => g.status === "missing").length;
-  // how old the numbers are: from when Luminate made them (the oldest portfolio's newest export), not
-  // when they were dropped, so month-old files or one forgotten portfolio still read as stale
-  const up = lum.lastUpload, at = up?.at ? new Date(up.at).getTime() : null, made = up?.numbersFrom ? new Date(up.numbersFrom).getTime() : null;
-  const byNumbers = made !== null && (at === null || made < at);
-  const stale = byNumbers ? (Date.now() - made) / 86400000 : at !== null ? (Date.now() - at) / 86400000 : null;
-  const tabClient = (n) => findTabClient(db, n);
-  const noTab = noTabNames(db, lum);
-  const noTabOne = noTab.length === 1 ? tabClient(noTab[0]) : null;
-  const L = { area: "luminate", tab: "luminate" };
-  // which portfolio is behind, how big it is, and how to fix it (lib/sync-tasks.js says the same)
-  const ports = lum.portfolios || [];
-  const behind = byNumbers ? ports.find((p) => up.numbersPortfolioId && p.luminateId === up.numbersPortfolioId) || ports.find((p) => p.name === up.numbersPortfolio) || null : null;
-  const behindName = behind?.name || up?.numbersPortfolio;
-  const staleT = byNumbers && behindName
-    ? `${behindName}${behind?.songCount ? ` (${behind.songCount} song${behind.songCount === 1 ? "" : "s"})` : ""} hasn't had a new export since ${shortDay(up.numbersFrom)}`
-    : byNumbers ? `The newest Luminate numbers are ${Math.floor(stale)} days old` : `The last Luminate update was ${Math.floor(stale)} days ago`;
-  const staleD = byNumbers && behindName ? "In Luminate, export it with 1 week · Worldwide, then drop it here." : "In Luminate, export each portfolio with 1 week · Worldwide, then drop them here.";
-  const tabNames = noTab.length > 1 ? `${noTab.slice(0, -1).join(", ")} or ${noTab[noTab.length - 1]}` : noTab[0];
   return [
-    stale === null ? { ...L, k: "none", t: "No Luminate export has been dropped in yet", cta: "Open Luminate" }
-      : stale > 8 && { ...L, k: "stale", sub: "drop", t: staleT, d: staleD, cta: "Drop new exports" },
-    (lum.notOursLeft || []).length && { ...L, k: "gone", sub: "gone", t: lum.notOursLeft.length === 1 ? `Take "${lum.notOursLeft[0].name}" out of ${lum.notOursLeft[0].portfolioName} in Luminate` : `Take ${lum.notOursLeft.length} songs that aren't ours out of Luminate`,
-      d: lum.notOursLeft.length === 1 ? `It's off the site but still uses a slot.${lum.notOursLeft[0].lumName && lum.notOursLeft[0].lumName !== lum.notOursLeft[0].name ? ` In Luminate it's "${lum.notOursLeft[0].lumName}".` : ""}` : "They're off the site but still use slots.", cta: "View" },
-    toAdd && { ...L, k: "add", sub: "add", t: `${toAdd} song${toAdd === 1 ? " needs" : "s need"} adding to Luminate`, d: noIsrc ? (toAdd === 1 ? "It still needs its ISRC" : `${noIsrc} of them still need${noIsrc === 1 ? "s" : ""} an ISRC`) : undefined, cta: "View list" },
-    lum.unlinked.length && { ...L, k: "unlinked", sub: "match", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here`, cta: "Match them" },
-    missing && { ...L, k: "missing", sub: "missing", t: `${missing} song${missing === 1 ? "" : "s"} marked as added ${missing === 1 ? "isn't" : "aren't"} in the latest export`, d: "Check them in Luminate, then add them again or unmark them.", cta: "View list" },
     dupe,
     splits,
     update,
@@ -7741,14 +6848,10 @@ const HomeMore = ({ n, open, onToggle }) => (n > 0 ? <button className="btn ghos
 
 // This week's biggest movers on the roster: its songs (one line per title and artist) and its artists
 // (each client's songs that have both weeks, added up), ranked on the server by week-on-week %
-// (GET /api/growth?top=1): from 1,000 streams this week, the rest filling in by streams without a %.
-// Each list says the days it covers ("This week" on the Dashboard). The A&R lists' movers live on
-// the A&R tab, not here.
+// (GET /api/growth?top=1, Spotify streams, global: lib/data/growth.js): from 1,000 streams this week, the
+// rest filling in by streams without a %. Each list says the days it covers ("This week" on the Dashboard).
+// A&R: the same top people as A&R › Summary (Spotify monthly listeners against a week ago).
 const GAINER_TABS = [["songs", "Songs"], ["artists", "Artists"], ["ar", "A&R"]];
-// "A", "A and B", "A, B and C"
-const listWords = (xs) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
-// "▲ 157.5%", "▼ 12.0%": the same as the A&R tab's
-const wowText = pctText;
 function useRosterTop() {
   const [top, setTop] = useState(() => dashCache.top || null);
   const [failed, setFailed] = useState(false);
@@ -7759,18 +6862,19 @@ function useRosterTop() {
       .then((d) => { if (!alive) return; if (d?.top) { dashCache.top = d.top; setTop(d.top); } else setFailed(true); }).catch(() => alive && setFailed(true)); };
     loader.current = load;
     load();
-    window.addEventListener(STREAMS_EVENT, load);
-    return () => { alive = false; window.removeEventListener(STREAMS_EVENT, load); };
+    return () => { alive = false; };
   }, []);
   return { top, failed, retry: () => loader.current?.() };
 }
 // the pill over this week's streams; a row with no % (too few streams) shows its streams alone, in grey
+// (an artist's monthly listeners: "71,342 listeners", the % against a week ago)
+const weekWords = (r) => (r.unit === "listeners" ? `${fmt(r.thisWeek)} listeners` : `${fmt(r.thisWeek)} this week`);
 function GainNum({ r }) {
   return r.ranked && r.wowPct != null
-    ? <span className="gainer-num" data-wow={r.wowPct >= 0 ? "up" : "down"}><WowPill pct={r.wowPct} /><em>{fmt(r.thisWeek)} this week</em></span>
-    : <span className="gainer-num" data-wow="none"><em>{fmt(r.thisWeek)} this week</em></span>;
+    ? <span className="gainer-num" data-wow={r.wowPct >= 0 ? "up" : "down"}><WowPill pct={r.wowPct} /><em>{weekWords(r)}</em></span>
+    : <span className="gainer-num" data-wow="none"><em>{weekWords(r)}</em></span>;
 }
-function TopGainers({ db, lum, onGo, arTop, arLoaded }) {
+function TopGainers({ db, onGo, arTop, arLoaded }) {
   const [kind, setKind] = useState("songs");
   const { top, failed, retry } = useRosterTop();
   const body = useRef(null);
@@ -7784,7 +6888,7 @@ function TopGainers({ db, lum, onGo, arTop, arLoaded }) {
   const span = isAR ? arTop?.period : top && (kind === "artists" ? top.artistsWeekOf : top.songsWeekOf);
   const empty = isAR ? (!arTop ? (arLoaded ? "Couldn't load the A&R numbers." : "Loading…") : !rows.length && "No A&R numbers this week yet.")
     : !top ? (failed ? "Couldn't load this week's numbers." : "Loading…")
-    : !rows.length && !top.noWeekly?.length && (lum?.lastUpload ? "Shows up after next week's Luminate export." : "Shows up after two weekly Luminate exports.");
+    : !rows.length && "Shows up once there's a week of daily Spotify numbers.";
   const firstOff = rows ? rows.findIndex((r) => !(r.ranked && r.wowPct != null)) : -1;
   // the rows without a % sit under one caption, after the ranked ones
   const split = (i) => i === firstOff && <div key="split" className="gainer-split">Not enough streams for a % yet</div>;
@@ -7803,7 +6907,7 @@ function TopGainers({ db, lum, onGo, arTop, arLoaded }) {
         </span>
       </div>
       <div className="home-scroll" ref={body}>
-        {span && <p className="gainer-sub">{dayRange(span.from, span.to)} · vs the week before{!isAR && top?.olderWeek && <span data-older-week> · the newest week with numbers</span>}</p>}
+        {span && <p className="gainer-sub">{dayRange(span.from, span.to)} · vs the week before · {isAR ? "Spotify monthly listeners" : "Spotify streams, global"}</p>}
         {empty ? (
           <p className="gainers-empty">{empty}{!isAR && !top && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
         ) : isAR ? rows.map((r, i) => [split(i), (
@@ -7835,18 +6939,6 @@ function TopGainers({ db, lum, onGo, arTop, arLoaded }) {
             </button>
           )];
         })}
-        {/* the portfolios still exported the old way have no week to rank: one plain line for all of them
-            (r8), under the newest week that has numbers when there is one */}
-        {!isAR && top?.noWeekly?.length > 0 && (() => {
-          const n = top.noWeekly.length, names = listWords(top.noWeekly.map((p) => p.name));
-          return (
-            <p className="gainers-noweek">
-              <i aria-hidden="true" /><span><span className="gainers-noweek-t">{top.olderWeek
-                ? `${names}: the newest export${n === 1 ? " has" : "s have"} no weekly numbers.`
-                : `${names} ${n === 1 ? "has" : "have"} no weekly numbers yet. Drop ${n === 1 ? "its new export" : "their new exports"} to include ${n === 1 ? "its" : "their"} songs.`}</span> <button className="inline-link" onClick={() => onGo("luminate", "drop")}>Drop new exports</button></span>
-            </p>
-          );
-        })()}
       </div>
       <ScrollFoot n={hidden} box={body} />
     </div>
@@ -7879,8 +6971,7 @@ function useHome() {
 }
 const monthName = (ym) => (ym ? new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: "long" }) : "This month");
 
-// A&R's counts (GET /api/ar?summary=1): follow-ups due, and who you added that the Luminate A&R lists
-// don't have yet (toLuminate). Loaded once by StaffDashboard for the A&R badge and the Dashboard's task,
+// A&R's counts (GET /api/ar?summary=1): follow-ups due, and Summary's top people for Home's This week. Loaded once by StaffDashboard for the A&R badge and the Dashboard's task,
 // again when the Dashboard opens. null while loading or when it couldn't load (no badge, no task).
 function useArSummary(tab) {
   const [t, setT] = useState(null);
@@ -7893,59 +6984,6 @@ function useArSummary(tab) {
     return () => { alive = false; };
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   return t;
-}
-
-// "See the list": the names to add, by the Luminate list they go in (with how full that list is),
-// each with Copy name and its Spotify link when one is saved. The Dashboard, A&R Summary and the
-// Watchlist's chips all open this one.
-// inline (To do): the same lists in place, without the window round them
-function ArToLuminateModal({ t, onGo, onClose, inline = false }) {
-  useEscape(onClose, !inline);
-  const groups = [["artists", `Add to your ${t.lists.artists.name} list in Luminate`, t.artists, t.lists.artists], ["songs", `Add to your ${t.lists.songs.name} list`, t.songs, t.lists.songs]].filter(([, , items]) => items.length);
-  const lists = (
-    <>
-          <p className="hint mb">In Luminate, open the list → Add → search the name; it shows up here after your next export.</p>
-          {groups.map(([k, head, items, list]) => {
-            const pct = list.count == null ? null : Math.min(100, Math.round((list.count / list.cap) * 100));
-            return (
-              <div key={k} className="lm-block ar-tolum-group" data-group={k}>
-                <div className="lm-block-head ar-tolum-head">
-                  <h4>{head}</h4>
-                  {pct != null && (
-                    <span className="ar-tolum-meter">
-                      <span className={`lm-bar${list.full ? " full" : pct >= 90 ? " near" : ""}`}><i style={{ width: `${pct}%` }} /></span>
-                      <em className={list.full || pct >= 90 ? "warn-text" : undefined}>{list.count} of {list.cap} used</em>
-                    </span>
-                  )}
-                </div>
-                {list.full && <p className="ar-tolum-full"><AlertTriangle size={14} /> Your {list.name} list is full ({list.count} of {list.cap}). Remove one there first, then add these.</p>}
-                {items.map((x) => (
-                  <div key={x.id} className="ar-tolum-row">
-                    <span className="ar-tolum-name"><strong>{x.name}</strong>{x.artist ? <span className="muted"> · {x.artist}</span> : null}</span>
-                    <span className="ar-tolum-acts">
-                      {x.spotify && <ExtLink className="btn ghost sm" href={x.spotify}>Spotify ↗</ExtLink>}
-                      <CopyButton text={x.name} label="Copy name" />
-                    </span>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
-    </>
-  );
-  if (inline) return <div className="ar-tolum-inline">{lists}</div>;
-  return (
-    <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-card ar-tolum-modal">
-        <div className="modal-head"><h3>Add these to Luminate</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
-        <div className="modal-body">{lists}</div>
-        <div className="modal-foot">
-          {onGo && <button className="btn ghost sm ar-tolum-drop" onClick={() => { onClose(); onGo("luminate", "drop"); }}>Drop new exports</button>}
-          <button className="btn sm" onClick={onClose}>Done</button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // A card's calm line while /api/home is on its way, or when it couldn't load at all
@@ -8327,9 +7365,9 @@ function AcctToCheck({ d, busy, err, onOk }) {
   );
 }
 
-// The phone tab bar's "More": Luminate and Site in a small menu above the bar (To do always stays in the
+// The phone tab bar's "More": Numbers and Site in a small menu above the bar (To do always stays in the
 // bar, with the one count). Hidden on desktop, where the sidebar lists every section.
-const PHONE_MORE = new Set(["numbers", "luminate", "site"]);
+const PHONE_MORE = new Set(["numbers", "site"]);
 function NavMore({ tabs, tab, badge, setTab }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
@@ -8398,10 +7436,11 @@ function useSyncChecks(tab) {
 // Every to-do the dashboard knows about, from every area, as To do's rows: one sentence (t), at most
 // one short detail (d), one button (cta), the panel it opens in place (panel), and its weight for
 // Home's biggest tasks (rank, lib/todo-rank.js). tap = the button finishes it (after the preview the
-// panel shows); the rest need a person. The Luminate and Publishing rows are dashTasks' (the same words);
-// lib/area-tasks.js keeps ClickUp's area tasks to the same list.
-const SYNC_ROWS = { pubSheet: ["roster", "Pull from the sheet"], streamData: ["luminate", "Update the sheet"], info: ["money", "Review"] };
-function todoItems({ db, lum, acct, ar, sync }) {
+// panel shows); the rest need a person. The Publishing rows are dashTasks' (the same words);
+// lib/area-tasks.js keeps ClickUp's area tasks to the same list. seeds: what the old Luminate
+// portfolios' starting list still needs (list B #3), one row per area.
+const SYNC_ROWS = { pubSheet: ["roster", "Pull from the sheet"], info: ["money", "Review"] };
+function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   const out = [];
   const nLog = acct?.toLog || 0, nCheck = acct?.toCheck || 0;
   // the test payments among them said once (they still count): "1 of them is a $2.00 test payment."
@@ -8411,14 +7450,11 @@ function todoItems({ db, lum, acct, ar, sync }) {
     cta: nLog === 1 ? "Log it" : `Log all ${nLog}`, panel: "log", rank: { kind: "money", value: acct.toLogTotal || nLog } });
   if (nCheck) out.push({ k: "check", area: "money", t: `${nCheck} row${nCheck === 1 ? "" : "s"} in the Income tab to check`, cta: "Review", panel: "check", rank: { kind: "money", value: 0 } });
   const streams = (ps) => ps.reduce((a, p) => a + (p.streams || 0), 0);
-  for (const it of dashTasks(db, lum)) {
+  for (const it of dashTasks(db, songInfo)) {
     const base = { k: it.k, area: it.area, t: it.t, d: it.d, cta: it.cta };
-    if (it.k === "none" || it.k === "stale") out.push({ ...base, cta: "Drop exports", panel: "drop", rank: { kind: "luminate", due: true } });
-    else if (it.k === "gone" || it.k === "add" || it.k === "missing") out.push({ ...base, panel: it.k, rank: { kind: "other" } });
-    else if (it.k === "unlinked") out.push({ ...base, panel: "match", rank: { kind: "other" } });
-    else if (it.k === "dupes") out.push({ ...base, tap: true, cta: "Merge", panel: "dupes", rank: { kind: "fix", value: 0 } });
-    else if (it.k === "splits") out.push({ ...base, panel: "splits", rank: { kind: "fix", value: streams(splitsToConfirm(db, lum).all.map((x) => x.p)) } });
-    else if (it.k === "update") out.push({ ...base, panel: "update", rank: { kind: "fix", value: streams(songsToUpdate(db, lum).map((x) => x.p)) } });
+    if (it.k === "dupes") out.push({ ...base, tap: true, cta: "Merge", panel: "dupes", rank: { kind: "fix", value: 0 } });
+    else if (it.k === "splits") out.push({ ...base, panel: "splits", rank: { kind: "fix", value: streams(splitsToConfirm(db, songInfo).all.map((x) => x.p)) } });
+    else if (it.k === "update") out.push({ ...base, panel: "update", rank: { kind: "fix", value: streams(songsToUpdate(db, songInfo).map((x) => x.p)) } });
     else if (it.k === "tabs") out.push({ ...base, d: "The pub sheet has no tab by that name. Type the right one here.", cta: it.sub === "roster" ? "Set the sheet tabs" : it.cta, panel: "tabs", rank: { kind: "other" } });
   }
   // (r7) the shares with one clear answer: One tap, each with its preview first (ShareFix)
@@ -8430,24 +7466,22 @@ function todoItems({ db, lum, acct, ar, sync }) {
     d: "100% here. A blank share earns nothing on the sheet.", cta: fx.sheet.length === 1 ? "Fill in 100%" : `Fill in ${fx.sheet.length}`, panel: "shareSheet", rank: { kind: "fix", value: streams(fx.sheet.map((x) => x.p)) } });
   const due = ar?.followUpsDue || 0;
   if (due) out.push({ k: "follow", area: "ar", t: `${due} A&R follow-up${due === 1 ? "" : "s"} due`, cta: "Review", panel: "follow", rank: { kind: "contacts", value: due } });
-  if (ar?.toLuminate?.count) out.push({ k: "arLuminate", area: "ar", t: ar.toLuminate.text.replace(/\.$/, ""), cta: "View list", panel: "arLuminate", rank: { kind: "other" } });
+  // the old Luminate portfolios' songs and artists not tracked yet (list B #3): one row per area, each
+  // one finished in the list it opens (Yes to a match, a pasted Spotify link, Not on Spotify)
+  for (const [area, words] of [["roster", "Admin Catalog songs"], ["ar", "Artist and Song Tracker rows"]]) {
+    const list = (seeds?.todo || []).filter((r) => r.area === area);
+    if (!list.length) continue;
+    const check = list.filter((r) => r.status === "check").length, find = list.length - check;
+    out.push({ k: `seeds:${area}`, area, t: `${list.length} of the old Luminate ${words} to find on Spotify`,
+      d: [check && `${check} ${check === 1 ? "match" : "matches"} to check`, find && `${find} to find`].filter(Boolean).join(" · "), cta: check ? "Check" : "Find", panel: "seeds", seedArea: area, rank: { kind: "fix", value: 0 } });
+  }
   const unread = (db.submissions || []).filter((x) => !x.read).length;
   if (unread) out.push({ k: "messages", area: "site", t: `${unread} new website message${unread === 1 ? "" : "s"}`, cta: "Read", panel: "messages", rank: { kind: "other" } });
-  // the new Luminate files: what the Mac helper held back for a person, or a newer export STREAM DATA
-  // hasn't taken in (the sync check's "behind"): one row, one button (r7 C2)
-  const heldFiles = lum?.helper?.held || [];
-  const behind = (sync?.checks || []).find((c) => c.id === "streamData" && c.ok === false && c.fix?.kind === "resync") || null;
-  if (heldFiles.length || behind) {
-    out.push({ k: "lumApply", area: "luminate", tap: true, t: "Apply the new Luminate files", panel: "lumApply", check: behind, rank: { kind: "luminate", due: true },
-      d: heldFiles.length ? `The Mac helper held back ${heldFiles.length === 1 ? "1 file" : `${heldFiles.length} files`} for you to look at` : behind.text.replace(/\.$/, ""),
-      cta: heldFiles.length > 1 ? `Apply all ${heldFiles.length}` : "Apply" });
-  }
-  // the sync checks that aren't a row already (Stripe = payments to log, OUTREACH = the A&R list, ClickUp = its tasks;
-  // STREAM DATA behind = the row above)
+  // the sync checks that aren't a row already (Stripe = payments to log, ClickUp = its tasks)
   for (const c of sync?.checks || []) {
-    if (c.ok !== false || !SYNC_ROWS[c.id] || c.id === "streamData") continue;
+    if (c.ok !== false || !SYNC_ROWS[c.id]) continue;
     const [area, cta] = SYNC_ROWS[c.id];
-    out.push({ k: `sync:${c.id}`, area, tap: c.fix?.kind === "pull" || c.fix?.kind === "resync", t: c.text.replace(/\.$/, ""), cta, panel: "syncfix", check: c, rank: { kind: "sync" } });
+    out.push({ k: `sync:${c.id}`, area, tap: c.fix?.kind === "pull", t: c.text.replace(/\.$/, ""), cta, panel: "syncfix", check: c, rank: { kind: "sync" } });
   }
   return out;
 }
@@ -8471,19 +7505,16 @@ function TodoRow({ it, open, onToggle, ctx }) {
   );
 }
 function TodoPanel({ it, ctx, onClose, viaCta = false }) {
-  const { db, commit, lum, lumErr, reloadLum, reloadDb, onGo } = ctx;
-  const lumProps = { db, commit, lum, lumErr, reloadLum, reloadDb, onGo };
+  const { db, commit, onGo } = ctx;
   switch (it.panel) {
-    case "drop": case "add": case "match": case "missing": case "gone": return <LuminateAdmin {...lumProps} part={it.panel} />;
     case "splits": case "update": case "dupes": return <PubFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
     case "shareSite": case "shareSheet": return <ShareFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
     case "tabs": return <SheetTabFix ctx={ctx} />;
     case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log" && viaCta} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
     case "follow": return <ArFollowUps ctx={ctx} />;
-    case "arLuminate": return ctx.ar?.toLuminate ? <ArToLuminateModal inline t={ctx.ar.toLuminate} onClose={onClose} /> : null;
+    case "seeds": return <SeedList area={it.seedArea} ctx={ctx} />;
     case "messages": return <SubsAdmin db={db} commit={commit} />;
     case "syncfix": return <SyncFix check={it.check} ctx={ctx} />;
-    case "lumApply": return <LumApply it={it} ctx={ctx} />;
     default: return null;
   }
 }
@@ -8492,8 +7523,8 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
 // the song's editor right here (SongManager's own editor, nothing else of the client's page)
 // (Merge, the row's button, opens the merge card at once; the sentence or a link shows the line with Review)
 function PubFix({ kind, ctx, viaCta = false }) {
-  const { db, commit, lum, reloadLum, onGo } = ctx;
-  const dupes = useMemo(() => likelyDupes(db, lum), [db, lum]);
+  const { db, commit, songInfo, reloadSongInfo, onGo } = ctx;
+  const dupes = useMemo(() => likelyDupes(db, songInfo), [db, songInfo]);
   const [edit, setEdit] = useState(null);
   const n = useRef(0);
   const openFix = (id, field = null) => { const p = db.placements.find((x) => x.id === id); if (p) setEdit({ id, field, n: ++n.current, clientId: p.clientId }); };
@@ -8503,15 +7534,15 @@ function PubFix({ kind, ctx, viaCta = false }) {
   const openDupe = () => { setNote(null); setDupeKey(dupes[0]?.key || null); };
   return (
     <>
-      {kind === "splits" && <SplitsToFix db={db} commit={commit} lum={lum} reloadLum={reloadLum} onFix={openFix} onGo={onGo} dupes={dupes} onDupe={openDupe} />}
-      {kind === "update" && <SongsToUpdate db={db} lum={lum} onFix={openFix} dupes={dupes} onDupe={openDupe} />}
+      {kind === "splits" && <SplitsToFix db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} onGo={onGo} dupes={dupes} onDupe={openDupe} />}
+      {kind === "update" && <SongsToUpdate db={db} songInfo={songInfo} onFix={openFix} dupes={dupes} onDupe={openDupe} />}
       {kind === "dupes" && (dupes.length
         ? <p className="pub-tasks dupe-line" data-dupe-line>{dupeWords(dupes)} · <button className="inline-link" data-dupe-review onClick={openDupe}>Review</button></p>
         : <p className="home-muted acct-clear"><CheckCircle2 size={15} /> No possible duplicates left.</p>)}
       <DropNote note={note} />
       {/* a merge can clear the row this sits in: its result goes on To do's own line (ctx.flash) when there is one */}
-      {dupeOpen && <DupeMerge db={db} commit={commit} lum={lum} reloadLum={reloadLum} pair={dupeOpen} onClose={() => setDupeKey(null)} onDone={(r) => { setDupeKey(null); if (ctx.flash) ctx.flash(r); else setNote(r); }} />}
-      {edit && <SongManager editorOnly db={db} commit={commit} clientId={edit.clientId} isStaff lum={lum} reloadLum={reloadLum} fix={{ id: edit.id, n: edit.n, field: edit.field }} onFix={openFix} onFixList={() => setEdit(null)} onGo={onGo} />}
+      {dupeOpen && <DupeMerge db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} pair={dupeOpen} onClose={() => setDupeKey(null)} onDone={(r) => { setDupeKey(null); if (ctx.flash) ctx.flash(r); else setNote(r); }} />}
+      {edit && <SongManager editorOnly db={db} commit={commit} clientId={edit.clientId} isStaff songInfo={songInfo} reloadSongInfo={reloadSongInfo} fix={{ id: edit.id, n: edit.n, field: edit.field }} onFix={openFix} onFixList={() => setEdit(null)} onGo={onGo} />}
     </>
   );
 }
@@ -8589,11 +7620,11 @@ function useSplitFixes() {
 }
 const AUTO_DAYS = 7; // how long "Done for you" names what was confirmed by itself
 const sameSplits = (a, b) => JSON.stringify((a || []).map((s) => [s.name || "", Number(s.percent) || 0])) === JSON.stringify((b || []).map((s) => [s.name || "", Number(s.percent) || 0]));
-function useAutoConfirm({ db, commit, lum, fixes }) {
+function useAutoConfirm({ db, commit, songInfo, fixes }) {
   const tried = useRef("");
   useEffect(() => {
-    if (!fixes.data || !lum || !db?.sheetFacts) return;
-    const items = autoConfirms({ placements: db.placements, clients: db.clients, facts: db.sheetFacts, held: fixes.data.auto.held, skip: dupeIds(db, lum) });
+    if (!fixes.data || !songInfo || !db?.sheetFacts) return;
+    const items = autoConfirms({ placements: db.placements, clients: db.clients, facts: db.sheetFacts, held: fixes.data.auto.held, skip: dupeIds(db, songInfo) });
     const key = items.map((x) => x.p.id).sort().join(",");
     if (!items.length || tried.current === key) return;
     tried.current = key;
@@ -8601,7 +7632,7 @@ function useAutoConfirm({ db, commit, lum, fixes }) {
     commit({ ...db, placements: db.placements.map((p) => (by.has(p.id) ? { ...p, splits: by.get(p.id) } : p)) }, undefined, { quiet: true })
       .then((saved) => saved && splitFixPost({ action: "auto", items: items.map((x) => ({ id: x.p.id, song: x.p.song, client: x.client.name, before: x.before, after: x.after })) }))
       .then(() => fixes.load()).catch(() => {});
-  }, [db, lum, fixes.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [db, songInfo, fixes.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const since = Date.now() - AUTO_DAYS * 864e5;
   const recent = (fixes.data?.auto?.done || []).filter((d) => Date.parse(d.at) > since);
   const undo = async () => {
@@ -8619,8 +7650,8 @@ function useAutoConfirm({ db, commit, lum, fixes }) {
 
 // "X's numbers can't sync": each client's Sheet tab name, typed right here, then the sheet pull checks it
 function SheetTabFix({ ctx }) {
-  const { db, commit, lum, reloadLum } = ctx;
-  const names = noTabNames(db, lum);
+  const { db, commit, songInfo, reloadSongInfo } = ctx;
+  const names = noTabNames(db, songInfo);
   const [typed, setTyped] = useState({});
   const [busy, setBusy] = useState(null);
   const [note, setNote] = useState(null);
@@ -8630,7 +7661,7 @@ function SheetTabFix({ ctx }) {
       const next = await commit({ ...db, clients: db.clients.map((x) => (x.id === c.id ? { ...x, sheetTabName: (typed[c.id] ?? "").trim() } : x)) });
       if (!next) return;
       const { missing } = await fullSiteSync(next, commit);
-      await reloadLum();
+      await reloadSongInfo();
       setNote(missing.includes(c.name) ? { warn: true, text: `Saved, but the pub sheet still has no tab called ${(typed[c.id] ?? "").trim() || c.name}.` } : { text: `Saved. ${c.name}'s numbers sync from the ${(typed[c.id] ?? "").trim() || c.name} tab now.` });
     } finally { setBusy(null); }
   };
@@ -8671,18 +7702,6 @@ function ArFollowUps({ ctx }) {
   );
 }
 
-// "Apply the new Luminate files" in place: the helper's held files (Apply / Apply all, the same list as
-// the Luminate page), then STREAM DATA's update when it's behind the newest export
-function LumApply({ it, ctx }) {
-  const reload = async () => { await ctx.reloadLum(); await ctx.reloadDb?.(); await ctx.sync?.load(true); };
-  return (
-    <div className="todo-sublist lm-apply">
-      {(ctx.lum?.helper?.held || []).length > 0 && <HeldFiles lum={ctx.lum} reload={reload} onAllDone={ctx.flash} />}
-      {it.check && <SyncFix check={it.check} ctx={ctx} />}
-    </div>
-  );
-}
-
 // a sync check's fix, in place: pull the sheet, rebuild STREAM DATA, or what to do about INFO
 function SyncFix({ check, ctx }) {
   const [busy, setBusy] = useState(false);
@@ -8698,16 +7717,100 @@ function SyncFix({ check, ctx }) {
   );
 }
 async function syncFix(check, ctx, setBusy, setNote) {
-  const { db, commit, reloadLum, sync, onGo } = ctx;
+  const { db, commit, reloadSongInfo, sync, onGo } = ctx;
   if (check.fix?.kind === "todo") return onGo("todo", check.fix.area);
   setBusy(true); setNote(null);
   try {
-    if (check.fix?.kind === "resync") { await lumPost({ action: "resync" }); window.dispatchEvent(new Event(STREAMS_EVENT)); }
     const { missing } = await fullSiteSync(db, commit);
-    await reloadLum?.();
+    await reloadSongInfo?.();
     await sync.load(true);
     setNote({ warn: !!missing.length, text: missing.length ? `Done. No sheet tab found for ${missing.join(", ")}.` : "Done. The numbers are pulled from the sheet again." });
   } catch (err) { setNote({ warn: true, text: err.message || "That didn't go through. Try again in a minute." }); } finally { setBusy(false); }
+}
+
+// The old Luminate portfolios as the numbers' starting list (list B #3, GET /api/data?seeds=1): the songs and
+// artists not tracked yet. Read whenever Home or To do opens; an answer takes its line off at once.
+const seedCache = { d: null };
+function useSeeds(tab, on) {
+  const [data, setData] = useState(() => seedCache.d);
+  const load = () => (!on ? Promise.resolve() : fetch("/api/data?seeds=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+    .then((d) => { if (d?.todo) { seedCache.d = d; setData(d); } }).catch(() => {}));
+  useEffect(() => { if (tab === "home" || tab === "todo" || !seedCache.d) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  const drop = (lumId) => setData((d) => { const n = d ? { ...d, todo: d.todo.filter((r) => r.lumId !== lumId) } : d; seedCache.d = n; return n; });
+  return { data, load, drop };
+}
+// To do's list for one area: each line finished right here (Yes to the match Spotify found, a pasted link,
+// or Not on Spotify in its ⋯ menu); an artist can get their Instagram / TikTok / YouTube at the same time
+function SeedList({ area, ctx }) {
+  const rows = (ctx.seeds?.data?.todo || []).filter((r) => r.area === area);
+  const [note, setNote] = useState(null);
+  return (
+    <div className="todo-sublist seed-list" data-seed-list={area}>
+      <p className="hint">From the old Luminate {area === "ar" ? "Artist and Song Trackers" : "Admin Catalogs"}. Once one is on Spotify here, its numbers come in with the next daily update; its Luminate numbers stay as history.</p>
+      {rows.map((r) => <SeedRow key={r.lumId} r={r} picks={r.kind !== "artist" && !r.isrc ? isrcPicksOf(ctx.songInfo, r.placementIds || []) : []}
+        onDone={(text) => { ctx.seeds.drop(r.lumId); setNote({ text }); }} />)}
+      {!rows.length && <p className="home-muted acct-clear"><CheckCircle2 size={15} /> All found.</p>}
+      <DropNote note={note} />
+    </div>
+  );
+}
+const SOCIALS = [["instagram", "Instagram"], ["tiktok", "TikTok"], ["youtube", "YouTube"]];
+// picks: the ISRC finder's guesses for a song with no ISRC (one tap: kept on the song, then looked up on Spotify)
+function SeedRow({ r, picks = [], onDone }) {
+  const artist = r.kind === "artist";
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [url, setUrl] = useState("");
+  const [other, setOther] = useState(!r.spotify);
+  const [so, setSo] = useState({ instagram: r.socials?.instagram || "", tiktok: r.socials?.tiktok || "", youtube: r.socials?.youtube || "" });
+  const [isrc, setIsrc] = useState(r.isrc || "");
+  const send = async (body, done) => {
+    setBusy(true); setErr(null);
+    try {
+      // the socials first (they're kept whatever happens next), then the answer that takes the line off
+      if (artist && body.op !== "skip" && SOCIALS.some(([k]) => so[k].trim() !== (r.socials?.[k] || ""))) await dataPost({ action: "seed", lumId: r.lumId, op: "socials", socials: so });
+      const out = await dataPost({ action: "seed", lumId: r.lumId, ...body });
+      // an ISRC Spotify has no song for: kept, and the line stays for a link
+      if (body.op === "isrc" && out.status !== "matched") { setIsrc(out.isrc || body.isrc); setErr("Spotify has no song with that ISRC. Paste its Spotify link instead."); setBusy(false); return; }
+      onDone(done);
+    } catch (e) { setErr(e.message); setBusy(false); }
+  };
+  const what = artist ? r.name : `"${r.name}"`;
+  return (
+    <div className="seed-row" data-seed={r.lumId} data-status={r.status}>
+      <div className="seed-head">
+        <span className="lm-cover">{r.spotify?.image && !other ? <img src={r.spotify.image} alt="" /> : <Disc3 size={16} />}</span>
+        <span className="lm-song-main"><strong>{r.name}</strong>
+          <span>{[r.list, r.artist, r.atd != null && `Luminate: ${fmt(r.atd)} all-time on ${shortDay(r.atdOn)}`].filter(Boolean).join(" · ")}</span></span>
+      </div>
+      {!other ? (
+        <div className="seed-acts">
+          <span className="seed-match">Spotify has <ExtLink className="inline-link" href={r.spotify.url}>{r.spotify.name} ↗</ExtLink>. Is that {artist ? "them" : "it"}?</span>
+          <span className="seed-btns">
+            <button className="btn sm" data-seed-yes disabled={busy} onClick={() => send({ op: "confirm" }, `Tracking ${what} from the next update.`)}>{busy ? "Saving…" : "Yes"}</button>
+            <button className="btn ghost sm" disabled={busy} onClick={() => setOther(true)}>No</button>
+          </span>
+        </div>
+      ) : (
+        <div className="seed-acts">
+          <input className="seed-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={artist ? "Their Spotify artist link" : "The song's Spotify link"} aria-label={`Spotify link for ${r.name}`} />
+          <span className="seed-btns">
+            <button className="btn sm" data-seed-save disabled={busy || !url.trim()} onClick={() => send({ op: "link", url }, `Tracking ${what} from the next update.`)}>{busy ? "Saving…" : "Save"}</button>
+            <RowMenu label={`More for ${r.name}`} items={[{ label: "Not on Spotify: don't track", onClick: () => send({ op: "skip" }, `${r.name} won't be tracked. Its Luminate numbers stay as history.`) }]} />
+          </span>
+        </div>
+      )}
+      {!artist && other && (isrc
+        ? <p className="hint seed-isrc">ISRC <code>{isrc}</code> (Spotify has nothing under it yet)</p>
+        : picks.length > 0 && <IsrcPicks list={picks} busy={busy} onPick={(c) => send({ op: "isrc", isrc: c.isrc, source: c.source }, `Found "${r.name}" on Spotify by its ISRC.`)} />)}
+      {artist && (
+        <div className="seed-socials">
+          {SOCIALS.map(([k, label]) => <input key={k} value={so[k]} onChange={(e) => setSo((x) => ({ ...x, [k]: e.target.value }))} placeholder={`${label} (optional)`} aria-label={`${label} link for ${r.name}`} />)}
+        </div>
+      )}
+      {err && <p className="hint err-text">{err}</p>}
+    </div>
+  );
 }
 
 // ClickUp: one open task. The name opens it in ClickUp; Done ✓ sets it to its list's done status.
@@ -8804,7 +7907,7 @@ function CuSection({ cu, list, person, setList, setPerson, onNew }) {
   );
 }
 
-const AREA_CHIPS = [["all", "All"], ["money", "Money"], ["roster", "Publishing"], ["luminate", "Luminate"], ["ar", "A&R"], ["clickup", "ClickUp"], ["site", "Site"]];
+const AREA_CHIPS = [["all", "All"], ["money", "Money"], ["roster", "Publishing"], ["ar", "A&R"], ["clickup", "ClickUp"], ["site", "Site"]];
 function TodoPage({ ctx, todo, sub, onSub, areaN }) {
   const isArea = TODO_AREAS.includes(sub);
   const [area, setArea] = useState(isArea ? sub : "all");
@@ -8833,7 +7936,7 @@ function TodoPage({ ctx, todo, sub, onSub, areaN }) {
   const shown = todo.filter((it) => area === "all" || it.area === area);
   const tap = shown.filter((it) => it.tap), need = shown.filter((it) => !it.tap);
   const cuOn = area === "all" || area === "clickup";
-  const { lum, lumErr, reloadLum } = ctx;
+  const { songInfo, songInfoErr, reloadSongInfo } = ctx;
   const allN = todo.length + areaN("clickup");
   return (
     <div className="todo-page">
@@ -8856,9 +7959,9 @@ function TodoPage({ ctx, todo, sub, onSub, areaN }) {
             {tap.map((it) => <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />)}
             {need.length > 0 && <div className="todo-group" data-group="need">Needs you</div>}
             {need.map((it) => <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />)}
-            {!lum && !lumErr && !ctx.lumOff && area !== "clickup" && <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking Luminate…</p>}
-            {lumErr && !lum && <p className="todo-line"><AlertTriangle size={14} /> Couldn't load the Luminate to-dos. <button className="inline-link" onClick={reloadLum}>Try again</button></p>}
-            {!shown.length && (lum || ctx.lumOff || area === "clickup") && area !== "clickup" && <p className="todo-line todo-clear"><CheckCircle2 size={14} /> Nothing to do here.</p>}
+            {!songInfo && !songInfoErr && !ctx.songInfoOff && area !== "clickup" && <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking the songs…</p>}
+            {songInfoErr && !songInfo && <p className="todo-line"><AlertTriangle size={14} /> Couldn't load the songs' to-dos. <button className="inline-link" onClick={reloadSongInfo}>Try again</button></p>}
+            {!shown.length && (songInfo || ctx.songInfoOff || area === "clickup") && area !== "clickup" && <p className="todo-line todo-clear"><CheckCircle2 size={14} /> Nothing to do here.</p>}
             {cuOn && <CuSection cu={ctx.cu} list={list} person={person} setList={setList} setPerson={setPerson} onNew={() => setNewTask(true)} />}
           </div>
           <DoneForYou ctx={ctx} />
@@ -8872,7 +7975,7 @@ function TodoPage({ ctx, todo, sub, onSub, areaN }) {
 // "Done for you": what the dashboard did by itself, said once. Today that's the ClickUp tasks it keeps
 // current (each area's checklist ticks itself); A2 adds what it confirms on its own (an even split the sheet
 // already holds), each with Undo (ctx.doneForYou: [{ k, text, undo }]).
-const OWN_NAMES = { payments: "Log new payments", "area:luminate": "Luminate", "area:publishing": "Publishing", "area:ar": "A&R" };
+const OWN_NAMES = { payments: "Log new payments", "area:publishing": "Publishing", "area:ar": "A&R" };
 function DoneForYou({ ctx }) {
   const own = (ctx.cu.data?.own || []).filter((t) => OWN_NAMES[t.kind]);
   const extra = ctx.doneForYou || [];
@@ -8893,16 +7996,6 @@ function DoneForYou({ ctx }) {
 const CAL_SOURCES = [
   // ClickUp: each open task on its due day
   ({ cu }) => (cu.data?.tasks || []).filter((t) => t.due).map((t) => ({ day: nyDay(t.due), label: t.name, kind: "clickup", late: dueBucket(t.due) === "overdue", task: t })),
-  // Luminate: the weekly exports, a week after the newest ones (and every week after)
-  ({ lum }, from, to) => {
-    const due = lumDue(lum);
-    if (!due) return [];
-    const today = nyDay(Date.now()), out = [];
-    let d = due.day;
-    if (d < today) { out.push({ day: today, label: `Luminate exports (due ${shortDay(d)})`, kind: "luminate", late: true }); d = addDays(today, 7); }
-    for (; d <= to; d = addDays(d, 7)) if (d >= from) out.push({ day: d, label: "Luminate exports due", kind: "luminate" });
-    return out;
-  },
   // Money: the days payments came in that the Income tab doesn't have yet
   ({ home }) => {
     const by = new Map();
@@ -8929,7 +8022,7 @@ function TodoCalendar({ ctx }) {
   const on = (d) => events.filter((e) => e.day === d);
   const step = (n) => setAnchor((a) => (phone ? addDays(a, 7 * n) : (() => { const [y, m] = a.split("-").map(Number); const x = new Date(Date.UTC(y, m - 1 + n, 1)); return x.toISOString().slice(0, 10); })()));
   const title = phone ? `${shortDay(from)} – ${shortDay(to)}` : new Date(`${first}T12:00:00Z`).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
-  const chip = (e, i) => <span key={i} className={`cal-ev${e.late ? " late" : ""}`} data-kind={e.kind} data-area={e.kind === "clickup" ? "clickup" : e.kind === "money" ? "money" : e.kind === "luminate" ? "luminate" : e.kind}>{e.label}</span>;
+  const chip = (e, i) => <span key={i} className={`cal-ev${e.late ? " late" : ""}`} data-kind={e.kind} data-area={e.kind}>{e.label}</span>;
   return (
     <div className="cal" data-cal={phone ? "week" : "month"}>
       <div className="cal-head">
@@ -8965,7 +8058,7 @@ function TodoCalendar({ ctx }) {
           <div className="cal-list" data-picked={picked}>
             <h3 className="lm-h3">{new Date(`${picked}T12:00:00Z`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" })}</h3>
             {!on(picked).length ? <p className="todo-line">Nothing on this day.</p> : on(picked).map((e, i) => (e.task ? <CuTodoRow key={e.task.id} t={e.task} cu={ctx.cu} />
-              : <div key={i} className="attn-row" data-area={e.kind === "money" ? "money" : "luminate"}><span className="attn-main"><b>{e.label}</b></span></div>))}
+              : <div key={i} className="attn-row" data-area={e.kind}><span className="attn-main"><b>{e.label}</b></span></div>))}
           </div>
         </>
       )}
@@ -8988,7 +8081,7 @@ function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
   const { top } = useMemo(() => biggestTasks([...todo, ...cuTasks.map((t) => ({ ...t, kind: "clickup" }))]), [todo, cuTasks]);
   const [open, setOpen] = useState(() => new Set());
   const toggle = (k) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n; });
-  const settled = (ctx.lum || ctx.lumErr || ctx.lumOff) && ctx.ar && ctx.cu.data;
+  const settled = (ctx.songInfo || ctx.songInfoErr || ctx.songInfoOff) && ctx.ar && ctx.cu.data;
   const money = ctx.can("money"), syncOn = ctx.can("site") && !ctx.db.access?.ownOnly;
   return (
     <div className="home">
@@ -9001,7 +8094,7 @@ function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
           {!top.length ? (settled ? <p className="todo-line todo-clear"><CheckCircle2 size={14} /> All caught up.</p> : <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking what needs doing…</p>)
             : top.map((it) => (it.kind === "clickup" ? <CuTodoRow key={`cu:${it.id}`} t={it} cu={ctx.cu} /> : <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />))}
         </div>
-        <TopGainers db={ctx.db} lum={ctx.lum} onGo={ctx.onGo} arTop={ctx.ar?.top} arLoaded={!!ctx.ar} />
+        <TopGainers db={ctx.db} onGo={ctx.onGo} arTop={ctx.ar?.top} arLoaded={!!ctx.ar} />
       </div>
       {ctx.can("publishing") && <HomeNumbers onGo={ctx.onGo} />}
       <HomeWeek ctx={ctx} home={home} todo={todo} />
@@ -9010,12 +8103,11 @@ function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
   );
 }
 
-// Home's week: Monday to Sunday with To do Calendar's own sources (ClickUp's due tasks, the Luminate
-// day, payments to log), today marked, at most two a day plus "+N". A day's items open right here, in a
+// Home's week: Monday to Sunday with To do Calendar's own sources (ClickUp's due tasks, payments to log), today marked, at most two a day plus "+N". A day's items open right here, in a
 // small panel under it: a ClickUp task with Done ✓, a site item as its To do row (opening in place). An
 // empty day stays empty.
 const HOME_WEEK_CHIPS = 2;
-const SITE_ITEM_OF = { money: (it) => it.k === "log", luminate: (it) => it.area === "luminate" && it.rank?.kind === "luminate" };
+const SITE_ITEM_OF = { money: (it) => it.k === "log" };
 function HomeWeek({ ctx, home, todo }) {
   const today = nyDay(Date.now());
   const dow = (iso) => new Date(`${iso}T12:00:00Z`).getUTCDay();
@@ -9172,7 +8264,7 @@ function SyncView({ ctx }) {
 // Site: the public website's content, the logins, the contact form's messages, and the Sync view
 const SITE_SECS = [["website", "Website"], ["users", "Users"], ["messages", "Messages"], ["sync", "Sync"]];
 function SiteAdmin({ ctx, sub, onSub, chip }) {
-  const { db, commit, lum } = ctx;
+  const { db, commit, songInfo } = ctx;
   // Users is user management; the rest is Site's. Sync reads every artist at once.
   const secs = SITE_SECS.filter(([id]) => (id === "users" ? ctx.can("users") : ctx.can("site") && !(id === "sync" && db.access?.ownOnly)));
   const want = ["users", "messages", "sync"].includes(sub) ? sub : "website";
@@ -9183,7 +8275,7 @@ function SiteAdmin({ ctx, sub, onSub, chip }) {
       <div className="subnav" role="tablist" aria-label="Site">
         {secs.map(([id, label]) => <button key={id} role="tab" aria-selected={sec === id} data-site-tab={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { onSub(id === "website" ? null : id); revealChip(e.currentTarget); }}>{label}</button>)}
       </div>
-      {sec === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={onSub} lum={lum} embedded />}
+      {sec === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={onSub} songInfo={songInfo} embedded />}
       {sec === "users" && <UsersAdmin db={db} commit={commit} reloadDb={ctx.reloadDb} />}
       {sec === "messages" && <SubsAdmin db={db} commit={commit} />}
       {sec === "sync" && <SyncView ctx={ctx} />}
@@ -9195,7 +8287,7 @@ function SiteAdmin({ ctx, sub, onSub, chip }) {
 const WEBSITE_SECS = [["roster", "Roster"], ["notable", "Notable releases"], ["staff", "Team"], ["about", "About page"]];
 const WEB_SEC_KEY = "dm-web-sec";
 // embedded: inside Site, which has the page's title
-function WebsiteAdmin({ db, commit, sub, onSub, lum = null, embedded = false }) {
+function WebsiteAdmin({ db, commit, sub, onSub, songInfo = null, embedded = false }) {
   const secs = WEBSITE_SECS;
   // a Dashboard task's sub wins, then the last tab used in this browser tab, then Roster (the weekly work)
   const openId = sub?.startsWith("roster:") ? sub.slice(7) : null; // To do's "Set X's sheet tab"
@@ -9215,7 +8307,7 @@ function WebsiteAdmin({ db, commit, sub, onSub, lum = null, embedded = false }) 
         ))}
       </div>
       {sec === "about" && <AboutEditor db={db} commit={commit} />}
-      {sec === "roster" && <ClientsAdmin db={db} commit={commit} openId={openId} lum={lum} />}
+      {sec === "roster" && <ClientsAdmin db={db} commit={commit} openId={openId} songInfo={songInfo} />}
       {sec === "staff" && <TeamAdmin db={db} commit={commit} />}
       {sec === "notable" && <NotableAdmin db={db} commit={commit} />}
     </div>
@@ -11457,7 +10549,9 @@ function StyleTag() {
     .app:not(.pub) .nums-switch{display:inline-flex;align-items:center;gap:8px;min-height:40px;cursor:pointer}
     .app:not(.pub) .nums-switch input{width:18px;height:18px;accent-color:#8fce8f}
     .app:not(.pub) .nums-off{color:var(--d-ink-4)}
-    .app:not(.pub) .nums-song{display:grid;grid-template-columns:minmax(0,2.2fr) repeat(4,minmax(0,1fr));gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--d-line);font-size:13px;font-variant-numeric:tabular-nums}
+    .app:not(.pub) .nums-lum{margin:8px 0 0;font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .nums-song-lum{color:var(--d-ink-4)}
+    .app:not(.pub) .nums-song{display:grid;grid-template-columns:minmax(0,2.2fr) repeat(5,minmax(0,1fr));gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--d-line);font-size:13px;font-variant-numeric:tabular-nums}
     .app:not(.pub) .nums-song-hd{font:500 11.5px/1.3 var(--d-body);color:var(--d-ink-4);border-top:0}
     .app:not(.pub) .nums-song-t{display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;min-width:0}
     .app:not(.pub) .nums-song-t em{flex-basis:100%;font-style:normal;color:var(--d-ink-4);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -11478,7 +10572,7 @@ function StyleTag() {
       .app:not(.pub) .nums-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
       .app:not(.pub) .nums-tile b{font-size:18px}
       .app:not(.pub) .nums-song-hd{display:none}
-      .app:not(.pub) .nums-song{grid-template-columns:repeat(4,minmax(0,1fr));gap:4px 8px}
+      .app:not(.pub) .nums-song{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 8px}
       .app:not(.pub) .nums-song-t{grid-column:1/-1}
       .app:not(.pub) .nums-song > span[data-l]::before{content:attr(data-l);display:block;font-size:10.5px;color:var(--d-ink-4)}
     }
@@ -12286,6 +11380,26 @@ function StyleTag() {
     .app:not(.pub) .todo-panel .lm-part .lm-block{margin:8px 0 0}
     .app:not(.pub) .todo-panel .acct-part .fix-panel{padding:0}
     .app:not(.pub) .todo-sublist{display:flex;flex-direction:column;gap:6px;padding-top:6px}
+    /* list B #3: the old Luminate rows to find on Spotify, one card each, finished in place */
+    .app:not(.pub) .seed-list{gap:8px}
+    .app:not(.pub) .seed-row{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-s2)}
+    .app:not(.pub) .seed-head{display:flex;align-items:center;gap:10px;min-width:0}
+    .app:not(.pub) .seed-head .lm-cover{flex:none;width:40px;height:40px;border-radius:var(--d-r-xs);overflow:hidden;display:grid;place-items:center;background:var(--d-s3);color:var(--d-ink-off)}
+    .app:not(.pub) .seed-head .lm-cover img{width:100%;height:100%;object-fit:cover}
+    .app:not(.pub) .seed-head .lm-song-main{display:flex;flex-direction:column;min-width:0}
+    .app:not(.pub) .seed-head .lm-song-main strong{font-size:13.5px;font-weight:600;color:var(--d-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .app:not(.pub) .seed-head .lm-song-main span{font-size:12px;color:var(--d-ink-4)}
+    .app:not(.pub) .seed-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+    .app:not(.pub) .seed-match{flex:1 1 220px;font-size:12.5px;color:var(--d-ink-3)}
+    .app:not(.pub) .seed-btns{display:flex;align-items:center;gap:6px;margin-left:auto}
+    .app:not(.pub) .seed-url,.app:not(.pub) .seed-socials input{flex:1 1 220px;min-width:0;height:var(--d-ctl-sm);padding:0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:inherit;font-size:13px}
+    .app:not(.pub) .seed-url:focus,.app:not(.pub) .seed-socials input:focus{outline:none;border-color:#f5f5f5}
+    .app:not(.pub) .seed-socials{display:flex;flex-wrap:wrap;gap:6px}
+    .app:not(.pub) .seed-socials input{flex:1 1 140px}
+    @media (max-width:699px){
+      .app:not(.pub) .seed-url,.app:not(.pub) .seed-socials input{flex-basis:100%;height:44px;font-size:16px}
+      .app:not(.pub) .seed-btns{margin-left:0;width:100%} .app:not(.pub) .seed-btns .btn{flex:1;min-height:44px}
+    }
     .app:not(.pub) .todo-input{width:100%;height:36px;padding:0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:inherit}
     .app:not(.pub) .todo-clear{color:var(--d-pos)}
     .app:not(.pub) .todo-done-for-you{padding:12px 4px 0}

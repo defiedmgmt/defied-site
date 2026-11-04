@@ -1,12 +1,13 @@
 // Writes one row per split-holder into their tab on the pub master sheet
 // whenever a song is added/edited on the site. Never touches the sheet's
 // formula columns (streams/revenue/admin fee/forecast) — only Song Title,
-// Recording Artist, that person's Writer Share %, Luminate ID, and a Site
-// Sync ID used to find the same row again on a later edit instead of
-// duplicating it.
+// Recording Artist, that person's Writer Share %, and a Site Sync ID used to
+// find the same row again on a later edit instead of duplicating it. (The
+// row's Luminate ID is only read, to find the row: it's never written since
+// list B #3.)
 import {
   getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers,
-  claimTabForNewCollaborator, findRowBySyncId, findRowByLuminateId, findUnclaimedRowByTitle, readLuminateIdAt, writeSongRow, appendSongRow,
+  claimTabForNewCollaborator, findRowBySyncId, findRowByLuminateId, findUnclaimedRowByTitle, writeSongRow, appendSongRow,
 } from "../../lib/sheets";
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess, limited, mayUseClient } from "../../lib/access";
@@ -83,16 +84,8 @@ export default async function handler(req, res) {
       const existingRow = await findRowBySyncId(sheets, spreadsheetId, tab.title, syncId)
         ?? (luminateId ? await findRowByLuminateId(sheets, spreadsheetId, tab.title, luminateId) : null)
         ?? await findUnclaimedRowByTitle(sheets, spreadsheetId, tab.title, song, liveIds);
-      // a client session's placement never carries a real Luminate ID (see
-      // toPlacement's redact in dashboard-data.js) — its `luminateId` here
-      // is always blank. Writing that straight onto an existing row would
-      // clobber the real one staff already looked up. Only ever write a
-      // client-supplied luminateId onto a brand-new row, where blank is
-      // correct because the song has no Luminate ID yet.
-      const rowLuminateId = existingRow && session.user.role !== "staff"
-        ? await readLuminateIdAt(sheets, spreadsheetId, tab.title, existingRow)
-        : luminateId;
-      const payload = { song, artist: artist || "", percent, luminateId: rowLuminateId, syncId };
+      // (the row's Luminate ID cell, M, is never written: list B #3)
+      const payload = { song, artist: artist || "", percent, syncId };
       if (existingRow) {
         await writeSongRow(sheets, spreadsheetId, tab.title, existingRow, payload);
       } else {

@@ -3,13 +3,13 @@
 One Next.js 14 app (pages router) on Vercel:
 
 - **The public site**: home, about, team, roster, contact (`pages/*.jsx`, rendered by `components/App.jsx`).
-- **The staff dashboard** (`/dashboard`): Home, To do, Publishing, Money, A&R, Luminate and Site.
+- **The staff dashboard** (`/dashboard`): Home, To do, Publishing, Numbers, Money, A&R and Site.
 - **The client portal** (`/portal`): each client's own songs and splits.
 
 Data lives in Neon Postgres (`lib/db.js`). The dashboard also reads and writes the pub master sheet and reads the
 accounting sheet (Google Sheets, `lib/sheets.js`, `lib/accounting.js`), reads Stripe (`lib/stripe.js`) and uses
 ClickUp (`lib/clickup*.js`). The whole UI and its CSS are in `components/App.jsx`. Server code is in `lib/` and
-`pages/api/`. The Mac helper for Luminate exports is in `helper/` (see `helper/README.txt`).
+`pages/api/`.
 
 ## Run locally
 
@@ -72,7 +72,6 @@ Every staff login has a role. Founders set roles in **Site › Users** (`lib/rol
 - A Founder can turn any section on or off for one person, on top of their role.
 - "Only their own artists" limits a Co-manager to the clients whose **Assigned Manager** on the accounting sheet's
   INFO tab is that person's name. The daily cron reads INFO, and so does "Update from the sheet" in Site › Users.
-  Luminate works on every artist at once, so it's off for a limited Co-manager.
 - The server enforces all of it. Every dashboard API route starts with the same check, `requireAccess` in
   `lib/access.js`, and the dashboard just hides what an account can't use.
 - The sign-in and the session are unchanged: `users.role` is still `staff` or `client`. The role is
@@ -94,6 +93,15 @@ There are no demo logins. Accounts are created in Site › Users.
 - Spending: each run has its own charge cap; each source has a monthly budget and all of them together one more
   (Numbers › Sources & cost, $15 by default). Set Apify's own usage limit (Billing) to the plan's $19 as the hard cap.
 - A broken scraper: pick its backup in Numbers › Sources & cost. Adding another is one entry in `lib/data/sources.js`.
+- The starting list (list B #3, replacing Luminate): every song and artist in the old Luminate portfolios (Admin
+  Catalog 1 & 2, Artist Tracker, Song Tracker) is in `lum_history` (migration 012, `lib/data/seeds.js`), matched to
+  Spotify by its song's link, its ISRC (search `isrc:`) or by name, which a person confirms in To do. Matched rows
+  are tracked like the roster. Each one keeps its last Luminate numbers as read-only history (Numbers shows them).
+  The data cron reads the old Luminate tables again each day (they're never written) and asks Spotify about a few
+  more. Nothing reads or writes Luminate itself any more.
+- The pub sheet's STREAM DATA tab is left as it was on the last Luminate update: nothing writes it, and the song
+  rows' Luminate ID column (M) is never written either. Publishing's streams and money are the sheet's, so they
+  stay at those numbers until the owner decides what feeds the sheet next.
 
 ## Environment variables
 
@@ -119,9 +127,6 @@ never values.
 | `CLICKUP_API_TOKEN` | ClickUp: To do's tasks, the dashboard's own tasks, alerts. |
 | `CLICKUP_ALERTS_CHANNEL_ID` | The ClickUp Chat channel for dashboard alerts. Defaults to "Dashboard Alerts". |
 | `CLICKUP_SYNC_WEEKDAY` | Day of the weekly sync task. 1 = Monday, the default. |
-| `LUMINATE_WEEKDAY` | Day of the weekly Luminate update. Defaults to `CLICKUP_SYNC_WEEKDAY`. |
-| `LUMINATE_HELPER_TOKEN` | The Mac helper's token, as comma-separated `name:token` pairs (24+ characters each). Unset, the helper can't connect. |
-| `STREAM_SYNC_URL` | The pub sheet's "Luminate Portfolio Sync" Apps Script web app. |
 | `SONGLINK_API_KEY` | song.link key for the ISRC finder. Optional. |
 | `CRON_SECRET` | Vercel sends it to `/api/cron/daily`, `/api/cron/data` and `/api/cron/data-collect`. Without it, those jobs refuse to run. |
 | `APIFY_TOKEN` | Apify, for the automated numbers: Spotify streams per song and monthly listeners, Instagram/TikTok followers, TikTok sounds. |

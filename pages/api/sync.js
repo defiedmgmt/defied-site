@@ -3,7 +3,7 @@
 import { requireAccess } from "../../lib/access";
 import { syncChecks } from "../../lib/sync-checks";
 
-// the pub sheet, STREAM DATA, Stripe, the accounting sheet and ClickUp, read side by side
+// the pub sheet, Stripe, the accounting sheet and ClickUp, read side by side
 export const config = { maxDuration: 60 };
 
 export default async function handler(req, res) {
