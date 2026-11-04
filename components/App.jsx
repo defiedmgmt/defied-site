@@ -2723,7 +2723,7 @@ function NumbersPage({ ctx }) {
   useEffect(() => { load(); }, []);
   if (err && !d) return <div className="nums"><div className="admin-head"><h2>Numbers</h2></div><p className="hint err-text">Couldn't load the numbers. <button className="inline-link" onClick={load}>Try again</button></p></div>;
   if (!d) return <div className="nums"><div className="admin-head"><h2>Numbers</h2></div><p className="hint"><RefreshCw size={14} className="spin" /> Loading…</p></div>;
-  const st = d.status;
+  const st = d.state;
   const line = !st.refreshOn ? "Automatic updates are off." : !st.keys?.apify ? "Apify isn't connected, so streams and followers don't update." : `Streams and YouTube update daily, followers weekly${st.lastAt ? ` · last update ${shortDay(st.lastAt)}, ${clock(st.lastAt)}` : ""}`;
   return (
     <div className="nums" data-numbers>

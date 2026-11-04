@@ -82,6 +82,19 @@ Every staff login has a role. Founders set roles in **Site › Users** (`lib/rol
 
 There are no demo logins. Accounts are created in Site › Users.
 
+## Numbers (automated data)
+
+- Two daily crons (Hobby runs each at most once a day): `/api/cron/data` at 09:00 UTC collects finished runs,
+  reads YouTube and the Spotify catalogs, and starts the Apify runs that are due; `/api/cron/data-collect` at 11:00
+  UTC collects what the webhook didn't. Apify runs aren't waited for: Apify calls `/api/data-hook` when one ends.
+- Schedule: streams per song and YouTube daily; monthly listeners and Instagram/TikTok followers weekly. Campaign
+  mode (on an artist or a sound, in Numbers) makes everything about it daily for 30 days.
+- Every number is a dated row in `data_snapshots`. A source that fails writes nothing, so the last good number
+  stays and the page says "last updated <date>".
+- Spending: each run has its own charge cap; each source has a monthly budget and all of them together one more
+  (Numbers › Sources & cost, $15 by default). Set Apify's own usage limit (Billing) to the plan's $19 as the hard cap.
+- A broken scraper: pick its backup in Numbers › Sources & cost. Adding another is one entry in `lib/data/sources.js`.
+
 ## Environment variables
 
 Set them in Vercel (Project › Settings › Environment Variables) and in `.env.local` for local work. Names only here,
@@ -110,7 +123,12 @@ never values.
 | `LUMINATE_HELPER_TOKEN` | The Mac helper's token, as comma-separated `name:token` pairs (24+ characters each). Unset, the helper can't connect. |
 | `STREAM_SYNC_URL` | The pub sheet's "Luminate Portfolio Sync" Apps Script web app. |
 | `SONGLINK_API_KEY` | song.link key for the ISRC finder. Optional. |
-| `CRON_SECRET` | Vercel sends it to `/api/cron/daily`. Without it, the daily job refuses to run. |
+| `CRON_SECRET` | Vercel sends it to `/api/cron/daily`, `/api/cron/data` and `/api/cron/data-collect`. Without it, those jobs refuse to run. |
+| `APIFY_TOKEN` | Apify, for the automated numbers: Spotify streams per song and monthly listeners, Instagram/TikTok followers, TikTok sounds. |
+| `YOUTUBE_API_KEY` | YouTube Data API (free): subscribers and views. |
+| `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | Spotify Web API (free, client credentials): each roster artist's releases, so new songs are tracked by themselves. |
+| `DATA_HOOK_SECRET` | The secret Apify sends back to `/api/data-hook` when a run ends, so its numbers land at once. Unset, the second daily cron collects them instead. |
+| `DATA_HOOK_URL` | Where Apify calls back. Unset, it's the production site's `/api/data-hook`. |
 | `BLOB_READ_WRITE_TOKEN` | The Vercel Blob store for photos and covers. Vercel adds it when the store is connected. Unset, photos are kept inside the database as before. |
 
 **Write switches (off unless set to `on`)**
@@ -121,6 +139,7 @@ never values.
 | `CLICKUP_TASK_WRITES` | ClickUp tasks: create, update and mark done. |
 | `AR_SHEET_WRITES` | The A&R tab's saves to OUTREACH / ADVANCE CALCULATOR. Off in production when unset. |
 | `PUB_SHARE_WRITES` | "Fill in 100%": a blank Writer Share cell on the pub sheet. |
+| `DATA_REFRESH` | Not a write, but it spends money: the daily data crons start Apify runs and read YouTube/Spotify. Off, nothing is fetched (the Numbers page shows what's there). |
 
 **Build and platform**
 
