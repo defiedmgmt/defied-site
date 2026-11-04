@@ -63,11 +63,11 @@ export function CardTable({ cols, rows, rowKey = (r) => r.id, onRow, sort, onSor
           <tbody>
             {rows.map((r) => (
               <tr key={rowKey(r)} data-m-open={onRow ? "" : undefined} className={onRow ? "master-row-link" : undefined} onClick={onRow ? () => onRow(r) : undefined}>
-                {cols.map((c) => <td key={c.id} data-label={label(c)} className={c.className}>{cell(c, r)}</td>)}
+                {cols.map((c, i) => <td key={c.id} data-label={i ? label(c) : undefined} className={c.className}>{cell(c, r)}</td>)}
               </tr>
             ))}
           </tbody>
-          {foot && <tfoot><tr className="master-total-row">{cols.map((c) => <td key={c.id} data-label={label(c)}>{foot[c.id] ?? null}</td>)}</tr></tfoot>}
+          {foot && <tfoot><tr className="master-total-row">{cols.map((c, i) => <td key={c.id} data-label={i ? label(c) : undefined}>{foot[c.id] ?? null}</td>)}</tr></tfoot>}
         </table>
       </div>
     </>
