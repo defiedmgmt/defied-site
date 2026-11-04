@@ -12,6 +12,7 @@
 //        kinds    the link kinds this spot takes: ["song"], ["sound"], default people (artist/profile/channel)
 //        addLabel the button ("Add", "Fill in"); allowDuplicate: a song already on someone's page can still
 //        be filled in (co-writers share songs); compact: no "Paste" word on the button (narrow forms)
+// The other-profiles suggestions show only in a box that takes people (a song form has nowhere to keep them).
 // Mobile first: one column, 44px taps, nothing wider than the screen at 390px.
 import React, { useEffect, useRef, useState } from "react";
 import { ClipboardPaste, Check, X, RefreshCw, AlertTriangle } from "lucide-react";
@@ -133,7 +134,7 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
           {r.already?.length > 0 && (
             <p className={`lb-already${blocked ? "" : " soft"}`} data-lb-already role="status"><AlertTriangle size={14} /> {r.already.map((a) => a.text).join(" · ")}</p>
           )}
-          {r.suggestions?.length > 0 && !blocked && (
+          {r.suggestions?.length > 0 && !blocked && take.some((k) => PERSON_KINDS.includes(k)) && (
             <div className="lb-sugg" data-lb-suggestions>
               <span className="lb-sugg-h">Their other profiles? Tap the ones that are them.</span>
               {r.suggestions.map((s) => {
@@ -193,5 +194,6 @@ const CSS = `
 .lb-foot{display:flex;gap:8px;flex-wrap:wrap}
 .lb-foot .btn{min-height:44px}
 .lb-add{flex:1;justify-content:center}
+.lb .btn.lb-add{background:var(--d-ink,#f5f5f5);color:#000;border-color:transparent}
 @media (min-width:640px){.lb-add{flex:0 0 auto}}
 `;
