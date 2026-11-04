@@ -41,6 +41,23 @@ before `next build`. If a migration fails, the build stops and the live site sta
   - The script reads no `.env` file.
 - `db/migrate.mjs` is something else: a one-time import of an old JSON export. It empties the main tables first.
 
+## Photos and covers
+
+- A photo or cover uploaded in the dashboard goes to Vercel Blob (the public store `defied-images`) through
+  `/api/upload-image`, and the row keeps only its link. The file's name is a hash of its content, so the same image
+  uploaded twice is one file.
+- Only JPG, PNG, WebP and GIF files under 2 MB are taken. The crop tool sends a 520 × 520 JPEG.
+- Without `BLOB_READ_WRITE_TOKEN`, the upload falls back to the old way: the image is stored inside the row as a
+  `data:` URI.
+- The dashboard and the public site show both kinds, links and `data:` URIs.
+- The dashboard loads everything in one reply, and Vercel won't send one over 4.5 MB, so a save that would take
+  it past 4.2 MB is refused. With photos as links, the reply is a few hundred KB.
+- **Moving the old ones** (a launch step, run once by hand after the deploy):
+  - `DATABASE_URL=… node scripts/migrate-images-to-blob.mjs` lists what it would move and changes nothing.
+  - Add `BLOB_READ_WRITE_TOKEN=…` and `--apply` to upload them and swap in the links. It writes a JSON backup of
+    every old value first (`--backup <file>` to choose where). Running it again does nothing.
+  - `--restore <file>` puts the old values from a backup back.
+
 ## Roles and permissions
 
 Every staff login has a role. Founders set roles in **Site › Users** (`lib/roles.js`).
@@ -94,6 +111,7 @@ never values.
 | `STREAM_SYNC_URL` | The pub sheet's "Luminate Portfolio Sync" Apps Script web app. |
 | `SONGLINK_API_KEY` | song.link key for the ISRC finder. Optional. |
 | `CRON_SECRET` | Vercel sends it to `/api/cron/daily`. Without it, the daily job refuses to run. |
+| `BLOB_READ_WRITE_TOKEN` | The Vercel Blob store for photos and covers. Vercel adds it when the store is connected. Unset, photos are kept inside the database as before. |
 
 **Write switches (off unless set to `on`)**
 
@@ -112,6 +130,7 @@ never values.
 | `VERCEL`, `VERCEL_ENV` | Set by Vercel. The build's migrations run only when `VERCEL_ENV` is `production`. |
 | `NODE_ENV` | Set by Next. Secure cookies in production. |
 | `STRIPE_API_BASE` | Staging tests only. Don't set it in Vercel. |
+| `VERCEL_BLOB_API_URL`, `VERCEL_BLOB_RETRIES` | Tests only (the fake Blob store). Don't set them in Vercel. |
 
 **On the Mac helper only (not Vercel):** `HELPER_CONFIG` and `BOT_CONFIG` are the paths of the helper's and the
 export bot's config files (`helper/README.txt`).
@@ -119,6 +138,6 @@ export bot's config files (`helper/README.txt`).
 ## Notes
 
 - Roster and team photos load from `https://www.defiedmgmt.com/assets/…`. Spotify covers come from `i.scdn.co`.
-  Both hosts are listed in `next.config.js`.
+  Uploaded photos come from `*.public.blob.vercel-storage.com`. All three hosts are listed in `next.config.js`.
 - `next.config.js` holds the security headers, caching, redirects (`/staff` → `/team` and the pay.defiedmgmt.com links)
   and the image hosts.
