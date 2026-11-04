@@ -2,6 +2,8 @@
   "crons": [
     { "path": "/api/cron/daily", "schedule": "0 13 * * *" },
     { "path": "/api/cron/data", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/data-collect", "schedule": "0 11 * * *" }
+    { "path": "/api/cron/data-collect", "schedule": "0 11 * * *" },
+    { "path": "/api/cron/digest?tz=edt", "schedule": "0 13 * * 1" },
+    { "path": "/api/cron/digest?tz=est", "schedule": "0 14 * * 1" }
   ]
 }

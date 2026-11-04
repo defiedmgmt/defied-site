@@ -14,6 +14,7 @@ import {
   Globe, CalendarDays, ChevronLeft, List as ListIcon,
 } from "lucide-react";
 import { evenSplit, splitWords, filledSplits, orderSplits } from "../lib/splits";
+import LinkBox from "./LinkBox";
 import { songGaps, netStreamsOf, SONG_GAPS } from "../lib/sheet-facts";
 import { likelyDuplicates, mergedCard, mergedTitle, plainTitle } from "../lib/duplicates";
 import { biggestTasks, dueBucket, nyDay } from "../lib/todo-rank";
@@ -2740,13 +2741,79 @@ function NumbersPage({ ctx }) {
         </div>
       )}
       <span className="gainer-tabs nums-views" role="tablist" aria-label="Numbers">
-        {[["artists", "Artists"], ["sounds", "Sounds"], ["sources", "Sources & cost"]].map(([k, l]) => <button key={k} role="tab" aria-selected={view === k} data-nums-view={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{l}</button>)}
+        {[["artists", "Artists"], ["sounds", "Sounds"], ["sources", "Sources & cost"], ["digest", "Monday digest"]].map(([k, l]) => <button key={k} role="tab" aria-selected={view === k} data-nums-view={k} className={view === k ? "active" : ""} onClick={() => setView(k)}>{l}</button>)}
       </span>
       {view === "artists" && (!d.artists.length ? <div className="admin-empty">No numbers yet. They start with the first daily update.</div> : (
         <div className="nums-list">{d.artists.map((a) => <ArtistNums key={a.id} a={a} open={open === a.id} onToggle={() => setOpen(open === a.id ? null : a.id)} onSaved={load} />)}</div>
       ))}
       {view === "sounds" && <SoundNums sounds={d.sounds} onSaved={load} />}
       {view === "sources" && <SourceNums d={d} canEdit={ctx.can("money")} onSaved={load} />}
+      {view === "digest" && <DigestPreview />}
+    </div>
+  );
+}
+
+// List B #9: "Preview this week's digest": exactly what Monday's team digest and this account's own
+// digest would say (GET /api/digest), for the sections this account may see. A Founder can look at
+// anyone's personal digest, and sees who gets one and what this week's run did.
+const pctSigned = (p) => (p == null ? "" : `${p > 0 ? "+" : p < 0 ? "−" : ""}${Math.abs(p)}%`);
+function DigestItem({ k, it }) {
+  const main = k === "radar" ? `${it.title}${it.artist ? ` — ${it.artist}` : ""}` : it.name || it.title || "";
+  const nums = k === "roster"
+    ? [it.streams && <span key="s"><b>{fmt(it.streams.thisWeek)}</b> streams this week <span className={it.streams.pct >= 0 ? "pos" : "neg"}>{pctSigned(it.streams.pct)}</span></span>,
+      ...(it.followers || []).map((f) => <span key={f.key}>{f.label} <b>{f.approx ? "about " : ""}{big(f.latest)}</b> <span className={f.pct >= 0 ? "pos" : "neg"}>{pctSigned(f.pct)}</span></span>)]
+    : k === "radar" ? [<span key="v"><b>{fmt(it.newVideos)}</b> new videos{it.pct != null && <> <span className={it.pct >= 0 ? "pos" : "neg"}>{pctSigned(Math.round(it.pct * 10) / 10)}</span></>}</span>]
+      : k === "expiring" ? [<span key="e">{it.expiresAt || it.expires ? `ends ${String(it.expiresAt || it.expires).slice(0, 10)}` : ""}</span>]
+        : [<span key="m">momentum <b>{fmt(it.score)}</b>{it.trend != null && it.trend !== "" && <> · {typeof it.trend === "number" ? pctSigned(Math.round(it.trend * 10) / 10) : String(it.trend)}</>}</span>, it.why && <span key="w">{it.why}</span>];
+  return (
+    <li className="dg-item" data-dg-item>
+      <a className="dg-name" href={it.url} target="_blank" rel="noreferrer">{main}</a>
+      <span className="dg-nums">{nums.filter(Boolean)}</span>
+    </li>
+  );
+}
+function DigestBlock({ d, label }) {
+  const [raw, setRaw] = useState(false);
+  return (
+    <section className="dg-block" data-dg={d.kind}>
+      <div className="dg-head"><h3>{label}</h3><button type="button" className="inline-link dg-raw" onClick={() => setRaw(!raw)} aria-pressed={raw}>{raw ? "Show as cards" : "Show the ClickUp text"}</button></div>
+      {raw ? <pre className="dg-text" data-dg-text>{d.text}</pre> : d.sections.map((s) => (
+        <div key={s.key} className="dg-sec" data-dg-sec={s.key}>
+          <h4>{s.title}</h4>{s.note && <p className="hint">{s.note}</p>}
+          {s.pending ? <p className="dg-pending" data-dg-pending>{s.pending}.</p> : s.error ? <p className="hint err-text">{s.error}</p>
+            : !s.items.length ? <p className="hint" data-dg-empty>{s.empty}</p> : <ol className="dg-list">{s.items.map((it, i) => <DigestItem key={it.id || it.url || i} k={s.key} it={it} />)}</ol>}
+        </div>
+      ))}
+    </section>
+  );
+}
+function DigestPreview() {
+  const [who, setWho] = useState("");
+  const [d, setD] = useState(null), [err, setErr] = useState(null);
+  useEffect(() => {
+    let gone = false;
+    setErr(null);
+    fetch(`/api/digest${who ? `?user=${encodeURIComponent(who)}` : ""}`, { cache: "no-store" }).then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || "Couldn't build the preview."); return j; })
+      .then((j) => { if (!gone) setD(j); }).catch((e) => { if (!gone) setErr(e.message); });
+    return () => { gone = true; };
+  }, [who]);
+  if (err) return <p className="hint err-text" role="alert">{err}</p>;
+  if (!d) return <p className="hint"><RefreshCw size={14} className="spin" /> Building this week's digest…</p>;
+  const me = d.people?.find((p) => p.id === d.personal.user?.id);
+  return (
+    <div className="dg" data-digest-preview>
+      <p className="dg-status" data-dg-status>{d.writesOn ? `Posts to ClickUp ${d.schedule}.` : `Posting is off for now (DIGEST_WRITES), so nothing is sent. This is exactly what ${d.schedule.replace(/^Mondays/, "Monday")} would send.`}{d.writesOn && !d.team.channelSet ? " The team channel isn't set yet (DIGEST_CHANNEL_ID)." : ""}</p>
+      <DigestBlock d={d.team} label="Team digest (the team's ClickUp channel)" />
+      {d.people && (
+        <label className="fld dg-who"><span>Personal digest for</span>
+          <select value={who || d.personal.user?.id || ""} onChange={(e) => setWho(e.target.value)} aria-label="Personal digest for">
+            {d.people.map((p) => <option key={p.id} value={p.id}>{p.name}{p.getsPersonal ? "" : " (not getting one yet)"}</option>)}
+          </select>
+        </label>
+      )}
+      {d.personal.sections.length ? <DigestBlock d={d.personal} label={`${d.personal.user?.name ? `${d.personal.user.name}'s` : "Your"} digest (a ClickUp direct message)`} />
+        : <p className="hint" data-dg-no-personal>No personal digest: it holds A&R trackers, and this account has no A&R.</p>}
+      {me && !me.getsPersonal && <p className="hint">Personal digests go to Devin first (DIGEST_PERSONAL_TO). Set it to "all" to send everyone theirs.</p>}
     </div>
   );
 }
@@ -3191,60 +3258,29 @@ function PlacementsAdmin({ db, commit }) {
   );
 }
 
-// Resolves a pasted Spotify track link to its title, artist, and cover art
-// via our own /api/spotify route (Spotify's track page has no CORS headers,
-// so this can't be fetched directly from the browser).
-async function lookupSpotifyTrack(link) {
-  const res = await fetch("/api/spotify?url=" + encodeURIComponent(link));
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Lookup failed");
-  return data;
-}
-
+// The song forms' "paste a link" box (list B #7: components/LinkBox.jsx, POST /api/resolve-link): a
+// Spotify song link fills in the title, artist, cover and release date, and says when the song is
+// already on someone's page (co-writers share songs, so it can still be filled in)
 function SpotifyFill({ e, set }) {
-  const [link, setLink] = useState("");
-  const [status, setStatus] = useState(null); // null | loading | ok | err
-  const [errMsg, setErrMsg] = useState("");
-  const open = useRef(true);
-  useEffect(() => { open.current = true; return () => { open.current = false; }; }, []);
-  const run = async () => {
-    const t = (link || e.link || "").trim();
-    if (!t) return;
-    setStatus("loading");
-    try {
-      const meta = await lookupSpotifyTrack(t);
-      if (!open.current) return; // the form was closed meanwhile
-      // onto the form as it is now, so anything typed during the lookup stays
-      set((cur) => ({
-        ...cur,
-        song: meta.title || cur.song,
-        artist: meta.artist || cur.artist,
-        releaseDate: cur.releaseDate || meta.releaseDate || "",
-        cover: meta.cover || cur.cover,
-        link: meta.link || cur.link || t,
-      }));
-      setStatus("ok");
-    } catch (err) {
-      setErrMsg(err.message || "Lookup failed");
-      setStatus("err");
-    }
+  const [done, setDone] = useState(false);
+  const fill = (r) => {
+    const c = r.card || {};
+    // onto the form as it is now, so anything typed during the lookup stays
+    set((cur) => ({
+      ...cur,
+      song: c.name || cur.song,
+      artist: c.artist || cur.artist,
+      releaseDate: cur.releaseDate || c.releaseDate || "",
+      cover: c.image || cur.cover,
+      link: r.link?.url || cur.link,
+    }));
+    setDone(true);
   };
   return (
-    <div className="sp-fill">
-      <span className="fld-label">Paste a Spotify song link, then Auto-fill</span>
-      <div className="sp-row">
-        <input
-          value={link}
-          placeholder="https://open.spotify.com/track/..."
-          onChange={(ev) => setLink(ev.target.value)}
-          onKeyDown={(ev) => { if (ev.key === "Enter") { ev.preventDefault(); run(); } }}
-        />
-        <button type="button" className="btn sm" onClick={run} disabled={status === "loading"}>
-          {status === "loading" ? "Fetching…" : "Auto-fill"}
-        </button>
-      </div>
-      {status === "ok" && <span className="sp-note ok"><Check size={12} /> Filled in. Review the fields below.</span>}
-      {status === "err" && <span className="sp-note err">{errMsg} — enter the details and upload a cover below.</span>}
+    <div className="sp-fill" data-sp-fill>
+      <span className="fld-label">Paste the song's Spotify link to fill this in</span>
+      <LinkBox context="roster" kinds={["song"]} addLabel="Fill in" allowDuplicate onAdd={fill} />
+      {done && <span className="sp-note ok"><Check size={12} /> Filled in. Review the fields below.</span>}
     </div>
   );
 }
@@ -6466,9 +6502,11 @@ function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, onSub, 
   const addClient = async () => {
     const name = newClientForm.name.trim();
     if (!name || adding || newNameTaken) return; // the form says why
+    // list B #7: what the pasted link filled in (a lasting photo link only, and every profile confirmed)
+    const lk = newClientForm.links || {};
     const client = {
-      id: uid(), name, role: newClientForm.role, credit: "", bio: "", photo: "",
-      spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "",
+      id: uid(), name, role: newClientForm.role, credit: "", bio: "", photo: newClientForm.photo || "",
+      spotify: lk.spotify || "", apple: "", instagram: lk.instagram || "", tiktok: lk.tiktok || "", youtube: lk.youtube || "", soundcloud: "",
       sheetTabName: "", totalStreams: 0, onRoster: false,
     };
     setAdding(true);
@@ -6538,6 +6576,18 @@ function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, onSub, 
           <div className="modal-card">
             <div className="modal-head"><h3>New client</h3><button onClick={() => setAddingClient(false)} aria-label="Close"><X size={18} /></button></div>
             <div className="modal-body">
+              {/* list B #7: paste their Spotify, Instagram, TikTok or YouTube and the name, photo and links fill in */}
+              {newClientForm.found ? (
+                <div className="lb-picked" data-new-client-found>
+                  <Avatar src={newClientForm.photo} name={newClientForm.name || "?"} size={40} />
+                  <span className="lb-picked-t"><b>{newClientForm.found}</b><em>{["spotify", "instagram", "tiktok", "youtube"].filter((k) => newClientForm.links?.[k]).map((k) => ({ spotify: "Spotify", instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube" })[k]).join(" · ")}</em></span>
+                  <button type="button" className="inline-link" onClick={() => setNewClientForm({ name: newClientForm.name, role: newClientForm.role })}>Change</button>
+                </div>
+              ) : (
+                <div className="fld"><span>Their link (optional)</span>
+                  <LinkBox context="roster" addLabel="Use this" onAdd={(r) => setNewClientForm((f) => ({ ...f, name: f.name.trim() ? f.name : (r.card.name || "").replace(/^@/, ""), photo: r.card.photo || "", links: r.links, found: r.card.name || r.link.label }))} />
+                </div>
+              )}
               <Field label="Name" value={newClientForm.name} onChange={(ev) => setNewClientForm({ ...newClientForm, name: ev.target.value })} onKeyDown={(ev) => ev.key === "Enter" && addClient()} />
               {newNameTaken && <p className="hint err-text">{NAME_TAKEN}</p>}
               <label className="fld"><span>Role</span>
@@ -8467,6 +8517,27 @@ function StyleTag() {
     .sp-note{display:inline-flex;align-items:center;gap:6px;font-size:12px}
     .sp-note.ok{color:#8fce8f}
     .sp-note.err{color:#e0a0a0}
+    .dg{display:flex;flex-direction:column;gap:14px;min-width:0}
+    .dg-status{margin:0;font-size:13px;color:var(--d-ink-3,#a3a3a3)}
+    .dg-block{border:1px solid var(--d-line,#1c1c1e);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px;min-width:0}
+    .dg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .dg-head h3{margin:0;font-size:15px}
+    .dg-raw{min-height:44px}
+    .dg-sec h4{margin:0;font-size:13.5px;font-weight:600}
+    .dg-list{margin:8px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;counter-reset:dg}
+    .dg-item{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:10px;background:var(--d-s1,#0b0b0c);min-width:0;counter-increment:dg}
+    .dg-name{font-weight:500;color:var(--d-ink,#f5f5f5);text-decoration:none;min-height:24px;overflow-wrap:anywhere}
+    .dg-name::before{content:counter(dg) ". ";color:var(--d-ink-4,#8a8a8a)}
+    .dg-nums{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12.5px;color:var(--d-ink-3,#a3a3a3)}
+    .dg-nums .pos{color:var(--d-pos,#8fce8f)}.dg-nums .neg{color:var(--d-neg,#ef8f8f)}
+    .dg-pending{margin:6px 0 0;font-size:13px;color:var(--d-ink-4,#8a8a8a)}
+    .dg-text{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12.5px;line-height:1.5;margin:0;padding:12px;border-radius:10px;background:var(--d-s1,#0b0b0c);max-width:100%}
+    .dg-who{max-width:420px}
+    .lb-picked{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--d-line-2,#2a2a2c);border-radius:12px;min-width:0}
+    .lb-picked-t{display:flex;flex-direction:column;min-width:0;flex:1}
+    .lb-picked-t b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .lb-picked-t em{font-style:normal;font-size:12px;color:var(--d-ink-4,#8a8a8a)}
+    .lb-picked .inline-link{min-height:44px;padding:0 4px}
     /* dashboard: release thumbnails in table */
     .rel-thumb{width:34px;height:34px;border-radius:6px;object-fit:cover;background:var(--panel2);display:block}
     .rel-thumb-empty{border:1px solid var(--line)}
