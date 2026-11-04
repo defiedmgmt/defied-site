@@ -95,7 +95,7 @@ async function seeds(req, res) {
     // tracked from the next numbers on (no paid run starts here)
     await syncEntities().catch((err) => console.error("seed sync:", err));
     const s = r.row;
-    return res.status(200).json({ ok: true, status: s.status, isrc: s.isrc, spotify: s.spotify_id ? { id: s.spotify_id, name: s.spotify_name } : null, socials: s.socials });
+    return res.status(200).json({ ok: true, match: s.status, isrc: s.isrc, spotify: s.spotify_id ? { id: s.spotify_id, name: s.spotify_name } : null, socials: s.socials });
   } catch (err) {
     console.error("seeds failed:", err);
     return res.status(503).json({ error: "Couldn't load that — try again in a minute." });

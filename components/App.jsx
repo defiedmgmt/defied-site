@@ -7468,11 +7468,11 @@ function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   if (due) out.push({ k: "follow", area: "ar", t: `${due} A&R follow-up${due === 1 ? "" : "s"} due`, cta: "Review", panel: "follow", rank: { kind: "contacts", value: due } });
   // the old Luminate portfolios' songs and artists not tracked yet (list B #3): one row per area, each
   // one finished in the list it opens (Yes to a match, a pasted Spotify link, Not on Spotify)
-  for (const [area, words] of [["roster", "Admin Catalog songs"], ["ar", "Artist and Song Tracker rows"]]) {
+  for (const [area, one, many] of [["roster", "Admin Catalog song", "Admin Catalog songs"], ["ar", "Artist or Song Tracker row", "Artist and Song Tracker rows"]]) {
     const list = (seeds?.todo || []).filter((r) => r.area === area);
     if (!list.length) continue;
     const check = list.filter((r) => r.status === "check").length, find = list.length - check;
-    out.push({ k: `seeds:${area}`, area, t: `${list.length} of the old Luminate ${words} to find on Spotify`,
+    out.push({ k: `seeds:${area}`, area, t: `${list.length} old Luminate ${list.length === 1 ? one : many} to find on Spotify`,
       d: [check && `${check} ${check === 1 ? "match" : "matches"} to check`, find && `${find} to find`].filter(Boolean).join(" · "), cta: check ? "Check" : "Find", panel: "seeds", seedArea: area, rank: { kind: "fix", value: 0 } });
   }
   const unread = (db.submissions || []).filter((x) => !x.read).length;
@@ -7748,7 +7748,7 @@ function SeedList({ area, ctx }) {
     <div className="todo-sublist seed-list" data-seed-list={area}>
       <p className="hint">From the old Luminate {area === "ar" ? "Artist and Song Trackers" : "Admin Catalogs"}. Once one is on Spotify here, its numbers come in with the next daily update; its Luminate numbers stay as history.</p>
       {rows.map((r) => <SeedRow key={r.lumId} r={r} picks={r.kind !== "artist" && !r.isrc ? isrcPicksOf(ctx.songInfo, r.placementIds || []) : []}
-        onDone={(text) => { ctx.seeds.drop(r.lumId); setNote({ text }); }} />)}
+        onDone={(text) => { const last = rows.length === 1; ctx.seeds.drop(r.lumId); if (last && ctx.flash) ctx.flash({ text }); else setNote({ text }); }} />)}
       {!rows.length && <p className="home-muted acct-clear"><CheckCircle2 size={15} /> All found.</p>}
       <DropNote note={note} />
     </div>
@@ -7771,7 +7771,7 @@ function SeedRow({ r, picks = [], onDone }) {
       if (artist && body.op !== "skip" && SOCIALS.some(([k]) => so[k].trim() !== (r.socials?.[k] || ""))) await dataPost({ action: "seed", lumId: r.lumId, op: "socials", socials: so });
       const out = await dataPost({ action: "seed", lumId: r.lumId, ...body });
       // an ISRC Spotify has no song for: kept, and the line stays for a link
-      if (body.op === "isrc" && out.status !== "matched") { setIsrc(out.isrc || body.isrc); setErr("Spotify has no song with that ISRC. Paste its Spotify link instead."); setBusy(false); return; }
+      if (body.op === "isrc" && out.match !== "matched") { setIsrc(out.isrc || body.isrc); setErr("Spotify has no song with that ISRC. Paste its Spotify link instead."); setBusy(false); return; }
       onDone(done);
     } catch (e) { setErr(e.message); setBusy(false); }
   };
