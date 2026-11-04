@@ -3354,9 +3354,10 @@ function ArTrackedForm({ kind, t, prefill, picker, title, pg, onClose, onSaved }
   useEffect(() => {
     const v = link.trim();
     if (!simple || !v) { setLook(null); return undefined; }
-    if (!/(spotify\.com|spotify\.link|instagram\.com|instagr\.am|tiktok\.com)\//i.test(v)) { setLook({ ok: false, error: "Paste a Spotify artist link or an Instagram or TikTok profile." }); return undefined; }
+    setLook((l) => (l?.ok ? l : null)); // a filled-in card stays while typing; an old error doesn't
     let gone = false;
     const timer = setTimeout(async () => {
+      if (!/(spotify\.com|spotify\.link|instagram\.com|instagr\.am|tiktok\.com)\//i.test(v)) { setLook({ ok: false, error: "Paste a Spotify artist link or an Instagram or TikTok profile." }); return; }
       setLook({ busy: true });
       const r = await fetch(`/api/ar?lookup=${encodeURIComponent(v)}`, { cache: "no-store" }).then((x) => (x.ok ? x.json() : null)).catch(() => null);
       if (gone) return;
@@ -6447,7 +6448,8 @@ function IsrcPicks({ list, busy, onPick }) {
 // asks "Apply anyway", a new portfolio asks what it holds. Discard is in the ⋯ menu. On the Luminate page
 // and in To do's "Apply the new Luminate files".
 const AREA_WORDS = [["clients", "Clients' songs"], ["ar_artists", "A&R artists"], ["ar_songs", "A&R songs"]];
-const firstLine = (s) => String(s || "").split(/(?<=\.)\s/)[0];
+// why a file was held, in at most two short sentences
+const firstLine = (s) => { const p = String(s || "").split(/(?<=\.)\s/); return p[0].length < 90 && p[1] ? `${p[0]} ${p[1]}` : p[0]; };
 function HeldFiles({ lum, reload, onAllDone = null }) {
   const held = lum?.helper?.held || [];
   const [busy, setBusy] = useState(null);
@@ -7299,7 +7301,7 @@ function dashTasks(db, lum) {
       : stale > 8 && { ...L, k: "stale", sub: "drop", t: staleT, d: staleD, cta: "Drop new exports" },
     (lum.notOursLeft || []).length && { ...L, k: "gone", sub: "gone", t: lum.notOursLeft.length === 1 ? `Take "${lum.notOursLeft[0].name}" out of ${lum.notOursLeft[0].portfolioName} in Luminate` : `Take ${lum.notOursLeft.length} songs that aren't ours out of Luminate`,
       d: lum.notOursLeft.length === 1 ? `It's off the site but still uses a slot.${lum.notOursLeft[0].lumName && lum.notOursLeft[0].lumName !== lum.notOursLeft[0].name ? ` In Luminate it's "${lum.notOursLeft[0].lumName}".` : ""}` : "They're off the site but still use slots.", cta: "View" },
-    toAdd && { ...L, k: "add", sub: "add", t: `${toAdd} song${toAdd === 1 ? " needs" : "s need"} adding to Luminate`, d: noIsrc ? (toAdd === 1 ? "It still needs its ISRC typed in" : `${noIsrc} of them still need${noIsrc === 1 ? "s its" : " their"} ISRC typed in`) : undefined, cta: "View list" },
+    toAdd && { ...L, k: "add", sub: "add", t: `${toAdd} song${toAdd === 1 ? " needs" : "s need"} adding to Luminate`, d: noIsrc ? (toAdd === 1 ? "It still needs its ISRC" : `${noIsrc} of them still need${noIsrc === 1 ? "s" : ""} an ISRC`) : undefined, cta: "View list" },
     lum.unlinked.length && { ...L, k: "unlinked", sub: "match", t: `${lum.unlinked.length} new Luminate song${lum.unlinked.length === 1 ? " needs" : "s need"} matching to a song here`, cta: "Match them" },
     missing && { ...L, k: "missing", sub: "missing", t: `${missing} song${missing === 1 ? "" : "s"} marked as added ${missing === 1 ? "isn't" : "aren't"} in the latest export`, d: "Check them in Luminate, then add them again or unmark them.", cta: "View list" },
     dupe,
@@ -10529,7 +10531,7 @@ function StyleTag() {
     /* the ISRC finder's guesses, one tap each */
     .app:not(.pub) .isrc-picks{display:flex;flex-wrap:wrap;align-items:center;gap:6px;max-width:520px}
     .app:not(.pub) .isrc-picks > .hint{flex-basis:100%;margin:0}
-    .app:not(.pub) .isrc-pick{display:flex;align-items:center;gap:8px;max-width:250px;min-height:40px;padding:4px 10px 4px 4px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-s2);color:var(--d-ink-2);font:inherit;text-align:left;cursor:pointer}
+    .app:not(.pub) .isrc-pick{display:flex;align-items:center;gap:8px;max-width:290px;min-height:40px;padding:4px 10px 4px 4px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-s2);color:var(--d-ink-2);font:inherit;text-align:left;cursor:pointer}
     .app:not(.pub) .isrc-pick:hover:not(:disabled){border-color:var(--d-line-3);background:var(--d-s3)}
     .app:not(.pub) .isrc-pick:disabled{opacity:.5;cursor:default}
     .app:not(.pub) .isrc-pick-cover{flex:none;display:grid;place-items:center;width:32px;height:32px;border-radius:var(--d-r-xs);overflow:hidden;background:var(--d-s3);color:var(--d-ink-off)}
@@ -10543,7 +10545,7 @@ function StyleTag() {
     .app:not(.pub) .ar-look-main{display:flex;flex-direction:column;gap:2px;min-width:0}
     .app:not(.pub) .ar-look-main strong{font-size:14.5px;color:var(--d-ink)} .app:not(.pub) .ar-look-main span{font-size:12.5px;color:var(--d-ink-4)}
     .app:not(.pub) .ar-look-wait{display:flex;align-items:center;gap:6px}
-    .app:not(.pub) .ar-watch-signed{align-self:flex-start}
+    .app:not(.pub) .ar-watch-signed{align-self:flex-start;margin-left:0}
     .app:not(.pub) .ar-who-top{display:flex;align-items:center;gap:8px;min-width:0}
     .app:not(.pub) .ar-who-top .avatar{flex:none;border-radius:50%;object-fit:cover}
     .app:not(.pub) .tag.ar-songs-only{margin-left:6px}
