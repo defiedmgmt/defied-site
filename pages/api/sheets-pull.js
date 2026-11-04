@@ -2,17 +2,19 @@
 // admin fee, and whatever Luminate ID has been filled in. Triggered manually
 // from the staff dashboard (this data only changes when staff refresh
 // Luminate stream data by hand, so there's nothing to poll). The caller
-// merges the returned rows onto its own placements — this route has no
-// access to localStorage, it just reads the sheet.
+// merges the returned rows onto its own placements and saves them
+// (/api/dashboard-data) — this route only reads the sheet (and keeps what it
+// read per song, lib/sheet-facts-store.js).
 import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers, readTabRows } from "../../lib/sheets";
 import { ownerOf } from "../../lib/names";
-import { requireUser, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess, limited, mayUseClient } from "../../lib/access";
 import { sql } from "../../lib/db";
 import { sheetFactQueries, saveSheetFacts } from "../../lib/sheet-facts-store";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const session = await requireUser(req, res);
+  const session = await requireAccess(req, res, "publishing", { clients: true });
   if (!session) return;
   if (!requireSameOrigin(req, res)) return;
   let { clients } = req.body || {};
@@ -26,6 +28,8 @@ export default async function handler(req, res) {
     clients = clients.filter((c) => c.id === session.user.clientId);
     if (clients.length === 0) return res.status(403).json({ error: "Not authorized for that client." });
   }
+  // staff limited to their own artists (lib/roles.js) pull only those
+  if (isStaff && limited(req) && !clients.every((c) => mayUseClient(req, c.id))) return res.status(403).json({ error: "That isn't one of your artists." });
 
   try {
     const sheets = getSheetsClient();

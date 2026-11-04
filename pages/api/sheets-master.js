@@ -3,19 +3,36 @@
 // Clients-tab overview always matches the sheet exactly. Nothing here ever
 // writes back to the sheet.
 import { getSheetsClient, getSheetId, readMasterRollup, readMasterLinks, readAssumptions } from "../../lib/sheets";
-import { requireStaff } from "../../lib/session";
+import { requireAccess, limited, ownSet } from "../../lib/access";
+import { ownerOf } from "../../lib/names";
+import { sql } from "../../lib/db";
 import { portfolioName } from "../../lib/luminate";
 
+// An account limited to its own artists (lib/roles.js): their writers' rows only, and the roster's totals
+// as the sum of those rows, so no other artist's number reaches it
+const SUMS = { rosterGrossStreams: "grossStreams", rosterNetStreams: "netStreams", grossRevenuePool: "grossRevenue", catalogToDate: "adminFee", threeYearForecast: "forecastTotal", totalEstAdminFee: "totalEstAdminFee" };
+const ROW_KEYS = ["songs", "grossStreams", "netStreams", "grossRevenue", "adminFee", "year1", "year2", "year3", "forecastTotal", "totalEstAdminFee"];
+export function scopeRollup(rollup, keep) {
+  const rows = rollup.rows.filter(keep);
+  const sum = (k) => rows.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+  const totals = Object.fromEntries(Object.entries(SUMS).map(([t, k]) => [t, sum(k)]));
+  const rosterTotal = { writer: "ROSTER TOTAL", sheetTab: "", ...Object.fromEntries(ROW_KEYS.map((k) => [k, sum(k)])), pctOfRoster: rows.length ? 1 : 0 };
+  return { ...rollup, totals, rows: rows.map((r) => ({ ...r, pctOfRoster: totals.rosterGrossStreams ? r.grossStreams / totals.rosterGrossStreams : 0 })), rosterTotal };
+}
 // the POR id in one of MASTER's ↗A / ↗B links, so the button reads Luminate's name for it ("Admin Catalog 1")
 const porIn = (url) => (/POR[0-9A-F]{16,}/i.exec(String(url || "")) || [])[0] || "";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
-  if (!(await requireStaff(req, res))) return;
+  if (!(await requireAccess(req, res, "publishing"))) return;
   try {
     const sheets = getSheetsClient();
     const spreadsheetId = getSheetId();
-    const rollup = await readMasterRollup(sheets, spreadsheetId);
+    let rollup = await readMasterRollup(sheets, spreadsheetId);
+    if (limited(req)) {
+      const mine = ownSet(req), known = await sql`SELECT id, name, sheet_tab_name FROM clients`;
+      rollup = scopeRollup(rollup, (r) => mine.has(ownerOf(known, r.sheetTab || r.writer)?.id));
+    }
     const links = await readMasterLinks(sheets, spreadsheetId);
     links.names = { portfolioA: portfolioName(porIn(links.portfolioA), null), portfolioB: portfolioName(porIn(links.portfolioB), null) };
     // the $ a stream every estimate uses (ASSUMPTIONS!B7), for the overview's one line explaining

@@ -2,7 +2,8 @@
 // change typed straight into the sheet shows up without anyone signed in,
 // looks up a few missing ISRCs (and the A&R artists' Deezer pages), pings ClickUp when no Luminate update has
 // come in for over a week, and keeps the two ClickUp tasks the dashboard owns
-// (the weekly sync one, "Log new payments") up to date. Vercel sends
+// (the weekly sync one, "Log new payments") up to date, and reads each client's manager off the
+// accounting sheet's INFO tab (roles: a Co-manager limited to their own artists). Vercel sends
 // Authorization: Bearer $CRON_SECRET; without that secret set, this refuses
 // to run at all.
 import { sql } from "../../../lib/db";
@@ -14,6 +15,7 @@ import { runLuminateWeek } from "../../../lib/luminate-week";
 import { normalizeTitle } from "../../../lib/sheets";
 import { notifyClickUp } from "../../../lib/clickup";
 import { checkClickUpTasks } from "../../../lib/money";
+import { refreshManagers } from "../../../lib/access";
 
 // the sheet pull plus the Stripe read behind the ClickUp tasks (see pages/api/home.js)
 export const config = { maxDuration: 60 };
@@ -93,6 +95,8 @@ export default async function handler(req, res) {
   }
   // the weekly "clear the sync tasks" task (Mondays) and "Log new payments" (H.3/H.4): one stored
   // task each, written only with CLICKUP_TASK_WRITES=on
+  // each client's manager from the accounting sheet's INFO tab (Site › Users; reads the sheet only)
+  try { const m = await refreshManagers(); report.managers = m.error ? { error: m.error } : { matched: m.matched }; } catch (err) { report.managersError = err.message; }
   try { report.clickupTasks = await checkClickUpTasks({ force: true }); } catch (err) { report.clickupTasksError = err.message; }
   // the week's "Luminate update" task: made on the Luminate day while a portfolio's file is missing
   report.luminateWeek = await runLuminateWeek();

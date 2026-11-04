@@ -5,7 +5,7 @@
 // calculator. When the sheet can't be read, the prospects come from what it last said (stale) and
 // saving pauses. ?check=1 is the read-only Sheet check. Writes go through /api/ar-write.
 import { sql } from "../../lib/db";
-import { requireStaff } from "../../lib/session";
+import { requireAccess } from "../../lib/access";
 import { findByName } from "../../lib/names";
 import { readArSheet, readChecks, sheetCheck, sheetProspect, seenProspect, settlePending } from "../../lib/ar-sheet";
 import { reconcile, OUTREACH_STATUSES, OUTREACH_TAB, ADVANCE_TAB } from "../../lib/ar";
@@ -44,7 +44,7 @@ async function offBoard() {
 }
 
 export default async function handler(req, res) {
-  const session = await requireStaff(req, res);
+  const session = await requireAccess(req, res, "ar");
   if (!session) return;
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
 

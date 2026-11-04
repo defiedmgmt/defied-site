@@ -8,13 +8,14 @@ import {
   getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers,
   claimTabForNewCollaborator, findRowBySyncId, findRowByLuminateId, findUnclaimedRowByTitle, readLuminateIdAt, writeSongRow, appendSongRow,
 } from "../../lib/sheets";
-import { requireUser, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess, limited, mayUseClient } from "../../lib/access";
 import { sql } from "../../lib/db";
 import { ownerOf } from "../../lib/names";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const session = await requireUser(req, res);
+  const session = await requireAccess(req, res, "publishing", { clients: true });
   if (!session) return;
   if (!requireSameOrigin(req, res)) return;
   const { placementId, song, artist, luminateId, splits, liveIds } = req.body || {};
@@ -32,6 +33,8 @@ export default async function handler(req, res) {
       ? (await sql`SELECT client_id FROM placements WHERE id = ${placementId}`)[0]?.client_id
       : session.user.clientId;
     const whose = (name) => ownerOf(known, name, songClient);
+    // staff limited to their own artists (lib/roles.js) push only those artists' songs
+    if (isStaff && limited(req) && !mayUseClient(req, songClient)) return res.status(403).json({ error: "That song isn't one of your artists'." });
     // a client session may only ever write their own split (the site's own
     // caller already sends exactly one entry: their own name/percent) — never
     // let a client-controlled request smuggle a write into someone else's tab.
@@ -73,10 +76,10 @@ export default async function handler(req, res) {
       // is now sitting on the row unmatched; (3) a real pre-existing row
       // with the same title, where any syncId already there is either
       // blank or points at a placement that no longer exists in the
-      // pushing browser's own placement list (liveIds) — everything else
-      // on the site is per-browser localStorage, so two staff members' (or
-      // one staff member's two devices') local copies of "the same" song
-      // can carry different ids with no other way to reconcile them.
+      // pushing browser's own placement list (liveIds) — rows typed by hand,
+      // and ones written back when the site kept songs in each browser's
+      // localStorage (two devices' copies of "the same" song could carry
+      // different ids), have no other way to be reconciled.
       const existingRow = await findRowBySyncId(sheets, spreadsheetId, tab.title, syncId)
         ?? (luminateId ? await findRowByLuminateId(sheets, spreadsheetId, tab.title, luminateId) : null)
         ?? await findUnclaimedRowByTitle(sheets, spreadsheetId, tab.title, song, liveIds);

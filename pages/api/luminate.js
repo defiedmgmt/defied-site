@@ -2,7 +2,8 @@
 // linking Luminate's songs to ours. Staff only. GET returns lumState(); POST
 // takes one { action, ... } at a time.
 import { sql } from "../../lib/db";
-import { requireStaff, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess } from "../../lib/access";
 import { lumState, portfolioIdOf, writeLuminateIds, knownAreas, isAR, isRoster, moveHeldToClients, getState, setState, portfolioName } from "../../lib/luminate";
 import { afterExports } from "../../lib/luminate-run";
 import { syncSiteFromSheet } from "../../lib/site-sync";
@@ -238,7 +239,7 @@ async function act(body, session) {
 }
 
 export default async function handler(req, res) {
-  const session = await requireStaff(req, res);
+  const session = await requireAccess(req, res, "luminate", { whole: true });
   if (!session) return;
   try {
     // (with the Mac helper's state: the page's status line, the files it held back, To do's row)

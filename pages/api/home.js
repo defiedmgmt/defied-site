@@ -4,7 +4,7 @@
 // its own with a plain line, so the Dashboard always loads. ?fresh=1 skips the few-minute caches
 // (the accounting sheet's 5, ClickUp's 2). GET only; nothing here writes, except
 // the two ClickUp tasks the dashboard keeps (lib/money.js, at most once every 10 minutes).
-import { requireStaff } from "../../lib/session";
+import { requireAccess } from "../../lib/access";
 import { moneyState, payerNamer, paymentRow, checkClickUpTasks } from "../../lib/money";
 import { listTasks, LISTS, clearTaskCache } from "../../lib/clickup-tasks";
 import { logWritesOn } from "../../lib/accounting-log";
@@ -25,13 +25,19 @@ async function clickupPart(key) {
 }
 
 export default async function handler(req, res) {
-  const session = await requireStaff(req, res);
+  const session = await requireAccess(req, res, "home");
   if (!session) return;
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
   try {
     const fresh = !!req.query.fresh;
     if (fresh) clearTaskCache();
     if (req.query.list) return res.status(200).json({ clickup: await clickupPart(String(req.query.list)) });
+    // an account without Money (lib/roles.js) gets Home's other parts only: no Stripe or sheet read at all
+    if (!req.access.sections.includes("money")) {
+      if (req.query.all) return res.status(403).json({ error: "Your account can't use Money. A Founder can turn it on in Site › Users." });
+      const off = { connected: false, hidden: true };
+      return res.status(200).json({ money: off, payments: off, accounting: off, clickup: await clickupPart("internal"), tasks: null });
+    }
     const [{ pay, acct, match }, clickup] = await Promise.all([moneyState({ fresh }), req.query.all ? null : clickupPart("internal")]);
     const nameOf = await payerNamer(match);
     const logged = match ? new Set([...match.matched, ...match.loggedTogether, ...(match.loggedHere || [])].map((p) => p.id)) : null;

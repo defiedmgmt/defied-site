@@ -3,11 +3,12 @@
 // generic WRITER pool instead of leaving a deleted client's name sitting
 // on an otherwise-empty tab forever.
 import { getSheetsClient, getSheetId, listTabs, loadClientTabNames, tabsOfOthers, releaseTabToPool } from "../../lib/sheets";
-import { requireStaff, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess } from "../../lib/access";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  if (!(await requireStaff(req, res))) return;
+  if (!(await requireAccess(req, res, "publishing", { whole: true }))) return;
   if (!requireSameOrigin(req, res)) return;
   const { tabName } = req.body || {};
   if (!tabName) return res.status(400).json({ error: "tabName is required." });

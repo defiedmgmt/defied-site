@@ -4,12 +4,14 @@
 // site-owned columns (Song Title, Recording Artist, Writer Share %,
 // Luminate ID, Site Sync ID); formula columns are never touched.
 import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers, findRowBySyncId, clearSongRow } from "../../lib/sheets";
-import { requireUser, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess, limited, mayUseClient } from "../../lib/access";
 import { ownerOf } from "../../lib/names";
+import { sql } from "../../lib/db";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const session = await requireUser(req, res);
+  const session = await requireAccess(req, res, "publishing", { clients: true });
   if (!session) return;
   if (!requireSameOrigin(req, res)) return;
   const { placementId, splits } = req.body || {};
@@ -27,6 +29,11 @@ export default async function handler(req, res) {
     // from the database: a name belongs to whoever still goes by it
     const known = await loadClientTabNames();
     const whose = (name) => ownerOf(known, name, isStaff ? undefined : session.user.clientId);
+    // staff limited to their own artists (lib/roles.js): never a song still saved under another artist
+    if (isStaff && limited(req)) {
+      const [p] = await sql`SELECT client_id FROM placements WHERE id = ${placementId}`;
+      if (p && !mayUseClient(req, p.client_id)) return res.status(403).json({ error: "That song isn't one of your artists'." });
+    }
     if (!isStaff && !splits.every((s) => whose((s.name || "").trim())?.id === session.user.clientId)) {
       return res.status(403).json({ error: "Not authorized for that split." });
     }

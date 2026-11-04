@@ -5,11 +5,12 @@
 // ?fresh=1 skips the two-minute cache.
 // POST {action:"done", id} sets a task to its list's closed status; {action:"create", name, list, due,
 // assignee} adds one. Both only with CLICKUP_TASK_WRITES=on (else a plain line, nothing sent).
-import { requireStaff, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess } from "../../lib/access";
 import { allTasks, members, markTaskDone, createUserTask, clearTaskCache, ownTasks, writesOn } from "../../lib/clickup-tasks";
 
 export default async function handler(req, res) {
-  const session = await requireStaff(req, res);
+  const session = await requireAccess(req, res, ["todo", "home"]);
   if (!session) return;
   try {
     if (req.method === "GET") {

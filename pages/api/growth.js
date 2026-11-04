@@ -3,22 +3,25 @@
 // every song; a client only their own (keyed by song, so Luminate ids stay staff-only).
 // ?top=1 (staff only): the Dashboard's Top gainers, ranked by week-on-week % (lib/luminate.js rosterTop).
 import { sql } from "../../lib/db";
-import { requireUser } from "../../lib/session";
+import { requireAccess, limited, ownSet } from "../../lib/access";
 import { growthFor, rosterTop } from "../../lib/luminate";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
-  const session = await requireUser(req, res);
+  const session = await requireAccess(req, res, ["home", "publishing"], { clients: true });
   if (!session) return;
   const { role, clientId } = session.user;
+  // an account limited to its own artists (lib/roles.js) gets only their songs, like a client its own
+  const mine = limited(req) ? [...ownSet(req)] : null;
   try {
     if (req.query.top) {
       if (role !== "staff") return res.status(403).json({ error: "Staff only." });
-      return res.status(200).json({ top: await rosterTop() });
+      return res.status(200).json({ top: await rosterTop(mine ? { clientIds: mine } : {}) });
     }
-    const rows = role === "staff"
-      ? await sql`SELECT id, luminate_id FROM placements WHERE luminate_id <> ''`
-      : await sql`SELECT id, luminate_id FROM placements WHERE luminate_id <> '' AND client_id = ${clientId}`;
+    const rows = role !== "staff"
+      ? await sql`SELECT id, luminate_id FROM placements WHERE luminate_id <> '' AND client_id = ${clientId}`
+      : mine ? await sql`SELECT id, luminate_id FROM placements WHERE luminate_id <> '' AND client_id = ANY(${mine})`
+      : await sql`SELECT id, luminate_id FROM placements WHERE luminate_id <> ''`;
     const growth = await growthFor(rows.map((r) => r.luminate_id));
     const out = {};
     for (const r of rows) if (growth[r.luminate_id]) out[r.id] = growth[r.luminate_id];

@@ -3,17 +3,26 @@
 // POST {action:"auto", items} records the even splits the browser just confirmed by themselves (DB only: the
 // split itself was saved by the dashboard's own save); {action:"undo", ids} takes them off that list for good;
 // {action:"fill", placementId} writes the site's 100% into the sheet's blank Writer Share cell of that song's row.
-import { requireStaff, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess, limited, ownSet } from "../../lib/access";
+import { sql } from "../../lib/db";
 import { autoState, recordAuto, undoAuto, fillBlankShare, shareWritesOn } from "../../lib/split-fixes-store";
 
+// an account limited to its own artists (lib/roles.js): the ids of their songs, else null (every song)
+const ownSongs = async (req) => (limited(req) ? new Set((await sql`SELECT id FROM placements WHERE client_id = ANY(${[...ownSet(req)]})`).map((r) => r.id)) : null);
+
 export default async function handler(req, res) {
-  const session = await requireStaff(req, res);
+  const session = await requireAccess(req, res, "publishing");
   if (!session) return;
   try {
-    if (req.method === "GET") return res.status(200).json({ auto: await autoState(), writes: shareWritesOn(), sheetUrl: process.env.GOOGLE_SHEET_ID ? `https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SHEET_ID}/edit` : null });
+    const mine = await ownSongs(req);
+    const own = (x) => !mine || mine.has(x?.id);
+    if (req.method === "GET") return res.status(200).json({ auto: await autoState().then((a) => (mine ? { done: a.done.filter(own), held: a.held.filter((id) => mine.has(id)) } : a)), writes: shareWritesOn(), sheetUrl: process.env.GOOGLE_SHEET_ID ? `https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SHEET_ID}/edit` : null });
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
     const b = req.body || {};
+    const touched = b.action === "fill" ? [b.placementId] : b.action === "auto" ? (Array.isArray(b.items) ? b.items.map((x) => x?.id) : []) : Array.isArray(b.ids) ? b.ids : [];
+    if (mine && !touched.every((id) => mine.has(id))) return res.status(403).json({ error: "That song isn't one of your artists'." });
     const by = session.user.name || session.user.email || "";
     const out = b.action === "auto" ? await recordAuto(b.items, by)
       : b.action === "undo" ? await undoAuto(b.ids)

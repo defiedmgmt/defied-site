@@ -4,7 +4,8 @@
 // browser's `expect` per field, only the changed cells, RAW, logged before/after. Success is
 // {ok, prospect, eventId} (+ unchanged when nothing differed). AR_SHEET_WRITES switches the sheet
 // writes off (503); Postgres-only actions keep working. Still walled off from MASTER/roster totals.
-import { requireStaff, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess } from "../../lib/access";
 import {
   arWritesOn, createProspect, updateProspect, setStatus, setSlot, clearSlot, logContact,
   setGiven, fixGiven, removeProspect, restoreProspect, undoEvent,
@@ -20,7 +21,7 @@ const SHEET_ACTIONS = {
 const LEGACY = ["saveProspectFull", "deleteProspect", "setAdvanceGiven", "saveProspect", "saveSong", "deleteSong"];
 
 export default async function handler(req, res) {
-  const session = await requireStaff(req, res);
+  const session = await requireAccess(req, res, "ar");
   if (!session) return;
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   if (!requireSameOrigin(req, res)) return;

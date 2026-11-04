@@ -3,13 +3,13 @@
 // so the browser can't read it directly — only this route can fetch it.
 
 import { metaContent } from "../../lib/og";
-import { requireUser } from "../../lib/session";
+import { requireAccess } from "../../lib/access";
 
 export default async function handler(req, res) {
   // not sensitive data (public Spotify metadata), but gated anyway so this
   // doesn't sit open as a free-to-use proxy for anyone on the internet —
   // only used within the (staff or client) song-editing flow.
-  if (!(await requireUser(req, res))) return;
+  if (!(await requireAccess(req, res, ["publishing", "site", "ar"], { clients: true }))) return;
   const raw = req.query.url;
   if (!raw || typeof raw !== "string") {
     return res.status(400).json({ error: "Missing Spotify link." });

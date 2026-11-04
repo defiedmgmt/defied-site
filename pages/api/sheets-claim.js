@@ -4,13 +4,14 @@
 // instead of appending a duplicate, and the next pull matches it by
 // syncId instead of re-detecting it as "new" every time.
 import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers, writeSyncId } from "../../lib/sheets";
-import { requireStaff, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess, mayUseClient } from "../../lib/access";
 import { ownerOf } from "../../lib/names";
 import { sql } from "../../lib/db";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  if (!(await requireStaff(req, res))) return;
+  if (!(await requireAccess(req, res, "publishing"))) return;
   if (!requireSameOrigin(req, res)) return;
   const { claims } = req.body || {};
   if (!Array.isArray(claims) || claims.length === 0) {
@@ -25,6 +26,8 @@ export default async function handler(req, res) {
     // each claim's song (saved just before this) says whose tab it was pulled from
     const ids = claims.map((c) => String(c.syncId || "").split(":")[0]);
     const songClient = Object.fromEntries((await sql`SELECT id, client_id FROM placements WHERE id = ANY(${ids})`).map((p) => [p.id, p.client_id]));
+    // an account limited to its own artists stamps only their songs' rows
+    if (ids.some((id) => songClient[id] && !mayUseClient(req, songClient[id]))) return res.status(403).json({ error: "That song isn't one of your artists'." });
     for (const c of claims) {
       if (!c.tab || !c.row || !c.syncId) continue;
       // c.tab is the client's name or override, not the tab's real title —

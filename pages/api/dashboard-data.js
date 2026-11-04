@@ -1,6 +1,7 @@
 // The one authenticated data endpoint the whole staff/client dashboard reads
-// from and writes through — replaces the old client-side `db` object that
-// used to ship in the JS bundle and live in localStorage. A client session
+// from and writes through (it replaced the client-side `db` object that once
+// shipped in the JS bundle and lived in localStorage). What a staff account
+// reads and writes follows its role and sections (lib/roles.js, lib/access.js). A client session
 // only ever receives their own client record + their own placements, with
 // revenue/admin_fee/luminate_id stripped (the old client UI just didn't
 // *render* those fields — the data was always present regardless of role,
@@ -8,7 +9,9 @@
 // a valid session.
 import bcrypt from "bcryptjs";
 import { sql, rowsOrNoneIfNoTable } from "../../lib/db";
-import { requireUser, requireSameOrigin, restampSession } from "../../lib/session";
+import { requireSameOrigin, restampSession } from "../../lib/session";
+import { requireAccess, limited, ownSet } from "../../lib/access";
+import { roleOf, cleanAccess, ROLE_KEYS, sectionLabel } from "../../lib/roles";
 import { readSheetFacts } from "../../lib/sheet-facts-store";
 import { afterAction } from "../../lib/area-tasks";
 
@@ -73,7 +76,7 @@ const placementRow = (p) => ({
   streams: p.streams || 0, revenue: p.revenue || 0, admin_fee: p.adminFee || 0, splits: p.splits || [],
 });
 const staffRow = (s) => ({ id: s.id, name: s.name || "", role: s.role || "", credit: s.credit || "", bio: s.bio || "", photo: s.photo || "", email: s.email || "", instagram: s.instagram || "" });
-const userRow = (u) => ({ id: u.id, email: u.email.toLowerCase(), password_hash: u.hash, role: u.role, name: u.name || "", client_id: u.clientId || null });
+const userRow = (u) => ({ id: u.id, email: u.email.toLowerCase(), password_hash: u.hash, role: u.role, name: u.name || "", client_id: u.clientId || null, staff_role: u.staffRole || null, access: u.access || {} });
 const submissionRow = (s) => ({ id: s.id, name: s.name || "", email: s.email || "", instagram: s.instagram || "", subject: s.subject || "", message: s.message || "", created_at: s.at || new Date().toISOString(), read: !!s.read });
 const notableRow = (n) => ({ id: n.id, song: n.song || "", artist: n.artist || "", client: n.client || "", cover: n.cover || "", release_date: n.releaseDate || "", link: n.link || "" });
 const insertPlacement = (r) => sql`
@@ -126,10 +129,49 @@ async function growsPastLimit(change, clientIds) {
   return size > MAX_DATASET_BYTES && size > Buffer.byteLength(JSON.stringify(now));
 }
 
+// The staff GET for one account (lib/roles.js): a table its sections don't cover comes back empty,
+// an account limited to its own artists gets only theirs, and the logins (with each one's role and
+// overrides) only with Users. `access` says what the dashboard shows.
+export function payloadFor(full, users, a) {
+  const can = (k) => a.sections.includes(k);
+  const out = { ...full, access: { role: a.role, sections: a.sections, ownOnly: a.ownOnly, manager: a.manager || "" } };
+  out.clients = full.clients.map((c, i) => ({ ...c, manager: full.managers?.[c.id] || "" }));
+  delete out.managers;
+  out.users = can("users") ? users : [];
+  if (!can("site")) out.submissions = [];
+  // the money columns are Publishing's (the fee each song earns)
+  if (!can("publishing")) out.placements = full.placements.map(({ luminateId, revenue, adminFee, ...p }) => p);
+  if (a.ownOnly) {
+    const mine = new Set(a.clientIds || []);
+    out.clients = out.clients.filter((c) => mine.has(c.id));
+    out.placements = out.placements.filter((p) => mine.has(p.clientId));
+    const songs = new Set(out.placements.map((p) => p.id));
+    out.notOurs = (full.notOurs || []).filter((r) => mine.has(r.clientId));
+    out.sheetFacts = {
+      songs: Object.fromEntries(Object.entries(full.sheetFacts?.songs || {}).filter(([id]) => songs.has(id))),
+      clients: Object.fromEntries(Object.entries(full.sheetFacts?.clients || {}).filter(([id]) => mine.has(id))),
+    };
+  }
+  return out;
+}
+// each login with its role and overrides, for Site › Users (a column the roles migration adds: none before it)
+async function usersWithRoles() {
+  const rows = await sql`SELECT id, staff_role, access FROM users`.catch((err) => { if (err?.code === "42703") return []; throw err; });
+  return Object.fromEntries(rows.map((r) => [r.id, r]));
+}
+async function managersOf() {
+  const rows = await sql`SELECT id, manager FROM clients`.catch((err) => { if (err?.code === "42703") return []; throw err; });
+  return Object.fromEntries(rows.map((r) => [r.id, r.manager || ""]));
+}
+
 async function handleGet(req, res, session) {
   const { role, clientId } = session.user;
 
-  if (role === "staff") return res.status(200).json(await staffPayload());
+  if (role === "staff") {
+    const [full, extra, managers] = await Promise.all([staffPayload(), req.access.sections.includes("users") ? usersWithRoles() : {}, managersOf()]);
+    const users = full.users.map((u) => ({ ...u, staffRole: extra[u.id]?.staff_role || null, access: extra[u.id]?.access || {} }));
+    return res.status(200).json(payloadFor({ ...full, managers }, users, req.access));
+  }
 
   // client: own record + own placements only, redacted
   const [clients, placements, [settings], sheetFacts] = await Promise.all([
@@ -210,6 +252,34 @@ async function handlePost(req, res, session) {
     return res.status(200).json({ ok: true });
   }
 
+  // what this account may write (lib/roles.js): a table its sections don't cover refuses the whole
+  // save, before anything is built or written
+  const a = req.access, can = (k) => a.sections.includes(k);
+  const NEEDS = { clients: ["publishing", "site"], placements: ["publishing"], staff: ["site"], notableReleases: ["site"], submissions: ["site"], users: ["users"], site: ["site"], sheetSync: ["publishing"] };
+  for (const [k, need] of Object.entries(NEEDS)) {
+    if (!(k in body) || body[k] == null) continue;
+    if (!need.some(can)) return res.status(403).json({ error: `Your account can't change ${sectionLabel(need[0])}, so nothing was saved. A Founder can turn it on in Site › Users.` });
+  }
+  const mine = limited(req) ? ownSet(req) : null;
+  // an account limited to its own artists marks only its own pull, not the whole site's
+  if (mine) delete body.sheetSync;
+  const NOT_YOURS = "That isn't one of your artists, so nothing was saved.";
+  let priorClients = null;
+  if ("clients" in body) {
+    if (!Array.isArray(body.clients)) return res.status(400).json({ error: "clients[] is required." });
+    priorClients = await sql`SELECT id, sheet_tab_name, total_streams, roster_order FROM clients`;
+    const sent = new Set(body.clients.map((c) => c.id));
+    // limited: their own artists only, none added or deleted; Site without Publishing: deleting an
+    // artist (their songs go with them) needs Publishing
+    if (mine && body.clients.some((c) => !mine.has(c.id))) return res.status(403).json({ error: NOT_YOURS });
+    const gone = priorClients.filter((c) => (mine ? mine.has(c.id) : true) && !sent.has(c.id));
+    if (gone.length && (mine || !can("publishing"))) return res.status(403).json({ error: "Deleting an artist needs Publishing for every artist, so nothing was saved." });
+  }
+  if ("placements" in body) {
+    if (!Array.isArray(body.placements)) return res.status(400).json({ error: "placements[] is required." });
+    if (mine && body.placements.some((p) => !mine.has(p.clientId))) return res.status(403).json({ error: NOT_YOURS });
+  }
+
   // password hashing (bcrypt) is CPU-bound JS work, not a DB call, so it has
   // to happen before the query array is built below — sql.transaction()
   // takes only query objects, nothing that awaits in between.
@@ -233,14 +303,41 @@ async function handlePost(req, res, session) {
     // brand-new user (no existing hash) requires a password to be created at
     // all; one submitted with no password is silently skipped rather than
     // created with no way to log in.
-    const existing = await sql`SELECT id, password_hash FROM users`;
+    const existing = await sql`SELECT id, email, role, name, client_id, password_hash, staff_role, access FROM users`;
     const hashById = Object.fromEntries(existing.map((u) => [u.id, u.password_hash]));
+    // Roles (lib/roles.js): only a Founder sets anyone's role or overrides; anyone else's save keeps what's
+    // stored (an older tab sending no role keeps it too). A Founder's own login is a Founder's to change.
+    const prior = Object.fromEntries(existing.map((u) => [u.id, u]));
+    const anyFounder = existing.some((u) => u.role === "staff" && u.staff_role === "founder");
+    const isFounderRow = (u) => u.role === "staff" && roleOf(u.staff_role, anyFounder) === "founder";
+    const founderSave = a.role === "founder";
+    if (!founderSave) {
+      const sent = new Map(body.users.map((u) => [u.id, u]));
+      const touched = existing.filter(isFounderRow).some((f) => {
+        const u = sent.get(f.id);
+        return !u || u.role !== f.role || String(u.email || "").toLowerCase() !== f.email || (u.name || "") !== (f.name || "") || (u.password && u.password.trim());
+      });
+      if (touched) return res.status(403).json({ error: "Only a Founder can change or delete a Founder's login, so nothing was saved." });
+    }
     userQueryData = [];
     for (const u of body.users) {
       let hash = hashById[u.id];
       if (u.password && u.password.trim()) hash = await bcrypt.hash(u.password.trim(), 12);
       if (!hash) continue;
-      userQueryData.push({ ...u, hash });
+      const was = prior[u.id];
+      let staffRole = null, access = {};
+      if (u.role === "staff") {
+        staffRole = founderSave && "staffRole" in u ? (ROLE_KEYS.includes(u.staffRole) ? u.staffRole : null) : (was?.staff_role ?? null);
+        access = founderSave && "access" in u ? cleanAccess(roleOf(staffRole, true), u.access) : (was?.access || {});
+      }
+      userQueryData.push({ ...u, hash, staffRole, access });
+    }
+    if (userQueryData.some((u) => u.staffRole === "founder")) {
+      // the first Founder set by hand: the Founder saving it (a Founder only because nobody was yet) stays one
+      const me = userQueryData.find((u) => u.id === session.user.id && u.role === "staff" && !u.staffRole);
+      if (me && founderSave) me.staffRole = "founder";
+    } else if (anyFounder) {
+      return res.status(400).json({ error: "There has to be at least one Founder, so nothing was saved." });
     }
   }
 
@@ -262,11 +359,20 @@ async function handlePost(req, res, session) {
   // already ran client-side in deleteClientCascade before this request),
   // so a client that's simply being edited/reordered is never deleted at
   // all and nothing referencing it ever cascades.
+  // An account limited to its own artists sends only theirs: nothing else is deleted, and each keeps
+  // its place in the roster. Without Publishing, a client's sheet tab and stream total stay as stored.
+  const priorById = new Map((priorClients || []).map((c) => [c.id, c]));
+  const rowFor = (c, i) => {
+    const r = clientRow(c, i), was = priorById.get(c.id);
+    if (mine && was) r.roster_order = was.roster_order;
+    if (!can("publishing") && was) { r.sheet_tab_name = was.sheet_tab_name; r.total_streams = Number(was.total_streams); }
+    return r;
+  };
   if ("clients" in body) {
     const ids = body.clients.map((c) => c.id);
-    queries.push(ids.length ? sql`DELETE FROM clients WHERE id != ALL(${ids})` : sql`DELETE FROM clients`);
+    if (!mine) queries.push(ids.length ? sql`DELETE FROM clients WHERE id != ALL(${ids})` : sql`DELETE FROM clients`);
     for (let i = 0; i < body.clients.length; i++) {
-      const c = clientRow(body.clients[i], i);
+      const c = rowFor(body.clients[i], i);
       queries.push(sql`
         INSERT INTO clients (id, name, role, credit, bio, photo, spotify, apple, instagram, tiktok, youtube, soundcloud, sheet_tab_name, total_streams, on_roster, roster_order)
         VALUES (${c.id}, ${c.name}, ${c.role}, ${c.credit}, ${c.bio}, ${c.photo}, ${c.spotify}, ${c.apple}, ${c.instagram}, ${c.tiktok}, ${c.youtube}, ${c.soundcloud}, ${c.sheet_tab_name}, ${c.total_streams}, ${c.on_roster}, ${c.roster_order})
@@ -280,7 +386,7 @@ async function handlePost(req, res, session) {
     }
   }
   if ("placements" in body) {
-    queries.push(sql`DELETE FROM placements`);
+    queries.push(mine ? sql`DELETE FROM placements WHERE client_id = ANY(${[...mine]})` : sql`DELETE FROM placements`);
     for (const p of body.placements) queries.push(insertPlacement(placementRow(p)));
   }
   if ("staff" in body) {
@@ -296,8 +402,8 @@ async function handlePost(req, res, session) {
     queries.push(sql`DELETE FROM users`);
     for (const u of userQueryData.map(userRow)) {
       queries.push(sql`
-        INSERT INTO users (id, email, password_hash, role, name, client_id)
-        VALUES (${u.id}, ${u.email}, ${u.password_hash}, ${u.role}, ${u.name}, ${u.client_id})
+        INSERT INTO users (id, email, password_hash, role, name, client_id, staff_role, access)
+        VALUES (${u.id}, ${u.email}, ${u.password_hash}, ${u.role}, ${u.name}, ${u.client_id}, ${u.staff_role}, ${JSON.stringify(u.access)})
       `);
     }
   }
@@ -330,9 +436,11 @@ async function handlePost(req, res, session) {
     // the GET's own mappers over what's about to be stored (a submission's
     // time and the sync time come back from the database as Dates)
     const at = (v) => (v ? new Date(v) : null);
-    const change = () => ({
-      ...("clients" in body && { clients: body.clients.map((c, i) => toClient(clientRow(c, i))) }),
-      ...("placements" in body && { placements: body.placements.map((p) => toPlacement(placementRow(p))) }),
+    const change = (now) => ({
+      ...("clients" in body && { clients: mine
+        ? now.clients.map((c) => { const i = body.clients.findIndex((x) => x.id === c.id); return i < 0 ? c : toClient(rowFor(body.clients[i], i)); })
+        : body.clients.map((c, i) => toClient(rowFor(c, i))) }),
+      ...("placements" in body && { placements: (mine ? now.placements.filter((p) => !mine.has(p.clientId)) : []).concat(body.placements.map((p) => toPlacement(placementRow(p)))) }),
       ...("staff" in body && { staff: body.staff.map((s) => toStaffBio(staffRow(s))) }),
       ...(userQueryData && { users: userQueryData.map((u) => toUser(userRow(u))) }),
       ...("submissions" in body && { submissions: body.submissions.map(submissionRow).map((s) => toSubmission({ ...s, created_at: at(s.created_at) })) }),
@@ -341,7 +449,7 @@ async function handlePost(req, res, session) {
       ...(body.sheetSync && { sheetSync: { lastSyncedAt: at(body.sheetSync.lastSyncedAt) } }),
     });
     try {
-      if (await growsPastLimit(change, "clients" in body ? new Set(body.clients.map((c) => c.id)) : null)) {
+      if (await growsPastLimit(change, "clients" in body && !mine ? new Set(body.clients.map((c) => c.id)) : null)) {
         return res.status(413).json({ error: TOO_BIG });
       }
       await sql.transaction(queries);
@@ -362,7 +470,9 @@ async function handlePost(req, res, session) {
 }
 
 export default async function handler(req, res) {
-  const session = await requireUser(req, res);
+  // every staff account, and clients (their own portal: handled above, unchanged); what a staff account
+  // may read and write is checked per table (lib/roles.js)
+  const session = await requireAccess(req, res, null, { clients: true });
   if (!session) return;
   if (req.method === "GET") return handleGet(req, res, session);
   if (req.method === "POST") return handlePost(req, res, session);

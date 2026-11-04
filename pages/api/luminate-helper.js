@@ -6,7 +6,8 @@
 //   Signed-in staff (same-origin):
 //     GET  -> helperState(): set up or not, last seen, last upload, files held back
 //     POST { action: "apply" | "discard", id, force?, area? } -> a held file
-import { requireStaff, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess } from "../../lib/access";
 import { helperOn, deviceOf, helperPing, helperUpload, helperState, decideHeld } from "../../lib/luminate-helper";
 import { notifyClickUp } from "../../lib/clickup";
 import { afterAction } from "../../lib/area-tasks";
@@ -44,7 +45,7 @@ async function fromHelper(req, res) {
 
 export default async function handler(req, res) {
   if (req.headers.authorization) return fromHelper(req, res);
-  const session = await requireStaff(req, res);
+  const session = await requireAccess(req, res, "luminate", { whole: true });
   if (!session) return;
   try {
     if (req.method === "GET") return res.status(200).json(await helperState());

@@ -7,7 +7,8 @@
 // has yet (toLuminate; ?summary=1 carries it too, for the Dashboard). POST takes one {action} that never touches the sheet. Pub-sheet changes go through
 // /api/ar-write; tracked artists and songs are saved here alone, so they can never reach the sheet.
 import { sql } from "../../lib/db";
-import { requireStaff, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess } from "../../lib/access";
 import { arSummary, arWatchNow, mergeProspect, trackedOut, checkTracked, ArError } from "../../lib/ar";
 import { uid } from "../../lib/id";
 import { afterAction } from "../../lib/area-tasks";
@@ -95,7 +96,7 @@ async function act(body, by) {
 }
 
 export default async function handler(req, res) {
-  const session = await requireStaff(req, res);
+  const session = await requireAccess(req, res, "ar");
   if (!session) return;
   try {
     if (req.method === "GET" && req.query.events) return res.status(200).json({ events: await eventsOf(String(req.query.events)) });

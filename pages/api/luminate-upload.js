@@ -3,7 +3,8 @@
 // Replaces "drag the CSVs into the Drive folder, then press ⟳ UPDATE"; that
 // route still works and writes the same STREAM DATA rows. One drop zone for
 // every portfolio: the A&R ones' files are only kept, apart, for the A&R tab.
-import { requireStaff, requireSameOrigin } from "../../lib/session";
+import { requireSameOrigin } from "../../lib/session";
+import { requireAccess } from "../../lib/access";
 import { parseExport, takeExports, previewLinks, areasFor, isAR } from "../../lib/luminate";
 import { afterExports, arLines, markArKept, notifyArKept } from "../../lib/luminate-run";
 import { afterAction } from "../../lib/area-tasks";
@@ -16,7 +17,7 @@ const PICK = "Pick what this portfolio holds, then press Apply again.";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  const session = await requireStaff(req, res);
+  const session = await requireAccess(req, res, "luminate", { whole: true });
   if (!session) return;
   if (!requireSameOrigin(req, res)) return;
   const sent = Array.isArray(req.body?.files) ? req.body.files : [];
