@@ -11491,6 +11491,8 @@ function StyleTag() {
     .app:not(.pub) .todo-clear{color:var(--d-pos)}
     .app:not(.pub) .todo-done-for-you{padding:12px 4px 0}
     .app:not(.pub) .todo-done-for-you svg{color:var(--d-pos)}
+    /* phone: the padded (44px) Undo gets its own row, so its tap area never sits on a ClickUp link's on the line above */
+    @media (max-width:639px){ .app:not(.pub) .todo-done-for-you [data-undo]{display:flex;width:fit-content;margin-top:12px} }
     .app:not(.pub) .todo-cu{display:block}
     .app:not(.pub) .todo-cu-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;--area:var(--d-a-cu)}
     .app:not(.pub) .todo-cu-tools{display:flex;flex-wrap:wrap;gap:6px;text-transform:none;letter-spacing:0;font-weight:400}
