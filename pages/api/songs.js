@@ -106,7 +106,8 @@ async function act(body) {
 }
 
 export default async function handler(req, res) {
-  const session = await requireAccess(req, res, "publishing");
+  // every artist's songs at once (as /api/luminate was): an account limited to its own artists is refused
+  const session = await requireAccess(req, res, "publishing", { whole: true });
   if (!session) return;
   try {
     if (req.method === "GET") return res.status(200).json(await songInfoState());
