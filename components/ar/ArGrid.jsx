@@ -8,6 +8,7 @@
 // Styles: components/ar/ar-grid.css (imported once in pages/_app.jsx).
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Clock, ExternalLink, SlidersHorizontal, Download, Columns3, X } from "lucide-react";
+import { thumb } from "../shared/ui";
 import { n0, signed, pctText, dirOf, short, dayText, atText, nyDayOf, kindLabel, trackingText, store, spanText } from "./fmt";
 
 // ---------------------------------------------------------------- cells
@@ -62,7 +63,7 @@ export function Links({ links }) {
   return <span className="arg-links">{ks.map((k) => <a key={k} href={links[k]} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title={LINK_LABEL[k]} aria-label={LINK_LABEL[k]} data-link={k}>{LINK_LABEL[k].slice(0, 2)}</a>)}</span>;
 }
 export const Photo = ({ r, size = 24 }) => (r.image
-  ? <img className={`arg-ph${r.kind !== "artist" ? " sq" : ""}`} src={r.image} alt="" width={size} height={size} loading="lazy" referrerPolicy="no-referrer" />
+  ? <img className={`arg-ph${r.kind !== "artist" ? " sq" : ""}`} src={thumb(r.image, 96)} alt="" width={size} height={size} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
   : <span className={`arg-ph none${r.kind !== "artist" ? " sq" : ""}`} aria-hidden="true">{String(r.name || "?").slice(0, 1).toUpperCase()}</span>);
 const addedByTitle = (r) => r.addedBy.map((w) => `${w.name} · ${dayText(w.at)}${w.never ? "" : w.state === "expired" ? " · expired" : w.daysLeft != null ? ` · ${w.days || ""}${w.days ? " days · " : ""}${w.daysLeft} left` : ""}`).join("\n");
 export function Momentum({ m }) {

@@ -30,8 +30,14 @@ const PH = {
   people: "Paste a Spotify, Instagram, TikTok or YouTube link",
 };
 
+// r10 fix: a lookup that can't reach the server (weak signal, a timeout, offline) says so in plain words, with Try
+// again and "type the name instead", never the browser's "Failed to fetch"
+export const NET_ERROR = "Couldn't reach the lookup. Check your connection.";
 async function ask(body) {
-  const r = await fetch("/api/resolve-link", { method: "POST", headers: { "content-type": "application/json", "x-requested-with": "defied-site" }, body: JSON.stringify(body) });
+  let r;
+  try {
+    r = await fetch("/api/resolve-link", { method: "POST", headers: { "content-type": "application/json", "x-requested-with": "defied-site" }, body: JSON.stringify(body), signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(25000) : undefined });
+  } catch { throw Object.assign(new Error(NET_ERROR), { net: true }); }
   const j = await r.json().catch(() => null);
   if (!r.ok || !j) throw new Error(j?.error || "Couldn't look that link up just now.");
   return j;
@@ -46,6 +52,7 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
   const [clipErr, setClipErr] = useState("");
   const [typed, setTyped] = useState(""); // the name, when the link didn't give one
   const [days, setDays] = useState(30);
+  const [retry, setRetry] = useState(0); // "Try again" after a lookup couldn't reach the server
   const seq = useRef(0);
   const input = useRef(null);
   const ph = placeholder || (take.includes("song") && take.length === 1 ? PH.song : take.includes("sound") && take.length === 1 ? PH.sound : PH.people);
@@ -63,14 +70,14 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
     setSt({ state: "looking", label: l.short ? "Link" : kindLabel(l) });
     const t = setTimeout(async () => {
       let r;
-      try { r = await ask({ url: v, context, kinds: take }); } catch (e) { if (my === seq.current) setSt({ state: "error", error: e.message }); return; }
+      try { r = await ask({ url: v, context, kinds: take }); } catch (e) { if (my === seq.current) setSt({ state: "error", error: e.message, net: !!e.net, link: l }); return; }
       if (my !== seq.current) return;
       if (!r.ok) { setSt({ state: "error", error: r.error }); return; }
       setSt({ state: "card", r });
       if (r.paid?.needed) paidStep(v, my, 0);
     }, 300);
     return () => clearTimeout(t);
-  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [text, retry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // TikTok / Instagram (and a Spotify artist's followers): Apify, a few seconds; the card is usable meanwhile
   const paidStep = async (v, my, tries) => {
@@ -122,7 +129,13 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
       </div>
       {clipErr && <p className="hint" data-lb-clip-err>{clipErr}</p>}
       {st.state === "looking" && <p className="hint lb-wait" data-lb-looking><RefreshCw size={12} className="spin" /> Looking up the {st.label}…</p>}
-      {st.state === "error" && <p className="hint err-text" role="alert" data-lb-error>{st.error}</p>}
+      {st.state === "error" && <p className="hint err-text" role="alert" data-lb-error={st.net ? "net" : ""}>{st.error}</p>}
+      {st.state === "error" && st.net && (
+        <p className="lb-net" data-lb-net>
+          <button type="button" className="btn sm lb-tap" onClick={() => setRetry((n) => n + 1)} data-lb-retry><RefreshCw size={13} /> Try again</button>
+          {!st.link?.short && <button type="button" className="btn ghost sm lb-tap" onClick={() => setSt({ state: "card", r: { ok: true, offline: true, link: st.link, card: {}, links: { [st.link.platform]: st.link.url }, already: [] } })} data-lb-type-name>Type the name instead</button>}
+        </p>
+      )}
       {r && (
         <div className="lb-card" data-lb-card data-lb-kind={`${r.link.platform}:${r.link.kind}`}>
           <div className="lb-main">
@@ -200,6 +213,7 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
 }
 
 const CSS = `
+.lb-net{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 0}
 .lb{display:flex;flex-direction:column;gap:8px;min-width:0;max-width:100%}
 .lb-row{display:flex;gap:8px;min-width:0}
 .lb-row input{flex:1;min-width:0}

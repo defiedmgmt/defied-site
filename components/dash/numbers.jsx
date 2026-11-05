@@ -118,6 +118,23 @@ export function SoundNums({ sounds, onSaved }) {
     </div>
   );
 }
+// r10 fix: the month in one picture. limit: the lower of Apify's plan cap and the site's own total; over: the
+// estimate is past it (stopDay: about when, at this pace); budgetsOver: the per-source budgets add up past the total
+const usd2 = (v) => `$${(Number(v) || 0).toFixed(2)}`;
+export function costPicture(d, now = new Date()) {
+  const c = d?.cost || {}, acct = c.account || null;
+  const est = Number(c.estMonthlyUsd) || 0, spent = Number(c.spentUsd) || 0, total = Number.isFinite(Number(c.totalCapUsd)) ? Number(c.totalCapUsd) : null;
+  const plan = acct && Number.isFinite(Number(acct.limitUsd)) ? Number(acct.limitUsd) : null;
+  const limit = plan != null && total != null ? Math.min(plan, total) : plan ?? total;
+  const limitWhy = limit == null ? "" : plan != null && limit === plan ? `Apify's plan cap${total != null && total > plan ? ` (lower than the ${usd2(total)} total set here)` : ""}` : "the total set here";
+  const budgets = (d?.sources || []).filter((x) => x.paid).reduce((a, x) => a + (Number(x.softCapUsd) || 0), 0);
+  const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const over = limit != null && est > limit;
+  const stopDay = over ? `${now.toLocaleDateString("en-US", { month: "short" })} ${Math.max(1, Math.min(days, Math.floor((limit / est) * days)))}` : null;
+  return { month: now.toLocaleDateString("en-US", { month: "long" }), est, spent, limit, limitWhy, over, stopDay, budgets, total, budgetsOver: total != null && budgets > total + 0.001 };
+}
+// a run where more than a tenth of what's tracked came back with no number is a warning, not small print
+export const missRate = (s) => { const m = /(\d+) had no number/.exec(s?.last?.error || ""); return m && s.tracked ? Number(m[1]) / s.tracked : 0; };
 // Site › Sync's sources: each one's schedule, scraper, when it last ran (or why it failed or was skipped) and
 // what it tracks. founder: the monthly cost, this month's spend and the budgets (the server sends no dollar
 // figures to anyone else); canEdit (Money too): change the schedule, scraper and budgets.
@@ -129,14 +146,23 @@ export function SourceNums({ d, founder, canEdit, onSaved }) {
   const set = (k, p) => setF((x) => ({ ...x, [k]: { ...x[k], ...p } }));
   const save = async () => { setBusy(true); setMsg(null); try { await dataPost({ action: "sources", sources: f, totalCapUsd: total }); setMsg({ ok: "Saved." }); await onSaved(); } catch (e) { setMsg({ err: e.message }); } finally { setBusy(false); } };
   const acct = d.cost?.account;
-  const month = new Date().toLocaleDateString(undefined, { month: "long" });
+  const pic = costPicture(d);
   return (
     <div className="nums-src" data-nums-sources>
-      {founder && d.cost && <p className="nums-costline" data-costline>About <b>{usd(d.cost.estMonthlyUsd)} a month</b> at this schedule · {usd(d.cost.spentUsd)} spent in {month}{acct ? ` · Apify: ${usd(acct.usageUsd)} of its ${usd(acct.limitUsd)} limit used${acct.at ? ` (as of ${shortDay(acct.at)}, ${clock(acct.at)})` : ""}` : ""}</p>}
+      {/* r10 fix (LIST B #4): one monthly picture: the estimate, what's spent, the cap that really stops runs, and a
+          warning when the estimate is over it */}
+      {founder && d.cost && (
+        <div className="nums-month" data-cost-month>
+          <p className="nums-costline" data-costline>{pic.month}: about <b>{usd2(pic.est)}</b> at this schedule · <b>{usd2(pic.spent)}</b> spent so far (the site's count of its own runs)</p>
+          {pic.limit != null && <p className="hint" data-cost-cap>Runs stop at <b>{usd2(pic.limit)}</b> a month: {pic.limitWhy}.{acct ? ` Apify's own count: ${usd2(acct.usageUsd)} of ${usd2(acct.limitUsd)}${acct.at ? ` as of ${shortDay(acct.at)}, ${clock(acct.at)}` : ""}, so runs after that aren't in it yet.` : ""}</p>}
+          {pic.over && <p className="nums-warn" role="alert" data-cost-over>The estimate is over the {usd2(pic.limit)} cap: at this pace the updates stop around {pic.stopDay}. Set a source to weekly to stay under it.</p>}
+          {pic.budgetsOver && <p className="hint" data-cost-budgets>The sources' own budgets add up to {usd2(pic.budgets)}, more than the {usd2(pic.total)} total. The total wins: a source with budget left still stops once all of them reach {usd2(pic.total)}.</p>}
+        </div>
+      )}
       {d.sources.map((s) => (
         <div key={s.key} className="nums-srow" data-source={s.key}>
           <div className="nums-srow-t"><b>{s.label}</b><span className="hint">{s.tracked} tracked{s.campaign ? ` · ${s.campaign} in campaign mode` : ""}{founder ? ` · about ${usd(s.estMonthlyUsd)}/month${s.paid ? ` · ${usd(s.spentUsd)} this month` : " · free"}` : s.paid ? "" : " · free"}</span>
-            <span className={`hint${s.last?.status === "failed" ? " err-text" : ""}`} data-last>{s.skipped ? `Skipped ${shortDay(s.skipped.at)}: ${s.skipped.why}` : s.last ? `${s.last.status === "failed" ? "Failed" : s.last.status === "started" ? "Running since" : "Last run"} ${shortDay(s.last.at)}${s.last.error ? `: ${s.last.error}` : ""}` : "Not run yet"}</span></div>
+            <span className={`hint${s.last?.status === "failed" ? " err-text" : missRate(s) > 0.1 ? " nums-warn" : ""}`} data-last data-miss={missRate(s) > 0.1 ? "warn" : undefined}>{missRate(s) > 0.1 ? "⚠ " : ""}{s.skipped ? `Skipped ${shortDay(s.skipped.at)}: ${s.skipped.why}` : s.last ? `${s.last.status === "failed" ? "Failed" : s.last.status === "started" ? "Running since" : "Last run"} ${shortDay(s.last.at)}${s.last.error ? `: ${s.last.error}` : ""}` : "Not run yet"}{missRate(s) > 0.1 ? ` That's ${Math.round(missRate(s) * 100)}% of the ${s.tracked}.` : ""}</span></div>
           {canEdit ? (
             <div className="nums-srow-f">
               {s.key !== "spotify_catalog" && <select aria-label="How often" value={f[s.key].schedule} onChange={(e) => set(s.key, { schedule: e.target.value })}><option value="daily">Daily</option><option value="weekly">Weekly</option></select>}

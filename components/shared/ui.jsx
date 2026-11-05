@@ -15,6 +15,9 @@ import { webLink } from "../site/data";
 // files); a cover pasted from anywhere else would come back 400 from it, so it loads as-is instead
 // (uploaded photos are Vercel Blob links, *.public.blob.vercel-storage.com, listed there too)
 export const OPTIMIZABLE = /^(?:\/(?!\/)|https:\/\/(?:i\.scdn\.co|www\.defiedmgmt\.com|[a-z0-9-]+\.public\.blob\.vercel-storage\.com)\/)/i;
+// r10 fix (cell data): a small avatar's photo through the same resizer the public roster uses (next/image's
+// /_next/image, w from its imageSizes), not the 1-2.5 MB original; anything it can't resize stays as it is
+export const thumb = (src, w = 96) => (src && OPTIMIZABLE.test(src) && !/^\/_next\//.test(src) ? `/_next/image?url=${encodeURIComponent(src)}&w=${w}&q=75` : src);
 export function Photo({ src: rawSrc, alt, className = "", fill, sizes, ...rest }) {
   const [loaded, setLoaded] = useState(false);
   // the page's security policy only loads https images: an http:// one pasted in gets the secure copy

@@ -151,7 +151,8 @@ never values.
 | `DATA_HOOK_SECRET` | The secret Apify sends back to `/api/data-hook` when a run ends, so its numbers land at once. Unset, the second daily cron collects them instead. |
 | `DATA_HOOK_URL` | Where Apify calls back. Unset, it's the production site's `/api/data-hook`. |
 | `BLOB_READ_WRITE_TOKEN` | The Vercel Blob store for photos and covers. Vercel adds it when the store is connected. Unset, photos are kept inside the database as before. |
-| `ACCOUNTING_SHEET_LINK_ID` | Only builds the "Open the sheet" link on the accounting sync check (never read or written). A preview can read a stand-in sheet and still open the real one. Unset, the link uses `ACCOUNTING_SHEET_ID`. |
+| `ACCOUNTING_SHEET_LINK_ID` | Only builds the "Open the sheet" links (Site › Sync, Money) to the accounting sheet (never read or written). A preview can read a stand-in sheet and still open the real one. Unset, the links use `ACCOUNTING_SHEET_ID`. |
+| `GOOGLE_SHEET_LINK_ID` | Only builds the pub master sheet's "Open in sheet" links (never read or written). `none` hides them (a preview whose stand-in id would open nothing). Unset, the links use `GOOGLE_SHEET_ID`. |
 | `DIGEST_CHANNEL_ID` | The ClickUp Chat channel the Monday team digest posts to. Unset, the team digest isn't sent (it says so in its log). |
 | `DIGEST_PERSONAL_TO` | Who gets a personal Monday digest (a ClickUp direct message): `all`, or names or emails separated by commas. |
 | `PAID_WAIT_MS` | How long the paste box waits for a paid lookup (an Apify run) before answering, in milliseconds. 25000 by default; a run still going is picked up by the next lookup. |

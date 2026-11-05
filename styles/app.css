@@ -3218,3 +3218,19 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .home-week[data-empty] .hw-grid{display:none}
   .app:not(.pub) .home-week[data-empty] .hw-empty-line{display:block;margin:0;padding:10px 16px 12px;font-size:13.5px;color:var(--d-ink-4)}
 }
+/* r10 fix: the dashboard's small filter and setting selects read as menus (a chevron), in the dark style */
+.app:not(.pub) :is(.todo-cu-head,.sync-view,.arg-tools,.arg-sheet,.nums-src,.src-row) select{-webkit-appearance:none;appearance:none;min-height:36px;padding:0 30px 0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-md,8px);
+  background:var(--d-s1) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a3a3a3' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center;
+  color:var(--d-ink);font:inherit;font-size:13px;cursor:pointer}
+.app:not(.pub) :is(.sync-view,.nums-src,.src-row) input:is([type=number],[type=text]){min-height:36px;padding:0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-md,8px);background:var(--d-s1);color:var(--d-ink);font:inherit;font-size:13px}
+/* r10 fix: Site › Sync's month picture and its warnings */
+.app:not(.pub) .nums-month{display:flex;flex-direction:column;gap:4px;margin:0 0 12px}
+.app:not(.pub) .nums-month .nums-costline{margin:0}
+.app:not(.pub) .nums-warn{color:var(--d-warn,#e0af68)}
+.app:not(.pub) p.nums-warn{margin:2px 0 0;padding:8px 12px;border:1px solid color-mix(in srgb,var(--d-warn,#e0af68) 40%,transparent);border-radius:var(--d-r-md,8px);font-size:13px;line-height:1.45}
+/* the status dot stays beside its message's first line, and the message wraps (phones too) */
+.app:not(.pub) .sync-row{align-items:flex-start}
+.app:not(.pub) .sync-row .sync-dot{flex:none;margin-top:6px}
+.app:not(.pub) .sync-row .attn-main{min-width:0;flex:1 1 0}
+.app:not(.pub) .sync-row .attn-main :is(b,em){white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+@media (max-width:639px){ .app:not(.pub) .sync-row{display:flex;flex-wrap:wrap;gap:6px 10px} .app:not(.pub) .sync-row > .btn{margin-left:22px} }

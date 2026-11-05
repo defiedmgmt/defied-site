@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { Mail, X, Plus, Trash2, Check, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { evenSplit, splitWords, orderSplits } from "../../lib/splits";
-import { Photo, prefersReducedMotion } from "../shared/ui";
+import { Photo, prefersReducedMotion, thumb } from "../shared/ui";
 import { findByName } from "../site/data";
 
 /* ---- the brand font is /public/fonts/suntage.otf (preloaded in PageShell, so it downloads alongside
@@ -39,7 +39,7 @@ export const Area = ({ label, ...p }) => (
 );
 export const Avatar = ({ src, name, size = 56 }) =>
   src
-    ? <Photo className="avatar" src={src} alt={name} style={{ width: size, height: size }} />
+    ? <Photo className="avatar" src={thumb(src, size > 60 ? 128 : 96)} alt={name} style={{ width: size, height: size }} />
     : <div className="avatar avatar-ph" style={{ width: size, height: size, fontSize: size * 0.4 }}>{(name || "?")[0].toUpperCase()}</div>;
 
 // Lazy-load the HEIC decoder (iPhone photos) from CDN, once.

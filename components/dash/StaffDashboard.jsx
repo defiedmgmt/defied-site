@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { LogOut, ListMusic, RefreshCw, Handshake, LayoutDashboard, ListChecks, Receipt, MoreHorizontal, Globe } from "lucide-react";
-import { dueBucket } from "../../lib/todo-rank";
 import { ROLES, TAB_SECTION, AREA_SECTION } from "../../lib/roles";
 import { fullSiteSync, isSheetSyncStale } from "./catalog-data";
 import { useArSummary } from "./home-data";
@@ -119,7 +118,9 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const trueup = useTrueUp(tab, can("publishing") && !db?.access?.ownOnly); // TRUEUP-HOOK: its To do rows (GET /api/trueup)
   // only the areas this account may use (lib/roles.js)
   const todo = useMemo(() => todoItems({ db, songInfo, acct: acctN, ar: arSum, sync: sync.data, seeds: seeds.data }).concat(trueUpTodoItems(trueup.data)).filter((it) => can(AREA_SECTION[it.area] || "todo")), [db, songInfo, acctN, arSum, sync.data, seeds.data, trueup.data]); /* TRUEUP-HOOK: + the true-up rows */ // eslint-disable-line react-hooks/exhaustive-deps
-  const cuDue = (cu.data?.tasks || []).filter((t) => dueBucket(t.due) === "overdue" || dueBucket(t.due) === "today");
+  // r10 fix: every open ClickUp task To do lists counts (the pill, All and the badge said 0 next to "ClickUp · 2":
+  // the two had no due date); due ones still rank first in Biggest tasks
+  const cuDue = cu.data?.tasks || [];
   const todoN = todo.length + cuDue.length;
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
   const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou, can, seeds };

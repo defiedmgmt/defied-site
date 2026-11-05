@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   try {
     const mine = await ownSongs(req);
     const own = (x) => !mine || mine.has(x?.id);
-    if (req.method === "GET") return res.status(200).json({ auto: await autoState().then((a) => (mine ? { done: a.done.filter(own), held: a.held.filter((id) => mine.has(id)) } : a)), writes: shareWritesOn(), sheetUrl: process.env.GOOGLE_SHEET_ID ? `https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SHEET_ID}/edit` : null });
+    if (req.method === "GET") return res.status(200).json({ auto: await autoState().then((a) => (mine ? { done: a.done.filter(own), held: a.held.filter((id) => mine.has(id)) } : a)), writes: shareWritesOn(), sheetUrl: process.env.GOOGLE_SHEET_LINK_ID === "none" ? null : process.env.GOOGLE_SHEET_LINK_ID ? `https://docs.google.com/spreadsheets/d/${encodeURIComponent(process.env.GOOGLE_SHEET_LINK_ID)}/edit` : process.env.GOOGLE_SHEET_ID ? `https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SHEET_ID}/edit` : null });
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
     const b = req.body || {};
