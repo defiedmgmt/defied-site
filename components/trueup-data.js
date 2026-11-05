@@ -35,7 +35,8 @@ export function trueUpTodoItems(d) {
     d: saved ? `Luminate's ${shortDay(last.export_on)} numbers, ${plural(last.counts?.songs || 0, "song")}` : last ? `Last one: the ${shortDay(last.export_on)} file` : `${fmt(d.total)} roster songs to put in the report first`,
     cta: "Open", panel: "trueup", rank: { kind: "other" } });
   const n = d.notInReport?.length || 0;
-  if (n) out.push({ k: "trueup-new", area: "roster", t: `${fmt(n)} new roster song${n === 1 ? "" : "s"} ${n === 1 ? "isn't" : "aren't"} in the Luminate report yet`,
+  // (round 10) a song can be missing because Luminate leaves out songs with no plays, or because it isn't in the report
+  if (n) out.push({ k: "trueup-new", area: "roster", t: `${fmt(n)} roster song${n === 1 ? "" : "s"}: no plays this period, or not in the report yet`,
     d: d.baseline?.kind === "trueup" ? `Compared with the ${shortDay(d.baseline.on)} update` : `Compared with the ${shortDay(d.baseline?.on) || "last"} portfolio exports`, cta: "Copy", panel: "trueup-new", rank: { kind: "other" } });
   if (d.schedule?.remind) out.push({ k: "trueup-schedule", area: "roster", t: `Luminate's schedule ends on ${shortDay(d.schedule.ends)}: copy the report to keep it running`,
     cta: "Open", panel: "trueup-schedule", rank: { kind: "other" } });

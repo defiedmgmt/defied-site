@@ -62,7 +62,7 @@ function TrueUpDrop({ d }) {
   const take = async (list) => {
     const read = await Promise.all([...list].filter((f) => /\.csv$/i.test(f.name) || f.type === "text/csv").slice(0, 12).map(async (f) => ({ name: f.name, text: await f.text() })));
     setDone(null); setAll(false);
-    if (!read.length) { setOut({ fatal: `Those weren't CSV files. Drop the portfolio exports (portfolio-export-POR….csv). ${d.note}` }); return; }
+    if (!read.length) { setOut({ fatal: `Those weren't CSV files. ${d.note}` }); return; }
     setFiles(read); setBusy("checking");
     try { setOut(await post("/api/trueup", { action: "preview", files: read })); }
     catch (e) { setOut({ fatal: e.message }); }
@@ -96,8 +96,8 @@ function TrueUpDrop({ d }) {
         onDrop={(e) => { e.preventDefault(); setOver(false); if (!busy) take(e.dataTransfer.files); }}>
         <input type="file" accept=".csv,text/csv" multiple disabled={!!busy} aria-label="Choose this month's Luminate files" onChange={(e) => { take(e.target.files); e.target.value = ""; }} />
         {busy ? <RefreshCw size={22} className="spin" /> : <UploadCloud size={22} />}
-        <strong>{busy === "checking" ? "Checking the files…" : busy === "applying" ? "Saving Luminate's numbers…" : "Drop this month's Luminate files here"}</strong>
-        <span>{busy ? "This takes a few seconds." : "or tap to choose them. The 4 portfolio exports work, and so do two reports at once. Nothing changes until you press Apply."}</span>
+        <strong>{busy === "checking" ? "Checking the files…" : busy === "applying" ? "Saving Luminate's numbers…" : "Drop this month's Trend Report here"}</strong>
+        <span>{busy ? "This takes a few seconds." : "or tap to choose it. Two reports at once work too, and so do the 4 portfolio exports. Nothing changes until you press Apply."}</span>
       </label>
       <p className="hint tu-note" data-trend-note>{d.note}</p>
       {out && (
@@ -106,20 +106,24 @@ function TrueUpDrop({ d }) {
           {(out.errors || []).map((e) => <p key={e.fileName} className="hint err-text"><AlertTriangle size={13} /> {e.error}</p>)}
           {p && <>
             <p className="lm-result-title">{p.songs ? "Here's what this update would do. Nothing has changed yet." : "Nothing in these files changes a roster song."}</p>
-            <p className="tu-files">{(out.files || []).map((f) => `${f.list} (${shortDay(f.exportedAt)})`).join(" · ")}</p>
+            <p className="tu-files">{(out.files || []).map((f) => (f.kind === "trend" ? `${f.list}, ${f.location} (${shortDay(f.from)} – ${shortDay(f.through)})` : `${f.list} (${shortDay(f.exportedAt)})`)).join(" · ")}</p>
+            {out.blocked && <p className="hint err-text" data-trueup-blocked><AlertTriangle size={13} /> {out.blocked}</p>}
+            {p.jumpPrev?.songs > 0 && <p className="tu-line" data-jump={p.jumpPrev.pct ?? ""}>Against Luminate's last numbers ({p.jumpPrev.from === "portfolio" ? `the ${shortDay(p.jumpPrev.on)} portfolio files` : `the ${shortDay(p.jumpPrev.on)} update`}): <b>{fmt(p.jumpPrev.before)} → {fmt(p.jumpPrev.after)}</b>{p.jumpPrev.pct != null && <> ({p.jumpPrev.pct >= 0 ? "+" : ""}{p.jumpPrev.pct}%)</>} over {plural(p.jumpPrev.songs, "song")}.{p.jump?.noBefore > 0 && <> {plural(p.jump.noBefore, "song")} had no Luminate number here before.</>}</p>}
+            {p.byTitle > 0 && <p className="tu-line hint" data-by-title={p.byTitle}>{plural(p.byTitle, "song")} found by title and artist (no Luminate ID here yet){p.versions > 0 ? `, covering ${plural(p.versions, "more version")} (Luminate counts a song's versions as one)` : ""}.</p>}
             {p.songs > 0 && <p className="tu-line" data-changes={p.changed}><b>{changed.length ? `${plural(changed.length, "song")} change to Luminate's ${shortDay(p.exportOn)} number` : `${plural(p.songs, "song")} already match Luminate's ${shortDay(p.exportOn)} number`}</b>{p.songs - changed.length > 0 && changed.length > 0 && <> · {fmt(p.songs - changed.length)} already match</>}</p>}
             {shown.length > 0 && <ul className="tu-rows" data-change-rows>{shown.map((r) => (
-              <li key={r.lumId} data-lum={r.lumId}><span className="tu-name">{r.name}</span><span className="tu-num">{r.before == null ? "—" : fmt(r.before)} → <b>{fmt(r.total)}</b></span></li>
+              <li key={r.lumId} data-lum={r.lumId}><span className="tu-name">{r.name}</span><span className="tu-num">{r.before == null ? "new" : fmt(r.before)} → <b>{fmt(r.total)}</b>{r.pct != null && <em className="tu-pct">{r.pct >= 0 ? "+" : ""}{r.pct}%</em>}</span></li>
             ))}</ul>}
             {changed.length > shown.length && <button type="button" className="inline-link" onClick={() => setAll(true)}>Show all {fmt(changed.length)}</button>}
             {kept.length > 0 && <p className="tu-line" data-kept={kept.length}>{plural(kept.length, "song")} keep{kept.length === 1 ? "s" : ""} the ratio {kept.length === 1 ? "it has" : "they have"}: {kept.every((r) => r.why === kept[0].why) ? kept[0].why : "no Spotify count close enough to the file's day"}. The new total is still saved.</p>}
             {p.same > 0 && <p className="tu-line">{plural(p.same, "song")} were already updated from this file.</p>}
             {p.ar.length > 0 && <p className="tu-line hint">{plural(p.ar.length, "A&R row")} left as {p.ar.length === 1 ? "it is" : "they are"}: A&R uses the automated numbers.</p>}
             {p.artists > 0 && <p className="tu-line hint">{plural(p.artists, "artist row")} skipped: only songs are updated.</p>}
-            {p.unknown.length > 0 && <p className="tu-line hint" data-unknown={p.unknown.length}>{plural(p.unknown.length, "song")} in the files {p.unknown.length === 1 ? "isn't" : "aren't"} linked to a roster song here, so {p.unknown.length === 1 ? "it's" : "they're"} left out: {p.unknown.slice(0, 5).map((u) => u.name).join(", ")}{p.unknown.length > 5 ? ` and ${fmt(p.unknown.length - 5)} more` : ""}.</p>}
+            {p.unknown.length > 0 && <p className="tu-line hint" data-unknown={p.unknown.length}>{plural(p.unknown.length, p.unknown.every((u) => u.kind === "release") ? "release" : "song")} in the files {p.unknown.length === 1 ? "isn't" : "aren't"} linked to a roster song here, so {p.unknown.length === 1 ? "it's" : "they're"} left out: {p.unknown.slice(0, 5).map((u) => u.name).join(", ")}{p.unknown.length > 5 ? ` and ${fmt(p.unknown.length - 5)} more` : ""}.</p>}
+            {p.notIn?.n > 0 && <p className="tu-line hint" data-not-in-file={p.notIn.n}>{plural(p.notIn.n, "roster song")} {p.notIn.n === 1 ? "isn't" : "aren't"} in the files ({d.notInWords || "no plays this period, or not in the report yet"}): {p.notIn.n === 1 ? "it keeps its" : "they keep their"} last number.</p>}
             {p.older.length > 0 && <p className="tu-line hint">{plural(p.older.length, "song")} left out: this file is older than the update they already have.</p>}
             <div className="lm-result-acts">
-              {p.songs > 0 && <button className="btn sm" data-trueup-apply disabled={!!busy} onClick={apply}>{busy === "applying" ? "Applying…" : `Apply ${plural(p.songs, "song")}`}</button>}
+              {p.songs > 0 && !out.blocked && <button className="btn sm" data-trueup-apply disabled={!!busy} onClick={apply}>{busy === "applying" ? "Applying…" : `Apply ${plural(p.songs, "song")}`}</button>}
               <button className="btn ghost sm" disabled={!!busy} onClick={() => { setOut(null); setFiles(null); }}>Cancel</button>
             </div>
           </>}
@@ -231,7 +235,7 @@ function NotInReport({ d }) {
   return (
     <div className="todo-sublist tu" data-not-in-report={list.length}>
       <div className="tu-head"><b>{plural(list.length, "song")} to add</b><CopyButton songs={list} label="Copy" attr={{ "data-copy-new": "" }} /></div>
-      <p className="hint">Add these to the Luminate report (Copy pastes title, artist, ISRC and Spotify link as columns). {d.baseline?.kind === "trueup" ? `They weren't in the ${shortDay(d.baseline.on)} update's files.` : `They weren't in the ${shortDay(d.baseline?.on)} portfolio exports.`} This clears once a file with them is dropped in.</p>
+      <p className="hint" data-not-in-words>{d.notInWords || "No plays this period, or not in the report yet"}: {d.baseline?.kind === "trueup" ? `they weren't in the ${shortDay(d.baseline.on)} update's files` : `they weren't in the ${shortDay(d.baseline?.on)} portfolio exports`}, so they keep their last number. If one is missing from the Luminate report, add it (Copy pastes title, artist, ISRC and Spotify link as columns). This clears once a file with them is dropped in.</p>
       <SongList songs={list} max={12} attr={{ "data-new-list": "" }} />
     </div>
   );
