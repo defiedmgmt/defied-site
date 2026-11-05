@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
 import { X, Check, ExternalLink } from "lucide-react";
 import { swrJson } from "../ui/fetch-cache";
-import { AR_STAGES, ArDataError, arWrite, bigNum, followChip, pct1, stageOfStatus, statusForStage, useArData, wholeMoney, yearOne } from "./ar";
+import { ArDataError, arWrite, bigNum, followChip, pct1, stageOfStatus, statusForStage, useArData, wholeMoney, yearOne } from "./ar";
+import { AR_STAGES } from "./ar-stages";
 import { shortDay } from "./helpers";
 import { Area, Field, fmt, money, useEscape } from "./ui";
-import { AskCard, useDirtyGuard } from "../portal/ClientPortal";
+import { AskCard, useDirtyGuard } from "../portal/ask";
 import { ExtLink } from "../shared/ui";
 import { findByName } from "../site/data";
 

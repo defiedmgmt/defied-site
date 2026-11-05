@@ -6,9 +6,14 @@ import { swrJson, peekJson } from "../ui/fetch-cache";
 import { ProspectForm } from "./advance";
 import { IsrcPicks, dayRange, daysSince, shortDay, useMedia } from "./helpers";
 import { Area, Avatar, Field, fmt, money, revealChip, useEscape } from "./ui";
-import { AskCard, useDirtyGuard } from "../portal/ClientPortal";
+import { AskCard, useDirtyGuard } from "../portal/ask";
 import { arPgCache } from "../shared/dash-caches";
 import { ExtLink } from "../shared/ui";
+// (list B #11) the pills and stages Home and Publishing draw too live in leaf modules; still exported from here
+import { WowPill, pctText, clock } from "./chips";
+import { AR_STAGES, StagePill, stageLabel } from "./ar-stages";
+export { AR_STAGES, StagePill } from "./ar-stages";
+export { WowPill, clock } from "./chips";
 
 /* staff: A&R — outreach pipeline + advance calculator, both backed by the
    OUTREACH / ADVANCE CALCULATOR sheet tabs. Deliberately isolated from
@@ -103,21 +108,8 @@ const ArHead = ({ sub, children }) => (
     {children && <div className="arb-head-actions">{children}</div>}
   </div>
 );
-
-// The Board's stages in plain words. A producer's stage is its sheet status (OUTREACH_STATUSES are
-// what's saved); a tracked artist's is saved in the database only (ar_tracked.stage).
-export const AR_STAGES = [
-  { id: "reach", label: "To reach out", hint: "Haven't messaged yet", verb: null, status: "Not Contacted" },
-  { id: "reached", label: "Reached out", hint: "Waiting to hear back", verb: "Reached out →", status: "Contacted" },
-  { id: "talking", label: "Talking", hint: "Going back and forth", verb: "Started talking →", status: "In Talks" },
-  { id: "offer", label: "Offer sent", hint: "Waiting on their answer", verb: "Sent an offer →", status: "Offer Out" },
-  { id: "signed", label: "Signed", hint: "Done deals", verb: "Signed ✓", status: "Signed" },
-];
 const STAGE_OF_STATUS = { "Not Contacted": "reach", Researching: "reach", "": "reach", Contacted: "reached", "In Talks": "talking", "Offer Out": "offer", Signed: "signed", Passed: "passed" };
 export const stageOfStatus = (s) => STAGE_OF_STATUS[String(s ?? "").trim()] || "other";
-const stageLabel = (id) => AR_STAGES.find((s) => s.id === id)?.label || (id === "passed" ? "Passed" : id === "other" ? "Other" : "Just watching");
-// one coloured pill per stage (the colour comes from data-stage), the same on every A&R page
-export const StagePill = ({ id, n, label }) => <span className="ar-stage" data-stage={id}>{label || stageLabel(id)}{n != null && <b>{n}</b>}</span>;
 // the status a move saves: "To reach out" keeps Researching when that's what it was
 export const statusForStage = (id, current) => (id === "passed" ? "Passed" : id === "reach" && String(current ?? "").trim() === "Researching" ? "Researching" : AR_STAGES.find((s) => s.id === id)?.status);
 // a card can only be moved onto a real stage: "Other" is whatever was typed by hand, never a target
@@ -132,11 +124,6 @@ export const bigNum = (n) => {
   const a = Math.abs(Number(n) || 0), s = n < 0 ? "-" : "";
   return a >= 1e6 ? `${s}${Math.round(a / 1e4) / 100}M` : a >= 1e3 ? `${s}${Math.round(a / 1e3)}K` : `${s}${fmt(Math.round(a))}`;
 };
-// a flat week (rounds to 0.0%) has no arrow: it went neither up nor down
-const flatPct = (p) => Math.abs(p) < 0.05;
-const pctText = (p) => (flatPct(p) ? "0.0%" : `${p >= 0 ? "▲" : "▼"} ${Math.abs(p).toFixed(1)}%`);
-// the week-on-week % as one pill everywhere: ▲ green up, ▼ red down, grey when flat; nothing when there's no last week
-export const WowPill = ({ pct, big }) => (pct == null ? null : <span className={big ? "wow-pill big" : "wow-pill"} data-dir={flatPct(pct) ? "flat" : pct >= 0 ? "up" : "down"}>{pctText(pct)}</span>);
 // someone we track by hand with no numbers yet (Passed is done, so it doesn't count): the "no numbers" filter
 const noNums = (r) => r.ref?.type === "tracked" && r.current == null && r.stage !== "passed";
 // a row's number in words: an artist's Spotify monthly listeners, a song's Spotify streams this week
@@ -933,7 +920,6 @@ function ArTotals({ data }) {
 const statusTone = (s = "") => /signed/i.test(s) ? "pos" : /offer/i.test(s) ? "warn" : /talk|negotiat/i.test(s) ? "info" : /not contacted|pass|declin/i.test(s) ? "muted" : undefined;
 // (rounded half up: toFixed alone reads 14,450,000 as "14.4M", binary floats)
 const roundMoney = (n) => { const a = Number(n) || 0; return `$${fmt(a >= 1000 ? Math.round(a / 100) * 100 : Math.round(a / 10) * 10)}`; };
-export const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "");
 const weekday = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" });
 
 // "Off the board": removed by staff, or gone from the sheet. Put back writes them into a free row;

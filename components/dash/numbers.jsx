@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { ChevronDown, RefreshCw, AlertTriangle, TrendingUp, ChevronRight } from "lucide-react";
+import { ChevronDown, RefreshCw, AlertTriangle, TrendingUp } from "lucide-react";
 import { swrJson, peekJson } from "../ui/fetch-cache";
-import { clock } from "./ar";
+
 import { RowMenu, Sparkline, compact, shortDay } from "./helpers";
 import { fmt } from "./ui";
+import { dataPost, clock } from "./chips";
+export { dataPost, TodoChip } from "./chips";
 
 /* Numbers (list B #4): the automated numbers ------------------------------ */
 // Every roster artist (and watchlist artist) with their numbers, each labelled by platform ("Spotify
@@ -11,12 +13,6 @@ import { fmt } from "./ui";
 // source hasn't refreshed it on time (the last good number stays). Tap an artist for their songs and
 // campaign mode (daily updates while we push them). Sounds: TikTok sounds we track by link. Sources &
 // cost: how often each source runs, which scraper it uses, its monthly budget and what a month costs.
-export const dataPost = async (body) => {
-  const r = await fetch("/api/data", { method: "POST", headers: { "content-type": "application/json", "x-requested-with": "defied-site" }, body: JSON.stringify(body) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || "Couldn't save that — try again.");
-  return j;
-};
 const usd = (v) => `$${(Number(v) || 0).toFixed(Number(v) >= 10 ? 0 : 2)}`;
 const big = (n) => (n == null ? "—" : Math.abs(n) >= 1e4 ? compact(n).replace(/^\+/, "") : fmt(n));
 const pctWord = (p) => (p == null ? null : `${p >= 0 ? "+" : "−"}${Math.abs(Math.round(p * 100))}%`);
@@ -258,10 +254,4 @@ export function HomeNumbers({ onGo }) {
       {d.newReleases.map((r, i) => <p key={`r${i}`} className="todo-line" data-new-release><b>{r.artist}</b>&nbsp;released “{r.name}” ({shortDay(r.releaseDate)}), picked up for tracking</p>)}
     </div>
   );
-}
-
-// A dashboard tab's one link to its to-dos: "3 to do ›", opening To do on that area (none: nothing shown)
-export function TodoChip({ n, area, onGo }) {
-  if (!n) return null;
-  return <button type="button" className="todo-chip" data-area={area} data-todo-chip={area} onClick={() => onGo("todo", area)}>{n} to do <ChevronRight size={14} aria-hidden="true" /></button>;
 }

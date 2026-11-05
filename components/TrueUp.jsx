@@ -5,35 +5,16 @@
 //                    no ISRC and the ISRC finder) and the schedule's end day
 //   trueup-new       "N new roster songs aren't in the Luminate report yet": the list and Copy
 //   trueup-schedule  "Luminate's schedule ends on <day>": I copied it / another day (a Founder)
-// The dashboard only imports this (dash/StaffDashboard.jsx, dash/todo.jsx) (TRUEUP-HOOK lines): useTrueUp in StaffDashboard, trueUpTodoItems in the To do list,
-// TrueUpPanel in TodoPanel.
-import React, { useEffect, useState, useSyncExternalStore } from "react";
+// The dashboard imports these (TRUEUP-HOOK lines): useTrueUp and trueUpTodoItems in StaffDashboard (from
+// trueup-data.js, the shell's small part, so the shell never loads this file), TrueUpPanel in To do's TodoPanel.
+import React, { useEffect, useState } from "react";
 import { UploadCloud, RefreshCw, CheckCircle2, AlertTriangle, Copy, Disc3 } from "lucide-react";
+import { store, emit, useTrueUp, reloadTrueUp, shortDay, plural, fmt } from "./trueup-data";
+export { reloadTrueUp, useTrueUp, trueUpTodoItems } from "./trueup-data";
 
-const fmt = (n) => Number(n || 0).toLocaleString();
-const shortDay = (iso) => (iso ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00` : iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
 const longDay = (iso) => (iso ? new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "");
-const plural = (n, one, many = `${one}s`) => `${fmt(n)} ${n === 1 ? one : many}`;
 const ISRC_SOURCES = { "spotify-link": "the song's Spotify link", deezer: "Deezer", "deezer-artist": "the artist's Deezer page", musicbrainz: "MusicBrainz", manual: "typed in" };
-
-// ---- one shared copy of GET /api/trueup (the sidebar count, the To do rows and the panel all read it)
-// recent: the update applied in this visit, so its row (and its Undo) stays until the page is left
-const store = { d: null, err: null, subs: new Set(), loading: null, recent: null };
-const emit = () => store.subs.forEach((f) => f());
-export function reloadTrueUp() {
-  if (store.loading) return store.loading;
-  store.loading = fetch("/api/trueup", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("load"))))
-    .then((d) => { store.d = { ...d, recent: store.recent }; store.err = null; }).catch(() => { store.err = true; }).finally(() => { store.loading = null; emit(); });
-  return store.loading;
-}
 const setRecent = (x) => { store.recent = x; if (store.d) store.d = { ...store.d, recent: x }; emit(); };
-const sub = (f) => { store.subs.add(f); return () => store.subs.delete(f); };
-const snap = () => store.d;
-export function useTrueUp(tab, on = true) {
-  const data = useSyncExternalStore(sub, snap, () => null);
-  useEffect(() => { if (on && (tab === "home" || tab === "todo" || !store.d)) reloadTrueUp(); }, [tab, on]);
-  return { data: on ? data : null, reload: reloadTrueUp };
-}
 async function post(url, body) {
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify(body) }).catch(() => null);
   const data = res && await res.json().catch(() => null);
@@ -53,23 +34,6 @@ async function copy(text) {
 }
 // tab-separated, a header row first: pastes as columns into a sheet (and is easy to read song by song)
 export const songsText = (songs) => ["Title\tArtist\tISRC\tSpotify", ...songs.map((s) => [s.title, s.artist, s.isrc, s.spotify].map((v) => String(v || "").replace(/[\t\n\r]+/g, " ")).join("\t"))].join("\n");
-
-// ---- To do's rows (pure, from GET /api/trueup)
-export function trueUpTodoItems(d) {
-  if (!d) return [];
-  const out = [];
-  const last = d.runs?.[0];
-  const saved = d.recent && last?.id === d.recent.id && !d.due;
-  if (d.due || saved) out.push({ k: "trueup", area: "roster", t: saved ? "Monthly Luminate update: saved" : "Monthly Luminate update: drop this month's report",
-    d: saved ? `Luminate's ${shortDay(last.export_on)} numbers, ${plural(last.counts?.songs || 0, "song")}` : last ? `Last one: the ${shortDay(last.export_on)} file` : `${fmt(d.total)} roster songs to put in the report first`,
-    cta: "Open", panel: "trueup", rank: { kind: "other" } });
-  const n = d.notInReport?.length || 0;
-  if (n) out.push({ k: "trueup-new", area: "roster", t: `${fmt(n)} new roster song${n === 1 ? "" : "s"} ${n === 1 ? "isn't" : "aren't"} in the Luminate report yet`,
-    d: d.baseline?.kind === "trueup" ? `Compared with the ${shortDay(d.baseline.on)} update` : `Compared with the ${shortDay(d.baseline?.on) || "last"} portfolio exports`, cta: "Copy", panel: "trueup-new", rank: { kind: "other" } });
-  if (d.schedule?.remind) out.push({ k: "trueup-schedule", area: "roster", t: `Luminate's schedule ends on ${shortDay(d.schedule.ends)}: copy the report to keep it running`,
-    cta: "Open", panel: "trueup-schedule", rank: { kind: "other" } });
-  return out;
-}
 
 export function TrueUpPanel({ kind, ctx }) {
   const { data: d } = useTrueUp("todo");

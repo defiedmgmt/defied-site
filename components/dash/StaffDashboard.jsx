@@ -4,28 +4,25 @@ import { useRouter } from "next/router";
 import { LogOut, ListMusic, RefreshCw, Handshake, TrendingUp, LayoutDashboard, ListChecks, Receipt, MoreHorizontal, Globe } from "lucide-react";
 import { dueBucket } from "../../lib/todo-rank";
 import { ROLES, TAB_SECTION, AREA_SECTION } from "../../lib/roles";
-import { ARAdmin } from "./ar";
-import { CatalogAdmin, fullSiteSync, isSheetSyncStale } from "./catalog";
-import { HomeDashboard, useArSummary } from "./home";
-import { AccountingAdmin } from "./money";
-import { NumbersPage, TodoChip } from "./numbers";
-import { SiteAdmin } from "./site";
-import { TodoPage, todoItems, useAutoConfirm, useCuTasks, useSeeds, useSplitFixes, useSyncChecks } from "./todo";
+import { fullSiteSync, isSheetSyncStale } from "./catalog-data";
+import { useArSummary } from "./home-data";
+import { TodoChip } from "./chips";
+import { SECTION_CODE, HomeDashboard, TodoPage, CatalogAdmin, AccountingAdmin, ARAdmin, SiteAdmin, NumbersPage } from "./sections";
+import { todoItems, useAutoConfirm, useCuTasks, useSeeds, useSplitFixes, useSyncChecks } from "./todo-data";
 import { Wordmark } from "./ui";
-import { useTrueUp, trueUpTodoItems } from "../TrueUp"; // TRUEUP-HOOK: the monthly Luminate true-up
+import { useTrueUp, trueUpTodoItems } from "../trueup-data"; // TRUEUP-HOOK: the monthly Luminate true-up
 import { ROUTE_TO_PATH } from "../shared/routes";
+import { canUse } from "./access";
+export { canUse, TODO_AREAS } from "./access";
 
-// Roles (lib/roles.js): may this account use that section? The server says which in db.access (and
-// enforces it on every request); with no db.access (a client's portal) nothing here applies.
-export const canUse = (db, k) => !db?.access || db.access.sections.includes(k);
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
 const DASH_TABS = ["home", "todo", "catalog", "numbers", "money", "ar", "site"];
-export const TODO_AREAS = ["money", "roster", "ar", "clickup", "site"];
 function placeOf(t, s) {
   const sub = typeof s === "string" && s ? s : null;
   if (t === "accounting") return sub === "log" || sub === "check" ? { tab: "todo", sub } : { tab: "money", sub: sub === "payments" ? "payments" : null };
   if (t === "website") return { tab: "site", sub };
+  if (t === "publishing") return { tab: "catalog", sub };
   if (t === "users") return { tab: "site", sub: "users" };
   if (t === "subs") return { tab: "site", sub: "messages" };
   if (t === "catalog" && ["splits", "update", "dupes"].includes(sub)) return { tab: "todo", sub };
@@ -137,7 +134,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         <div className="dash-brand"><Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link></div>
         <nav>
           {tabs.map(([id, label, Icon, badge, area]) => (
-            <button key={id} className={[at === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={at === id ? "page" : undefined} onClick={() => setTab(id)}>
+            <button key={id} className={[at === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={at === id ? "page" : undefined} onClick={() => setTab(id)} onPointerEnter={() => SECTION_CODE[id]?.()} onFocus={() => SECTION_CODE[id]?.()}>
               <Icon size={17} /> <span className="nav-label">{label}</span>
               {!!badge && <span className="nav-badge">{badge}</span>}
             </button>

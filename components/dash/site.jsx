@@ -1,8 +1,12 @@
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { saveRow } from "../app/saves";
-import { ClientsAdmin, Editor, SpotifyFill, SubsAdmin, TeamAdmin, UsersAdmin } from "./admin";
-import { SyncView } from "./home";
+import { ClientsAdmin, Editor, SubsAdmin, TeamAdmin, UsersAdmin } from "./admin";
+import { SpotifyFill } from "./clients";
+import { SectionWait } from "./sections";
 import { Field, PhotoUpload, revealChip, uid } from "./ui";
+// Site › Sync lives with Home (home.jsx): its code comes when Sync opens, so Site alone doesn't load Home's (list B #11)
+const SyncView = dynamic(() => import("./home").then((m) => m.SyncView), { ssr: false, loading: SectionWait });
 
 // Site: the public website's content, the logins, the contact form's messages, and the Sync view
 const SITE_SECS = [["website", "Website"], ["users", "Users"], ["messages", "Messages"], ["sync", "Sync"]];

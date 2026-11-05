@@ -1,0 +1,6 @@
+/* list B #11: the placeholder a dashboard section shows while its code loads (components/dash/sections.jsx) */
+.section-wait{display:flex;flex-direction:column;gap:14px;padding:4px 0;max-width:760px;animation:fadeIn .2s ease .15s both}
+.section-wait .sw-bar{display:block;height:14px;border-radius:7px;background:linear-gradient(90deg,var(--panel) 0%,var(--panel2) 50%,var(--panel) 100%);background-size:200% 100%;animation:shimmer 1.4s linear infinite}
+.section-wait .sw-head{height:26px;width:180px;margin-bottom:8px}
+.section-wait .sw-short{width:55%}
+@media (prefers-reduced-motion:reduce){.section-wait,.section-wait .sw-bar{animation:none}}

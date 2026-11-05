@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef } from "react";
 import { X, RefreshCw, AlertTriangle, CheckCircle2, CircleDollarSign, Info } from "lucide-react";
 import { foldMonths } from "../../lib/months";
 import { swrJson } from "../ui/fetch-cache";
-import { clock } from "./ar";
+import { clock } from "./chips";
 import { payDay, shortDay } from "./helpers";
-import { HomeWait, monthName } from "./home";
+import { HomeWait, monthName } from "./home-data";
 import { fmt, money, useEscape } from "./ui";
-import { AskCard } from "../portal/ClientPortal";
+import { AskCard } from "../portal/ask";
 import { ExtLink } from "../shared/ui";
 
 // "Nov", "Oct": this month and the one before, from the day the page is viewed
