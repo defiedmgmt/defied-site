@@ -16,7 +16,7 @@ import { PanelWait } from "./sections";
 export { useCuTasks, useSyncChecks, todoItems, useSplitFixes, useAutoConfirm, syncFix, useSeeds } from "./todo-data";
 
 // The panels a row opens in place come from other areas (Money's log preview, Publishing's split and merge
-// cards, A&R's follow-ups, the true-up, Site's messages): each one's code loads the first time it opens,
+// cards, the true-up, Site's messages): each one's code loads the first time it opens,
 // so To do and Home don't download every area's code up front (list B #11).
 const panel = (load, name) => dynamic(() => load().then((m) => m[name]), { ssr: false, loading: PanelWait });
 const AccountingAdmin = panel(() => import("./money"), "AccountingAdmin");
@@ -25,7 +25,6 @@ const DupeMerge = panel(() => import("./catalog"), "DupeMerge");
 const SongsToUpdate = panel(() => import("./catalog"), "SongsToUpdate");
 const SplitsToFix = panel(() => import("./catalog"), "SplitsToFix");
 const SongManager = panel(() => import("../portal/ClientPortal"), "SongManager");
-const ArFollowUps = panel(() => import("./todo-ar"), "ArFollowUps");
 const TrueUpPanel = panel(() => import("../TrueUp"), "TrueUpPanel"); // TRUEUP-HOOK: the monthly Luminate true-up
 const IsrcFinder = panel(() => import("./isrc-finder"), "IsrcFinder"); // r11: the ISRC finder, out of Publishing
 
@@ -54,7 +53,6 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "shareSite": case "shareSheet": return <ShareFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
     case "tabs": return <SheetTabFix ctx={ctx} />;
     case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log" && viaCta} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
-    case "follow": return <ArFollowUps ctx={ctx} />;
     case "seeds": return <SeedList area={it.seedArea} ctx={ctx} />;
     case "arConfirm": return <div className="todo-sublist"><p className="hint">Their Luminate numbers stay as history. Once you tap the right Spotify profile, its numbers start with the next update.</p><button type="button" className="btn sm" onClick={() => ctx.onGo("ar", "watch/confirm")} data-go-confirm>Open the Watchlist's confirm list</button></div>;
     case "trueup": case "trueup-new": case "trueup-schedule": return <TrueUpPanel kind={it.panel} ctx={ctx} />; // TRUEUP-HOOK

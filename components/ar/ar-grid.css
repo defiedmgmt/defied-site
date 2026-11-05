@@ -197,7 +197,7 @@
 
 /* ---- r11 (A&R UI): colour-coded types, A&R's one-row head, A&R Home on one screen ---- */
 /* the Watchlist's four types (the merge makes these one set with To do's --area-*) */
-:root { --type-artist: #60a5fa; --type-producer: #a78bfa; --type-song: #34d399; --type-sound: #22d3ee; }
+/* --type-* (Artist blue, Producer violet, Song green, TikTok sound cyan) are defined once in styles/app.css :root, next to --area-* */
 [data-type="artist"] { --tc: var(--type-artist); }
 [data-type="producer"] { --tc: var(--type-producer); }
 [data-type="song"] { --tc: var(--type-song); }

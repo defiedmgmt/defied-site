@@ -74,8 +74,7 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
     d: fx.site.length > 1 ? few(fx.site) : `${fx.site[0].client.name}'s tab`, cta: "Use the sheet's split", panel: "shareSite", rank: { kind: "fix", value: streams(fx.site.map((x) => x.p)) } });
   if (fx.sheet.length) out.push({ k: "shareSheet", area: "roster", tap: true, t: fx.sheet.length === 1 ? `"${fx.sheet[0].p.song || "Untitled"}" has a blank share on the sheet` : `${fx.sheet.length} songs have a blank share on the sheet`,
     d: "100% here. A blank share earns nothing on the sheet.", cta: fx.sheet.length === 1 ? "Fill in 100%" : `Fill in ${fx.sheet.length}`, panel: "shareSheet", rank: { kind: "fix", value: streams(fx.sheet.map((x) => x.p)) } });
-  const due = ar?.followUpsDue || 0;
-  if (due) out.push({ k: "follow", area: "ar", t: `${due} A&R follow-up${due === 1 ? "" : "s"} due`, cta: "Review", panel: "follow", rank: { kind: "contacts", value: due } });
+  // (r11: Outreach is gone, and with it the "N A&R follow-ups due" row)
   // the old Luminate portfolios' songs and artists not tracked yet (list B #3): one row per area, each
   // one finished in the list it opens (Yes to a match, a pasted Spotify link, Not on Spotify)
   // (r10: the A&R rows are on the Watchlist now; what's left is their artists' Spotify match, the row below)

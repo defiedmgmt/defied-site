@@ -395,6 +395,11 @@ button{font-family:inherit;cursor:pointer}
 /* ================================================================ */
 /*  DASHBOARD + PORTAL v2 — every rule scoped to .app:not(.pub)     */
 /* ================================================================ */
+/* r11: the two shared colour sets (S/r11/PLAN.txt), in one place.
+   --area-*: which part of the business a task, nav item or badge belongs to (To do, Biggest tasks, the nav).
+   --type-*: what a Watchlist row is (A&R's chips and 3px left bars: components/ar/ar-grid.css [data-type]). */
+:root{--area-money:#34d399;--area-pub:#60a5fa;--area-ar:#f59e0b;--area-site:#a78bfa;--area-clickup:#f29bc8;
+  --type-artist:#60a5fa;--type-producer:#a78bfa;--type-song:#34d399;--type-sound:#22d3ee;}
 .app:not(.pub){
   --d-bg:#000;--d-side:#050506;--d-s1:#0b0b0c;--d-s2:#111113;--d-s3:#161618;--d-field:#0d0d0f;
   --d-hover:rgba(255,255,255,.04);--d-active:rgba(255,255,255,.07);--d-overlay:rgba(0,0,0,.72);
@@ -409,7 +414,7 @@ button{font-family:inherit;cursor:pointer}
   /* area colours: which part of the business a task, nav item or badge belongs to (never on numbers) */
   /* r11 (the owner: "money and pub colors are very similar on todo ... they shld all have a diff color like clickup"):
      one hue per area, the shared set (S/r11/PLAN.txt): Money green, Publishing blue, A&R amber, Site violet, ClickUp pink */
-  --area-money:#34d399;--area-pub:#60a5fa;--area-ar:#f59e0b;--area-site:#a78bfa;--area-clickup:#f29bc8;
+  /* (the --area-* values live in the :root block above .app, with the Watchlist's --type-* set) */
   --d-a-lum:var(--d-info);--d-a-pub:var(--area-pub);--d-a-ar:var(--area-ar);--d-a-cu:var(--area-clickup);--d-a-money:var(--area-money);--d-a-site:var(--area-site);
   --d-display:'Suntage','Inter',sans-serif;
   --d-body:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
