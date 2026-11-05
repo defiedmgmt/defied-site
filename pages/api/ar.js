@@ -97,7 +97,7 @@ export default async function handler(req, res) {
     if (req.body?.action === "addTracked" && out?.tracked?.id) await addEntry({ user: { id: session.user.id, name: session.user.name || session.user.email || "" }, subject: `w:${out.tracked.id}`, kind: out.tracked.kind === "song" ? "song" : "artist", days }).catch(noTable);
     if (req.body?.action === "removeTracked") {
       await sql`UPDATE ar_tracker SET removed_at = now(), removed_why = 'removed' WHERE subject = ${`w:${String(req.body.id || "")}`} AND removed_at IS NULL`.catch(noTable);
-      await sheetAfter([{ action: "Removed", who: session.user.name || "", subject: `w:${String(req.body.id || "")}` }]);
+      await sheetAfter([{ action: "Removed", userId: session.user.id, who: session.user.name || "", subject: `w:${String(req.body.id || "")}` }]);
     }
     await afterAction(["ar"]); // the A&R ClickUp task follows (CLICKUP_TASK_WRITES only)
     return res.status(200).json(out);

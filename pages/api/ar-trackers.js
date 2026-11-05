@@ -56,7 +56,7 @@ export default async function handler(req, res) {
       // your own entry; a Founder may take anyone's off (the page's confirm names the person)
       const [e] = await sql`SELECT owner_id FROM ar_tracker WHERE id = ${String(b.entryId || "")} AND removed_at IS NULL`;
       if (e && e.owner_id !== user.id && req.access?.role !== "founder") return res.status(403).json({ error: "That's on someone else's list. A Founder can take it off." });
-      return res.status(200).json(await T.removeEntry({ entryId: String(b.entryId || ""), by: user.name }));
+      return res.status(200).json(await T.removeEntry({ entryId: String(b.entryId || ""), by: user.name, byId: user.id }));
     }
     // r10 fix: the drawer's "Add to my list" on a row someone else added (your name goes on it, 30 days)
     if (b.action === "addMine") {
@@ -67,7 +67,7 @@ export default async function handler(req, res) {
       return res.status(200).json(await T.addEntry({ user, subject, kind: e.kind, days: T.DEFAULT_DAYS }));
     }
     // (r11) the A&R sheet: a confirmed match is a Log line; a match turned down or new notes change the Watchlist tab
-    if (b.action === "confirmMatch") { const out = await L.confirmMatch({ id: b.id, spotifyId: String(b.spotifyId || ""), by: user.name }); await T.sheetAfter([{ action: "Confirmed", who: user.name, subject: `w:${String(b.id)}` }]); return res.status(200).json(out); }
+    if (b.action === "confirmMatch") { const out = await L.confirmMatch({ id: b.id, spotifyId: String(b.spotifyId || ""), by: user.name }); await T.sheetAfter([{ action: "Confirmed", userId: user.id, who: user.name, subject: `w:${String(b.id)}` }]); return res.status(200).json(out); }
     if (b.action === "notThem") { const out = await L.notThem({ id: b.id, spotifyId: String(b.spotifyId || "") }); await T.sheetAfter(); return res.status(200).json(out); }
     if (b.action === "notes") { const out = await L.saveNotes({ id: b.id, notes: b.notes }); await T.sheetAfter(); return res.status(200).json(out); }
     if (b.action === "setMode") {
