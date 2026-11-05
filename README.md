@@ -152,6 +152,8 @@ never values.
 | `DATA_HOOK_URL` | Where Apify calls back. Unset, it's the production site's `/api/data-hook`. |
 | `BLOB_READ_WRITE_TOKEN` | The Vercel Blob store for photos and covers. Vercel adds it when the store is connected. Unset, photos are kept inside the database as before. |
 | `ACCOUNTING_SHEET_LINK_ID` | Only builds the "Open the sheet" links (Site › Sync, Money) to the accounting sheet (never read or written). A preview can read a stand-in sheet and still open the real one. Unset, the links use `ACCOUNTING_SHEET_ID`. |
+| `AR_TRACKER_SHEET_ID` | The A&R sheet's spreadsheet id (r11): a new spreadsheet ("Defied A&R Tracker"), shared as Editor with `GOOGLE_SHEETS_CLIENT_EMAIL` (the same Google service account as the pub and accounting sheets). Written only with `AR_TRACKER_SHEET_WRITES=on`. |
+| `AR_TRACKER_SHEET_LINK_ID` | Only builds the A&R sheet's "Open the sheet" link (never read or written). `none` hides the link; unset, it uses `AR_TRACKER_SHEET_ID`. |
 | `GOOGLE_SHEET_LINK_ID` | Only builds the pub master sheet's "Open in sheet" links (never read or written). `none` hides them (a preview whose stand-in id would open nothing). Unset, the links use `GOOGLE_SHEET_ID`. |
 | `DIGEST_CHANNEL_ID` | The ClickUp Chat channel the Monday team digest posts to. Unset, the team digest isn't sent (it says so in its log). |
 | `DIGEST_PERSONAL_TO` | Who gets a personal Monday digest (a ClickUp direct message): `all`, or names or emails separated by commas. |
@@ -163,7 +165,8 @@ never values.
 |---|---|
 | `ACCOUNTING_SHEET_WRITES` | "Log it": new rows on the accounting sheet's Income tab. |
 | `CLICKUP_TASK_WRITES` | ClickUp tasks: create, update and mark done. |
-| `AR_SHEET_WRITES` | The A&R tab's saves to OUTREACH / ADVANCE CALCULATOR. Off in production when unset. |
+| `AR_SHEET_WRITES` | Publishing › Advance calculator's saves to the pub sheet's OUTREACH / ADVANCE CALCULATOR tabs (r11: the A&R Outreach view is gone; the calculator keeps these saves). Off in production when unset. |
+| `AR_TRACKER_SHEET_WRITES` | The A&R sheet (r11, `lib/ar/tracker-sheet.js`), a one-way copy of the A&R lists in its own spreadsheet: its **Watchlist** tab rewritten in full (A:V, values only) after every list change and after each data cron, and one **Log** row appended per action (Added / Removed / Renewed / Expired / Confirmed). It creates those two tabs if they're missing and never touches any other tab; nothing is ever read back. Off, nothing calls Google for it. |
 | `PUB_SHARE_WRITES` | "Fill in 100%": a blank Writer Share cell on the pub sheet. |
 | `STREAM_SHEET_WRITES` | The pub sheet's STREAM DATA tab from the new numbers, after each data cron tick (lib/stream-sheet.js): column D (streams) and E (source) of the rows with a confirmed Spotify match, and the label in G1. Nothing else on the sheet. |
 | `STREAM_SHEET_MODE` | Not a switch: `estimate` (default, Spotify plays x each song's own Luminate/Spotify ratio, refreshed by each monthly true-up, so the sheet stays on Luminate's all-platform scale; on true-up day the number is Luminate's own) or `spotify` (Spotify plays as they are). |
