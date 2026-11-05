@@ -4,3 +4,22 @@
 .section-wait .sw-head{height:26px;width:180px;margin-bottom:8px}
 .section-wait .sw-short{width:55%}
 @media (prefers-reduced-motion:reduce){.section-wait,.section-wait .sw-bar{animation:none}}
+
+/* Publishing › ISRCs (components/dash/isrc-finder.jsx): a plain list, left-aligned, the ISRC cell free to wrap */
+.app:not(.pub) .isrc-page{display:flex;flex-direction:column;gap:12px;min-width:0}
+.app:not(.pub) .isrc-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+.app:not(.pub) .isrc-count{margin:0;display:flex;align-items:center;gap:6px;color:var(--d-ink-2,var(--ink))}
+.app:not(.pub) .isrc-acts{display:flex;flex-wrap:wrap;gap:8px}
+.app:not(.pub) .isrc-page .hint{margin:0}
+.app:not(.pub) .isrc-table th,.app:not(.pub) .isrc-table td{text-align:left;white-space:normal;vertical-align:top}
+.app:not(.pub) .isrc-table td.isrc-col{min-width:260px}
+.app:not(.pub) .isrc-song{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.app:not(.pub) .isrc-cell{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}
+.app:not(.pub) .isrc-in{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.app:not(.pub) .isrc-in input{width:170px;max-width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase}
+.app:not(.pub) .isrc-done{display:inline-flex;align-items:center;gap:6px;color:var(--d-ink-2,var(--ink))}
+.app:not(.pub) .pill-n{margin-left:6px;font-size:11px;padding:1px 6px;border-radius:100px;background:var(--d-s3,var(--panel2));color:var(--d-ink-2,var(--ink))}
+@media (max-width:639px){
+  .app:not(.pub) .isrc-table td.isrc-col{min-width:0}
+  .app:not(.pub) .isrc-in input{width:100%;flex:1 1 160px}
+}
