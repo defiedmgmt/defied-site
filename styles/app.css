@@ -3097,7 +3097,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .sync-sources{margin-top:18px}
 .app:not(.pub) .sync-sec-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 12px;margin:18px 0 8px}
 .app:not(.pub) .sync-sec-head h3{margin:0;font:600 15px/1.3 var(--d-body);color:var(--d-ink)}
-.app:not(.pub) .sync-sec-head .nums-cost{font-size:12.5px;color:var(--d-ink-3)}
+.app:not(.pub) .sync-sec-head .nums-cost{height:auto;min-height:0;padding:0;border:0;border-radius:0;background:none;font-size:12.5px;line-height:1.3;color:var(--d-ink-3);cursor:default}
 .app:not(.pub) .sync-sec-head .inline-link{display:inline-flex;align-items:center;gap:4px;min-height:32px}
 .app:not(.pub) .lum-hist{margin:14px 0 4px;padding:12px 14px;border:1px solid var(--d-line);border-radius:var(--d-r-md,10px);background:var(--d-s1)}
 .app:not(.pub) .lum-hist-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:0 0 6px}
