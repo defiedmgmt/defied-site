@@ -270,7 +270,7 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
     // Oct 23–29): one end day is named, several say so (each cell's tooltip has its own week)
     if (c.sub === "lum") {
       const ends = new Set(rows.map((r) => r.lum?.week?.to).filter(Boolean));
-      return ends.size > 1 ? "Luminate · each row's last week" : asOf.lum ? `Luminate · to ${dayText(asOf.lum)}` : "Luminate";
+      return ends.size > 1 ? "each row's last week" : asOf.lum ? `week to ${dayText(asOf.lum)}` : "Luminate";
     }
     if (c.sub === "lumAtd") return asOf.lumAtd ? `to ${dayText(asOf.lumAtd)}` : "";
     return "";

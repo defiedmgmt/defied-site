@@ -94,11 +94,11 @@ function HomeWeek({ ctx, home, todo }) {
   const loading = !ctx.cu.data && !ctx.cu.failed;
   const label = (e) => <><span className="hw-chip-t">{e.label}</span></>;
   return (
-    <div className="home-card home-week" data-home-week data-empty={!loading && !events.length ? "" : undefined}>
+    <div className="home-card home-week" data-home-week data-empty={!loading && days.every((d) => !on(d).length) ? "" : undefined}>
       <div className="attn-head hw-head"><CalendarDays size={15} /> This week's calendar <span className="hw-range">{shortDay(days[0])} – {shortDay(days[6])}</span>
         <button type="button" className="inline-link home-all" data-open-cal onClick={() => ctx.onGo("todo", "calendar")}>Open calendar ›</button></div>
       {/* r10 fix: on a phone an empty week is this one line (the seven empty days took about 300px) */}
-      {!loading && !events.length && <p className="hw-empty-line" data-hw-empty>Nothing due this week.</p>}
+      {!loading && days.every((d) => !on(d).length) && <p className="hw-empty-line" data-hw-empty>Nothing due this week.</p>}
       <div className="hw-grid" role="list">
         {days.map((d) => {
           const evs = on(d), more = evs.length - HOME_WEEK_CHIPS;

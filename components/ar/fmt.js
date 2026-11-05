@@ -19,7 +19,7 @@ export const dayText = (t) => (t ? day0(t).toLocaleDateString("en-US", { timeZon
 // "Nov 4, 7:02 AM"
 export const atText = (t) => (t ? new Date(t).toLocaleString("en-US", { timeZone: NY, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
 // two readings' times: "Nov 4, 7 AM → 7 PM" on one New York day, else "Nov 4 → Nov 5" (r10 fix)
-const hourText = (t) => new Date(t).toLocaleString("en-US", { timeZone: NY, hour: "numeric", minute: "2-digit" }).replace(":00", "");
+const hourText = (t) => new Date(t).toLocaleString("en-US", { timeZone: NY, hour: "numeric" }); // "7 AM" (each cell's tooltip has the minute)
 export const spanText = (from, to) => (!from || !to ? "" : nyDayOf(from) === nyDayOf(to) ? `${dayText(from)}, ${hourText(from)} → ${hourText(to)}` : `${dayText(from)} → ${dayText(to)}`);
 export const nyDayOf = (t) => (t ? new Intl.DateTimeFormat("en-CA", { timeZone: NY, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(t)) : "");
 export const KIND_LABEL = { artist: "Artist", song: "Song", sound: "Sound" };
