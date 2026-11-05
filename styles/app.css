@@ -3254,7 +3254,10 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .htk-mq .mq-track{flex-wrap:nowrap;justify-content:flex-start;width:max-content;gap:28px;padding:0 14px}
   .app:not(.pub) .htk-mq .mq-item:not(.mq-rep){display:inline-flex;white-space:nowrap}
 }
-@media (max-width:639px){ .app:not(.pub) .htk-label span, .app:not(.pub) .htk-label{font-size:0;gap:0} .app:not(.pub) .htk-label svg{width:15px;height:15px} .app:not(.pub) .home-ticker{height:44px} }
+@media (max-width:639px){ .app:not(.pub) .htk-label span, .app:not(.pub) .htk-label{font-size:0;gap:0} .app:not(.pub) .htk-label svg{width:15px;height:15px} .app:not(.pub) .home-ticker{height:44px}
+  /* r11 prove: 44px taps on a phone (the ticker's items were 38px, To do's "Check again" / "Undo" 42px) */
+  .app:not(.pub) .htk-mq .mq-link{min-height:44px}
+  .app:not(.pub) .todo-line .inline-link{display:inline-flex;align-items:center;min-height:44px} }
 /* N2: two payments, whole rows, whatever the window */
 .app:not(.pub) .home-pay .hp-list{flex:none;overflow:visible}
 /* a week with nothing due is one line on a phone ("Nothing due this week · Open calendar ›") */
