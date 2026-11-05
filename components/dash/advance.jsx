@@ -406,8 +406,8 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
         </label>
         {selectedProspect || selectedClient ? (
           <p className="hint">
-            Net Streams ({fmt(Math.round(netStreams))}) comes from {selectedClient ? (selectedClient.netFromSheet === false ? `an estimate from ${scenario.name}'s catalog (no sheet tab read yet)` : `${scenario.name}'s tab of the pub sheet`) : `${scenario.name}'s songs in Outreach`} —
-            edit {selectedClient ? "their songs on Overview & clients" : "those on the A&R tab"} to change this.
+            Net Streams ({fmt(Math.round(netStreams))}) comes from {selectedClient ? (selectedClient.netFromSheet === false ? `an estimate from ${scenario.name}'s catalog (no sheet tab read yet)` : `${scenario.name}'s tab of the pub sheet`) : `${scenario.name}'s rows on the pub sheet's OUTREACH tab`} —
+            edit {selectedClient ? "their songs on Overview & clients" : "them there"} to change this.
           </p>
         ) : (
           <>
@@ -429,7 +429,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
             read-only reference block above on the very next render — the
             confirmation has to live outside that block or it vanishes
             before anyone sees it */}
-        {saved && <p className="hint ok-text">Added as a prospect ✓ — {scenario.name} is now on the A&amp;R board, shown below with its real numbers.</p>}
+        {saved && <p className="hint ok-text">Added as a prospect ✓ — {scenario.name} is saved on the pub sheet's OUTREACH tab, shown below with its real numbers.</p>}
         {scenario.kind === "new" && (
           <button className="btn sm" onClick={saveToOutreach} disabled={busy || !scenario.name.trim() || !netStreams}>
             {busy ? "Saving…" : "Add as prospect"}
