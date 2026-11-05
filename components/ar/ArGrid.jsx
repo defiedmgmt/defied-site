@@ -8,7 +8,7 @@
 // Styles: components/ar/ar-grid.css (imported once in pages/_app.jsx).
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Clock, ExternalLink, SlidersHorizontal, Download, Columns3, X } from "lucide-react";
-import { n0, signed, pctText, dirOf, short, dayText, atText, nyDayOf, kindLabel, trackingText, store } from "./fmt";
+import { n0, signed, pctText, dirOf, short, dayText, atText, nyDayOf, kindLabel, trackingText, store, spanText } from "./fmt";
 
 // ---------------------------------------------------------------- cells
 const COLS_LABEL = { listeners: "Spotify monthly listeners", streams: "Spotify streams (all-time)", spfollowers: "Spotify followers", tiktok: "TikTok followers", instagram: "Instagram followers", youtube: "YouTube subscribers", videos: "TikTok videos with this sound" };
@@ -21,11 +21,22 @@ export function MetricCell({ c, label, colAsOf }) {
       {old && <Clock size={11} className="arg-old" aria-label={`From ${dayText(c.at)}`} />}
       {c.approx ? "about " : ""}{n0(c.v)}
       {old && <span className="arg-oldday">{dayText(c.at)}</span>}
+      {c.untracked && <span className="arg-untracked" data-untracked>{c.untracked}</span>}
     </span>
   );
 }
+// span "day" (New York days), "week", or "reads" (r10 fix: the last two readings, whatever day they fell on, for
+// a column headed with their times while there's no second day yet)
 export function DeltaCell({ c, span, label }) {
   if (!c || c.none) return <Dash why={c?.none || "Needs a first reading"} />;
+  if (span === "reads") {
+    if (c.rd == null) return <Dash why={c.untracked ? c.why1 : "Needs a second reading"} />;
+    return (
+      <span className="arg-delta" data-dir={dirOf(c.rd)} title={`${label} · ${signed(c.rd)}${c.rg != null ? ` (${pctText(c.rg)})` : ""} · ${n0(c.rPrevV)} at ${atText(c.rPrevAt)} → ${n0(c.v)} at ${atText(c.at)} · ${c.src}`} data-d={c.rd}>
+        <b>{signed(c.rd)}</b>{c.rg != null && <small data-dir={dirOf(c.rg)}>{pctText(c.rg)}</small>}
+      </span>
+    );
+  }
   const d = span === "day" ? c.d1 : c.d7, p = span === "day" ? c.p1 : c.p7;
   if (d == null) return <Dash why={span === "day" ? c.why1 : c.why7} />;
   const from = span === "day" ? `${n0(c.prevV)} on ${atText(c.prevAt)}` : `${n0(c.w7v)} on ${atText(c.w7At)}`;
@@ -62,13 +73,14 @@ export function Momentum({ m }) {
 
 // ---------------------------------------------------------------- the columns, per view
 const mcol = (id, k, label, def = true) => ({ id, label, sub: "as of", num: true, def, metric: k, get: (r) => r.m?.[k]?.v ?? null, at: (r) => r.m?.[k]?.at, src: (r) => r.m?.[k]?.src, render: (r, a) => <MetricCell c={r.m?.[k]} label={COLS_LABEL[k]} colAsOf={a[k]} /> });
-const dcol = (id, k, span, label, def = true) => ({ id, label, num: true, def, delta: true, get: (r) => (span === "day" ? r.m?.[k]?.d1 : r.m?.[k]?.d7) ?? null, at: (r) => r.m?.[k]?.at, src: (r) => r.m?.[k]?.src, render: (r) => <DeltaCell c={r.m?.[k]} span={span} label={COLS_LABEL[k]} /> });
+const dcol = (id, k, span, label, def = true) => ({ id, label, num: true, def, delta: true, span, get: (r, o) => (span === "day" ? (o?.reads ? r.m?.[k]?.rd : r.m?.[k]?.d1) : r.m?.[k]?.d7) ?? null, at: (r) => r.m?.[k]?.at, src: (r) => r.m?.[k]?.src,
+  render: (r, a, ctx, o) => <DeltaCell c={r.m?.[k]} span={span === "day" && o?.reads ? "reads" : span} label={COLS_LABEL[k]} /> });
 const nameCol = (label) => ({ id: "name", label, sticky: true, def: true, get: (r) => String(r.name || "").toLowerCase(), csv: (r) => r.name,
   render: (r) => (
     <span className="arg-name">
       <Photo r={r} />
       <span className="arg-name-t"><b>{r.name}</b>{(r.kind !== "artist" && r.artist) && <em>{r.artist}</em>}
-        {(r.roster || r.match === "name") && <span className="arg-tags">{r.roster && <span className="arg-tag" data-tag="roster">Roster</span>}{r.match === "name" && <span className="arg-tag" data-tag="confirm">Confirm Spotify ▸</span>}</span>}
+        {(r.roster || r.match === "name" || r.match === "isrc") && <span className="arg-tags">{r.roster && <span className="arg-tag" data-tag="roster">Roster</span>}{r.match === "name" && <span className="arg-tag" data-tag="confirm">Confirm Spotify ▸</span>}{r.match === "isrc" && <span className="arg-tag" data-tag="confirm">Confirm match ▸</span>}</span>}
       </span>
     </span>
   ) });
@@ -80,6 +92,10 @@ const lumAtdCol = { id: "lumatd", label: "Luminate all-time", sub: "lumAtd", num
 const trackingCol = { id: "tracking", label: "Tracking", def: true, get: (r) => (r.tracking.roster ? 1e9 : r.tracking.never ? 1e8 : r.tracking.state === "expired" ? -1 : r.tracking.daysLeft ?? 0), csv: (r) => trackingText(r.tracking),
   render: (r, a, ctx) => <TrackingCell r={r} ctx={ctx} /> };
 const linksCol = { id: "links", label: "Links", def: true, nosort: true, get: () => null, csv: (r) => Object.values(r.links || {}).join(" "), render: (r) => <Links links={r.links} /> };
+const typeCol = { id: "type", label: "Type", def: true, get: (r) => `${KIND_ORDER[r.kind]}${r.roster ? "r" : ""}`, csv: (r) => kindLabel(r), render: (r) => <span className="arg-tag" data-tag={r.kind}>{kindLabel(r)}</span> };
+// To confirm: what each row needs (r10 fix: songs matched by their ISRC are confirmed here too)
+const confirmCol = { id: "confirm", label: "To confirm", def: true, get: (r) => r.match, csv: (r) => (r.match === "isrc" ? "matched by ISRC" : "Spotify profile"),
+  render: (r) => <span className="arg-confirm" data-confirm-what={r.match}>{r.match === "isrc" ? "Matched by ISRC: right song?" : `Pick their Spotify${r.candidates?.length ? ` (${r.candidates.length} to choose from)` : ""}`}</span> };
 const momentumCol = { id: "momentum", label: "Momentum", num: true, def: true, get: (r) => r.momentum?.score ?? null, render: (r) => <Momentum m={r.momentum} /> };
 const genreCol = { id: "genre", label: "Genre", def: false, get: (r) => r.genre || null, render: (r) => r.genre || "" };
 const STAGE_LABEL = { reach: "To reach out", reached: "Reached out", talking: "Talking", offer: "Offer sent", signed: "Signed", passed: "Passed" };
@@ -88,15 +104,22 @@ const KIND_ORDER = { artist: 0, song: 1, sound: 2 };
 const UNIT = { artist: "monthly listeners", song: "Spotify streams", sound: "TikTok videos" };
 const MAIN = { artist: "listeners", song: "streams", sound: "videos" };
 
-export function columnsFor(view) {
-  if (view === "watch" || view === "confirm") return [
+export function columnsFor(view, { momentumReady = false } = {}) {
+  const mo = momentumReady ? [momentumCol] : []; // r10 fix: no Momentum column until a week of readings exists
+  if (view === "confirm") return [
+    nameCol("Name"), typeCol, confirmCol, addedByCol, addedCol,
+    { id: "main", label: "Number now", sub: "main", num: true, def: true, get: (r) => (r.main == null ? null : [KIND_ORDER[r.kind], r.main]), csv: (r) => r.main ?? "", at: (r) => r.m?.[MAIN[r.kind]]?.at, src: (r) => r.m?.[MAIN[r.kind]]?.src,
+      render: (r, a) => <span className="arg-main"><MetricCell c={r.m?.[MAIN[r.kind]]} label={COLS_LABEL[MAIN[r.kind]]} colAsOf={a[MAIN[r.kind]]} /><small>{UNIT[r.kind]}</small></span> },
+    lumWkCol("Luminate streams, week"), linksCol,
+  ];
+  if (view === "watch") return [
     nameCol("Artist"), addedByCol, addedCol,
     mcol("listeners", "listeners", "Listeners"), dcol("d1", "listeners", "day", "Δ day"), dcol("d7", "listeners", "week", "Δ week"),
     lumWkCol("Luminate streams, week"),
     mcol("tiktok", "tiktok", "TikTok"), dcol("tiktok7", "tiktok", "week", "TikTok Δ week", false),
     mcol("ig", "instagram", "IG"), dcol("ig7", "instagram", "week", "IG Δ week", false),
     mcol("youtube", "youtube", "YouTube"), mcol("spfollowers", "spfollowers", "Spotify followers", false),
-    lumAtdCol, genreCol, stageCol, momentumCol, trackingCol, linksCol,
+    lumAtdCol, genreCol, stageCol, ...mo, trackingCol, linksCol,
   ];
   if (view === "songs") return [
     nameCol("Song"), addedByCol, addedCol,
@@ -110,16 +133,15 @@ export function columnsFor(view) {
     mcol("videos", "videos", "Videos"), dcol("d1", "videos", "day", "Δ day"), dcol("d7", "videos", "week", "Δ week"),
     trackingCol, linksCol,
   ];
-  // Team and Mine: compact, people first, every type in one grid
+  // My A&R: compact, every type in one grid
   return [
-    nameCol("Name"),
-    { id: "type", label: "Type", def: true, get: (r) => `${KIND_ORDER[r.kind]}${r.roster ? "r" : ""}`, csv: (r) => kindLabel(r), render: (r) => <span className="arg-tag" data-tag={r.kind}>{kindLabel(r)}</span> },
+    nameCol("Name"), typeCol,
     addedByCol, addedCol,
     { id: "main", label: "Main number", sub: "main", num: true, def: true, get: (r) => (r.main == null ? null : [KIND_ORDER[r.kind], r.main]), csv: (r) => r.main ?? "", at: (r) => r.m?.[MAIN[r.kind]]?.at, src: (r) => r.m?.[MAIN[r.kind]]?.src,
       render: (r, a) => <span className="arg-main"><MetricCell c={r.m?.[MAIN[r.kind]]} label={COLS_LABEL[MAIN[r.kind]]} colAsOf={a[MAIN[r.kind]]} /><small>{UNIT[r.kind]}</small></span> },
-    { id: "d1", label: "Δ day", num: true, def: true, get: (r) => r.m?.[MAIN[r.kind]]?.d1 ?? null, at: (r) => r.m?.[MAIN[r.kind]]?.at, render: (r) => <DeltaCell c={r.m?.[MAIN[r.kind]]} span="day" label={COLS_LABEL[MAIN[r.kind]]} /> },
+    { id: "d1", label: "Δ day", num: true, def: true, delta: true, span: "day", get: (r, o) => (o?.reads ? r.m?.[MAIN[r.kind]]?.rd : r.m?.[MAIN[r.kind]]?.d1) ?? null, at: (r) => r.m?.[MAIN[r.kind]]?.at, render: (r, a, ctx, o) => <DeltaCell c={r.m?.[MAIN[r.kind]]} span={o?.reads ? "reads" : "day"} label={COLS_LABEL[MAIN[r.kind]]} /> },
     { id: "d7", label: "Δ week", num: true, def: true, get: (r) => r.m?.[MAIN[r.kind]]?.d7 ?? null, at: (r) => r.m?.[MAIN[r.kind]]?.at, render: (r) => <DeltaCell c={r.m?.[MAIN[r.kind]]} span="week" label={COLS_LABEL[MAIN[r.kind]]} /> },
-    { ...momentumCol, render: (r) => (r.kind === "artist" ? <Momentum m={r.momentum} /> : "") },
+    ...(momentumReady ? [{ ...momentumCol, render: (r) => (r.kind === "artist" ? <Momentum m={r.momentum} /> : "") }] : []),
     trackingCol, linksCol,
   ];
 }
@@ -146,11 +168,11 @@ function TrackingCell({ r, ctx }) {
 
 // ---------------------------------------------------------------- sorting and CSV
 const cmp = (a, b) => (Array.isArray(a) ? (a[0] - b[0] || cmp(a[1], b[1])) : typeof a === "number" ? a - b : String(a).localeCompare(String(b)));
-export function sortRows(rows, col, dir) {
+export function sortRows(rows, col, dir, o = {}) {
   const out = [...rows];
   if (!col) return out.sort((a, b) => (b.momentum?.score ?? -1) - (a.momentum?.score ?? -1) || String(b.addedAt).localeCompare(String(a.addedAt)));
   return out.sort((a, b) => {
-    const x = col.get(a), y = col.get(b);
+    const x = col.get(a, o), y = col.get(b, o);
     if (x == null && y == null) return 0;
     if (x == null) return 1; // empty cells always last
     if (y == null) return -1;
@@ -158,10 +180,10 @@ export function sortRows(rows, col, dir) {
   });
 }
 const csvCell = (v) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-export function toCsv(rows, cols) {
+export function toCsv(rows, cols, o = {}) {
   const head = [], fns = [];
   for (const c of cols) {
-    head.push(c.id); fns.push((r) => (c.csv ? c.csv(r) : c.get(r)));
+    head.push(c.id); fns.push((r) => (c.csv ? c.csv(r) : c.get(r, o)));
     if (c.num && c.at) { head.push(`${c.id}_as_of`); fns.push((r) => c.at(r) || ""); }
   }
   head.push("source");
@@ -175,21 +197,25 @@ function useNarrow() {
   useEffect(() => { const m = window.matchMedia("(max-width: 699px)"), f = () => setN(m.matches); f(); m.addEventListener("change", f); return () => m.removeEventListener("change", f); }, []);
   return n;
 }
+// a phone card's 3 numbers. r10 fix: an artist with no Spotify number yet shows its Luminate week in its place,
+// and every card has its Δ (the day's, or the last two readings' while there's no second day: "Δ last")
+const lumKn = (r) => (r.lum?.week ? { v: r.lum.week.v, lumPct: r.lum.week.pct, lum: true, at: r.lum.week.to, src: `Luminate, week ${r.lum.week.label}` } : null);
 const KEY_NUMS = {
-  artist: (r) => [["Listeners", r.m?.listeners, r.m?.listeners?.p7 != null ? pctText(r.m.listeners.p7) : ""], ["TikTok", r.m?.tiktok], ["Momentum", r.momentum?.score != null ? { v: Math.round(r.momentum.score) } : { none: r.momentum?.why }]],
-  song: (r) => [["Streams", r.m?.streams], ["Δ day", r.m?.streams, null, "d1"], ["Δ week", r.m?.streams, null, "d7"]],
-  sound: (r) => [["Videos", r.m?.videos], ["Δ day", r.m?.videos, null, "d1"], ["Δ week", r.m?.videos, null, "d7"]],
+  artist: (r, o) => [r.m?.listeners && !r.m.listeners.none ? ["Listeners", r.m.listeners] : lumKn(r) ? ["Lum wk", lumKn(r)] : ["Listeners", r.m?.listeners], [o.reads ? "Δ last" : "Δ day", r.m?.listeners, null, o.reads ? "rd" : "d1"], ["TikTok", r.m?.tiktok]],
+  song: (r, o) => [["Streams", r.m?.streams], [o.reads ? "Δ last" : "Δ day", r.m?.streams, null, o.reads ? "rd" : "d1"], ["Δ week", r.m?.streams, null, "d7"]],
+  sound: (r, o) => [["Videos", r.m?.videos], [o.reads ? "Δ last" : "Δ day", r.m?.videos, null, o.reads ? "rd" : "d1"], ["Δ week", r.m?.videos, null, "d7"]],
 };
-function PhoneCard({ r, onOpen, open, flash }) {
+function PhoneCard({ r, onOpen, open, flash, o = {} }) {
   const left = r.tracking.roster ? "Roster" : r.tracking.never ? "No end date" : r.tracking.state === "expired" ? "Expired · Renew" : `${r.tracking.daysLeft} days left`;
   return (
     <button type="button" className={`arg-card m-tap${open ? " open" : ""}${flash ? " flash" : ""}`} onClick={() => onOpen(r)} data-row={r.key} data-card={r.key}>
       <span className="arg-card-1"><Photo r={r} size={36} /><span className="arg-name-t"><b>{r.name}</b>{r.kind !== "artist" && r.artist && <em>{r.artist}</em>}</span><span className="arg-tag" data-tag={r.kind}>{kindLabel(r)}</span>{r.match === "name" && <span className="arg-tag" data-tag="confirm">Confirm ▸</span>}</span>
       <span className="arg-card-2">
-        {KEY_NUMS[r.kind](r).map(([label, c, extra, d]) => (
+        {KEY_NUMS[r.kind](r, o).map(([label, c, extra, d]) => (
           <span key={label} className="arg-kn" data-kn={label}>
             <small>{label}</small>
-            {!c || c.none ? <Dash why={c?.none} /> : d ? (c[d] == null ? <Dash why={d === "d1" ? c.why1 : c.why7} /> : <b data-dir={dirOf(c[d])}>{signed(c[d])}</b>) : <b title={c.at ? `${atText(c.at)} · ${c.src}` : ""}>{c.approx ? "≈" : ""}{short(c.v)}{extra ? <i> {extra}</i> : null}</b>}
+            {!c || c.none ? <Dash why={c?.none} /> : d ? (c[d] == null ? <Dash why={d === "d7" ? c.why7 : c.why1 || "Needs a second reading"} /> : <b data-dir={dirOf(c[d])}>{signed(c[d])}</b>)
+              : <b title={c.at ? `${c.lum ? dayText(c.at) : atText(c.at)} · ${c.src}` : ""}>{c.approx ? "about " : ""}{c.lum ? n0(c.v) : short(c.v)}{c.lumPct != null ? <i data-dir={dirOf(c.lumPct)}> {pctText(c.lumPct)}</i> : extra ? <i> {extra}</i> : null}</b>}
           </span>
         ))}
       </span>
@@ -198,8 +224,14 @@ function PhoneCard({ r, onOpen, open, flash }) {
   );
 }
 
-export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null, flashKey = null, onOpen, ctx = {}, empty = "Nothing here yet.", filters = {} }) {
-  const cols = useMemo(() => columnsFor(view), [view]);
+export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null, flashKey = null, onOpen, ctx = {}, empty = "Nothing here yet.", filters = {}, momentumReady = false }) {
+  // r10 fix: "Δ day" only when some row has readings on two New York days; until then the column is the last two
+  // readings' change, headed with their times (e.g. "Nov 4, 7 AM → 7 PM")
+  const cells = rows.flatMap((r) => Object.values(r.m || {})).filter((c) => c && !c.none);
+  const reads = !cells.some((c) => c.d1 != null) && cells.some((c) => c.rd != null);
+  const readSpan = reads ? spanText(cells.filter((c) => c.rd != null).map((c) => c.rPrevAt).sort()[0], cells.filter((c) => c.rd != null).map((c) => c.at).sort().pop()) : "";
+  const o = { reads };
+  const cols = useMemo(() => columnsFor(view, { momentumReady }).map((c) => (reads && c.span === "day" ? { ...c, label: c.label.replace("Δ day", "Δ last read"), readSub: readSpan } : c)), [view, momentumReady, reads, readSpan]);
   const narrow = useNarrow();
   const [q, setQ] = useState("");
   const [person, setPerson] = useState("");
@@ -217,10 +249,10 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
   const genres = [...new Set(rows.map((r) => r.genre).filter(Boolean))].sort();
   const needle = q.trim().toLowerCase();
   const shown = sortRows(rows.filter((r) => (!needle || [r.name, r.artist, ...Object.values(r.links || {})].some((x) => String(x || "").toLowerCase().includes(needle)))
-    && (!person || r.addedBy.some((w) => w.id === person)) && (!type || r.kind === type) && (!genre || r.genre === genre)), cols.find((c) => c.id === sort.col) || null, sort.dir);
+    && (!person || r.addedBy.some((w) => w.id === person)) && (!type || r.kind === type) && (!genre || r.genre === genre)), cols.find((c) => c.id === sort.col) || null, sort.dir, o);
   const newest = Object.values(asOf).filter((v) => /T/.test(String(v))).sort().pop();
   const exportCsv = () => {
-    const blob = new Blob([toCsv(shown, visible.filter((c) => c.id !== "links"))], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([toCsv(shown, visible.filter((c) => c.id !== "links"), o)], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = `ar-${view}-${nyDayOf(Date.now())}.csv`; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -230,6 +262,7 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
     else if (e.key === "Enter") { e.preventDefault(); onOpen(shown[i]); }
   };
   const subOf = (c) => {
+    if (c.readSub) return c.readSub;
     if (c.sub === "as of") { const v = asOf[c.metric]; return v ? `as of ${dayText(v)}` : ""; }
     if (c.sub === "main") { const v = [asOf.listeners, asOf.streams, asOf.videos].filter(Boolean).sort().pop(); return v ? `as of ${dayText(v)}` : ""; }
     // rows' last Luminate weeks can end on different days (an old export's Oct 16–22, a Trend Report's
@@ -286,21 +319,21 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
             <tbody ref={body}>
               {shown.map((r, i) => (
                 <tr key={r.key} data-row={r.key} tabIndex={0} className={[openKey === r.key && "open", flashKey === r.key && "flash"].filter(Boolean).join(" ")} onClick={() => onOpen(r)} onKeyDown={(e) => keyNav(e, i)}>
-                  {visible.map((c) => <td key={c.id} className={[c.num && "num", c.sticky && "stick"].filter(Boolean).join(" ")} data-col={c.id}>{c.render(r, asOf, ctx)}</td>)}
+                  {visible.map((c) => <td key={c.id} className={[c.num && "num", c.sticky && "stick"].filter(Boolean).join(" ")} data-col={c.id}>{c.render(r, asOf, ctx, o)}</td>)}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {shown.length > 0 && narrow && <div className="arg-cards">{shown.map((r) => <PhoneCard key={r.key} r={r} onOpen={onOpen} open={openKey === r.key} flash={flashKey === r.key} />)}</div>}
+      {shown.length > 0 && narrow && <div className="arg-cards">{shown.map((r) => <PhoneCard key={r.key} r={r} onOpen={onOpen} open={openKey === r.key} flash={flashKey === r.key} o={o} />)}</div>}
       {sheet && (
         <div className="arg-sheet-bg" onClick={(e) => e.target === e.currentTarget && setSheet(false)}>
           <div className="arg-sheet" role="dialog" aria-label="Sort and filter" data-sheet>
             <div className="arg-sheet-h"><b>Sort &amp; filter</b><button type="button" className="btn ghost sm" onClick={() => setSheet(false)} aria-label="Close"><X size={16} /></button></div>
             <label className="fld"><span>Sort by</span>
               <select value={sort.col || ""} onChange={(e) => { const next = { col: e.target.value || null, dir: sort.dir }; setSortS(next); store.set(`ar-grid:${id}:sort`, next); }} data-sheet-sort>
-                <option value="">Momentum, then newest</option>
+                <option value="">{momentumReady ? "Momentum, then newest" : "Newest first"}</option>
                 {cols.filter((c) => !c.nosort).map((c) => <option key={c.id} value={c.id}>{c.title || c.label}</option>)}
               </select>
             </label>

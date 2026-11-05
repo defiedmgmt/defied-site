@@ -1,26 +1,28 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { X, RefreshCw, AlertTriangle, CheckCircle2, ListChecks, CircleDollarSign, CalendarDays, TrendingUp } from "lucide-react";
-import { HomeMomentum } from "../ar/ArTrackers";
 import { biggestTasks, nyDay } from "../../lib/todo-rank";
 import { LazySection } from "../ui/responsive";
 import { clock } from "./chips";
 import { payDay, shortDay } from "./helpers";
 import { ScrollFoot, TopGainers, useScrollMore } from "./gainers";
 import { LogConfirm, MoneyRow, TestChip } from "./money";
-import { SyncSources, usd } from "./numbers";
+import { SyncSources } from "./numbers";
 import { swrJson, peekJson } from "../ui/fetch-cache";
 import { CAL_SOURCES, CuTodoRow, TodoRow, WEEKDAY_SHORT, addDays } from "./todo";
 import { syncFix } from "./todo-data";
 import { DropNote, fmt, money, useEscape } from "./ui";
 import { ExtLink } from "../shared/ui";
+import { Marquee } from "../site/motion";
 import { useHome, HomeWait, monthName } from "./home-data";
 export { useHome, monthName, useArSummary, HomeWait } from "./home-data";
 
-// Home: the numbers, the sync pill, then the biggest tasks (at most five, ranked across ClickUp and the
-// site by lib/todo-rank.js, each opening and finished right here, inside the card; "See all N" opens To do)
-// beside This week (the roster's biggest gainers) with Spikes under it, then this week's calendar and the
-// newest payments (r8). r10: every card has its own place in the one-screen grid (styles/app.css "One
-// screen"), so nothing spills over another, and a ClickUp list the Defied Bot can't read is one line here.
+// Home: the head (with the money as one compact line and the sync pill), the spikes and new releases as a
+// slim moving ticker, then the biggest tasks (at most five, ranked across ClickUp and the site by
+// lib/todo-rank.js, each opening and finished right here, inside the card; "See all N" opens To do) beside This
+// week (the roster's biggest gainers, the top 5 always in view), then this week's calendar and the two newest
+// payments. r10: every card has its own place in the one-screen grid (styles/app.css "One screen"), so nothing
+// spills over another, and a ClickUp list the Defied Bot can't read is one line here. (r10 fix, the owner's
+// N1-N6: less clutter; the Accounting tab, the Spikes card and the big money tiles are gone.)
 export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
   const { home, failed, retry, refresh } = useHome();
   const unlogged = home?.accounting?.unlogged, toCheck = home?.accounting?.toCheck || 0;
@@ -46,8 +48,8 @@ export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
   const unread = (ctx.cu.data?.lists || []).filter((l) => l.error);
   return (
     <div className="home">
-      <div className="admin-head"><h2>Home</h2>{syncOn && <SyncPill sync={ctx.sync} onGo={ctx.onGo} />}{money && m?.connected && !m.error && <span className="home-src">From Stripe · updated {clock(m.updatedAt)}</span>}</div>
-      {money && <MoneyRow money={m} failed={failed} retry={retry} />}
+      <div className="admin-head home-head"><h2>Home</h2>{money && <MoneyRow money={m} failed={failed} retry={retry} />}{syncOn && <SyncPill sync={ctx.sync} onGo={ctx.onGo} />}{money && m?.connected && !m.error && <span className="home-src">From Stripe · updated {clock(m.updatedAt)}</span>}</div>
+      {ctx.can("publishing") && <HomeTicker onGo={ctx.onGo} />}
       <div className="home-row">
         <div className="attn home-card todo home-top" data-home-top>
           <div className="attn-head"><ListChecks size={15} /> Biggest tasks
@@ -65,14 +67,9 @@ export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
         </div>
         <TopGainers db={ctx.db} onGo={ctx.onGo} arTop={ctx.ar?.top} arLoaded={!!ctx.ar} />
       </div>
-      {/* Spikes (and A&R's momentum jumps) in their own place: under This week on a wide screen */}
-      <div className="home-side" data-home-side>
-        {ctx.can("publishing") && <HomeSpikes onGo={ctx.onGo} founder={!ctx.db.access || ctx.db.access.role === "founder"} siteOn={ctx.can("site")} />}
-        {ctx.can("ar") && <HomeMomentum onGo={ctx.onGo} />}
-      </div>
       <HomeWeek ctx={ctx} home={home} todo={todo} />
       {/* the last card: on a phone it's drawn once it nears the screen (or the page is idle), after what's on screen */}
-      {money && <LazySection minHeight={240}><HomePayments home={home} failed={failed} retry={retry} refresh={refresh} onGo={ctx.onGo} /></LazySection>}
+      {money && <LazySection minHeight={130}><HomePayments home={home} failed={failed} retry={retry} refresh={refresh} onGo={ctx.onGo} /></LazySection>}
     </div>
   );
 }
@@ -97,9 +94,11 @@ function HomeWeek({ ctx, home, todo }) {
   const loading = !ctx.cu.data && !ctx.cu.failed;
   const label = (e) => <><span className="hw-chip-t">{e.label}</span></>;
   return (
-    <div className="home-card home-week" data-home-week>
+    <div className="home-card home-week" data-home-week data-empty={!loading && !events.length ? "" : undefined}>
       <div className="attn-head hw-head"><CalendarDays size={15} /> This week's calendar <span className="hw-range">{shortDay(days[0])} – {shortDay(days[6])}</span>
         <button type="button" className="inline-link home-all" data-open-cal onClick={() => ctx.onGo("todo", "calendar")}>Open calendar ›</button></div>
+      {/* r10 fix: on a phone an empty week is this one line (the seven empty days took about 300px) */}
+      {!loading && !events.length && <p className="hw-empty-line" data-hw-empty>Nothing due this week.</p>}
       <div className="hw-grid" role="list">
         {days.map((d) => {
           const evs = on(d), more = evs.length - HOME_WEEK_CHIPS;
@@ -149,27 +148,16 @@ function HomeWeekPanel({ at, onClose, children }) {
   return <div ref={box} className="hw-panel attn todo" role="dialog" aria-label="This day" style={{ left, width: w, ...pos }}>{children}</div>;
 }
 
-// Home's newest payments: the last five from Stripe (the same rows and Log it as Money › All payments),
-// and the accounting sheet's four numbers as the card's second tab; "All payments ›" opens Money
-const HOME_PAY_N = 5;
+// Home's newest payments: the last two from Stripe (the same rows and Log it as Money › All payments);
+// "All payments (N) ›" opens Money. (r10 fix, N2/N3: two rows, and no Accounting tab: it repeated the money line)
+const HOME_PAY_N = 2;
 function HomePayments({ home, failed, retry, refresh, onGo }) {
-  const [sec, setSec] = useState("payments");
   const [logIds, setLogIds] = useState(null);
   const P = home?.payments, A = home?.accounting;
   const rows = P?.items?.slice(0, HOME_PAY_N) || [];
   let body;
   if (!home) body = <HomeWait failed={failed} retry={retry} what="the payments" />;
-  else if (sec === "accounting") {
-    body = !A?.connected ? <p className="home-muted">Accounting sheet: not connected yet.</p>
-      : A.error ? <p className="home-muted"><AlertTriangle size={15} /> {A.error}</p>
-      : (
-        <div className="cat-summary-grid acct-grid home-acct">
-          {[["monthNet", `Net · ${monthName(A.month)}`, `${money(A.monthRevenue)} in · ${money(A.monthExpenses)} out`], ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]].map(([k, l, note]) => (
-            <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{l}</span><span className="cat-stat-val">{money(A[k])}</span><span className="acct-note" aria-hidden={note ? undefined : "true"}>{note || "\u00a0"}</span></div>
-          ))}
-        </div>
-      );
-  } else {
+  else {
     body = !P?.connected ? <p className="home-muted"><CircleDollarSign size={15} /> Connect Stripe to see payments here.</p>
       : P.error ? <p className="home-muted"><AlertTriangle size={15} /> {P.error}</p>
       : !rows.length ? <p className="home-muted">No payments yet.</p>
@@ -190,10 +178,7 @@ function HomePayments({ home, failed, retry, refresh, onGo }) {
   return (
     <div className="home-card home-pay" data-home-pay>
       <div className="attn-head"><CircleDollarSign size={15} /> Recent payments
-        <span className="gainer-tabs" role="tablist" aria-label="Money">
-          {[["payments", "Payments"], ["accounting", "Accounting"]].map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} data-pay-tab={k} className={sec === k ? "active" : ""} onClick={() => setSec(k)}>{l}</button>)}
-        </span>
-        <button type="button" className="inline-link home-all" data-all-payments onClick={() => onGo("money", sec === "accounting" ? null : "payments")}>{sec === "accounting" ? "Open Money" : P?.total ? `All payments (${fmt(P.total)})` : "All payments"} ›</button></div>
+        <button type="button" className="inline-link home-all" data-all-payments onClick={() => onGo("money", "payments")}>{P?.total ? `All payments (${fmt(P.total)})` : "All payments"} ›</button></div>
       {body}
       {logIds && <LogConfirm ids={logIds} canLog={!!A?.canLog} onClose={() => setLogIds(null)} onDone={refresh} onDetails={() => onGo("todo", "log")} />}
     </div>
@@ -238,25 +223,31 @@ export function SyncView({ ctx }) {
   );
 }
 
-// Home's spikes and new releases (from the automated numbers; list B #4), in their own card under This
-// week. Nothing to say: nothing shown. The link opens Site › Sync, where the sources are (r10: the Numbers
-// tab is gone); only a Founder sees what they cost.
-function HomeSpikes({ onGo, founder, siteOn }) {
+// Home's spikes and new releases (from the automated numbers; list B #4) as a slim ticker under the head that
+// moves right to left, the public site's marquee (components/site/motion.jsx) in a dashboard size (r10 fix, N5).
+// It eases to a stop under the mouse and stops while pressed; with reduced motion it's one still row that
+// scrolls sideways. Its height is kept from the first frame (loading and empty say so in place), so nothing
+// under it moves. Each item opens its page: a release or an artist its Publishing page (a roster artist) or its
+// A&R row; a song its artist's Publishing page; a sound A&R › Sounds.
+const dashHref = (tab, sub) => `/dashboard/${tab}${sub ? `/${String(sub).split("/").map(encodeURIComponent).join("/")}` : ""}`;
+export function tickerItems(d) {
+  const go = (x) => (x.clientId ? ["catalog", `client:${x.clientId}`] : x.kind === "sound" ? ["ar", "sounds"] : x.artistId?.startsWith("w:") || x.id?.startsWith("w:") ? ["ar", `item/${x.artistId || x.id}`] : ["ar", "watch"]);
+  const spikes = (d?.spikes || []).map((x) => ({ kind: "spike", name: x.name, text: x.text, to: go(x) }));
+  const rel = (d?.newReleases || []).map((r) => ({ kind: "release", name: r.artist, text: `released “${r.name}” (${shortDay(r.releaseDate)})`, to: go({ ...r, kind: "artist" }) }));
+  return [...spikes, ...rel].map((it) => ({ ...it, href: dashHref(...it.to), text: `${it.name} ${it.text}` }));
+}
+function HomeTicker({ onGo }) {
   const [d, setD] = useState(() => peekJson("/api/data?home=1") || null);
-  const box = useRef(null);
-  const hidden = useScrollMore(box);
-  useEffect(() => { swrJson("/api/data?home=1", setD).catch(() => {}); }, []);
-  if (!d || (!d.spikes.length && !d.newReleases.length)) return null;
-  const cost = founder && d.cost?.estMonthlyUsd != null ? ` · about ${usd(d.cost.estMonthlyUsd)}/month` : "";
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { swrJson("/api/data?home=1", setD).catch(() => setFailed(true)); }, []);
+  const items = tickerItems(d);
   return (
-    <div className="home-card nums-home home-spikes" data-home-numbers>
-      <div className="attn-head"><TrendingUp size={15} /> Spikes and new releases
-        {siteOn && <button type="button" className="inline-link home-all" data-spikes-sources onClick={() => onGo("site", "sync")}>Sources{cost && <span className="spikes-cost">{cost}</span>} ›</button>}</div>
-      <div className="home-scroll" ref={box}>
-        {d.spikes.map((x, i) => <p key={`s${i}`} className="todo-line spike-line" data-spike><b>{x.name}</b> <span>{x.text}</span></p>)}
-        {d.newReleases.map((r, i) => <p key={`r${i}`} className="todo-line spike-line" data-new-release><b>{r.artist}</b> <span>released “{r.name}” ({shortDay(r.releaseDate)}), picked up for tracking</span></p>)}
-      </div>
-      <ScrollFoot n={hidden} box={box} />
+    <div className="home-ticker" data-home-ticker={!d ? "wait" : items.length ? items.length : "none"} aria-label="Spikes and new releases">
+      <span className="htk-label"><TrendingUp size={13} aria-hidden="true" /> Spikes &amp; releases</span>
+      {!d ? <span className="htk-still">{failed ? "Couldn't load the spikes." : "Loading…"}</span>
+        : !items.length ? <span className="htk-still" data-ticker-empty>No spikes or new releases in the last two weeks.</span>
+        : <Marquee className="htk-mq" label="Spikes and new releases" seconds={Math.max(16, items.length * 9)} items={items} onPick={(it) => onGo(...it.to)}
+            render={(it) => <span className="htk-item" data-ticker-item={it.kind}><b>{it.name}</b> {it.text.slice(it.name.length + 1)}</span>} />}
     </div>
   );
 }

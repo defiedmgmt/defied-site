@@ -56,6 +56,14 @@ export default async function handler(req, res) {
       if (e && e.owner_id !== user.id && req.access?.role !== "founder") return res.status(403).json({ error: "That's on someone else's list. A Founder can take it off." });
       return res.status(200).json(await T.removeEntry({ entryId: String(b.entryId || "") }));
     }
+    // r10 fix: the drawer's "Add to my list" on a row someone else added (your name goes on it, 30 days)
+    if (b.action === "addMine") {
+      const subject = String(b.subject || "");
+      if (!/^(w|s):[A-Za-z0-9_-]{1,60}$/.test(subject)) return res.status(400).json({ error: "That one can't be added from here. Paste its link instead." });
+      const [e] = await sql`SELECT kind FROM ar_tracker WHERE subject = ${subject} AND removed_at IS NULL LIMIT 1`;
+      if (!e) return res.status(404).json({ error: "That one isn't on any list any more. Paste its link to add it again." });
+      return res.status(200).json(await T.addEntry({ user, subject, kind: e.kind, days: T.DEFAULT_DAYS }));
+    }
     if (b.action === "confirmMatch") return res.status(200).json(await L.confirmMatch({ id: b.id, spotifyId: String(b.spotifyId || ""), by: user.name }));
     if (b.action === "notThem") return res.status(200).json(await L.notThem({ id: b.id, spotifyId: String(b.spotifyId || "") }));
     if (b.action === "notes") return res.status(200).json(await L.saveNotes({ id: b.id, notes: b.notes }));

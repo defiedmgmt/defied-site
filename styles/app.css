@@ -2619,22 +2619,19 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   /* r8: the head and the money strip; Biggest tasks beside This week (one height, the taller one's);
      the week's calendar; the newest payments in what's left, showing the rows that fit */
   .app:not(.pub) .dash-main:has(> .home){padding-bottom:20px}
-  /* r10 (H1-H6): every card has its own row, so none lands in a row meant for another: 1 head, 2 money,
-     3-4 Biggest tasks (left, both rows) beside This week (3) over Spikes (4), 5 the calendar (its own height),
-     6 Recent payments (up to five whole rows; the tasks keep at least 140px on a short window) */
-  .app:not(.pub) .home{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);grid-template-rows:auto auto minmax(140px,1fr) auto auto minmax(132px,252px);gap:10px 12px;
+  /* r10 fix (the owner's N1-N6): 1 the head (the money is one line in it), 2 the spikes ticker (a slim strip),
+     3 Biggest tasks beside This week, sharing what's left (This week shows its top 5 whole), 4 the calendar,
+     5 the two newest payments */
+  .app:not(.pub) .home{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);grid-template-rows:auto auto minmax(320px,1fr) auto auto;gap:10px 12px;
     height:calc(100vh - 52px);height:calc(100dvh - 52px)}   /* the page's 32px top and 20px bottom padding */
   .app:not(.pub):has(> .storage-warn) .home{height:calc(100dvh - 52px - var(--d-ban-h))}
-  .app:not(.pub) .home > :is(.admin-head,.home-money-row,.home-money,.home-week,.home-pay){grid-column:1 / -1;margin:0}
+  .app:not(.pub) .home > :is(.admin-head,.home-ticker,.home-money,.home-week,.home-pay){grid-column:1 / -1;margin:0}
   .app:not(.pub) .home-row{display:contents}
-  .app:not(.pub) .home-row > .todo{grid-column:1;grid-row:3 / span 2;min-height:0}
+  .app:not(.pub) .home-row > .todo{grid-column:1;grid-row:3;min-height:0}
   .app:not(.pub) .home-row > .gainers{grid-column:2;grid-row:3;min-height:0}
-  .app:not(.pub) .home > .home-side{grid-column:2;grid-row:4;display:flex;flex-direction:column;gap:10px;min-height:0;max-height:200px;margin:0}
-  .app:not(.pub) .home > .home-side > .home-card{flex:0 1 auto;min-height:0;margin:0}
-  .app:not(.pub) .home > .home-side:empty{display:none}
-  .app:not(.pub) .home:not(:has(> .home-side > *)) .home-row > .gainers{grid-row:3 / span 2}
-  .app:not(.pub) .home > .home-week{grid-row:5}
-  .app:not(.pub) .home > .home-pay{grid-row:6;height:auto}
+  .app:not(.pub) .home > .home-ticker{grid-row:2}
+  .app:not(.pub) .home > .home-week{grid-row:4}
+  .app:not(.pub) .home > .home-pay{grid-row:5;height:auto}
   .app:not(.pub) .home .home-top{overflow:hidden}   /* an opened task scrolls inside the card, never over the cards below (H5) */
   .app:not(.pub) .home .home-top-list{flex:1 1 auto;min-height:0}
   .app:not(.pub) .home .home-card{max-height:none}
@@ -3164,4 +3161,60 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .todo-cu-tools select{flex:1;min-width:0}
   .app:not(.pub) .todo-panel{padding:4px 12px 14px 15px}
   .app:not(.pub) .todo-view{margin-left:0}
+}
+
+/* ---- r10 fix (owner-eyes review): Home ---- */
+/* N4: the money is one compact line in the head ("Nov $0.00 · Oct $404.76 · 2026 $4,427.07 (i)"); what it
+   counts sits behind the (i) only, shown on hover, keyboard focus or a tap */
+.app:not(.pub) .home-head{flex-wrap:wrap;align-items:center;gap:8px 16px}
+.app:not(.pub) .home-head .home-money-line{position:relative;display:inline-flex;align-items:center;flex-wrap:wrap;row-gap:2px;margin:0;padding:0;border:0;background:none;container-type:normal}
+.app:not(.pub) .home-head .home-money.home-money-line{flex-direction:row}
+.app:not(.pub) .home-head .home-money-line{margin-right:auto}
+.app:not(.pub) .home-head .hml-stat{display:inline-flex;align-items:baseline;gap:6px;white-space:nowrap}
+.app:not(.pub) .home-head .hml-l{font:600 11px/1 var(--d-body);letter-spacing:.1em;text-transform:uppercase;color:var(--d-ink-4)}
+.app:not(.pub) .home-head .home-money-line .cat-stat-val{font-size:15.5px;font-weight:600;line-height:1.2;color:var(--d-ink)}
+.app:not(.pub) .home-head .hml-dot{font-style:normal;margin:0 10px;color:var(--d-ink-4)}
+.app:not(.pub) .home-head .home-money-info{position:relative;top:auto;right:auto;display:inline-grid;place-items:center;width:28px;height:28px;margin-left:6px;border-radius:50%;color:var(--d-ink-4);cursor:help;outline-offset:2px}
+.app:not(.pub) .home-head .home-money-info:is(:hover,:focus-visible){color:var(--d-ink);background:var(--d-active)}
+.app:not(.pub) .home-head .home-money-line .home-money-note{position:absolute;top:calc(100% + 8px);left:0;right:auto;transform:none;z-index:40;width:min(440px,calc(100vw - 32px));margin:0;padding:8px 12px;
+  border:1px solid var(--d-line-2);border-radius:var(--d-r-md);background:var(--d-s2);box-shadow:var(--d-shadow-pop);color:var(--d-ink-2);font-size:13px;line-height:1.45;
+  opacity:0;visibility:hidden;pointer-events:none;transition:opacity var(--d-t-fast) ease,visibility var(--d-t-fast)}
+.app:not(.pub) .home-head .home-money-info:is(:hover,:focus) + .home-money-note{opacity:1;visibility:visible}
+@media (max-width:639px){
+  .app:not(.pub) .home-head .home-money-line{flex-basis:100%;order:3}
+  .app:not(.pub) .home-head .home-money-info{width:44px;height:44px;margin:-8px -8px -8px 0}
+  .app:not(.pub) .home-head .hml-dot{margin:0 7px}
+}
+/* N5: the spikes and new releases as a slim strip that moves right to left (the public site's marquee) */
+.app:not(.pub) .home-ticker{position:relative;display:flex;align-items:center;gap:12px;height:40px;min-width:0;margin:0 0 12px;padding:0 0 0 14px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden}
+.app:not(.pub) .htk-label{flex:none;display:inline-flex;align-items:center;gap:6px;font:600 10.5px/1 var(--d-body);letter-spacing:.12em;text-transform:uppercase;color:var(--d-ink-4)}
+.app:not(.pub) .htk-label svg{color:var(--d-a-roster,currentColor)}
+.app:not(.pub) .htk-still{min-width:0;font-size:13px;color:var(--d-ink-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app:not(.pub) .htk-mq{position:relative;flex:1 1 auto;min-width:0;height:100%;display:flex;align-items:center;font-family:'Suntage','Inter',sans-serif;font-size:12.5px;line-height:1;letter-spacing:.05em;text-transform:uppercase}
+.app:not(.pub) .htk-mq::before,.app:not(.pub) .htk-mq::after{content:"";position:absolute;top:0;bottom:0;z-index:3;width:40px;pointer-events:none}
+.app:not(.pub) .htk-mq::before{left:0;background:linear-gradient(90deg,var(--d-s1),transparent)}
+.app:not(.pub) .htk-mq::after{right:0;background:linear-gradient(270deg,var(--d-s1),transparent)}
+.app:not(.pub) .htk-mq .mq-rail{align-items:center}
+.app:not(.pub) .htk-mq .mq-sep{height:.85em;margin:0 1.3em;opacity:.45}
+.app:not(.pub) .htk-mq .mq-link{min-height:38px;cursor:pointer}
+.app:not(.pub) .htk-item{color:var(--d-ink-3);transition:color .2s ease}
+.app:not(.pub) .htk-item b{font-weight:400;color:var(--d-ink)}
+.app:not(.pub) .htk-mq .mq-link:hover .htk-item{color:var(--d-ink)}
+@media (hover:hover){ .app:not(.pub) .htk-mq .mq-rail:has(.mq-link:hover) .mq-link:not(:hover){opacity:.45} }
+@media (prefers-reduced-motion:reduce){
+  /* one still row, the same height, that scrolls sideways */
+  .app:not(.pub) .htk-mq{overflow-x:auto;scrollbar-width:none}
+  .app:not(.pub) .htk-mq::-webkit-scrollbar{display:none}
+  .app:not(.pub) .htk-mq .mq-rail{width:max-content}
+  .app:not(.pub) .htk-mq .mq-track{flex-wrap:nowrap;justify-content:flex-start;width:max-content;gap:28px;padding:0 14px}
+  .app:not(.pub) .htk-mq .mq-item:not(.mq-rep){display:inline-flex;white-space:nowrap}
+}
+@media (max-width:639px){ .app:not(.pub) .htk-label span, .app:not(.pub) .htk-label{font-size:0;gap:0} .app:not(.pub) .htk-label svg{width:15px;height:15px} .app:not(.pub) .home-ticker{height:44px} }
+/* N2: two payments, whole rows, whatever the window */
+.app:not(.pub) .home-pay .hp-list{flex:none;overflow:visible}
+/* a week with nothing due is one line on a phone ("Nothing due this week · Open calendar ›") */
+.app:not(.pub) .hw-empty-line{display:none}
+@media (max-width:639px){
+  .app:not(.pub) .home-week[data-empty] .hw-grid{display:none}
+  .app:not(.pub) .home-week[data-empty] .hw-empty-line{display:block;margin:0;padding:10px 16px 12px;font-size:13.5px;color:var(--d-ink-4)}
 }

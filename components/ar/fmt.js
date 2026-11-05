@@ -18,6 +18,9 @@ const day0 = (t) => (/^\d{4}-\d{2}-\d{2}$/.test(String(t)) ? new Date(`${t}T12:0
 export const dayText = (t) => (t ? day0(t).toLocaleDateString("en-US", { timeZone: /^\d{4}-\d{2}-\d{2}$/.test(String(t)) ? "UTC" : NY, month: "short", day: "numeric" }) : "");
 // "Nov 4, 7:02 AM"
 export const atText = (t) => (t ? new Date(t).toLocaleString("en-US", { timeZone: NY, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
+// two readings' times: "Nov 4, 7 AM → 7 PM" on one New York day, else "Nov 4 → Nov 5" (r10 fix)
+const hourText = (t) => new Date(t).toLocaleString("en-US", { timeZone: NY, hour: "numeric", minute: "2-digit" }).replace(":00", "");
+export const spanText = (from, to) => (!from || !to ? "" : nyDayOf(from) === nyDayOf(to) ? `${dayText(from)}, ${hourText(from)} → ${hourText(to)}` : `${dayText(from)} → ${dayText(to)}`);
 export const nyDayOf = (t) => (t ? new Intl.DateTimeFormat("en-CA", { timeZone: NY, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(t)) : "");
 export const KIND_LABEL = { artist: "Artist", song: "Song", sound: "Sound" };
 export const kindLabel = (r) => (r.kind === "artist" && r.roster ? "Artist · Roster" : KIND_LABEL[r.kind] || r.kind);

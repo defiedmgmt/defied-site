@@ -39,7 +39,9 @@ export function SplitHead({ text, tag: Tag = "h1", className = "", chrome = fals
 // only (tabIndex -1) — and a visually-hidden list carries the same items for screen readers.
 // Glides to a stop under a mouse, pauses on press; static wrapped block on reduced motion.
 // Credits are spaced by the D. `seconds` is the time one pass of `items` takes, however many repeats get added.
-export function Marquee({ items, label, className = "", seconds = 48, render }) {
+// onPick (the dashboard's ticker, r10): an item's link opens in this tab through the app's router instead of a
+// new tab, and the screen-reader list carries the same links
+export function Marquee({ items, label, className = "", seconds = 48, render, onPick = null }) {
   const railRef = useRef(null);
   const glideRaf = useRef(0);
   useEffect(() => () => cancelAnimationFrame(glideRaf.current), []);
@@ -53,7 +55,9 @@ export function Marquee({ items, label, className = "", seconds = 48, render }) 
         <span className={`mq-item${i >= items.length ? " mq-rep" : ""}`} key={`${copy}-${i}`}>
           {/* the moving copies are mouse/touch only (the rail is aria-hidden): never in the tab order.
               The link is the credit alone, so the gap before the next cover never opens this song */}
-          {it.href
+          {it.href && onPick
+            ? <a className="mq-link" href={it.href} tabIndex={-1} draggable={false} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); onPick(it); }}>{render(it)}</a>
+            : it.href
             ? <a className="mq-link" href={it.href} target="_blank" rel="noreferrer" tabIndex={-1} draggable={false}>{render(it)}</a>
             : render(it)}
           <span className="mq-sep"><img src="/brand/d.png" alt="" width="45" height="36" decoding="async" draggable={false} /></span>
@@ -84,7 +88,7 @@ export function Marquee({ items, label, className = "", seconds = 48, render }) 
   };
   return (
     <div className={`mq ${className}`} style={{ "--mq-dur": `${seconds * reps}s` }} onPointerOver={liftCover} onPointerEnter={(e) => glide(e, 0)} onPointerLeave={(e) => glide(e, 1)}>
-      <ul className="sr-only" aria-label={label}>{items.map((it, i) => <li key={i}>{it.text}</li>)}</ul>
+      <ul className="sr-only" aria-label={label}>{items.map((it, i) => <li key={i}>{onPick && it.href ? <a href={it.href} onClick={(e) => { e.preventDefault(); onPick(it); }}>{it.text}</a> : it.text}</li>)}</ul>
       {/* three copies: the home ribbon starts a third of the way in, so a copy is always behind the parked lead credit */}
       <div className="mq-rail" ref={railRef} aria-hidden="true">{track("a")}{track("b")}{track("c")}</div>
     </div>

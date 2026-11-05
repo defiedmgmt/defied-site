@@ -14,24 +14,23 @@ const monthShort = (offset) => { const d = new Date(); d.setDate(15); d.setMonth
 export function MoneyRow({ money: m, failed, retry }) {
   if (!m || !m.connected || m.error) {
     return (
-      <div className="home-money">
-        <span className="cat-stat-label">This month ({monthShort(0)})</span>
+      <div className="home-money home-money-line" data-money-line="wait">
         {!m ? <HomeWait failed={failed} retry={retry} what="the commission" />
           : !m.connected ? <p className="home-muted"><CircleDollarSign size={15} /> Connect Stripe to see your commission here.</p>
           : <p className="home-muted"><AlertTriangle size={15} /> {m.error}</p>}
       </div>
     );
   }
-  // the months named from the day the page is viewed: "This month (Nov)", "Last month (Oct)" (Stripe: the (i))
-  const stats = [["thisMonth", `This month (${monthShort(0)})`], ["lastMonth", `Last month (${monthShort(-1)})`], ["thisYear", "This year"]];
+  // r10 fix (N4): one compact line, "Nov $0.00 · Oct $404.76 · 2026 $4,427.07 (i)": the months named from the day
+  // the page is viewed; what it counts sits behind the (i) only (hover, focus or tap), on every screen size
+  const year = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", year: "numeric" });
+  const stats = [["thisMonth", monthShort(0), "This month"], ["lastMonth", monthShort(-1), "Last month"], ["thisYear", year, "This year"]];
   return (
-    <div className="cat-summary home-money-row">
-      <div className="cat-summary-grid">
-        {stats.map(([k, label]) => <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(m[k])}</span></div>)}
-      </div>
-      {/* the tiles add up Defied's whole cut through Stripe: say so, so nobody reads it as management commission alone.
-          Desktop: an (i) on the strip that shows it on hover or focus (the Dashboard fits one screen); phones: a small line */}
-      <span className="home-money-info" tabIndex={0} aria-describedby="home-money-note"><Info size={14} aria-hidden="true" /><span className="sr-only">What these count</span></span>
+    <div className="home-money-row home-money-line" data-money-line>
+      {stats.map(([k, label, long], i) => (
+        <span key={k} className="hml-stat" data-stat={k} title={long}>{i > 0 && <i className="hml-dot" aria-hidden="true">·</i>}<span className="hml-l">{label}</span> <b className="cat-stat-val">{money(m[k])}</b></span>
+      ))}
+      <span className="home-money-info" tabIndex={0} role="button" aria-describedby="home-money-note"><Info size={14} aria-hidden="true" /><span className="sr-only">What these count</span></span>
       <p className="hint home-money-note" id="home-money-note" role="note">Everything Defied's cut took in through Stripe, before Stripe's card fees. It also counts test payments and other income paid through Stripe, like studio work.</p>
     </div>
   );

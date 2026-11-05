@@ -6,6 +6,7 @@ import { dashCache } from "../shared/dash-caches";
 import { Photo } from "../shared/ui";
 import { dayRange } from "./helpers";
 import { swrJson, peekJson } from "../ui/fetch-cache";
+import { spanText } from "../ar/fmt";
 
 // Home's "This week" card (the roster's biggest gainers, the A&R top people) and the scroll helpers its
 // lists use. Its own module (list B #11), so the helpers every section shares don't load A&R code.
@@ -66,9 +67,11 @@ function useArMovers(on) {
   if (!d) return { rows: null, failed };
   const day = d.movers?.day || { up: [], down: [] };
   const rows = [...day.up, ...day.down];
-  if (rows.length) return { rows, day: true, from: rows[0].fromAt, to: rows[0].toAt, failed };
+  // r10 fix: two readings on one New York day are "the last two readings" with their times, never "day over day"
+  if (rows.length) return { rows, day: true, sub: day.mode === "readings" ? `Last two readings · ${spanText(day.span?.from, day.span?.to)}` : "Day over day · New York days", failed };
   const wk = d.movers?.week?.streams || { up: [], down: [] };
-  return { rows: [...wk.up, ...wk.down], day: false, failed };
+  const live = [...(wk.up || []), ...(wk.down || [])], g = (wk.groups || [])[0];
+  return { rows: live.length ? live : g ? [...g.up, ...g.down] : [], day: false, sub: live.length ? "Week on week · Spotify" : g ? `Luminate, ${g.weeks} · all platforms` : "", failed };
 }
 const GAINER_TABS = [["songs", "Songs"], ["artists", "Artists"], ["ar", "A&R"]];
 function useRosterTop() {
@@ -130,7 +133,7 @@ export function TopGainers({ db, onGo, arTop, arLoaded }) {
         </span>
       </div>
       <div className="home-scroll" ref={body}>
-        {isAR && rows?.length ? <p className="gainer-sub" data-ar-movers={ar.day ? "day" : "week"}>{ar.day ? "Day over day · the A&R lists' last two readings" : "Luminate's last real weeks · all platforms"}</p>
+        {isAR && rows?.length ? <p className="gainer-sub" data-ar-movers={ar.day ? "day" : "week"}>{ar.sub}</p>
           : lum ? <p className="gainer-sub" data-lum-week>{lum} · all platforms</p>
           : span && <p className="gainer-sub">{dayRange(span.from, span.to)} · vs the week before · {isAR ? "Spotify monthly listeners" : "Spotify streams, global"}</p>}
         {empty ? (

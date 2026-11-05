@@ -5,7 +5,7 @@
 // outreach, and notes (saved on blur). Every number says its source and date; nothing is made up.
 import React, { useEffect, useRef, useState } from "react";
 import { X, ExternalLink, RefreshCw } from "lucide-react";
-import { n0, signed, pctText, dirOf, dayText, atText, kindLabel, post } from "./fmt";
+import { n0, signed, pctText, dirOf, dayText, atText, kindLabel, post, spanText } from "./fmt";
 import { Photo, Links, DeltaCell, MetricCell } from "./ArGrid";
 
 const METRIC_NAME = { listeners: "Spotify monthly listeners", streams: "Spotify streams", spfollowers: "Spotify followers", tiktok: "TikTok followers", instagram: "Instagram followers", youtube: "YouTube subscribers", videos: "TikTok videos with this sound" };
@@ -68,6 +68,7 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
   const [metric, setMetric] = useState(null);
   const [notes, setNotes] = useState("");
   const [askOff, setAskOff] = useState(null); // a Founder taking someone else's entry off: the entry, until confirmed
+  const [paste, setPaste] = useState(""); // "None of these?": their Spotify link, pasted right here
   const card = useRef(null);
   const load = () => fetch(`/api/ar-lists?item=${encodeURIComponent(itemKey)}`, { cache: "no-store" }).then((r) => r.json())
     .then((j) => { if (j.error) throw new Error(j.error); setD(j); setNotes(j.notes || ""); setErr(null); }).catch((e) => setErr(e.message));
@@ -92,6 +93,8 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
   const series = d?.series || {};
   const metrics = Object.keys(series);
   const shown = metric && series[metric] ? metric : metrics[0];
+  const cells = Object.values(r?.m || {}).filter((c) => c && !c.none);
+  const reads = !cells.some((c) => c.d1 != null) && cells.some((c) => c.rd != null);
   return (
     <div className="ard-bg" onClick={(e) => e.target === e.currentTarget && onClose()} data-drawer-bg>
       <aside className="ard" role="dialog" aria-label={r ? r.name : "Details"} tabIndex={-1} ref={card} data-drawer={itemKey}>
@@ -131,7 +134,7 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
                           ) : (
                             <button type="button" className="btn ghost sm err-text" disabled={busy} data-remove-entry
                               onClick={() => { if (w.id !== me) { setAskOff(w.entryId); return; } act({ action: "remove", entryId: w.entryId }, "Taken off your list.").then(() => { if (r.addedBy.length === 1) onClose(); }); }}>
-                              {w.id === me ? "Remove from my list" : "Remove"}
+                              {w.id === me ? "Remove from my list" : `Take off ${w.name}'s list`}
                             </button>
                           )}
                         </span>
@@ -139,7 +142,10 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
                     </li>
                   ))}
                 </ul>
-                {!mine && !r.tracking.roster && <p className="hint">Not on your list. Paste its link in the box to add your name too.</p>}
+                {!mine && !r.tracking.roster && (
+                  <p className="hint">Not on your list yet.{" "}
+                    <button type="button" className="btn ghost sm" disabled={busy} onClick={() => act({ action: "addMine", subject: r.key }, "On your list too, for 30 days.")} data-add-mine>Add to my list</button></p>
+                )}
               </section>
 
               {r.match === "name" && (
@@ -149,12 +155,32 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
                   {(r.candidates || []).map((c) => (
                     <div key={c.id} className="ard-cand" data-candidate={c.id}>
                       {c.image ? <img src={c.image} alt="" width={36} height={36} referrerPolicy="no-referrer" /> : <span className="arg-ph none">{String(c.name || "?").slice(0, 1)}</span>}
-                      <span className="ard-cand-t"><b>{c.name}</b><a href={`https://open.spotify.com/artist/${c.id}`} target="_blank" rel="noopener noreferrer">open.spotify.com/artist/{c.id.slice(0, 5)}… <ExternalLink size={11} /></a>{c.listeners != null && <em>{n0(c.listeners)} monthly listeners</em>}</span>
-                      <button type="button" className="btn sm" disabled={busy} onClick={() => act({ action: "confirmMatch", id: r.trackedId, spotifyId: c.id }, `Confirmed: ${c.name}. Its numbers start with the next update.`)} data-confirm={c.id}>That's them</button>
-                      <button type="button" className="btn ghost sm" disabled={busy} onClick={() => act({ action: "notThem", id: r.trackedId, spotifyId: c.id }, "Taken off the choices.")} data-not-them={c.id}>Not them</button>
+                      <span className="ard-cand-t"><b>{c.name}</b>
+                        {/* r10 fix: what tells same-name profiles apart */}
+                        {c.info && <span className="ard-cand-info" data-cand-info>{[c.info.listeners ? `${c.info.listeners} monthly listeners` : "", c.info.latest ? `newest: “${c.info.latest.name}” (${dayText(c.info.latest.releaseDate)})` : c.info.releases === 0 ? "no releases of their own" : ""].filter(Boolean).join(" · ") || "No numbers on their Spotify page"}</span>}
+                        <a href={`https://open.spotify.com/artist/${c.id}`} target="_blank" rel="noopener noreferrer">Open on Spotify <ExternalLink size={11} /></a></span>
+                      <span className="ard-cand-act">
+                        <button type="button" className="btn sm" disabled={busy} onClick={() => act({ action: "confirmMatch", id: r.trackedId, spotifyId: c.id }, `Confirmed: ${c.name}. Its numbers start with the next update.`)} data-confirm={c.id}>That's them</button>
+                        <button type="button" className="btn ghost sm" disabled={busy} onClick={() => act({ action: "notThem", id: r.trackedId, spotifyId: c.id }, "Taken off the choices.")} data-not-them={c.id}>Not them</button>
+                      </span>
                     </div>
                   ))}
-                  <p className="hint">None of these? Paste their Spotify link in the box above: it goes on this row.</p>
+                  {r.candidates?.some((c) => c.info?.listeners) && <p className="hint">Monthly listeners as Spotify's own page rounds them.</p>}
+                  <form className="ard-paste" onSubmit={(e) => { e.preventDefault(); const sp = /spotify\.com\/(?:intl-[a-z-]+\/)?artist\/([A-Za-z0-9]{22})/.exec(paste)?.[1]; if (!sp) { setNote({ ok: false, text: "That isn't a Spotify artist link (open.spotify.com/artist/…)." }); return; } act({ action: "confirmMatch", id: r.trackedId, spotifyId: sp }, "Confirmed from your link. Its numbers start with the next update.").then(() => setPaste("")); }} data-drawer-paste>
+                    <input type="url" inputMode="url" placeholder="None of these? Paste their Spotify link" value={paste} onChange={(e) => setPaste(e.target.value)} aria-label="Their Spotify artist link" />
+                    <button type="submit" className="btn sm" disabled={busy || !paste.trim()}>Use this one</button>
+                  </form>
+                </section>
+              )}
+              {r.match === "isrc" && r.kind === "song" && (
+                <section className="ard-sec" data-drawer-match="isrc">
+                  <h4>Is this the right song?</h4>
+                  <p className="hint">Matched to Spotify by its ISRC{r.isrc ? ` (${r.isrc})` : ""}. Its number is one reading and isn't tracked until you say yes.</p>
+                  <div className="ard-confirm-isrc">
+                    {r.links?.spotify && <a className="btn ghost sm" href={r.links.spotify} target="_blank" rel="noopener noreferrer">Check it on Spotify <ExternalLink size={11} /></a>}
+                    <button type="button" className="btn sm" disabled={busy} onClick={() => act({ action: "confirmMatch", id: r.trackedId }, "Confirmed. It's tracked from the next update.")} data-confirm-isrc>Yes, that's it</button>
+                    <button type="button" className="btn ghost sm" disabled={busy} onClick={() => act({ action: "notThem", id: r.trackedId }, "Unlinked. Paste the right Spotify link in the box to track it.")} data-not-isrc>No, wrong song</button>
+                  </div>
                 </section>
               )}
 
@@ -163,13 +189,13 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
                 {/* a phone shows each metric as a card (m-cards): its name, then Now / Δ day / Δ week / As of lines */}
                 <div className="ard-nums-wrap m-cards-wrap">
                 <table className="ard-nums m-cards">
-                  <thead><tr><th>Metric</th><th className="num">Now</th><th className="num">Δ day</th><th className="num">Δ week</th><th>As of · source</th></tr></thead>
+                  <thead><tr><th>Metric</th><th className="num">Now</th><th className="num">{reads ? "Δ last read" : "Δ day"}</th><th className="num">Δ week</th><th>As of · source</th></tr></thead>
                   <tbody>
                     {Object.entries(r.m || {}).map(([k, c]) => (
                       <tr key={k} data-metric={k}>
                         <td>{METRIC_NAME[k]}</td>
                         <td className="num" data-label="Now"><MetricCell c={c} label={METRIC_NAME[k]} /></td>
-                        <td className="num" data-label="Δ day"><DeltaCell c={c} span="day" label={METRIC_NAME[k]} /></td>
+                        <td className="num" data-label={reads ? "Δ last read" : "Δ day"}><DeltaCell c={c} span={reads ? "reads" : "day"} label={METRIC_NAME[k]} /></td>
                         <td className="num" data-label="Δ week"><DeltaCell c={c} span="week" label={METRIC_NAME[k]} /></td>
                         <td className="ard-asof" data-label="As of">{c?.at ? <span>{atText(c.at)}{c.src ? <small>{c.src}</small> : null}</span> : ""}</td>
                       </tr>
@@ -191,7 +217,10 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
                 {shown && (
                   <>
                     <LineChart points={series[shown].points} label={series[shown].label} />
-                    <p className="hint" data-chart-n>{series[shown].points.length === 1 ? `1 reading so far (${dayText(series[shown].points[0][0])})` : `${series[shown].points.length} readings, ${dayText(series[shown].points[0][0])} to ${dayText(series[shown].points.at(-1)[0])}`} · {series[shown].label} · {series[shown].src}</p>
+                    {/* r10 fix: New York days; two readings on one day say so ("2 readings, Nov 4, 7 AM → 7 PM") */}
+                    <p className="hint" data-chart-n>{(series[shown].reads || series[shown].points.length) === 1 ? `1 reading so far (${dayText(series[shown].points[0][0])})`
+                      : series[shown].points.length === 1 ? `${series[shown].reads} readings, ${spanText(series[shown].firstAt, series[shown].lastAt)} (one day, so one point)`
+                      : `${series[shown].reads || series[shown].points.length} readings, ${dayText(series[shown].points[0][0])} to ${dayText(series[shown].points.at(-1)[0])}`} · {series[shown].label} · {series[shown].src}</p>
                   </>
                 )}
               </section>
@@ -201,7 +230,7 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
                 <LumHistory series={d.lumSeries || []} />
               </section>
 
-              {r.kind === "artist" && (
+              {r.kind === "artist" && r.momentum?.score != null && (
                 <section className="ard-sec" data-drawer-momentum>
                   <h4>Momentum</h4>
                   {r.momentum?.score != null ? <p><b>{Math.round(r.momentum.score)}</b> {r.momentum.trend || ""} · {r.momentum.why}</p> : <p className="hint">{r.momentum?.why || "Needs a second day of numbers."}</p>}

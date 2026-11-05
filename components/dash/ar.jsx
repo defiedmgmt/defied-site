@@ -73,11 +73,12 @@ export function useArAll() {
   return { ...sheet, pg, pgErr, loadPg };
 }
 
-// r10: A&R is a list, a tracker and a watcher, laid out like a spreadsheet. Six views, each with its own address
+// r10: A&R is a list, a tracker and a watcher, laid out like a spreadsheet. Five views, each with its own address
 // (/dashboard/ar/...), each loading only its own data (one GET /api/ar-lists?view=…; Outreach alone reads the sheet):
-//   Home (/ar) · Team (/ar/team, /ar/team/<userId>) · Mine (/ar/mine) · Watchlist (/ar/watch, /watch/songs,
-//   /watch/confirm) · Sounds (/ar/sounds) · Outreach (/ar/outreach); a row's drawer: /ar/item/<key>
-const AR_PILLS = [["", "Home"], ["team", "Team"], ["mine", "Mine"], ["watch", "Watchlist"], ["sounds", "Sounds"], ["outreach", "Outreach"]];
+//   Home (/ar) · Watchlist (/ar/watch, /watch/songs, /watch/confirm; everyone's, /…/by/<userId> = one person's)
+//   · My A&R (/ar/mine) · Sounds (/ar/sounds) · Outreach (/ar/outreach); a row's drawer: /ar/item/<key>
+// (r10 fix, N7: Team was the Watchlist again with other columns, so it's folded in; old Team links redirect)
+const AR_PILLS = [["", "Home"], ["watch", "Watchlist"], ["mine", "My A&R"], ["sounds", "Sounds"], ["outreach", "Outreach"]];
 // the old addresses (Summary, Trackers, Radar, Board, To do's "watch:open:<key>") open their new place: the
 // shell rewrites them (components/shared/ar-routes.js); read here too, for a sub handed in directly
 export { arSecOf };
@@ -86,14 +87,21 @@ export function arPlace(sub) {
   const parts = arSecOf(sub).split("/").filter(Boolean);
   const [a, b] = parts;
   if (!a) return { view: "home", pill: "" };
-  if (a === "team") return { view: "team", person: b || "", pill: "team" };
-  if (a === "item" && b) return { view: "team", item: parts.slice(1).join("/"), pill: "team" };
+  // a row's drawer opens over the Watchlist tab its row is on (artists until the row says otherwise)
+  if (a === "item" && b) return { view: "watch", item: parts.slice(1).join("/"), pill: "watch" };
   if (a === "mine") return { view: "mine", pill: "mine" };
-  if (a === "watch") return { view: b === "songs" ? "songs" : b === "confirm" ? "confirm" : "watch", pill: "watch" };
+  if (a === "watch") {
+    const tab = b === "songs" || b === "confirm" ? b : "";
+    const by = parts.indexOf("by");
+    return { view: tab === "songs" ? "songs" : tab === "confirm" ? "confirm" : "watch", person: by >= 0 ? parts.slice(by + 1).join("/") : "", pill: "watch" };
+  }
   if (a === "sounds") return { view: "sounds", pill: "sounds" };
   if (a === "outreach") return { view: "outreach", pill: "outreach" };
-  return { view: "home", pill: "" };
+  // an address A&R doesn't have: say so (never a silent Home)
+  return { view: "home", pill: "", unknown: parts.join("/") };
 }
+// a Watchlist address: its tab, and the person it's filtered to
+const watchPath = (view, person) => `${view === "songs" ? "watch/songs" : view === "confirm" ? "watch/confirm" : "watch"}${person ? `/by/${person}` : ""}`;
 // one view's data: GET /api/ar-lists (shown from the last answer at once, then refreshed)
 function useArView(url) {
   const [data, setData] = useState(() => (url ? peekJson(url) || null : null));
@@ -116,6 +124,7 @@ export function ARAdmin({ onGo, sub, onSub, chip = null }) {
             onClick={(e) => { go(id); revealChip(e.currentTarget); }}>{label}</button>
         ))}
       </div>
+      {at.unknown && <p className="hint ar-unknown" role="status" data-ar-unknown>There's no A&amp;R page at “{at.unknown}”. Here's A&amp;R Home.</p>}
       {at.view === "home" && <ArHomeView go={go} />}
       {at.view === "outreach" && <ArOutreach onGo={onGo} go={go} />}
       {!["home", "outreach"].includes(at.view) && <ArListView key={at.view} at={at} go={go} />}
@@ -126,9 +135,8 @@ function ArHomeView({ go }) {
   const v = useArView("/api/ar-lists?view=home");
   return <ArHome data={v.data} err={v.err} retry={v.retry} reload={v.load} founder={!!v.data?.founder} onOpen={(key) => go(`item/${key}`)} onView={(p) => go(p)} />;
 }
-const WATCH_TABS = [["watch", "Artists", "watch"], ["songs", "Songs", "watch/songs"], ["confirm", "To confirm", "watch/confirm"]];
+const WATCH_TABS = [["watch", "Artists"], ["songs", "Songs"], ["confirm", "To confirm"]];
 const EMPTY = {
-  team: "Nobody has added anything yet. Paste a link above to start the team's list.",
   mine: "Your list is empty. Paste a Spotify, TikTok, Instagram or YouTube link above: it goes on your list.",
   watch: "No artists on the Watchlist yet.", songs: "No songs on the Watchlist yet.", confirm: "Every Spotify match is confirmed.",
   sounds: "No TikTok sounds yet. Paste a sound's link (tiktok.com/music/…) to track it.",
@@ -143,7 +151,7 @@ function ArListView({ at, go }) {
   const d = v.data;
   const rows = d?.rows || [];
   const me = d?.me || null;
-  const close = () => { setOpen(null); if (at.item) go("team"); };
+  const close = () => { setOpen(null); if (at.item) go("watch"); };
   const act = async (body, ok) => {
     setNote(null);
     try { await arTrackerPost(body); setNote({ ok: true, text: ok }); await v.load(); } catch (e) { setNote({ ok: false, text: e.message }); }
@@ -171,14 +179,15 @@ function ArListView({ at, go }) {
       <ArPasteBar view={at.view === "sounds" ? "sounds" : at.view} onAdded={added} onOpen={(key) => key && setOpen(key)} />
       {["watch", "songs", "confirm"].includes(at.view) && (
         <div className="ar-tabs" role="tablist" data-watch-tabs>
-          {WATCH_TABS.map(([id, label, path]) => <button key={id} type="button" role="tab" aria-selected={at.view === id} className={at.view === id ? "on" : ""} onClick={() => go(path)} data-watch-tab={id}>{label}</button>)}
+          {WATCH_TABS.map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={at.view === id} className={at.view === id ? "on" : ""} onClick={() => go(watchPath(id, at.person))} data-watch-tab={id}>{label}</button>)}
         </div>
       )}
-      {at.view === "team" && d?.people && (
-        <div className="ar-people" role="tablist" data-m-scroll data-person-tabs>
+      {/* who added what: Everyone, then each person with something on this tab (r10 fix, N7) */}
+      {["watch", "songs", "confirm"].includes(at.view) && d?.people && d.people.length > 1 && (
+        <div className="ar-people" role="tablist" aria-label="Added by" data-m-scroll data-person-tabs>
           {d.people.map((p) => (
             <button key={p.id || "all"} type="button" role="tab" aria-selected={(at.person || "") === p.id} className={(at.person || "") === p.id ? "on" : ""}
-              onClick={() => go(p.id ? `team/${p.id}` : "team")} data-person-tab={p.id || "all"}>{p.name} <b>{p.n}</b></button>
+              onClick={() => go(watchPath(at.view, p.id))} data-person-tab={p.id || "all"}>{p.name} <b>{p.n}</b></button>
           ))}
         </div>
       )}
@@ -192,8 +201,8 @@ function ArListView({ at, go }) {
       {v.err && <ArDataError err={v.err} retry={v.retry} />}
       {!d && !v.err && <p className="muted dash-wait">Loading…</p>}
       {d && (
-        <ArGrid id={at.view === "confirm" ? "watch" : at.view} view={at.view} rows={rows} asOf={d.asOf || {}} people={d.people || []} openKey={open} flashKey={flashKey}
-          onOpen={(r) => setOpen(r.key)} ctx={ctx} empty={EMPTY[at.view]} filters={{ person: at.view === "team" && !at.person, type: at.view === "team" || at.view === "mine" }} />
+        <ArGrid id={at.view === "confirm" ? "confirm" : at.view} view={at.view} rows={rows} asOf={d.asOf || {}} people={d.people || []} openKey={open} flashKey={flashKey} momentumReady={!!d.momentumReady}
+          onOpen={(r) => setOpen(r.key)} ctx={ctx} empty={at.person ? "Nothing from this person on this tab." : EMPTY[at.view]} filters={{ type: at.view === "mine" }} />
       )}
       {open && <ArDrawer itemKey={open} me={me} founder={!!d?.founder} onClose={close} onChanged={() => v.load()} onGoOutreach={() => go("outreach")} />}
     </div>
