@@ -3185,11 +3185,12 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 @media (max-width:639px){
   .app:not(.pub) .home-head .home-money-line{flex-basis:100%;order:3;flex-wrap:nowrap;margin-right:0}
   .app:not(.pub) .home-head .home-money-line .hml-stat:first-child{grid-column:auto}
-  .app:not(.pub) .home-head .home-money-info{width:44px;height:44px;margin:-8px -10px -8px auto}
-  .app:not(.pub) .home-head .hml-dot{margin:0 6px}
-  .app:not(.pub) .home-head .hml-l{font-size:10px;letter-spacing:.06em}
-  .app:not(.pub) .home-head .home-money-line .cat-stat-val{font-size:14px}
+  .app:not(.pub) .home-head .home-money-info{width:40px;height:44px;margin:-8px -8px -8px auto;flex:none}
+  .app:not(.pub) .home-head .hml-dot{margin:0 5px}
+  .app:not(.pub) .home-head .hml-l{font-size:10px;letter-spacing:.04em}
+  .app:not(.pub) .home-head .home-money-line .cat-stat-val{font-size:13.5px}
   .app:not(.pub) .home-head .hml-stat{gap:4px}
+  .app:not(.pub) .home-head .home-money-line .hml-grid{flex-wrap:nowrap;min-width:0}
 }
 /* N5: the spikes and new releases as a slim strip that moves right to left (the public site's marquee) */
 .app:not(.pub) .home-ticker{position:relative;display:flex;align-items:center;gap:12px;height:40px;min-width:0;margin:0 0 12px;padding:0 0 0 14px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden}
