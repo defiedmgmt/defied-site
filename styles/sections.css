@@ -17,6 +17,7 @@
 .app:not(.pub) .isrc-cell{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}
 .app:not(.pub) .isrc-in{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .app:not(.pub) .isrc-in input{width:170px;max-width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase}
+.app:not(.pub) .isrc-in input::placeholder{text-transform:none;font-family:inherit}
 .app:not(.pub) .isrc-done{display:inline-flex;align-items:center;gap:6px;color:var(--d-ink-2,var(--ink))}
 .app:not(.pub) .pill-n{margin-left:6px;font-size:11px;padding:1px 6px;border-radius:100px;background:var(--d-s3,var(--panel2));color:var(--d-ink-2,var(--ink))}
 @media (max-width:639px){
