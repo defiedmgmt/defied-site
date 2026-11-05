@@ -5,7 +5,9 @@
 //      ?scores=1     every artist's score, trend and why (the Watchlist)
 //      ?home=1       Home's momentum jumps (Home or A&R; an account limited to its own artists: theirs only)
 // POST {action}: add | renew | setDays | remove | weights, and (r10, the A&R lists' drawer) confirmMatch | notThem |
-//      setMode (campaign: daily refresh) | toOutreach | notes | setRole (r11: Artist/Producer). Nothing here writes to a sheet or ClickUp.
+//      setMode (campaign: daily refresh) | notes | setRole (r11: Artist/Producer). (r11: toOutreach is gone with
+//      Outreach.) The only sheet these reach is the A&R sheet, a one-way copy written after each change
+//      (lib/ar/tracker-sheet.js, AR_TRACKER_SHEET_WRITES only); never the pub sheet, never ClickUp.
 import { requireAccess, limited, ownSet } from "../../lib/access";
 import { requireSameOrigin } from "../../lib/session";
 import { sql } from "../../lib/db";
@@ -48,19 +50,18 @@ export default async function handler(req, res) {
     if (!requireSameOrigin(req, res)) return;
     const b = req.body && typeof req.body === "object" ? req.body : {};
     if (b.action === "add") {
-      const out = await T.addToTracker({ user, days: b.days, kind: b.kind, spotify: b.spotify, name: b.name, artist: b.artist, genre: b.genre, image: b.image, url: b.url, clip: b.clip, clientId: b.clientId, isrc: b.isrc, links: b.links && typeof b.links === "object" ? b.links : {} });
-      // r11 (A2): the paste box's Artist/Producer pick, on a Watchlist artist nobody has typed yet
-      if (L.ROLES.includes(b.role) && String(out?.subject || "").startsWith("w:")) await L.setRole({ id: out.subject.slice(2), role: b.role, onlyIfUnset: true }).catch(() => null);
+      const out = await T.addToTracker({ user, days: b.days, kind: b.kind, spotify: b.spotify, name: b.name, artist: b.artist, genre: b.genre, image: b.image, url: b.url, clip: b.clip, clientId: b.clientId, isrc: b.isrc, links: b.links && typeof b.links === "object" ? b.links : {}, role: L.ROLES.includes(b.role) ? b.role : null });
+      // r11 (A2): the paste box's Artist/Producer pick is saved inside addToTracker, before the A&R sheet's "Added" line
       return res.status(200).json(out);
     }
-    if (b.action === "setRole") return res.status(200).json(await L.setRole({ id: String(b.id || ""), role: b.role }));
+    if (b.action === "setRole") { const out = await L.setRole({ id: String(b.id || ""), role: b.role }); await T.sheetAfter(); return res.status(200).json(out); } // (r11) the A&R sheet's Type follows
     if (b.action === "renew") return res.status(200).json(await T.renew({ subject: Array.isArray(b.subjects) ? b.subjects.map(String) : String(b.subject || ""), entryId: b.entryId ? String(b.entryId) : null, user, days: b.days ?? null }));
     if (b.action === "setDays") return res.status(200).json(await T.setDays({ entryId: String(b.entryId || ""), user, days: b.days }));
     if (b.action === "remove") {
       // your own entry; a Founder may take anyone's off (the page's confirm names the person)
       const [e] = await sql`SELECT owner_id FROM ar_tracker WHERE id = ${String(b.entryId || "")} AND removed_at IS NULL`;
       if (e && e.owner_id !== user.id && req.access?.role !== "founder") return res.status(403).json({ error: "That's on someone else's list. A Founder can take it off." });
-      return res.status(200).json(await T.removeEntry({ entryId: String(b.entryId || "") }));
+      return res.status(200).json(await T.removeEntry({ entryId: String(b.entryId || ""), by: user.name, byId: user.id }));
     }
     // r10 fix: the drawer's "Add to my list" on a row someone else added (your name goes on it, 30 days)
     if (b.action === "addMine") {
@@ -70,10 +71,10 @@ export default async function handler(req, res) {
       if (!e) return res.status(404).json({ error: "That one isn't on any list any more. Paste its link to add it again." });
       return res.status(200).json(await T.addEntry({ user, subject, kind: e.kind, days: T.DEFAULT_DAYS }));
     }
-    if (b.action === "confirmMatch") return res.status(200).json(await L.confirmMatch({ id: b.id, spotifyId: String(b.spotifyId || ""), by: user.name }));
-    if (b.action === "notThem") return res.status(200).json(await L.notThem({ id: b.id, spotifyId: String(b.spotifyId || "") }));
-    if (b.action === "notes") return res.status(200).json(await L.saveNotes({ id: b.id, notes: b.notes }));
-    if (b.action === "toOutreach") return res.status(200).json(await L.toOutreach({ id: b.id }));
+    // (r11) the A&R sheet: a confirmed match is a Log line; a match turned down or new notes change the Watchlist tab
+    if (b.action === "confirmMatch") { const out = await L.confirmMatch({ id: b.id, spotifyId: String(b.spotifyId || ""), by: user.name }); await T.sheetAfter([{ action: "Confirmed", userId: user.id, who: user.name, subject: `w:${String(b.id)}` }]); return res.status(200).json(out); }
+    if (b.action === "notThem") { const out = await L.notThem({ id: b.id, spotifyId: String(b.spotifyId || "") }); await T.sheetAfter(); return res.status(200).json(out); }
+    if (b.action === "notes") { const out = await L.saveNotes({ id: b.id, notes: b.notes }); await T.sheetAfter(); return res.status(200).json(out); }
     if (b.action === "setMode") {
       // campaign mode (every number daily) moves here from Numbers: an artist or a sound on the lists
       const id = String(b.entityId || "");

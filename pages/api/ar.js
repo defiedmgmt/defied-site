@@ -4,8 +4,10 @@
 // prospect's History for the panel, newest first). GET also carries the Watchlist: tracked artists and
 // songs (ar_tracked), the A&R numbers (arLists: Spotify monthly listeners and streams, lib/ar.js
 // arListsOf) and who matches which row (watch, sorted by week-on-week %, with Summary's top lists).
-// POST takes one {action} that never touches the sheet. Pub-sheet changes go through
-// /api/ar-write; tracked artists and songs are saved here alone, so they can never reach the sheet.
+// POST takes one {action} that never touches the pub sheet. Pub-sheet changes go through
+// /api/ar-write; tracked artists and songs are saved here alone, so they can never reach the pub sheet (the A&R
+// sheet, a one-way copy, follows a Watchlist removal: lib/ar/tracker-sheet.js). r11: Outreach is gone, and with it
+// the board's moves (stageTracked) and its first-run card (dismissFirstRun); the follow-up count is gone from summary.
 import { sql } from "../../lib/db";
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
@@ -14,7 +16,7 @@ import { uid } from "../../lib/id";
 import { afterAction } from "../../lib/area-tasks";
 import { refreshDeezer } from "../../lib/ar-deezer";
 import { lookupArtist } from "../../lib/ar-lookup";
-import { addEntry, checkDays, TrackerError } from "../../lib/ar/trackers";
+import { addEntry, checkDays, TrackerError, sheetAfter } from "../../lib/ar/trackers";
 
 // the panel's History: plain sentences only (the cells stay server-side); pending ones are left out
 // until the next load settles them
@@ -30,7 +32,6 @@ async function eventsOf(prospectId) {
   });
 }
 
-const STAGE_WORDS = { reach: "To reach out", reached: "Reached out", talking: "Talking", offer: "Offer sent", signed: "Signed", passed: "Passed" };
 const event = (id, by, kind, text) => sql`INSERT INTO ar_events (id, prospect_id, by, kind, text) VALUES (${uid()}, ${id}, ${by}, ${kind}, ${text})`;
 const trackedRow = async (id) => {
   const [t] = await sql`SELECT *, last_contact::text AS last_contact_day, follow_up::text AS follow_up_day FROM ar_tracked WHERE id = ${id} AND removed_at IS NULL`;
@@ -60,11 +61,6 @@ async function trackedAct(action, b, by) {
       person_id = ${v.personId !== undefined ? v.personId : t.person_id}, last_contact = ${v.lastContact !== undefined ? v.lastContact || null : t.last_contact_day} WHERE id = ${t.id}`;
     if (v.photo !== undefined && v.photo !== (t.photo || "")) await sql`UPDATE ar_tracked SET photo = ${v.photo} WHERE id = ${t.id}`.catch((err) => { if (err?.code !== "42703") throw err; });
     await event(t.id, by, "edit", `${by} changed ${t.name}'s details.`);
-  } else if (action === "stageTracked") {
-    const { stage } = checkTracked({ stage: b.stage ?? null }, { isNew: false });
-    if (stage === t.stage) return { ok: true, tracked: trackedOut(t) };
-    await sql`UPDATE ar_tracked SET stage = ${stage} WHERE id = ${t.id}`;
-    await event(t.id, by, "status", stage ? `${by} moved ${t.name} to ${STAGE_WORDS[stage]}.` : `${by} took ${t.name} off the board.`);
   } else if (action === "removeTracked") {
     await sql`UPDATE ar_tracked SET removed_at = now() WHERE id = ${t.id}`;
     await event(t.id, by, "remove", `${by} removed ${t.name} from the Watchlist.`);
@@ -76,11 +72,7 @@ async function trackedAct(action, b, by) {
 async function act(body, by) {
   const { action } = body;
   if (action === "mergeProspect") return mergeProspect(String(body.fromId || ""), String(body.intoId || ""), by);
-  if (action === "dismissFirstRun") {
-    await sql`UPDATE app_state SET value = value || '{"dismissed": true}'::jsonb, updated_at = now() WHERE key = 'arFirstRun'`;
-    return { ok: true };
-  }
-  if (["addTracked", "editTracked", "stageTracked", "removeTracked"].includes(action)) return trackedAct(action, body, by);
+  if (["addTracked", "editTracked", "removeTracked"].includes(action)) return trackedAct(action, body, by);
   throw new ArError(400, "Unknown action.");
 }
 
@@ -103,7 +95,10 @@ export default async function handler(req, res) {
     const out = await act(req.body || {}, session.user.name || session.user.email || "staff");
     const noTable = (err) => { if (err?.code !== "42P01") throw err; };
     if (req.body?.action === "addTracked" && out?.tracked?.id) await addEntry({ user: { id: session.user.id, name: session.user.name || session.user.email || "" }, subject: `w:${out.tracked.id}`, kind: out.tracked.kind === "song" ? "song" : "artist", days }).catch(noTable);
-    if (req.body?.action === "removeTracked") await sql`UPDATE ar_tracker SET removed_at = now(), removed_why = 'removed' WHERE subject = ${`w:${String(req.body.id || "")}`} AND removed_at IS NULL`.catch(noTable);
+    if (req.body?.action === "removeTracked") {
+      await sql`UPDATE ar_tracker SET removed_at = now(), removed_why = 'removed' WHERE subject = ${`w:${String(req.body.id || "")}`} AND removed_at IS NULL`.catch(noTable);
+      await sheetAfter([{ action: "Removed", userId: session.user.id, who: session.user.name || "", subject: `w:${String(req.body.id || "")}` }]);
+    }
     await afterAction(["ar"]); // the A&R ClickUp task follows (CLICKUP_TASK_WRITES only)
     return res.status(200).json(out);
   } catch (err) {

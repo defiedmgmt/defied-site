@@ -32,7 +32,7 @@ export default async function handler(req, res) {
   if (wrong) return res.status(200).json({ ok: false, error: wrong, link: { platform: l.platform, kind: l.kind } });
   try {
     const r = await resolveLink(url, { paid: !client && !!b.paid, me: client ? null : session.user.id });
-    if (r.ok && kinds.length && !kinds.includes(r.link.kind)) return res.status(200).json({ ok: false, error: wrongKind(r.link, kinds) });
+    if (r.ok && kinds.length && !kinds.includes(r.link.kind)) return res.status(200).json({ ok: false, error: wrongKind(r.link, kinds), link: { platform: r.link.platform, kind: r.link.kind } });
     res.setHeader("Cache-Control", "no-store");
     if (client) return res.status(200).json({ ...r, already: [], suggestions: [], paid: { needed: false } });
     return res.status(200).json(r);
