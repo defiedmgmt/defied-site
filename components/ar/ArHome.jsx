@@ -135,7 +135,7 @@ export function ArHome({ data, err, retry, onOpen, onView, founder, reload }) {
     <div className="arh" data-ar-home>
       <p className="arh-fresh" data-fresh>
         {fl.map(([label, v, time]) => <span key={label}>{label} {time ? atText(v) : dayText(v)}</span>)}
-        {f.luminate && <span>Luminate (history) {dayText(f.luminate)}</span>}
+        {f.luminate && <span data-fresh-lum>Luminate weeks to {dayText(f.luminate)}{f.luminateAtd && f.luminateAtd > f.luminate ? ` · all-time to ${dayText(f.luminateAtd)}` : ""}</span>}
         {!fl.length && <span>No readings yet</span>}
         {!f.refresh && <span data-refresh-off>Automatic updates: off</span>}
       </p>
