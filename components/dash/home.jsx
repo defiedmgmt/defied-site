@@ -290,7 +290,7 @@ function HomeSpikes({ onGo, founder, siteOn }) {
   return (
     <div className="home-card nums-home home-spikes" data-home-numbers>
       <div className="attn-head"><TrendingUp size={15} /> Spikes and new releases
-        {siteOn && <button type="button" className="inline-link home-all" data-spikes-sources onClick={() => onGo("site", "sync")}>Sources{cost} ›</button>}</div>
+        {siteOn && <button type="button" className="inline-link home-all" data-spikes-sources onClick={() => onGo("site", "sync")}>Sources{cost && <span className="spikes-cost">{cost}</span>} ›</button>}</div>
       <div className="home-scroll" ref={box}>
         {d.spikes.map((x, i) => <p key={`s${i}`} className="todo-line spike-line" data-spike><b>{x.name}</b> <span>{x.text}</span></p>)}
         {d.newReleases.map((r, i) => <p key={`r${i}`} className="todo-line spike-line" data-new-release><b>{r.artist}</b> <span>released “{r.name}” ({shortDay(r.releaseDate)}), picked up for tracking</span></p>)}
