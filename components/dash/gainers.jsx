@@ -22,7 +22,10 @@ export function useScrollMore(ref) {
     const el = ref.current;
     if (!el) return;
     const check = () => {
-      const more = el.scrollTop + el.clientHeight < el.scrollHeight - 4;
+      // (r11: asked as if the foot weren't there, so a list that only overflows because of its own foot drops it,
+      // e.g. once the Dashboard's top cards are as tall as their rows)
+      const foot = el.nextElementSibling?.classList.contains("home-scroll-foot") ? el.nextElementSibling.offsetHeight : 0;
+      const more = el.scrollTop + el.clientHeight + foot < el.scrollHeight - 4;
       if (more) el.setAttribute("data-more", ""); else el.removeAttribute("data-more");
       const bottom = el.getBoundingClientRect().bottom;
       // a label also waits while what it heads starts in the fade or below (the next label counts as

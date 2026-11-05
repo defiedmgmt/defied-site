@@ -3,6 +3,7 @@ import { autoConfirms, autoWords } from "../../lib/split-fixes";
 import { fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
 import { dashTasks, dupeIds, songsToUpdate } from "./helpers";
 import { money } from "./ui";
+import { songsWithoutIsrc } from "./isrc-data";
 import { cuCache, syncCache } from "../shared/dash-caches";
 
 // To do's data: the hooks and the row list the shell reads on every section (the sidebar's one count,
@@ -62,6 +63,10 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
     else if (it.k === "update") out.push({ ...base, panel: "update", rank: { kind: "fix", value: streams(songsToUpdate(db, songInfo).map((x) => x.p)) } });
     else if (it.k === "tabs") out.push({ ...base, d: "The pub sheet has no tab by that name. Type the right one here.", cta: it.sub === "roster" ? "Set the sheet tabs" : it.cta, panel: "tabs", rank: { kind: "other" } });
   }
+  // r11: the songs with no ISRC, one row whose panel is the ISRC finder (it was Publishing's ISRCs tab).
+  // Only once the song facts are in (an ISRC lives there), so the count never flashes the whole catalog.
+  const noIsrc = songInfo?.tracking ? songsWithoutIsrc(db, songInfo).length : 0;
+  if (noIsrc) out.push({ k: "isrc", area: "roster", t: `${noIsrc} song${noIsrc === 1 ? " has" : "s have"} no ISRC`, cta: "Find them", panel: "isrc", rank: { kind: "other" } });
   // (r7) the shares with one clear answer: One tap, each with its preview first (ShareFix)
   const fx = shareFixesOf(db);
   const few = (xs) => (xs.length > 3 ? `${xs.slice(0, 2).map((x) => x.p.song || "Untitled").join(", ")} and ${xs.length - 2} more` : xs.map((x) => `${x.p.song || "Untitled"} (${x.client.name})`).join(", "));

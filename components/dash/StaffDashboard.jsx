@@ -16,15 +16,18 @@ import { arSecOf } from "../shared/ar-routes";
 
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
-const DASH_TABS = ["home", "todo", "catalog", "money", "ar", "site"];
+// r11: the order the owner asked for (Dashboard, To do, A&R, Money, Publishing, Site); "home" is the Dashboard
+const DASH_TABS = ["home", "todo", "ar", "money", "catalog", "site"];
 function placeOf(t, s) {
   const sub = typeof s === "string" && s ? s : null;
   if (t === "accounting") return sub === "log" || sub === "check" ? { tab: "todo", sub } : { tab: "money", sub: sub === "payments" ? "payments" : null };
   if (t === "website") return { tab: "site", sub };
-  if (t === "publishing") return { tab: "catalog", sub };
+  if (t === "publishing") return placeOf("catalog", sub);
+  if (t === "dashboard") return { tab: "home", sub: null }; // r11: Home is called Dashboard again (/dashboard/dashboard)
   if (t === "users") return { tab: "site", sub: "users" };
   if (t === "subs") return { tab: "site", sub: "messages" };
-  if (t === "catalog" && ["splits", "update", "dupes"].includes(sub)) return { tab: "todo", sub };
+  // (r11: Publishing's ISRCs tab is gone; the finder opens inside To do, /dashboard/todo/isrc)
+  if (t === "catalog" && ["splits", "update", "dupes", "isrc"].includes(sub)) return { tab: "todo", sub };
   // (list B #3: the Luminate tab is gone; r10: so is Numbers, whose sources and cost are in Site › Sync now.
   // Their old links, /dashboard/numbers and ?tab=numbers or ?tab=luminate, open Site › Sync)
   if (t === "luminate" || t === "numbers") return { tab: "site", sub: "sync" };
@@ -124,10 +127,11 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const todoN = todo.length + cuDue.length;
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
   const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou, can, seeds };
+  // r11: Home is "Dashboard" again, in the owner's order (the phone bar has the same order)
   const allTabs = [
-    ["home", "Home", LayoutDashboard], ["todo", "To do", ListChecks, todoN],
-    ["catalog", "Publishing", ListMusic, 0, "roster"], ["money", "Money", Receipt, 0, "money"],
-    ["ar", "A&R", Handshake, 0, "ar"], ["site", "Site", Globe, 0, "site"],
+    ["home", "Dashboard", LayoutDashboard], ["todo", "To do", ListChecks, todoN],
+    ["ar", "A&R", Handshake, 0, "ar"], ["money", "Money", Receipt, 0, "money"],
+    ["catalog", "Publishing", ListMusic, 0, "roster"], ["site", "Site", Globe, 0, "site"],
   ];
   // the tabs this account may use: Site holds Users too. Any other address opens the first of them.
   const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : can(TAB_SECTION[id])));
@@ -136,8 +140,8 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   return (
     <div className="dash">
       <aside className="dash-side">
-        {/* r10 (H15): the logo stays in the dashboard (Home), it doesn't leave for the public site */}
-        <div className="dash-brand"><Link href="/dashboard" className="logo-link" aria-label="Dashboard home" onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return; e.preventDefault(); go("home"); }}><Wordmark height={26} /></Link></div>
+        {/* r10 (H15): the logo stays in the dashboard (the Dashboard page), it doesn't leave for the public site */}
+        <div className="dash-brand"><Link href="/dashboard" className="logo-link" aria-label="Dashboard" onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return; e.preventDefault(); go("home"); }}><Wordmark height={26} /></Link></div>
         <nav>
           {tabs.map(([id, label, Icon, badge, area]) => (
             <button key={id} className={[at === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={at === id ? "page" : undefined} onClick={() => setTab(id)} onPointerEnter={() => SECTION_CODE[id]?.()} onFocus={() => SECTION_CODE[id]?.()}>

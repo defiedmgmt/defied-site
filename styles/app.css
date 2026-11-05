@@ -407,7 +407,10 @@ button{font-family:inherit;cursor:pointer}
   --d-ban-neg-bg:#231111;--d-ban-neg-line:#552727;--d-ban-neg-ink:#f2c9c9;
   --d-ban-warn-bg:#1c150e;--d-ban-warn-line:#4a3820;--d-ban-warn-ink:#ecd3b8;
   /* area colours: which part of the business a task, nav item or badge belongs to (never on numbers) */
-  --d-a-lum:var(--d-info);--d-a-pub:#6fd6c4;--d-a-ar:#c4a7ff;--d-a-cu:#f29bc8;--d-a-money:var(--d-pos);--d-a-site:var(--d-ink-3);
+  /* r11 (the owner: "money and pub colors are very similar on todo ... they shld all have a diff color like clickup"):
+     one hue per area, the shared set (S/r11/PLAN.txt): Money green, Publishing blue, A&R amber, Site violet, ClickUp pink */
+  --area-money:#34d399;--area-pub:#60a5fa;--area-ar:#f59e0b;--area-site:#a78bfa;--area-clickup:#f29bc8;
+  --d-a-lum:var(--d-info);--d-a-pub:var(--area-pub);--d-a-ar:var(--area-ar);--d-a-cu:var(--area-clickup);--d-a-money:var(--area-money);--d-a-site:var(--area-site);
   --d-display:'Suntage','Inter',sans-serif;
   --d-body:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
   --d-r-xs:6px;--d-r-sm:8px;--d-r-md:10px;--d-r-field:12px;--d-r-card:14px;--d-r-modal:16px;
@@ -2654,6 +2657,33 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .home-pay .hp-list{flex:1 1 0rem;min-height:0;flex-wrap:wrap;align-content:flex-start;overflow:hidden}
   .app:not(.pub) .home-pay .hp-row{width:100%}
 }
+/* r11 (the owner, on Biggest tasks + This week with room left at their foot: "clean up that empty space there",
+   then "dont fill the empty space w more rows fill it with by like moving the calendar up or something maybe adding
+   a third recent payment"): the two top cards are as tall as their own rows (This week its top 5, Biggest tasks its
+   tasks), the taller of the two for both (--home-top-h, measured by home.jsx's useTopFit), and the shorter one's rows
+   share what's left so neither has a gap at its foot. The calendar moves up into the room that frees (its days take
+   the card's height), and Recent payments shows three. Still one screen: when the window is short the top row gives
+   way first (its cards scroll inside, as before). */
+@media (min-width:900px) and (min-height:640px){
+  .app:not(.pub) .home{grid-template-rows:auto auto minmax(160px,var(--home-top-h,1fr)) minmax(118px,1fr) auto}
+  .app:not(.pub) .home .home-row .home-scroll{display:flex;flex-direction:column}
+  .app:not(.pub) .home .home-top-list > :is(.todo-item,.cu-todo),.app:not(.pub) .home .gainers .home-scroll > .gainer{flex:1 0 auto}
+  .app:not(.pub) .home .home-top-list > .todo-item{display:flex;flex-direction:column}
+  .app:not(.pub) .home .home-top-list > .todo-item > .attn-row{flex:1 0 auto}
+  .app:not(.pub) .home .home-top-list > .todo-line:only-child,.app:not(.pub) .home .gainers .gainers-empty{margin-block:auto}
+  /* one synchronous read (useTopFit): each card at its own height, closed rows only, no foot */
+  .app:not(.pub) .home[data-measure] .home-row > .home-card{align-self:start;height:auto}
+  .app:not(.pub) .home[data-measure] .home-row .home-scroll{flex:none;overflow:visible}
+  .app:not(.pub) .home[data-measure] .home-row .home-scroll > *,.app:not(.pub) .home[data-measure] .home-top-list > .todo-item > .attn-row{flex-grow:0}
+  .app:not(.pub) .home[data-measure] :is(.home-scroll-foot,.todo-panel){display:none}
+  /* the calendar: its seven days share the card's height */
+  .app:not(.pub) .home > .home-week{min-height:0}
+  .app:not(.pub) .home .home-week .hw-grid{flex:1 1 auto;min-height:0}
+  .app:not(.pub) .home .home-week .hw-day{overflow:hidden}
+  /* a week with nothing due says so once, in the middle of its days */
+  .app:not(.pub) .home .home-week[data-empty]{position:relative}
+  .app:not(.pub) .home .home-week[data-empty] .hw-empty-line{display:block;position:absolute;left:0;right:0;top:calc(50% + 22px);transform:translateY(-50%);margin:0;text-align:center;font-size:13.5px;color:var(--d-ink-4);pointer-events:none}
+}
 /* the same one-line head on phones, so the Money card stays inside its phone cap with the list under it */
 @media (min-width:900px) and (max-height:820px), (max-width:599px){
   .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head{flex-wrap:nowrap}
@@ -3033,6 +3063,9 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .todo-chips .upd-filter{height:32px;padding:0 12px;gap:6px;font-size:13px}
 .app:not(.pub) .todo-chips .upd-filter.on{border-color:var(--d-ink-3);color:var(--d-ink);background:var(--d-active)}
 .app:not(.pub) .todo-chip-n{color:var(--d-ink-4);font-variant-numeric:tabular-nums}
+/* r11: each area's pill carries its colour as a dot (the same hue as its rows' left bar) */
+.app:not(.pub) .todo-chips .upd-filter[data-area]::before{content:"";flex:none;width:8px;height:8px;border-radius:50%;background:var(--area)}
+@media (max-width:639px){ .app:not(.pub) .todo-page .todo-chips .upd-filter{height:44px} }
 .app:not(.pub) .todo-page .todo{overflow:visible}
 .app:not(.pub) .todo-item{display:block}
 .app:not(.pub) .todo-open{all:unset;box-sizing:border-box;flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;cursor:pointer;border-radius:var(--d-r-sm)}
