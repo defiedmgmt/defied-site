@@ -266,6 +266,7 @@
 .app:not(.pub) .arh .gainer .wow-pill { height: 22px; font-size: 12.5px; }
 .app:not(.pub) .arh .gainer:last-child { border-bottom: 0; }
 .arh-none { margin: 0; padding: 8px 14px 12px 12px; font-size: 13px; color: var(--d-ink-4, #777); }
+.app:not(.pub) .arh [data-adds] .attn-head, .app:not(.pub) .arh [data-expiring] .attn-head { flex-wrap: nowrap; white-space: nowrap; }
 .arh-head-n { margin-left: auto; font-weight: 400; font-size: 12.5px; color: var(--d-ink-4, #777); }
 .arh-adds { display: flex; flex-direction: column; }
 .arh-add { display: flex; flex-direction: column; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--d-line, #1c1c1e); }

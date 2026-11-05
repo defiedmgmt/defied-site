@@ -156,7 +156,7 @@ function AddsCard({ adds, addsByWeek, onOpen }) {
   const total = adds.reduce((a, p) => a + p.n, 0);
   return (
     <div className="home-card arh-card" data-adds>
-      <div className="attn-head"><UserPlus size={15} /> New adds this week {total > 0 && <span className="arh-head-n" data-adds-total={total}>{total} since Monday</span>}</div>
+      <div className="attn-head"><UserPlus size={15} /> Added this week {total > 0 && <span className="arh-head-n" data-adds-total={total}>{total} since Monday</span>}</div>
       {adds.length ? (
         <div className="arh-adds">
           {adds.map((p) => (
