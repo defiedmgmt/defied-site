@@ -15,7 +15,7 @@ const SCROLL_ROWS = ".attn-row,.cu-row,.gainer,.pay-row,.acct-row:not(.acct-row-
 // (Money's "Not in the sheet" head is above its scroll box, never one of these)
 const SCROLL_LABELS = ".todo-group,.todo-sub,.gainer-split,.acct-row-hd";
 const LABEL_FADE = 24;
-function useScrollMore(ref) {
+export function useScrollMore(ref) {
   const [hidden, setHidden] = useState(0);
   useEffect(() => {
     const el = ref.current;
@@ -44,7 +44,7 @@ function useScrollMore(ref) {
   return hidden;
 }
 // the foot of a scrolling card while there's more below: "↓ 7 more", and a click scrolls to them
-const ScrollFoot = ({ n, box }) => (n ? (
+export const ScrollFoot = ({ n, box }) => (n ? (
   <button type="button" className="home-scroll-foot" onClick={() => box.current?.scrollBy({ top: box.current.clientHeight - 48, behavior: "smooth" })}>
     <ChevronDown size={14} /> {n > 0 ? `${n} more` : "More below"}
   </button>
@@ -72,7 +72,8 @@ function useRosterTop() {
 }
 // the pill over this week's streams; a row with no % (too few streams) shows its streams alone, in grey
 // (an artist's monthly listeners: "71,342 listeners", the % against a week ago)
-const weekWords = (r) => (r.unit === "listeners" ? `${fmt(r.thisWeek)} listeners` : `${fmt(r.thisWeek)} this week`);
+// (a Luminate week isn't this week: "43,701 streams", its dates in the card's subtitle or the row's own line)
+const weekWords = (r) => (r.unit === "listeners" ? `${fmt(r.thisWeek)} listeners` : r.src ? `${fmt(r.thisWeek)} streams` : `${fmt(r.thisWeek)} this week`);
 function GainNum({ r }) {
   return r.ranked && r.wowPct != null
     ? <span className="gainer-num" data-wow={r.wowPct >= 0 ? "up" : "down"}><WowPill pct={r.wowPct} /><em>{weekWords(r)}</em></span>
@@ -90,12 +91,14 @@ export function TopGainers({ db, onGo, arTop, arLoaded }) {
   const rows = isAR ? arTop?.people || null : !top ? null : kind === "artists" ? top.artists.filter((a) => client(a.clientId)) : top.songs.filter((s) => placement(s.placementId));
   // each tab says its own days (a portfolio exported later can move the songs' week)
   const span = isAR ? arTop?.period : top && (kind === "artists" ? top.artistsWeekOf : top.songsWeekOf);
+  // r10 (H9): fewer than 8 days of Spotify numbers, so the songs and artists are Luminate's newest real week
+  const lum = !isAR && top?.source === "luminate" ? (kind === "artists" ? top.artistsLabel : top.songsLabel) : null;
   const empty = isAR ? (!arTop ? (arLoaded ? "Couldn't load the A&R numbers." : "Loading…") : !rows.length && "No A&R numbers this week yet.")
     : !top ? (failed ? "Couldn't load this week's numbers." : "Loading…")
     : !rows.length && "Shows up once there's a week of daily Spotify numbers.";
   const firstOff = rows ? rows.findIndex((r) => !(r.ranked && r.wowPct != null)) : -1;
   // the rows without a % sit under one caption, after the ranked ones
-  const split = (i) => i === firstOff && <div key="split" className="gainer-split">Not enough streams for a % yet</div>;
+  const split = (i) => i === firstOff && <div key="split" className="gainer-split">{isAR ? "Not enough history for a % yet" : "Not enough streams for a % yet"}</div>;
   // only a rise gets a rank number; a fall (ranked after every rise) shows its pill, unnumbered and muted
   const rose = (r) => r.ranked && r.wowPct != null && r.wowPct > 0;
   const rank = (r, i) => <span className="gainer-n">{rose(r) ? i + 1 : "·"}</span>;
@@ -111,7 +114,8 @@ export function TopGainers({ db, onGo, arTop, arLoaded }) {
         </span>
       </div>
       <div className="home-scroll" ref={body}>
-        {span && <p className="gainer-sub">{dayRange(span.from, span.to)} · vs the week before · {isAR ? "Spotify monthly listeners" : "Spotify streams, global"}</p>}
+        {lum ? <p className="gainer-sub" data-lum-week>{lum} · all platforms</p>
+          : span && <p className="gainer-sub">{dayRange(span.from, span.to)} · vs the week before · {isAR ? "Spotify monthly listeners" : "Spotify streams, global"}</p>}
         {empty ? (
           <p className="gainers-empty">{empty}{!isAR && !top && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
         ) : isAR ? rows.map((r, i) => [split(i), (
@@ -128,7 +132,7 @@ export function TopGainers({ db, onGo, arTop, arLoaded }) {
             <button key={c.id} className="gainer" data-ranked={a.ranked && a.wowPct != null ? "" : undefined} data-fall={fall(a)} onClick={() => onGo("catalog", `client:${c.id}`)}>
               {rank(a, i)}
               <span className="lm-cover gainer-av">{c.photo ? <Photo src={c.photo} alt="" fill sizes="40px" /> : (c.name || "?")[0].toUpperCase()}</span>
-              <span className="lm-song-main"><strong>{c.name}</strong><span>{a.topSong}{a.songCount > 1 ? ` + ${a.songCount - 1} more` : ""}</span></span>
+              <span className="lm-song-main"><strong>{c.name}</strong><span>{[a.topSong && `${a.topSong}${a.songCount > 1 ? ` + ${a.songCount - 1} more` : ""}`, a.weekText].filter(Boolean).join(" · ")}</span></span>
               <GainNum r={a} />
             </button>
           )];
@@ -138,7 +142,7 @@ export function TopGainers({ db, onGo, arTop, arLoaded }) {
             <button key={s.key} className="gainer" data-ranked={s.ranked && s.wowPct != null ? "" : undefined} data-fall={fall(s)} onClick={() => onGo("catalog", `client:${s.clientIds[0]}`)}>
               {rank(s, i)}
               <span className="lm-cover">{p.cover ? <Photo src={p.cover} alt="" fill sizes="40px" /> : <Disc3 size={16} />}</span>
-              <span className="lm-song-main"><strong>{p.song}</strong><span>{p.artist} · {s.clientIds.map((id) => client(id)?.name || "").filter(Boolean).join(", ")}</span></span>
+              <span className="lm-song-main"><strong>{p.song}</strong><span>{[p.artist, s.clientIds.map((id) => client(id)?.name || "").filter(Boolean).join(", "), s.weekText].filter(Boolean).join(" · ")}</span></span>
               <GainNum r={s} />
             </button>
           )];

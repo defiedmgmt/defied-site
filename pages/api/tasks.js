@@ -2,19 +2,20 @@
 // lists (Internal, Pub, A&R and the five MGMT lists), the people to filter by and assign, and whether
 // writes are on. The tasks the dashboard keeps itself ("Log new payments", the area tasks) are left
 // out (To do lists their to-dos already; the open ones come back as own, for its "Done for you" line).
-// ?fresh=1 skips the two-minute cache.
+// ?fresh=1 skips the two-minute cache (and reads each list's access again: a list just shared in ClickUp).
+// A list the Defied Bot can't see comes back as { error: "Defied Bot can't see …", noAccess: true } (r10, C2).
 // POST {action:"done", id} sets a task to its list's closed status; {action:"create", name, list, due,
 // assignee} adds one. Both only with CLICKUP_TASK_WRITES=on (else a plain line, nothing sent).
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
-import { allTasks, members, markTaskDone, createUserTask, clearTaskCache, ownTasks, writesOn } from "../../lib/clickup-tasks";
+import { allTasks, members, markTaskDone, createUserTask, clearTaskCache, clearAccessCache, ownTasks, writesOn } from "../../lib/clickup-tasks";
 
 export default async function handler(req, res) {
   const session = await requireAccess(req, res, ["todo", "home"]);
   if (!session) return;
   try {
     if (req.method === "GET") {
-      if (req.query.fresh) clearTaskCache();
+      if (req.query.fresh) { clearTaskCache(); clearAccessCache(); }
       const [{ lists, tasks }, people, own] = await Promise.all([allTasks(), members(), ownTasks()]);
       const mine = new Set(own.map((t) => t.taskId));
       // own: only a task that's really there (open in its list) and kept current (writes on), so "Done for

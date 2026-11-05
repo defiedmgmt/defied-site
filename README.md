@@ -91,22 +91,22 @@ Every staff login has a role. Founders set roles in **Site › Users** (`lib/rol
 
 There are no demo logins. Accounts are created in Site › Users.
 
-## Numbers (automated data)
+## The automated numbers (the Numbers tab is gone: Site › Sync, Home's Spikes, Publishing pages)
 
 - Two daily crons (Hobby runs each at most once a day): `/api/cron/data` at 09:00 UTC collects finished runs,
   reads YouTube and the Spotify catalogs, and starts the Apify runs that are due; `/api/cron/data-collect` at 11:00
   UTC collects what the webhook didn't. Apify runs aren't waited for: Apify calls `/api/data-hook` when one ends.
 - Schedule: streams per song and YouTube daily; monthly listeners and Instagram/TikTok followers weekly. Campaign
-  mode (on an artist or a sound, in Numbers) makes everything about it daily for 30 days.
+  mode (on a roster artist's Publishing page, or a Watchlist row in A&R) makes everything about it daily for 30 days.
 - Every number is a dated row in `data_snapshots`. A source that fails writes nothing, so the last good number
   stays and the page says "last updated <date>".
 - Spending: each run has its own charge cap; each source has a monthly budget and all of them together one more
-  (Numbers › Sources & cost, $15 by default). Set Apify's own usage limit (Billing) to the plan's $19 as the hard cap.
-- A broken scraper: pick its backup in Numbers › Sources & cost. Adding another is one entry in `lib/data/sources.js`.
+  (Site › Sync, "Where the numbers come from": Founders only, $15 by default). Set Apify's own usage limit (Billing) to the plan's $19 as the hard cap.
+- A broken scraper: pick its backup in Site › Sync (Founders). Adding another is one entry in `lib/data/sources.js`.
 - The starting list (list B #3, replacing Luminate): every song and artist in the old Luminate portfolios (Admin
   Catalog 1 & 2, Artist Tracker, Song Tracker) is in `lum_history` (migration 012, `lib/data/seeds.js`), matched to
   Spotify by its song's link, its ISRC (search `isrc:`) or by name, which a person confirms in To do. Matched rows
-  are tracked like the roster. Each one keeps its last Luminate numbers as read-only history (Numbers shows them).
+  are tracked like the roster. Each one keeps its last Luminate numbers as read-only history (a roster artist's or song's Publishing page, and the A&R drawer, show them).
   The data cron reads the old Luminate tables again each day (they're never written) and asks Spotify about a few
   more. Nothing reads or writes Luminate itself any more.
 - The pub sheet's STREAM DATA tab is written only by `lib/stream-sheet.js`, behind `STREAM_SHEET_WRITES` (off unless
@@ -166,7 +166,7 @@ never values.
 | `PUB_SHARE_WRITES` | "Fill in 100%": a blank Writer Share cell on the pub sheet. |
 | `STREAM_SHEET_WRITES` | The pub sheet's STREAM DATA tab from the new numbers, after each data cron tick (lib/stream-sheet.js): column D (streams) and E (source) of the rows with a confirmed Spotify match, and the label in G1. Nothing else on the sheet. |
 | `STREAM_SHEET_MODE` | Not a switch: `estimate` (default, Spotify plays x each song's own Luminate/Spotify ratio, refreshed by each monthly true-up, so the sheet stays on Luminate's all-platform scale; on true-up day the number is Luminate's own) or `spotify` (Spotify plays as they are). |
-| `DATA_REFRESH` | Not a write, but it spends money: the daily data crons start Apify runs and read YouTube/Spotify. Off, nothing is fetched (the Numbers page shows what's there). |
+| `DATA_REFRESH` | Not a write, but it spends money: the daily data crons start Apify runs and read YouTube/Spotify. Off, nothing is fetched (Site › Sync shows what's there). |
 | `DIGEST_WRITES` | The Monday digests: the team post to `DIGEST_CHANNEL_ID` and the personal messages. Off, a Monday run still builds each digest and logs it (`digest_runs`, status "off"), so the preview shows what would have gone out. |
 | `RADAR_SCANS` | Not a write, but it spends money: the TikTok radar's keyword scans and its risers' daily boost. Off, sounds added by link are still tracked one at a time. |
 

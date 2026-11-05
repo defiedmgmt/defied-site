@@ -10,6 +10,7 @@ import { GrowthChip, Sparkline, dayRange, shortDay, signed, songsPost, songsToUp
 import { Avatar, DropNote, Field, PhotoUpload, SplitsEditor, SplitsPie, Wordmark, fmt, money, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "../dash/ui";
 import { ROUTE_TO_PATH } from "../shared/routes";
 import { ExtLink, Photo } from "../shared/ui";
+import { LumHistory } from "../dash/lum-history";
 import { ownSplit, personKey } from "../site/data";
 import { AskCard } from "./ask";
 export { AskCard, useDirtyGuard } from "./ask";
@@ -114,6 +115,8 @@ export async function pushOwnShare(saved, client, liveIds, keepPercent = null) {
 }
 
 // editorOnly (To do's Fix / Update): only the song's editor and the strip after its Save, none of the client's page
+// a placement's Spotify track as the numbers' entity key (t:<id>), or null
+const trackKey = (link) => { const m = /open\.spotify\.com\/(?:intl-[a-z-]+\/)?track\/([A-Za-z0-9]{22})/.exec(String(link || "")); return m ? `t:${m[1]}` : null; };
 export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSongInfo, fix, onFix, onFixList, onGo, onDeleteClient, editorOnly = false }) {
   // staff's db has a `clients` array; a client session's db has just their
   // own `client` record (no `clients` array — that's not sent to them).
@@ -353,6 +356,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               : `Streams as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}
             {isStaff && weekGain != null && ` · ${signed(weekGain)} Spotify streams this week`}
           </p>
+          {/* r10: what Luminate had for this artist (read only) and campaign mode, from the old Numbers tab */}
+          {isStaff && <LumHistory k={`a:${clientId}`} campaign />}
         </div>
       )}
 
@@ -452,6 +457,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                   <p className="hint">Spotify streams, global, all-time, from {shortDay(growth[active.id].series[0][0])} to {shortDay(growth[active.id].latestOn)}</p>
                 </div>
               )}
+              {/* r10: the song's Luminate history (read only), keyed by its Spotify track */}
+              {isStaff && trackKey(active.link) && <LumHistory k={trackKey(active.link)} />}
             </div>
             {/* the two ways a song leaves the page read alike, so say which is which */}
             {isStaff && <p className="hint song-foot-help" data-foot-help>Remove from catalog: a song that was never ours (it comes off the site and the pub sheet). Delete: a duplicate or a mistake on the site.</p>}

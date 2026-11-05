@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { Plus, Disc3, RefreshCw, AlertTriangle, CheckCircle2, ChevronRight, CalendarDays, ChevronLeft, List as ListIcon } from "lucide-react";
-import { dueBucket, nyDay } from "../../lib/todo-rank";
+import { dueBucket, nyDay, nyShort } from "../../lib/todo-rank";
 import { AREA_SECTION } from "../../lib/roles";
 import { TODO_AREAS } from "./access";
 import { fullSiteSync, shareFixesOf } from "./catalog-data";
@@ -271,6 +271,11 @@ function SeedRow({ r, picks = [], onDone }) {
 // ClickUp: one open task. The name opens it in ClickUp; Done ✓ sets it to its list's done status.
 const PRIORITY = { urgent: "Urgent", high: "High", normal: "Normal", low: "Low" };
 const CU_BUCKETS = [["overdue", "Overdue"], ["today", "Today"], ["week", "This week"], ["later", "Later"], ["none", "No date"]];
+// the name with its ↗ kept on the last word's line (r10, H14: on a phone a wrapped name left it far right)
+function CuName({ name }) {
+  const i = String(name).lastIndexOf(" ");
+  return <>{i > 0 ? `${name.slice(0, i)} ` : ""}<span className="cu-last">{i > 0 ? name.slice(i + 1) : name}{"\u00a0"}<span className="cu-ext" aria-hidden="true">↗</span></span></>;
+}
 export function CuTodoRow({ t, cu }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -288,8 +293,8 @@ export function CuTodoRow({ t, cu }) {
   return (
     <div className="attn-row cu-todo" data-cu={t.id} data-area="clickup" data-bucket={b}>
       <span className="attn-main">
-        <b><ExtLink href={t.url} className="cu-name" title="Open in ClickUp">{t.name} <span className="cu-ext" aria-hidden="true">↗</span></ExtLink></b>
-        <em>{[list?.name, t.people?.length ? t.people.map((p) => p.name).join(", ") : null, t.due && `${b === "overdue" ? "Late · was due" : "Due"} ${shortDay(t.due)}`, t.priority && t.priority !== "normal" && `${PRIORITY[t.priority] || t.priority} priority`].filter(Boolean).join(" · ")}</em>
+        <b><ExtLink href={t.url} className="cu-name" title="Open in ClickUp"><CuName name={t.name} /></ExtLink></b>
+        <em>{[list?.name, t.people?.length ? t.people.map((p) => p.name).join(", ") : null, t.due && `${b === "overdue" ? "Late · was due" : "Due"} ${nyShort(t.due)}`, t.priority && t.priority !== "normal" && `${PRIORITY[t.priority] || t.priority} priority`].filter(Boolean).join(" · ")}</em>
         {err && <em className="err-text" role="alert">{err}</em>}
       </span>
       <button type="button" className="btn ghost sm" data-done={t.id} disabled={busy || !writes} title={writes ? "Set it to done in ClickUp" : "Writing to ClickUp isn't switched on yet"} onClick={done}>{busy ? "Saving…" : "Done ✓"}</button>
@@ -330,13 +335,16 @@ function CuSection({ cu, list, person, setList, setPerson, onNew }) {
   const tasks = (d?.tasks || []).filter((t) => (list === "all" || t.list === list) && (person === "all" || (t.people || []).some((p) => String(p.id) === person)));
   const people = d?.people || [];
   const down = (d?.lists || []).filter((l) => l.error);
+  // r10 (C2): lists ClickUp hides from the Defied Bot (not shared with it) are named, never shown as empty
+  const hiddenL = down.filter((l) => l.noAccess), otherDown = down.filter((l) => !l.noAccess);
+  const names = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).map((l) => l.name).join(", ")} and ${xs.at(-1).name}` : xs[0]?.name || "");
   return (
     <div className="todo-cu" data-area="clickup">
       <div className="todo-group todo-cu-head" data-group="clickup">
         <span>ClickUp{d ? ` · ${tasks.length}` : ""}</span>
         <span className="todo-cu-tools">
           <select aria-label="List" data-cu-list value={list} onChange={(e) => setList(e.target.value)}>
-            <option value="all">All lists</option>{(d?.lists || []).map((l) => <option key={l.key} value={l.key}>{l.name}{l.count ? ` (${l.count})` : ""}</option>)}
+            <option value="all">All lists</option>{(d?.lists || []).map((l) => <option key={l.key} value={l.key}>{l.name}{l.noAccess ? " (not shared)" : l.count ? ` (${l.count})` : ""}</option>)}
           </select>
           <select aria-label="Person" data-cu-person value={person} onChange={(e) => setPerson(e.target.value)}>
             <option value="all">Everyone</option>{people.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
@@ -356,8 +364,9 @@ function CuSection({ cu, list, person, setList, setPerson, onNew }) {
           </React.Fragment>
         );
       })}
-      {d && !tasks.length && down.length < d.lists.length && <p className="todo-line">Nothing open{list !== "all" || person !== "all" ? " for this filter" : ""}.</p>}
-      {down.length > 0 && <p className="todo-line"><AlertTriangle size={14} /> {down.length === d.lists.length ? "Couldn't reach ClickUp." : `Couldn't read ${down.map((l) => l.name).join(", ")}.`} <button className="inline-link" onClick={() => cu.load(true)}>Try again</button></p>}
+      {d && !tasks.length && down.length < d.lists.length && <p className="todo-line">Nothing open{list !== "all" || person !== "all" ? " for this filter" : ""}{down.length ? " on the lists that could be read" : ""}.</p>}
+      {hiddenL.length > 0 && <p className="todo-line cu-noaccess" data-cu-noaccess={hiddenL.length}><AlertTriangle size={14} /> <span>{hiddenL.length === 1 ? hiddenL[0].error : `Defied Bot can't see ${names(hiddenL)}. Share them with Defied Bot in ClickUp.`} <button className="inline-link" onClick={() => cu.load(true)}>Check again</button></span></p>}
+      {otherDown.length > 0 && <p className="todo-line"><AlertTriangle size={14} /> {down.length === d.lists.length && !hiddenL.length ? "Couldn't reach ClickUp." : `Couldn't read ${otherDown.map((l) => l.name).join(", ")}.`} <button className="inline-link" onClick={() => cu.load(true)}>Try again</button></p>}
     </div>
   );
 }

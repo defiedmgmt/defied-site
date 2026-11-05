@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { X, RefreshCw, AlertTriangle, CheckCircle2, ListChecks, CircleDollarSign, CalendarDays } from "lucide-react";
+import { X, RefreshCw, AlertTriangle, CheckCircle2, ListChecks, CircleDollarSign, CalendarDays, TrendingUp } from "lucide-react";
 import { HomeMomentum } from "../ar/ArTrackers";
 import { biggestTasks, nyDay } from "../../lib/todo-rank";
 import { LazySection } from "../ui/responsive";
 import { clock } from "./chips";
 import { payDay, shortDay } from "./helpers";
-import { TopGainers } from "./gainers";
+import { ScrollFoot, TopGainers, useScrollMore } from "./gainers";
 import { LogConfirm, MoneyRow, TestChip } from "./money";
-import { HomeNumbers } from "./numbers";
+import { SyncSources, usd } from "./numbers";
+import { swrJson, peekJson } from "../ui/fetch-cache";
 import { CAL_SOURCES, CuTodoRow, TodoRow, WEEKDAY_SHORT, addDays } from "./todo";
 import { syncFix } from "./todo-data";
 import { DropNote, fmt, money, useEscape } from "./ui";
@@ -16,8 +17,10 @@ import { useHome, HomeWait, monthName } from "./home-data";
 export { useHome, monthName, useArSummary, HomeWait } from "./home-data";
 
 // Home: the numbers, the sync pill, then the biggest tasks (at most five, ranked across ClickUp and the
-// site by lib/todo-rank.js, each opening and finished right here; "See all N" opens To do) beside This
-// week (the roster's biggest gainers), then this week's calendar and the newest payments (r8)
+// site by lib/todo-rank.js, each opening and finished right here, inside the card; "See all N" opens To do)
+// beside This week (the roster's biggest gainers) with Spikes under it, then this week's calendar and the
+// newest payments (r8). r10: every card has its own place in the one-screen grid (styles/app.css "One
+// screen"), so nothing spills over another, and a ClickUp list the Defied Bot can't read is one line here.
 export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
   const { home, failed, retry, refresh } = useHome();
   const unlogged = home?.accounting?.unlogged, toCheck = home?.accounting?.toCheck || 0;
@@ -29,9 +32,18 @@ export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
   const m = home?.money;
   const { top } = useMemo(() => biggestTasks([...todo, ...cuTasks.map((t) => ({ ...t, kind: "clickup" }))]), [todo, cuTasks]);
   const [open, setOpen] = useState(() => new Set());
-  const toggle = (k) => setOpen((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const box = useRef(null);
+  const hidden = useScrollMore(box);
+  // an opened row grows inside the card's scroll box (H5): bring its panel into view there
+  const toggle = (k) => setOpen((o) => {
+    const n = new Set(o);
+    if (n.has(k)) n.delete(k); else { n.add(k); requestAnimationFrame(() => box.current?.querySelector(`[data-item="${CSS.escape(k)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" })); }
+    return n;
+  });
   const settled = (ctx.songInfo || ctx.songInfoErr || ctx.songInfoOff) && ctx.ar && ctx.cu.data;
   const money = ctx.can("money"), syncOn = ctx.can("site") && !ctx.db.access?.ownOnly;
+  // r10 (C2): the lists ClickUp won't show the Defied Bot (not shared with it): one line, opening To do › ClickUp
+  const unread = (ctx.cu.data?.lists || []).filter((l) => l.error);
   return (
     <div className="home">
       <div className="admin-head"><h2>Home</h2>{syncOn && <SyncPill sync={ctx.sync} onGo={ctx.onGo} />}{money && m?.connected && !m.error && <span className="home-src">From Stripe · updated {clock(m.updatedAt)}</span>}</div>
@@ -40,13 +52,24 @@ export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
         <div className="attn home-card todo home-top" data-home-top>
           <div className="attn-head"><ListChecks size={15} /> Biggest tasks
             {settled && <button type="button" className="inline-link home-all" data-see-all onClick={() => ctx.onGo("todo")}>{todoN ? `See all ${todoN}` : "Open To do"} ›</button>}</div>
-          {!top.length ? (settled ? <p className="todo-line todo-clear"><CheckCircle2 size={14} /> All caught up.</p> : <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking what needs doing…</p>)
-            : top.map((it) => (it.kind === "clickup" ? <CuTodoRow key={`cu:${it.id}`} t={it} cu={ctx.cu} /> : <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />))}
+          {unread.length > 0 && (
+            <button type="button" className="todo-line home-cu-unread" data-cu-unread={unread.length} onClick={() => ctx.onGo("todo", "clickup")}>
+              <AlertTriangle size={14} /> <span>{unread.length === 1 ? `ClickUp's ${unread[0].name} can't be read` : `${unread.length} ClickUp lists can't be read`}</span> <span className="home-cu-go" aria-hidden="true">›</span>
+            </button>
+          )}
+          <div className="home-scroll home-top-list" ref={box}>
+            {!top.length ? (settled ? <p className="todo-line todo-clear"><CheckCircle2 size={14} /> All caught up.</p> : <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking what needs doing…</p>)
+              : top.map((it) => (it.kind === "clickup" ? <CuTodoRow key={`cu:${it.id}`} t={it} cu={ctx.cu} /> : <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />))}
+          </div>
+          <ScrollFoot n={hidden} box={box} />
         </div>
         <TopGainers db={ctx.db} onGo={ctx.onGo} arTop={ctx.ar?.top} arLoaded={!!ctx.ar} />
       </div>
-      {ctx.can("publishing") && <HomeNumbers onGo={ctx.onGo} />}
-      {ctx.can("ar") && <HomeMomentum onGo={ctx.onGo} />}
+      {/* Spikes (and A&R's momentum jumps) in their own place: under This week on a wide screen */}
+      <div className="home-side" data-home-side>
+        {ctx.can("publishing") && <HomeSpikes onGo={ctx.onGo} founder={!ctx.db.access || ctx.db.access.role === "founder"} siteOn={ctx.can("site")} />}
+        {ctx.can("ar") && <HomeMomentum onGo={ctx.onGo} />}
+      </div>
       <HomeWeek ctx={ctx} home={home} todo={todo} />
       {/* the last card: on a phone it's drawn once it nears the screen (or the page is idle), after what's on screen */}
       {money && <LazySection minHeight={240}><HomePayments home={home} failed={failed} retry={retry} refresh={refresh} onGo={ctx.onGo} /></LazySection>}
@@ -120,7 +143,9 @@ function HomeWeekPanel({ at, onClose, children }) {
   const vw = typeof window === "undefined" ? 1440 : window.innerWidth, vh = typeof window === "undefined" ? 900 : window.innerHeight;
   const w = Math.min(460, vw - 32), left = Math.max(16, Math.min(at.left, vw - w - 16));
   const below = vh - at.bottom - 16, above = at.top - 16;
-  const pos = below >= 260 || below >= above ? { top: at.bottom + 6, maxHeight: below - 6 } : { bottom: vh - at.top + 6, maxHeight: above - 6 };
+  // r10 (H12): under the day (over Recent payments) whenever three rows fit there, so it never covers the
+  // calendar's own head or the cards above it
+  const pos = below >= 200 || below >= above ? { top: at.bottom + 6, maxHeight: below - 6 } : { bottom: vh - at.top + 6, maxHeight: above - 6 };
   return <div ref={box} className="hw-panel attn todo" role="dialog" aria-label="This day" style={{ left, width: w, ...pos }}>{children}</div>;
 }
 
@@ -140,7 +165,7 @@ function HomePayments({ home, failed, retry, refresh, onGo }) {
       : (
         <div className="cat-summary-grid acct-grid home-acct">
           {[["monthNet", `Net · ${monthName(A.month)}`, `${money(A.monthRevenue)} in · ${money(A.monthExpenses)} out`], ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]].map(([k, l, note]) => (
-            <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{l}</span><span className="cat-stat-val">{money(A[k])}</span>{note && <span className="acct-note">{note}</span>}</div>
+            <div key={k} className="cat-stat" data-stat={k}><span className="cat-stat-label">{l}</span><span className="cat-stat-val">{money(A[k])}</span><span className="acct-note" aria-hidden={note ? undefined : "true"}>{note || "\u00a0"}</span></div>
           ))}
         </div>
       );
@@ -208,6 +233,30 @@ export function SyncView({ ctx }) {
           ))}
         </div>
       )}
+      <SyncSources ctx={ctx} />
+    </div>
+  );
+}
+
+// Home's spikes and new releases (from the automated numbers; list B #4), in their own card under This
+// week. Nothing to say: nothing shown. The link opens Site › Sync, where the sources are (r10: the Numbers
+// tab is gone); only a Founder sees what they cost.
+function HomeSpikes({ onGo, founder, siteOn }) {
+  const [d, setD] = useState(() => peekJson("/api/data?home=1") || null);
+  const box = useRef(null);
+  const hidden = useScrollMore(box);
+  useEffect(() => { swrJson("/api/data?home=1", setD).catch(() => {}); }, []);
+  if (!d || (!d.spikes.length && !d.newReleases.length)) return null;
+  const cost = founder && d.cost?.estMonthlyUsd != null ? ` · about ${usd(d.cost.estMonthlyUsd)}/month` : "";
+  return (
+    <div className="home-card nums-home home-spikes" data-home-numbers>
+      <div className="attn-head"><TrendingUp size={15} /> Spikes and new releases
+        {siteOn && <button type="button" className="inline-link home-all" data-spikes-sources onClick={() => onGo("site", "sync")}>Sources{cost && <span className="spikes-cost">{cost}</span>} ›</button>}</div>
+      <div className="home-scroll" ref={box}>
+        {d.spikes.map((x, i) => <p key={`s${i}`} className="todo-line spike-line" data-spike><b>{x.name}</b> <span>{x.text}</span></p>)}
+        {d.newReleases.map((r, i) => <p key={`r${i}`} className="todo-line spike-line" data-new-release><b>{r.artist}</b> <span>released “{r.name}” ({shortDay(r.releaseDate)}), picked up for tracking</span></p>)}
+      </div>
+      <ScrollFoot n={hidden} box={box} />
     </div>
   );
 }

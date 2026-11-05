@@ -13,7 +13,6 @@ export const SECTION_CODE = {
   home: () => import("./home"),
   todo: () => import("./todo"),
   catalog: () => import("./catalog"),
-  numbers: () => import("./numbers"),
   money: () => import("./money"),
   ar: () => import("./ar"),
   site: () => import("./site"),
@@ -49,7 +48,6 @@ const section = (load, name) => dynamic(() => load().then((m) => m[name]), { ssr
 export const HomeDashboard = section(SECTION_CODE.home, "HomeDashboard");
 export const TodoPage = section(SECTION_CODE.todo, "TodoPage");
 export const CatalogAdmin = section(SECTION_CODE.catalog, "CatalogAdmin");
-export const NumbersPage = section(SECTION_CODE.numbers, "NumbersPage");
 export const AccountingAdmin = section(SECTION_CODE.money, "AccountingAdmin");
 export const ARAdmin = section(SECTION_CODE.ar, "ARAdmin");
 export const SiteAdmin = section(SECTION_CODE.site, "SiteAdmin");

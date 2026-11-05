@@ -1,13 +1,27 @@
-// The automated numbers for the dashboard (list B #4). GET: Numbers' page (Publishing); ?home=1: Home's
-// spikes, new releases and the monthly cost (Home or Publishing). An account limited to its own artists
-// gets only theirs. POST (Publishing): campaign mode on an artist or sound, a TikTok sound to track or
-// stop tracking; the sources' schedule, scraper and budgets need Money too (they spend money).
+// The automated numbers for the dashboard (list B #4). GET (Publishing): every number, the sources' status
+// and schedule (Site › Sync since the Numbers tab went, r10); ?home=1: Home's spikes, new releases and the
+// monthly cost (Home or Publishing); ?lum=<a:client id | t:Spotify id>: one roster artist's or song's
+// Luminate history, read only (lib/data/lum.js), with the artist's campaign mode. What the numbers cost is a
+// Founder's only: anyone else gets no dollar figures at all. An account limited to its own artists gets only
+// theirs. POST (Publishing): campaign mode on an artist or sound, a TikTok sound to track or stop tracking;
+// the sources' schedule, scraper and budgets need Money too (they spend money).
 import { requireAccess, limited, ownSet } from "../../lib/access";
 import { loadSummary } from "../../lib/data/summary";
 import { setMode, addSound, removeSound, saveSetting, loadSettings, dataSql as sql } from "../../lib/data/engine";
 import { SOURCES, sourceSettings, soundId } from "../../lib/data/sources";
 import { loadSeeds, seedTodo, decideSeed, countsOf } from "../../lib/data/seeds";
-import { syncEntities } from "../../lib/data/engine";
+import { syncEntities, loadState, modeFor } from "../../lib/data/engine";
+import { lumSeries, lumWeek } from "../../lib/data/lum";
+
+// r10: the cost lines (Site › Sync, Home's spikes card) are for Founders only, so they're left out here
+export function withoutCost(d) {
+  if (!d || typeof d !== "object") return d;
+  const out = { ...d };
+  delete out.cost;
+  if (Array.isArray(out.sources)) out.sources = out.sources.map(({ estMonthlyUsd, spentUsd, softCapUsd, ...rest }) => rest);
+  return out;
+}
+const isFounder = (req) => req.access?.role === "founder";
 
 // the old Luminate portfolios' rows an account may answer for: the clients' catalogs need Publishing,
 // the Artist and Song Trackers A&R (an account limited to its own artists sees none: the lists are everyone's)
@@ -22,7 +36,9 @@ export default async function handler(req, res) {
     if (!session) return;
     try {
       res.setHeader("Cache-Control", "no-store");
-      return res.status(200).json(await loadSummary({ clientIds: limited(req) ? [...ownSet(req)] : null, home }));
+      if (req.query.lum) return lum(req, res, String(req.query.lum));
+      const d = await loadSummary({ clientIds: limited(req) ? [...ownSet(req)] : null, home });
+      return res.status(200).json(isFounder(req) ? d : withoutCost(d));
     } catch (err) {
       console.error("data summary failed:", err);
       return res.status(503).json({ error: "Couldn't load the numbers — try again in a minute." });
@@ -70,6 +86,27 @@ export default async function handler(req, res) {
     console.error("data write failed:", err);
     return res.status(503).json({ error: "Couldn't save that — try again in a minute." });
   }
+}
+
+// a roster artist's (a:<client id>) or song's (t:<Spotify id>) Luminate history: the weeks, days and all-time
+// totals Luminate's own files gave, oldest first, gaps as null (never a zero), and its newest full week
+async function lum(req, res, key) {
+  if (!/^(a:[\w-]{1,40}|t:[A-Za-z0-9]{22})$/.test(key)) return res.status(400).json({ error: "That isn't a roster artist or song." });
+  if (limited(req)) {
+    const mine = ownSet(req);
+    const ok = key.startsWith("a:") ? mine.has(key.slice(2))
+      : (await sql`SELECT client_id, link FROM placements WHERE link LIKE ${`%${key.slice(2)}%`}`).some((p) => mine.has(p.client_id));
+    if (!ok) return res.status(403).json({ error: "That isn't one of your artists." });
+  }
+  const [series, week] = await Promise.all([lumSeries(key), lumWeek([key]).then((w) => w[key] || null)]);
+  // campaign mode: a roster artist the numbers follow (its data_entities row), not a song
+  let mode;
+  if (key.startsWith("a:")) {
+    const st = await loadState();
+    const e = st.entities.find((x) => x.id === key);
+    mode = e ? modeFor(e, st.refresh) || "auto" : null;
+  }
+  return res.status(200).json({ key, series, week, ...(mode !== undefined ? { mode } : {}) });
 }
 
 async function seeds(req, res) {
