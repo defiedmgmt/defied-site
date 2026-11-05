@@ -331,7 +331,6 @@ function ArBoard({ ar, onGo, openTracked }) {
   const [showOff, setShowOff] = useState(false);
   const [showCheck, setShowCheck] = useState(false);
   const [more, setMore] = useState(false);
-  const [quick, setQuick] = useState("");
   const [busy, setBusy] = useState(false);
   const [drag, setDrag] = useState(null); // the card being dragged
   const [over, setOver] = useState(null); // the column it's over
@@ -379,20 +378,6 @@ function ArBoard({ ar, onGo, openTracked }) {
       }
     } catch (e) { setFlash({ ok: false, text: e.message }); }
     setMoving((m) => { const n = { ...m }; delete n[c.key]; return n; });
-  };
-  const quickAdd = async (e) => {
-    e.preventDefault();
-    const name = quick.trim();
-    if (!name || !canSave) return;
-    setBusy(true); setFlash(null);
-    try {
-      const r = await arWrite({ action: "createProspect", name });
-      setQuick("");
-      await reload();
-      if (r.prospect?.id) openPanel({ type: "prospect", id: r.prospect.id });
-      if (r.note) setFlash({ ok: true, text: r.note });
-    } catch (e2) { setFlash({ ok: false, text: e2.message }); }
-    setBusy(false);
   };
   const act = async (fn) => {
     setBusy(true); setFlash(null);

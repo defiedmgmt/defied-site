@@ -24,12 +24,15 @@ export function MoneyRow({ money: m, failed, retry }) {
   // r10 fix (N4): one compact line, "Nov $0.00 · Oct $404.76 · 2026 $4,427.07 (i)": the months named from the day
   // the page is viewed; what it counts sits behind the (i) only (hover, focus or tap), on every screen size
   const year = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", year: "numeric" });
-  const stats = [["thisMonth", monthShort(0), "This month"], ["lastMonth", monthShort(-1), "Last month"], ["thisYear", year, "This year"]];
+  // (the full label, "This month (Nov)", is what's read out; the screen shows the short one, "Nov")
+  const stats = [["thisMonth", monthShort(0), `This month (${monthShort(0)})`], ["lastMonth", monthShort(-1), `Last month (${monthShort(-1)})`], ["thisYear", year, "This year"]];
   return (
-    <div className="home-money-row home-money-line" data-money-line>
-      {stats.map(([k, label, long], i) => (
-        <span key={k} className="hml-stat" data-stat={k} title={long}>{i > 0 && <i className="hml-dot" aria-hidden="true">·</i>}<span className="hml-l">{label}</span> <b className="cat-stat-val">{money(m[k])}</b></span>
-      ))}
+    <div className="cat-summary home-money-row home-money-line" data-money-line>
+      <div className="cat-summary-grid hml-grid">
+        {stats.map(([k, short, long], i) => (
+          <div key={k} className="cat-stat hml-stat" data-stat={k} title={long}>{i > 0 && <i className="hml-dot" aria-hidden="true">·</i>}<span className="cat-stat-label hml-l" data-short={short}><span className="sr-only">{long}</span></span> <span className="cat-stat-val">{money(m[k])}</span></div>
+        ))}
+      </div>
       <span className="home-money-info" tabIndex={0} role="button" aria-describedby="home-money-note"><Info size={14} aria-hidden="true" /><span className="sr-only">What these count</span></span>
       <p className="hint home-money-note" id="home-money-note" role="note">Everything Defied's cut took in through Stripe, before Stripe's card fees. It also counts test payments and other income paid through Stripe, like studio work.</p>
     </div>
