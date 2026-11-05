@@ -82,16 +82,18 @@ export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
 // the two top cards' height, the taller one's own (closed rows only; This week its top 5 and, when it has more,
 // the fade and "N more" foot under them), set as --home-top-h for the one-screen grid (styles/app.css "r11"). Read
 // in one synchronous pass with the cards at their own height (data-measure), again whenever their rows change or
-// the window does. Under 900 px wide or 640 px tall the page scrolls as before and nothing is set.
+// the window does. This week counts its tallest tab seen on this visit (and window size), so switching Songs /
+// Artists / A&R never moves the calendar. Under 900 px wide or 640 px tall the page scrolls as before and nothing is set.
 const TOP_ROWS = 5, TOP_FOOT = 34, TOP_FADE = 24;
 const ONE_SCREEN = "(min-width:900px) and (min-height:640px)";
 function useTopFit(ref) {
   useLayoutEffect(() => {
     const home = ref.current;
     if (!home) return undefined;
-    let raf = 0;
+    let raf = 0, weekMax = 0, size = "";
     const measure = () => {
       raf = 0;
+      if (size !== `${window.innerWidth}x${window.innerHeight}`) { size = `${window.innerWidth}x${window.innerHeight}`; weekMax = 0; }
       if (!window.matchMedia(ONE_SCREEN).matches) { home.style.removeProperty("--home-top-h"); return; }
       const tasks = home.querySelector("[data-home-top]"), week = home.querySelector(".home-row > .gainers");
       if (!tasks || !week) return;
@@ -100,7 +102,8 @@ function useTopFit(ref) {
       const rows = week.querySelectorAll(".home-scroll > .gainer");
       const b = rows.length > TOP_ROWS ? rows[TOP_ROWS - 1].getBoundingClientRect().bottom - week.getBoundingClientRect().top + TOP_FADE + TOP_FOOT + 1 : week.getBoundingClientRect().height;
       home.removeAttribute("data-measure");
-      const h = `${Math.ceil(Math.max(a, b))}px`;
+      weekMax = Math.max(weekMax, b);
+      const h = `${Math.ceil(Math.max(a, weekMax))}px`;
       if (home.style.getPropertyValue("--home-top-h") !== h) home.style.setProperty("--home-top-h", h);
     };
     const later = () => { if (!raf) raf = requestAnimationFrame(measure); };
