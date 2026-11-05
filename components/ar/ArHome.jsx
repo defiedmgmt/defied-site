@@ -11,7 +11,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { TrendingUp, CalendarRange, UserPlus, Clock, Info, Disc3 } from "lucide-react";
 import { WowPill } from "../dash/chips";
 import { thumb } from "../shared/ui";
-import { n0, signed, dayText, atText, post, spanText, typeOf, TYPE_LABEL } from "./fmt";
+import { n0, signed, dayText, atText, post, spanText, typeOf, TYPE_LABEL, weekLists } from "./fmt";
 
 const SPARK_COLORS = ["var(--d-chart-1, #7aa2f7)", "var(--d-chart-2, #9ece6a)", "var(--d-chart-3, #e0af68)", "var(--d-chart-4, #bb9af7)", "var(--d-chart-5, #7dcfff)", "var(--d-chart-6, #f7768e)"];
 
@@ -64,7 +64,7 @@ function AddsChart({ data }) {
 // what the number under a pill counts ("+609 followers")
 const UNIT = { listeners: "listeners", streams: "streams", spfollowers: "followers", tiktok: "followers", instagram: "followers", youtube: "subscribers", videos: "videos" };
 // a row's grey line names its number short (the unit under the pill says the rest: "+609 followers")
-const ROW_LABEL = { listeners: "Spotify listeners", streams: "Spotify streams", spfollowers: "Spotify followers", tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", videos: "Sound videos" };
+const ROW_LABEL = { listeners: "Listeners", streams: "Streams", spfollowers: "Spotify followers", tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", videos: "Sound videos" };
 // the week card's metric switch, short (the server's tabs, in its order)
 const SHORT_TAB = { streams: "Streams", listeners: "Listeners", tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", videos: "Sounds" };
 const N = 5;
@@ -116,15 +116,7 @@ function DayCard({ day, onOpen }) {
   );
 }
 
-// Week on week, one metric at a time: readings 7 days apart first; Streams falls back to each row's last real
-// Luminate week until then. The groups (one per pair of weeks) are merged into one Up and one Down list.
-export function weekLists(wk, n = N) {
-  const by = (a, b) => Math.abs(b.pct) - Math.abs(a.pct) || Math.abs(b.d) - Math.abs(a.d);
-  const lum = (k) => (wk.groups || []).flatMap((g) => g[k]).sort(by);
-  const up = [...(wk.up || []), ...lum("up")].slice(0, n), down = [...(wk.down || []), ...lum("down")].slice(0, n);
-  const pairs = [...new Set([...up, ...down].filter((x) => x.lum).map((x) => x.weeks))];
-  return { up, down, pairs, live: [...up, ...down].some((x) => !x.lum) };
-}
+// Week on week, one metric at a time (weekLists in fmt.js: readings 7 days apart first, then Luminate's weeks)
 function WeekCard({ movers, onOpen }) {
   const tabs = movers?.tabs || [];
   const [tab, setTab] = useState("streams");
@@ -137,7 +129,7 @@ function WeekCard({ movers, onOpen }) {
     : `${SHORT_TAB[tab]} · readings 7 days apart${pairs.length ? " · Luminate weeks where there's no Spotify yet" : ""}`;
   const row = (x, i) => (
     <MoverRow key={`${x.key}|${x.metric}`} x={x} i={i} onOpen={onOpen} attr={{ "data-week-mover": x.key, ...(x.lum ? { "data-lum": x.weeks } : {}) }}
-      sub={x.lum ? `${perRow ? x.weeks.split(" vs ")[0] : "Luminate streams"} · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}` : `${ROW_LABEL[x.metric] || x.label} · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}`}
+      sub={x.lum ? `${perRow ? x.weeks.split(" vs ")[0] : "Streams"} · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}` : `${ROW_LABEL[x.metric] || x.label} · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}`}
       title={x.lum ? `${x.name} · Luminate streams, all platforms · ${x.weeks}: ${n0(x.lastWeek)} → ${n0(x.thisWeek)}` : null} />
   );
   return (

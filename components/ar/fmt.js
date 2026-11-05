@@ -45,3 +45,13 @@ export const store = {
   get(k, d) { try { const v = window.localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { window.localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
 };
+
+// A&R Home (r11): Week on week, one metric at a time: readings 7 days apart first; Streams falls back to each row's last real
+// Luminate week until then. The groups (one per pair of weeks) are merged into one Up and one Down list.
+export function weekLists(wk, n = 5) {
+  const by = (a, b) => Math.abs(b.pct) - Math.abs(a.pct) || Math.abs(b.d) - Math.abs(a.d);
+  const lum = (k) => (wk.groups || []).flatMap((g) => g[k]).sort(by);
+  const up = [...(wk.up || []), ...lum("up")].slice(0, n), down = [...(wk.down || []), ...lum("down")].slice(0, n);
+  const pairs = [...new Set([...up, ...down].filter((x) => x.lum).map((x) => x.weeks))];
+  return { up, down, pairs, live: [...up, ...down].some((x) => !x.lum) };
+}
