@@ -3244,3 +3244,8 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .sync-list .sync-row .attn-main{flex:1 1 calc(100% - 30px)}
   .app:not(.pub) .sync-list .sync-row > .btn{margin-left:20px}
 }
+/* r10 fix: on a laptop the (i)'s note opens to its left over the head's own line (two lines, centred on it), so it
+   never covers the ticker, This week's switch or any button (list A 4) */
+@media (min-width:900px){
+  .app:not(.pub) .home-head .home-money-line .home-money-note{top:50%;bottom:auto;left:auto;right:34px;transform:translateY(-50%);width:max-content;max-width:min(640px,calc(100vw - 560px));padding:4px 10px;font-size:12.5px;line-height:1.35}
+}
