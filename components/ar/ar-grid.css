@@ -201,10 +201,12 @@ button.arh-tile:hover { border-color: var(--d-line-3, #444); }
 @media (max-width: 639px) {
   /* phones: the trend tables are cards (m-cards); a card's title carries its type and number on a second line */
   .arh-t.m-cards > tbody > tr > td:first-child { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .arh-t.m-cards > tbody > tr > td.m-desk { display: none !important; }
   .arh-t.m-cards .arh-sub.wrap { text-align: right; }
   .arh-mv.m-cards-wrap { padding: 0 !important; }
   .ard-nums.m-cards > tbody > tr > td.ard-asof { white-space: normal; }
-  .ard-nums.m-cards .ard-asof small { display: inline; margin-left: 6px; }
+  .ard-nums.m-cards .ard-asof small { display: inline; margin-left: 0; }
+  .ard-nums.m-cards .ard-asof small::before { content: " · "; }
   .ard .arg-links a { width: 44px; height: 44px; font-size: 12px; }
   .ard-cand-t a { display: inline-flex; align-items: center; min-height: 44px; }
 }

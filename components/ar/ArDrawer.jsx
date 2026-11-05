@@ -171,11 +171,11 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
                         <td className="num" data-label="Now"><MetricCell c={c} label={METRIC_NAME[k]} /></td>
                         <td className="num" data-label="Δ day"><DeltaCell c={c} span="day" label={METRIC_NAME[k]} /></td>
                         <td className="num" data-label="Δ week"><DeltaCell c={c} span="week" label={METRIC_NAME[k]} /></td>
-                        <td className="ard-asof" data-label="As of">{c?.at ? <>{atText(c.at)}{c.src ? <small>{c.src}</small> : null}</> : ""}</td>
+                        <td className="ard-asof" data-label="As of">{c?.at ? <span>{atText(c.at)}{c.src ? <small>{c.src}</small> : null}</span> : ""}</td>
                       </tr>
                     ))}
                     {r.lum?.week && (
-                      <tr data-metric="lum"><td><i>Luminate streams, week {r.lum.week.label}</i></td><td className="num" data-label="Now">{n0(r.lum.week.v)}</td><td /><td className="num" data-label="vs week before"><span data-dir={dirOf(r.lum.week.pct)}>{pctText(r.lum.week.pct)}</span></td><td className="ard-asof" data-label="Week">{r.lum.week.label}<small>Luminate, all platforms</small></td></tr>
+                      <tr data-metric="lum"><td><i>Luminate streams, week {r.lum.week.label}</i></td><td className="num" data-label="Now">{n0(r.lum.week.v)}</td><td /><td className="num" data-label="vs week before"><span data-dir={dirOf(r.lum.week.pct)}>{pctText(r.lum.week.pct)}</span></td><td className="ard-asof" data-label="Week"><span>{r.lum.week.label}<small>Luminate, all platforms</small></span></td></tr>
                     )}
                   </tbody>
                 </table>
