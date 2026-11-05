@@ -847,3 +847,13 @@ FROM lum_history h LEFT JOIN ar_tracked t ON t.luminate_id = h.lum_id AND t.remo
 WHERE h.area = 'ar' AND (h.client_id IS NOT NULL OR t.id IS NOT NULL)
 ON CONFLICT (id) DO NOTHING;
 UPDATE ar_tracker SET source = 'backfill' WHERE id LIKE 'bf-%' AND source = '';
+-- sounds added by link in Numbers before the lists (a manual data_entities sound with no list entry): an entry for
+-- whoever radar_sounds.added_by names (a staff login with that name), else 'Team'; no end date
+INSERT INTO ar_tracker (id, owner_id, owner_name, subject, kind, days, added_at, expires_at, source)
+SELECT 'snd-' || substr(e.id, 3),
+       COALESCE((SELECT u.id FROM users u WHERE u.role = 'staff' AND u.name <> '' AND u.name = s.added_by ORDER BY u.id LIMIT 1), ''),
+       COALESCE(NULLIF(s.added_by, ''), 'Team'), e.id, 'sound', NULL, e.created_at, NULL, 'backfill'
+FROM data_entities e LEFT JOIN radar_sounds s ON s.clip_id = substr(e.id, 3)
+WHERE e.kind = 'sound' AND e.active AND e.origins @> '["manual"]'::jsonb
+  AND NOT EXISTS (SELECT 1 FROM ar_tracker t WHERE t.subject = e.id)
+ON CONFLICT (id) DO NOTHING;
