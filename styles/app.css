@@ -2619,18 +2619,29 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   /* r8: the head and the money strip; Biggest tasks beside This week (one height, the taller one's);
      the week's calendar; the newest payments in what's left, showing the rows that fit */
   .app:not(.pub) .dash-main:has(> .home){padding-bottom:20px}
-  .app:not(.pub) .home{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);grid-template-rows:auto auto auto auto minmax(96px,1fr);gap:10px 12px;
+  /* r10 (H1-H6): every card has its own row, so none lands in a row meant for another: 1 head, 2 money,
+     3-4 Biggest tasks (left, both rows) beside This week (3) over Spikes (4), 5 the calendar (its own height),
+     6 Recent payments (up to five whole rows; the tasks keep at least 140px on a short window) */
+  .app:not(.pub) .home{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);grid-template-rows:auto auto minmax(140px,1fr) auto auto minmax(132px,252px);gap:10px 12px;
     height:calc(100vh - 52px);height:calc(100dvh - 52px)}   /* the page's 32px top and 20px bottom padding */
   .app:not(.pub):has(> .storage-warn) .home{height:calc(100dvh - 52px - var(--d-ban-h))}
   .app:not(.pub) .home > :is(.admin-head,.home-money-row,.home-money,.home-week,.home-pay){grid-column:1 / -1;margin:0}
   .app:not(.pub) .home-row{display:contents}
-  .app:not(.pub) .home-row > .todo{grid-column:1;grid-row:3;min-height:0}
+  .app:not(.pub) .home-row > .todo{grid-column:1;grid-row:3 / span 2;min-height:0}
   .app:not(.pub) .home-row > .gainers{grid-column:2;grid-row:3;min-height:0}
+  .app:not(.pub) .home > .home-side{grid-column:2;grid-row:4;display:flex;flex-direction:column;gap:10px;min-height:0;max-height:200px;margin:0}
+  .app:not(.pub) .home > .home-side > .home-card{flex:0 1 auto;min-height:0;margin:0}
+  .app:not(.pub) .home > .home-side:empty{display:none}
+  .app:not(.pub) .home:not(:has(> .home-side > *)) .home-row > .gainers{grid-row:3 / span 2}
+  .app:not(.pub) .home > .home-week{grid-row:5}
+  .app:not(.pub) .home > .home-pay{grid-row:6;height:auto}
+  .app:not(.pub) .home .home-top{overflow:hidden}   /* an opened task scrolls inside the card, never over the cards below (H5) */
+  .app:not(.pub) .home .home-top-list{flex:1 1 auto;min-height:0}
   .app:not(.pub) .home .home-card{max-height:none}
   .app:not(.pub) .home .home-card > .attn-head{flex:none}   /* the head never gives way to the list */
   .app:not(.pub) .home .attn-head{min-height:44px;padding-top:6px;padding-bottom:6px}
   /* one window's worth: rows a little tighter than To do's own, the text the same size */
-  .app:not(.pub) .home .home-top > :is(.todo-item,.cu-todo) > .attn-row,.app:not(.pub) .home .home-top > .cu-todo{min-height:50px;padding-top:6px;padding-bottom:6px}
+  .app:not(.pub) .home .home-top-list > :is(.todo-item,.cu-todo) > .attn-row,.app:not(.pub) .home .home-top-list > .cu-todo{min-height:50px;padding-top:6px;padding-bottom:6px}
   .app:not(.pub) .home .gainers .gainer{padding-top:5px;padding-bottom:5px}
   .app:not(.pub) .home .gainers .lm-cover{width:36px;height:36px}
   .app:not(.pub) .home .gainer-sub{padding:8px 16px 4px}
@@ -2638,6 +2649,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .home .gainers .gainer-num{gap:1px}
   .app:not(.pub) .home .gainers .lm-song-main{gap:1px}
   .app:not(.pub) .home .hw-chip{padding:1px 7px}
+  .app:not(.pub) .home .nums-home{margin:0}   /* the grid's gap is the only space between cards (H4) */
   .app:not(.pub) .home .hp-row{min-height:40px;padding-top:4px;padding-bottom:4px}
   .app:not(.pub) .home .hp-row .btn.sm{height:30px;min-height:30px;padding-inline:12px}
   /* a payment row that doesn't fit wraps into a second column, which the card hides: whole rows only */
@@ -2673,6 +2685,8 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   box-shadow:inset 3px 0 0 var(--area,var(--d-ink-3));background:var(--d-s3);font-size:12.5px;line-height:1.4;color:var(--d-ink-2);cursor:pointer}
 @media (hover:hover){ .app:not(.pub) .hw-chip:hover{background:var(--d-active);color:var(--d-ink)} .app:not(.pub) .hw-more:hover{color:var(--d-ink)} }
 .app:not(.pub) .hw-chip.late{color:var(--d-neg)}
+/* r10 (H11): a task name gets two lines in its day before it's cut ("Review Intern A&R Lists…") */
+.app:not(.pub) .home .hw-chip{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
 .app:not(.pub) .hw-more{all:unset;cursor:pointer;padding:0 7px;font-size:12px;line-height:1.5;color:var(--d-ink-3)}
 .app:not(.pub) :is(.hw-chip,.hw-more,.hw-x):focus-visible{outline:1px solid #f5f5f5;outline-offset:1px}
 .app:not(.pub) .hw-wait{color:var(--d-ink-4)}
@@ -2698,6 +2712,8 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .hp-in{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--d-ink-4);white-space:nowrap}
 .app:not(.pub) .hp-in svg{color:var(--d-pos)}
 .app:not(.pub) .home-acct{margin:0;padding:12px 16px 14px;border-top:1px solid var(--d-line);grid-template-columns:repeat(4,minmax(0,1fr))}
+.app:not(.pub) .home-acct .cat-stat{display:grid;grid-template-rows:auto auto auto;align-content:start}   /* the four values on one line (H7) */
+.app:not(.pub) .home-acct .acct-note{min-height:1.35em}
 @media (max-width:599px){
   .app:not(.pub) .hw-grid{grid-template-columns:minmax(0,1fr)}
   .app:not(.pub) .hw-day{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:center;column-gap:10px;min-height:44px;padding:6px 12px;border-left:0;border-top:1px solid var(--d-line)}
@@ -3066,6 +3082,35 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .cu-name{color:var(--d-ink);text-decoration:none}
 .app:not(.pub) .cu-name:hover{text-decoration:underline;text-underline-offset:3px}
 .app:not(.pub) .cu-ext{color:var(--d-ink-4);font-weight:400}
+.app:not(.pub) .cu-last{white-space:nowrap}   /* the ↗ stays with the name's last word (H14) */
+/* r10 (C2): Home's one line for the ClickUp lists the Defied Bot can't read; it opens To do › ClickUp */
+.app:not(.pub) .home-cu-unread{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:6px;width:100%;min-height:36px;padding:6px 16px;border-top:1px solid var(--d-line);
+  background:var(--d-warn-bg);color:var(--d-warn);font-size:12.5px;line-height:1.35;cursor:pointer;flex:none}
+.app:not(.pub) .home-cu-unread .home-cu-go{margin-left:auto;font-size:15px}
+.app:not(.pub) .home-cu-unread:focus-visible{outline:1px solid #f5f5f5;outline-offset:-2px}
+@media (hover:hover){ .app:not(.pub) .home-cu-unread:hover{filter:brightness(1.15)} }
+.app:not(.pub) .home-spikes .spike-line{column-gap:6px;padding-top:7px;padding-bottom:7px}
+.app:not(.pub) .home-spikes .spike-line b{color:var(--d-ink);font-weight:500}
+.app:not(.pub) .home-side:empty{display:none}
+/* Site › Sync's sources and digest (r10, from the Numbers tab) and a roster page's Luminate history */
+.app:not(.pub) .sync-sources{margin-top:18px}
+.app:not(.pub) .sync-sec-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:6px 12px;margin:18px 0 8px}
+.app:not(.pub) .sync-sec-head h3{margin:0;font:600 15px/1.3 var(--d-body);color:var(--d-ink)}
+.app:not(.pub) .sync-sec-head .nums-cost{font-size:12.5px;color:var(--d-ink-3)}
+.app:not(.pub) .sync-sec-head .inline-link{display:inline-flex;align-items:center;gap:4px;min-height:32px}
+.app:not(.pub) .lum-hist{margin:14px 0 4px;padding:12px 14px;border:1px solid var(--d-line);border-radius:var(--d-r-md,10px);background:var(--d-s1)}
+.app:not(.pub) .lum-hist-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:0 0 6px}
+.app:not(.pub) .lum-hist-head b{font-size:13.5px;font-weight:600;color:var(--d-ink)}
+.app:not(.pub) .lum-hist-week{margin:0 0 4px;font-size:13.5px;color:var(--d-ink-2)}
+.app:not(.pub) .lum-hist-week b{color:var(--d-ink)}
+.app:not(.pub) .lum-hist .pos{color:var(--d-pos)} .app:not(.pub) .lum-hist .neg{color:var(--d-neg)}
+.app:not(.pub) .lum-hist-table{display:flex;flex-direction:column;margin:8px 0 0;border-top:1px solid var(--d-line)}
+.app:not(.pub) .lum-hist-row{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:center;min-height:34px;padding:4px 2px;border-bottom:1px solid var(--d-line);font-size:13px;color:var(--d-ink-2);font-variant-numeric:tabular-nums}
+.app:not(.pub) .lum-hist-row > :not(:first-child){text-align:right}
+.app:not(.pub) .lum-hist-hd{min-height:28px;font:600 11px/1.2 var(--d-body);letter-spacing:.06em;text-transform:uppercase;color:var(--d-ink-4)}
+.app:not(.pub) .lum-hist-more{align-self:flex-start;margin-top:6px;min-height:32px}
+.app:not(.pub) .lum-hist .nums-mode{margin-top:10px}
+@media (max-width:899px){ .app:not(.pub) .home > .home-side > .home-card{margin:0 0 12px} }
 .app:not(.pub) .home-all{margin-left:auto;font-size:12.5px;text-decoration:none;color:var(--d-ink-3)}
 .app:not(.pub) .home-top{overflow:visible}
 .app:not(.pub) .home-top .attn-head{display:flex;align-items:center;gap:8px}
@@ -3110,7 +3155,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) :is(.home-all,.cal-today){min-height:40px;display:inline-flex;align-items:center}
   .app:not(.pub) .todo-chips .upd-filter,.app:not(.pub) .todo-cu-tools select{height:40px}
   .app:not(.pub) .todo-open{min-height:40px;justify-content:center}
-  .app:not(.pub) .cu-todo .cu-name{display:inline-flex;align-items:center;gap:4px;min-height:40px}
+  .app:not(.pub) .cu-todo .cu-name{display:inline-block;min-height:40px;padding:10px 0 8px;line-height:1.35}
 }
 @media (max-width:599px){
   .app:not(.pub) .todo-page .attn-row{flex-direction:row;align-items:center}

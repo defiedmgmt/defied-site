@@ -1,26 +1,25 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { LogOut, ListMusic, RefreshCw, Handshake, TrendingUp, LayoutDashboard, ListChecks, Receipt, MoreHorizontal, Globe } from "lucide-react";
+import { LogOut, ListMusic, RefreshCw, Handshake, LayoutDashboard, ListChecks, Receipt, MoreHorizontal, Globe } from "lucide-react";
 import { dueBucket } from "../../lib/todo-rank";
 import { ROLES, TAB_SECTION, AREA_SECTION } from "../../lib/roles";
 import { ARAdmin } from "./ar";
 import { CatalogAdmin, fullSiteSync, isSheetSyncStale } from "./catalog";
 import { HomeDashboard, useArSummary } from "./home";
 import { AccountingAdmin } from "./money";
-import { NumbersPage, TodoChip } from "./numbers";
+import { TodoChip } from "./numbers";
 import { SiteAdmin } from "./site";
 import { TodoPage, todoItems, useAutoConfirm, useCuTasks, useSeeds, useSplitFixes, useSyncChecks } from "./todo";
 import { Wordmark } from "./ui";
 import { useTrueUp, trueUpTodoItems } from "../TrueUp"; // TRUEUP-HOOK: the monthly Luminate true-up
-import { ROUTE_TO_PATH } from "../shared/routes";
 
 // Roles (lib/roles.js): may this account use that section? The server says which in db.access (and
 // enforces it on every request); with no db.access (a client's portal) nothing here applies.
 export const canUse = (db, k) => !db?.access || db.access.sections.includes(k);
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
-const DASH_TABS = ["home", "todo", "catalog", "numbers", "money", "ar", "site"];
+const DASH_TABS = ["home", "todo", "catalog", "money", "ar", "site"];
 export const TODO_AREAS = ["money", "roster", "ar", "clickup", "site"];
 function placeOf(t, s) {
   const sub = typeof s === "string" && s ? s : null;
@@ -29,8 +28,9 @@ function placeOf(t, s) {
   if (t === "users") return { tab: "site", sub: "users" };
   if (t === "subs") return { tab: "site", sub: "messages" };
   if (t === "catalog" && ["splits", "update", "dupes"].includes(sub)) return { tab: "todo", sub };
-  // (list B #3: the Luminate tab is gone; its old links open Numbers, where the new numbers are)
-  if (t === "luminate") return { tab: "numbers", sub: null };
+  // (list B #3: the Luminate tab is gone; r10: so is Numbers, whose sources and cost are in Site › Sync now.
+  // Their old links, /dashboard/numbers and ?tab=numbers or ?tab=luminate, open Site › Sync)
+  if (t === "luminate" || t === "numbers") return { tab: "site", sub: "sync" };
   const tab = DASH_TABS.includes(t) ? t : "home";
   return { tab, sub: tab !== "home" ? sub : null };
 }
@@ -124,17 +124,18 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou, can, seeds };
   const allTabs = [
     ["home", "Home", LayoutDashboard], ["todo", "To do", ListChecks, todoN],
-    ["catalog", "Publishing", ListMusic, 0, "roster"], ["numbers", "Numbers", TrendingUp, 0, "roster"], ["money", "Money", Receipt, 0, "money"],
+    ["catalog", "Publishing", ListMusic, 0, "roster"], ["money", "Money", Receipt, 0, "money"],
     ["ar", "A&R", Handshake, 0, "ar"], ["site", "Site", Globe, 0, "site"],
   ];
   // the tabs this account may use: Site holds Users too. Any other address opens the first of them.
-  const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : id === "numbers" ? can("publishing") : can(TAB_SECTION[id])));
+  const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : can(TAB_SECTION[id])));
   const at = tabs.some(([id]) => id === tab) ? tab : tabs[0]?.[0];
   const roleWord = db.access ? `${ROLES[db.access.role]?.label || "Staff"}${db.access.ownOnly ? " · own artists" : ""}` : "Staff — full edit access";
   return (
     <div className="dash">
       <aside className="dash-side">
-        <div className="dash-brand"><Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link></div>
+        {/* r10 (H15): the logo stays in the dashboard (Home), it doesn't leave for the public site */}
+        <div className="dash-brand"><Link href="/dashboard" className="logo-link" aria-label="Dashboard home" onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return; e.preventDefault(); go("home"); }}><Wordmark height={26} /></Link></div>
         <nav>
           {tabs.map(([id, label, Icon, badge, area]) => (
             <button key={id} className={[at === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={at === id ? "page" : undefined} onClick={() => setTab(id)}>
@@ -157,15 +158,15 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={<TodoChip n={areaN("site")} area="site" onGo={go} />} />}
         {at === "catalog" && <CatalogAdmin db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={<TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={<TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
-        {at === "numbers" && <NumbersPage ctx={ctx} />}
       </main>
     </div>
   );
 }
 
-// The phone tab bar's "More": Numbers and Site in a small menu above the bar (To do always stays in the
-// bar, with the one count). Hidden on desktop, where the sidebar lists every section.
-const PHONE_MORE = new Set(["numbers", "site"]);
+// The phone tab bar's "More": the sections in a small menu above the bar (To do always stays in the bar,
+// with the one count). Hidden on desktop, where the sidebar lists every section. r10: with Numbers gone the
+// bar has room for Site itself, so "More" is empty and not drawn.
+const PHONE_MORE = new Set([]);
 function NavMore({ tabs, tab, badge, setTab }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
@@ -177,6 +178,7 @@ function NavMore({ tabs, tab, badge, setTab }) {
     return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
   }, [open]);
   const here = tabs.some(([id]) => id === tab);
+  if (!tabs.length) return null;
   return (
     <div className="nav-more" ref={box}>
       <button type="button" className={here ? "active" : ""} aria-haspopup="menu" aria-expanded={open} data-nav-more onClick={() => setOpen((o) => !o)}>

@@ -1,28 +1,16 @@
 // Staff-only Dashboard data: the money row (Stripe's commission), recent payments (?all=1 for the
-// last 100), the accounting sheet's numbers with the payments it doesn't have yet, and one ClickUp
-// list's open tasks (?list=internal|pub|ar on its own for the card's switcher). Each part fails on
+// last 100) and the accounting sheet's numbers with the payments it doesn't have yet. Each part fails on
 // its own with a plain line, so the Dashboard always loads. ?fresh=1 skips the few-minute caches
-// (the accounting sheet's 5, ClickUp's 2). GET only; nothing here writes, except
-// the two ClickUp tasks the dashboard keeps (lib/money.js, at most once every 10 minutes).
+// (the accounting sheet's 5). GET only; nothing here writes, except the two ClickUp tasks the dashboard
+// keeps (lib/money.js, at most once every 10 minutes). (r10, C6: Home's ClickUp rows come from /api/tasks,
+// so the one list this used to read on every load, and its ?list= switcher, are gone.)
 import { requireAccess } from "../../lib/access";
 import { moneyState, payerNamer, paymentRow, checkClickUpTasks } from "../../lib/money";
-import { listTasks, LISTS, clearTaskCache } from "../../lib/clickup-tasks";
 import { logWritesOn } from "../../lib/accounting-log";
 import { sectionChecks } from "../../lib/accounting-section";
 
 // a first Stripe fill reads ~3 things a payment (saved as it goes, lib/stripe.js)
 export const config = { maxDuration: 60 };
-
-const WORKSPACE = "90141502305";
-const listUrl = (id) => `https://app.clickup.com/${WORKSPACE}/v/li/${id}`;
-
-async function clickupPart(key) {
-  const list = LISTS[key] || LISTS.internal;
-  const r = await listTasks(list.id);
-  const lists = Object.entries(LISTS).map(([k, l]) => ({ key: k, id: l.id, name: l.name }));
-  if (r.error) return { lists, key: LISTS[key] ? key : "internal", name: list.name, url: listUrl(list.id), error: "Couldn't reach ClickUp." };
-  return { lists, key: LISTS[key] ? key : "internal", name: list.name, url: listUrl(list.id), tasks: r.tasks.filter((t) => !t.done) };
-}
 
 export default async function handler(req, res) {
   const session = await requireAccess(req, res, "home");
@@ -30,15 +18,13 @@ export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
   try {
     const fresh = !!req.query.fresh;
-    if (fresh) clearTaskCache();
-    if (req.query.list) return res.status(200).json({ clickup: await clickupPart(String(req.query.list)) });
     // an account without Money (lib/roles.js) gets Home's other parts only: no Stripe or sheet read at all
     if (!req.access.sections.includes("money")) {
       if (req.query.all) return res.status(403).json({ error: "Your account can't use Money. A Founder can turn it on in Site › Users." });
       const off = { connected: false, hidden: true };
-      return res.status(200).json({ money: off, payments: off, accounting: off, clickup: await clickupPart("internal"), tasks: null });
+      return res.status(200).json({ money: off, payments: off, accounting: off, tasks: null });
     }
-    const [{ pay, acct, match }, clickup] = await Promise.all([moneyState({ fresh }), req.query.all ? null : clickupPart("internal")]);
+    const { pay, acct, match } = await moneyState({ fresh });
     const nameOf = await payerNamer(match);
     const logged = match ? new Set([...match.matched, ...match.loggedTogether, ...(match.loggedHere || [])].map((p) => p.id)) : null;
 
@@ -70,7 +56,7 @@ export default async function handler(req, res) {
     // keep the two ClickUp tasks in step with what was just read (debounced; never blocks the page)
     let tasks = null;
     try { tasks = await checkClickUpTasks({ match, nameOf }); } catch (err) { console.error("home: clickup tasks", err); }
-    return res.status(200).json({ money, payments, accounting, clickup, tasks: tasks && { ran: !tasks.skipped } });
+    return res.status(200).json({ money, payments, accounting, tasks: tasks && { ran: !tasks.skipped } });
   } catch (err) {
     console.error("home failed:", err);
     return res.status(500).json({ error: "Couldn't load the Dashboard's numbers. Try again in a minute." });
