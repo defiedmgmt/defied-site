@@ -33,14 +33,17 @@ export async function arWrite(body) {
 
 // the OUTREACH / ADVANCE CALCULATOR / ASSUMPTIONS read behind A&R's Outreach and Publishing's
 // Advance calculator: loaded when either one opens, reloaded after each of their saves
-export function useArData() {
+// maxAge (A&R › Outreach, r10): a read under that many ms old is reused as it is, so going back to Outreach within
+// 30s reads nothing again (each section mounts on its own now). Publishing reads it fresh each time, as before.
+const arDataRead = { at: 0 };
+export function useArData({ maxAge = 0 } = {}) {
   const [data, setData] = useState(() => peekJson("/api/ar-data") || null);
   const [err, setErr] = useState(null);
-  const load = () => swrJson("/api/ar-data", (d) => { setData(d); setErr(null); }, { anyStatus: true })
+  const load = () => swrJson("/api/ar-data", (d, how) => { setData(d); setErr(null); if (!how?.cached) arDataRead.at = Date.now(); }, { anyStatus: true })
     .then((d) => { if (d?.error) throw new Error(d.error); })
     .catch((e) => setErr(e.message || "Couldn't load A&R data."));
   const retry = () => { setErr(null); load(); }; // shows "Loading…" again until it answers
-  useEffect(() => { load(); }, []);
+  useEffect(() => { if (!(maxAge && peekJson("/api/ar-data") && Date.now() - arDataRead.at < maxAge)) load(); }, []);
   return { data, err, load, retry };
 }
 export const ArDataError = ({ err, retry }) => <p className="hint err-text mb"><span>{err}</span> <button className="btn ghost sm" onClick={retry}>Try again</button></p>;
@@ -48,7 +51,7 @@ export const ArDataError = ({ err, retry }) => <p className="hint err-text mb"><
 // The pub-sheet read (OUTREACH) and Postgres' prospects behind A&R › Outreach and To do's follow-ups. Only
 // Outreach and To do mount it: the lists never read the pub sheet.
 export function useArAll() {
-  const sheet = useArData(); // the sheet read: cells, rows, statuses
+  const sheet = useArData({ maxAge: 30000 }); // the sheet read: cells, rows, statuses
   const [pg, setPg] = useState(() => arPgCache.d); // /api/ar: Postgres only, so the board draws before the sheet answers
   const [pgErr, setPgErr] = useState(null);
   const loadPg = (force = true) => {
@@ -60,7 +63,8 @@ export function useArAll() {
   useEffect(() => { loadPg(false); }, []);
   // each sheet read can bring in or settle prospects (the first one imports them all), so the
   // Postgres side is read again once it lands
-  useEffect(() => { if (sheet.data) loadPg(); }, [sheet.data]);
+  // (only when that read is newer than the Postgres one: reopening Outreach within 30s reads neither again)
+  useEffect(() => { if (sheet.data && arPgCache.at < arDataRead.at) loadPg(); }, [sheet.data]);
   return { ...sheet, pg, pgErr, loadPg };
 }
 

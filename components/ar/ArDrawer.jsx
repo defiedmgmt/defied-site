@@ -67,16 +67,20 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
   const [note, setNote] = useState(null);
   const [metric, setMetric] = useState(null);
   const [notes, setNotes] = useState("");
+  const [askOff, setAskOff] = useState(null); // a Founder taking someone else's entry off: the entry, until confirmed
   const card = useRef(null);
   const load = () => fetch(`/api/ar-lists?item=${encodeURIComponent(itemKey)}`, { cache: "no-store" }).then((r) => r.json())
     .then((j) => { if (j.error) throw new Error(j.error); setD(j); setNotes(j.notes || ""); setErr(null); }).catch((e) => setErr(e.message));
   useEffect(() => { setD(null); setMetric(null); setNote(null); load(); }, [itemKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Esc closes it; focus moves in once when it opens (never again while someone types in Notes)
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
-    const esc = (e) => { if (e.key === "Escape") onClose(); };
+    const esc = (e) => { if (e.key === "Escape") closeRef.current(); };
     document.addEventListener("keydown", esc);
     card.current?.focus();
     return () => document.removeEventListener("keydown", esc);
-  }, [onClose]);
+  }, []);
   const act = async (body, ok) => {
     setBusy(true); setNote(null);
     try { const j = await post("/api/ar-trackers", body); setNote({ ok: true, text: typeof ok === "function" ? ok(j) : ok }); await load(); onChanged?.(); }
@@ -119,10 +123,17 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
                               <button type="button" className="btn ghost sm" disabled={busy} onClick={() => act({ action: "renew", entryId: w.entryId }, "Renewed.")} data-renew>Renew</button>
                             </>
                           )}
-                          <button type="button" className="btn ghost sm err-text" disabled={busy} data-remove-entry
-                            onClick={() => { if (w.id === me || window.confirm(`Take ${r.name} off ${w.name}'s list?`)) act({ action: "remove", entryId: w.entryId }, w.id === me ? "Taken off your list." : `Taken off ${w.name}'s list.`).then(() => { if (r.addedBy.length === 1) onClose(); }); }}>
-                            {w.id === me ? "Remove from my list" : "Remove"}
-                          </button>
+                          {askOff === w.entryId ? (
+                            <span className="ard-ask" role="alert" data-ask-remove>Take {r.name} off {w.name}'s list?
+                              <button type="button" className="btn sm err-text" disabled={busy} onClick={() => { setAskOff(null); act({ action: "remove", entryId: w.entryId }, `Taken off ${w.name}'s list.`).then(() => { if (r.addedBy.length === 1) onClose(); }); }} data-remove-yes>Take it off</button>
+                              <button type="button" className="btn ghost sm" onClick={() => setAskOff(null)}>Keep</button>
+                            </span>
+                          ) : (
+                            <button type="button" className="btn ghost sm err-text" disabled={busy} data-remove-entry
+                              onClick={() => { if (w.id !== me) { setAskOff(w.entryId); return; } act({ action: "remove", entryId: w.entryId }, "Taken off your list.").then(() => { if (r.addedBy.length === 1) onClose(); }); }}>
+                              {w.id === me ? "Remove from my list" : "Remove"}
+                            </button>
+                          )}
                         </span>
                       )}
                     </li>
