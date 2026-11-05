@@ -120,7 +120,7 @@ function TrueUpDrop({ d }) {
             {p.ar.length > 0 && <p className="tu-line hint">{plural(p.ar.length, "A&R row")} left as {p.ar.length === 1 ? "it is" : "they are"}: A&R uses the automated numbers.</p>}
             {p.artists > 0 && <p className="tu-line hint">{plural(p.artists, "artist row")} skipped: only songs are updated.</p>}
             {p.unknown.length > 0 && <p className="tu-line hint" data-unknown={p.unknown.length}>{plural(p.unknown.length, p.unknown.every((u) => u.kind === "release") ? "release" : "song")} in the files {p.unknown.length === 1 ? "isn't" : "aren't"} linked to a roster song here, so {p.unknown.length === 1 ? "it's" : "they're"} left out: {p.unknown.slice(0, 5).map((u) => u.name).join(", ")}{p.unknown.length > 5 ? ` and ${fmt(p.unknown.length - 5)} more` : ""}.</p>}
-            {p.notIn?.n > 0 && <p className="tu-line hint" data-not-in-file={p.notIn.n}>{plural(p.notIn.n, "roster song")} {p.notIn.n === 1 ? "isn't" : "aren't"} in the files ({d.notInWords || "no plays this period, or not in the report yet"}): {p.notIn.n === 1 ? "it keeps its" : "they keep their"} last number.</p>}
+            {p.notIn?.n > 0 && <p className="tu-line hint" data-not-in-file={p.notIn.n}>{plural(p.notIn.n, "roster song")} {p.notIn.n === 1 ? "isn't" : "aren't"} in the files ({d.notInWords || "no plays this month, or not added"}): {p.notIn.n === 1 ? "it keeps its" : "they keep their"} last number.</p>}
             {p.older.length > 0 && <p className="tu-line hint">{plural(p.older.length, "song")} left out: this file is older than the update they already have.</p>}
             <div className="lm-result-acts">
               {p.songs > 0 && !out.blocked && <button className="btn sm" data-trueup-apply disabled={!!busy} onClick={apply}>{busy === "applying" ? "Applying…" : `Apply ${plural(p.songs, "song")}`}</button>}
@@ -235,7 +235,7 @@ function NotInReport({ d }) {
   return (
     <div className="todo-sublist tu" data-not-in-report={list.length}>
       <div className="tu-head"><b>{plural(list.length, "song")} to add</b><CopyButton songs={list} label="Copy" attr={{ "data-copy-new": "" }} /></div>
-      <p className="hint" data-not-in-words>{d.notInWords || "No plays this period, or not in the report yet"}: {d.baseline?.kind === "trueup" ? `they weren't in the ${shortDay(d.baseline.on)} update's files` : `they weren't in the ${shortDay(d.baseline?.on)} portfolio exports`}, so they keep their last number. If one is missing from the Luminate report, add it (Copy pastes title, artist, ISRC and Spotify link as columns). This clears once a file with them is dropped in.</p>
+      <p className="hint" data-not-in-words>{d.notInWords || "No plays this month, or not added"}: {d.baseline?.kind === "trueup" ? `they weren't in the ${shortDay(d.baseline.on)} update's files` : `they weren't in the ${shortDay(d.baseline?.on)} portfolio exports`}, so they keep their last number. If one is missing from the Luminate report, add it (Copy pastes title, artist, ISRC and Spotify link as columns). This clears once a file with them is dropped in.</p>
       <SongList songs={list} max={12} attr={{ "data-new-list": "" }} />
     </div>
   );

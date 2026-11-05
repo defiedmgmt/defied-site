@@ -217,7 +217,8 @@ export function dashTasks(db, songInfo) {
   // one line for every pair of cards that look like the same song: Review opens the merge card
   const dupes = likelyDupes(db, songInfo);
   const dupe = dupes.length > 0 && {
-    k: "dupes", area: "roster", t: dupeWords(dupes), d: dupes.length > 1 ? dupes.slice(0, 2).map(dupeName).join(" · ") : undefined,
+    // r10 fix: one pair says what it's the same as ("Same as “Trust Who” on Stack!e's page")
+    k: "dupes", area: "roster", t: dupeWords(dupes), d: dupes.length > 1 ? dupes.slice(0, 2).map(dupeName).join(" · ") : `Same as “${dupes[0].drop?.song || "another card"}” on ${dupes[0].client?.name ? `${dupes[0].client.name}'s` : "the same"} page`,
     tab: "catalog", sub: "dupes", cta: "Review",
   };
   return [

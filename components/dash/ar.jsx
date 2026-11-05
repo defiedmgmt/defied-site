@@ -432,7 +432,7 @@ function ArBoard({ ar, onGo, openTracked }) {
         </div>
       ) : (
         <p className="arb-status">
-          {sheetOk === null ? <span className="muted">Reading the OUTREACH tab…</span> : `Saved to your OUTREACH sheet · ${clock(data.sheet.readAt)}`}
+          {sheetOk === null ? <span className="muted">Reading the OUTREACH tab…</span> : `Read from your OUTREACH sheet · ${clock(data.sheet.readAt)}`}
           {/* what the sheet read flagged (a status dropdown it couldn't read…) is one quiet link; Sheet check has the full sentence */}
           {notes.length > 0 && <> · <button className="inline-link arb-notes" onClick={() => setShowCheck(true)} title={checkedOn ? `Some of these are from the Sheet check on ${checkedOn}. Opening it checks the sheet again.` : undefined}>{notes.length === 1 ? "1 sheet problem" : `${notes.length} sheet problems`}</button></>}
         </p>
@@ -484,11 +484,7 @@ function ArBoard({ ar, onGo, openTracked }) {
                   <span className="arb-hint">{c.hint}</span>
                 </button>
                 <div className="arb-cards">
-                  {c.id === "reach" && (
-                    <form onSubmit={quickAdd} className="arb-quick">
-                      <input placeholder="Add someone…" value={quick} onChange={(e) => setQuick(e.target.value)} disabled={!canSave || busy} title={paused} aria-label="Add someone to reach out to" />
-                    </form>
-                  )}
+                  {/* r10 fix: one add control, "+ Add someone" at the top (the column's own field was a second one) */}
                   {c.cards.map((card) => (
                     <ArCard key={card.key} c={card} canSave={canSave} paused={paused} busy={!!card.moving} canDrag={canDrag}
                       onOpen={(e) => openCard(card, e)} onMove={(st) => moveTo(card, st)}

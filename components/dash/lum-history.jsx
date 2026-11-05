@@ -9,13 +9,15 @@ import { dataPost } from "./chips";
 const pctWord = (p) => (p == null ? null : `${p >= 0 ? "+" : "−"}${Math.abs(Math.round(p * 100))}%`);
 export { dataPost };
 export function ModeSwitch({ id, mode, onSaved, what = "artist" }) {
-  const [busy, setBusy] = useState(false), [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false), [err, setErr] = useState(null), [ask, setAsk] = useState(false);
   const set = async (m) => { setBusy(true); setErr(null); try { await dataPost({ action: "mode", entityId: id, mode: m, days: m === "campaign" ? 30 : null }); await onSaved(); } catch (e) { setErr(e.message); } finally { setBusy(false); } };
   return (
     <div className="nums-mode" data-nums-mode={mode || "auto"}>
       <label className="nums-switch"><input type="checkbox" checked={mode === "campaign"} disabled={busy || mode === "off"} onChange={(e) => set(e.target.checked ? "campaign" : "auto")} /> Campaign mode: everything about this {what} updates daily for 30 days</label>
-      {mode === "off" ? <button type="button" className="inline-link" disabled={busy} onClick={() => set("auto")}>Start updating again</button>
-        : <button type="button" className="inline-link nums-off" disabled={busy} onClick={() => set("off")}>Stop updating</button>}
+      {/* r10 fix: stopping all tracking is its own, clearly named step with a confirm, away from the campaign switch */}
+      {mode === "off" ? <button type="button" className="inline-link" disabled={busy} onClick={() => set("auto")}>Start tracking again</button>
+        : ask ? <span className="nums-ask" role="alert" data-stop-ask>Stop every automatic number for this {what}? <button type="button" className="btn sm err-text" disabled={busy} onClick={() => { setAsk(false); set("off"); }} data-stop-yes>Stop tracking</button> <button type="button" className="btn ghost sm" onClick={() => setAsk(false)}>Keep tracking</button></span>
+        : <button type="button" className="inline-link nums-off" disabled={busy} onClick={() => setAsk(true)} data-stop-tracking>Stop tracking this {what}</button>}
       {err && <span className="hint err-text">{err}</span>}
     </div>
   );

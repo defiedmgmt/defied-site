@@ -32,12 +32,13 @@ export function trueUpTodoItems(d) {
   const last = d.runs?.[0];
   const saved = d.recent && last?.id === d.recent.id && !d.due;
   if (d.due || saved) out.push({ k: "trueup", area: "roster", t: saved ? "Monthly Luminate update: saved" : "Monthly Luminate update: drop this month's report",
-    d: saved ? `Luminate's ${shortDay(last.export_on)} numbers, ${plural(last.counts?.songs || 0, "song")}` : last ? `Last one: the ${shortDay(last.export_on)} file` : `${fmt(d.total)} roster songs to put in the report first`,
+    d: saved ? `Luminate's ${shortDay(last.export_on)} numbers, ${plural(last.counts?.songs || 0, "song")}` : last ? `Last one: the ${shortDay(last.export_on)} file` : `All ${fmt(d.total)} roster songs go in the report first`,
     cta: "Open", panel: "trueup", rank: { kind: "other" } });
   const n = d.notInReport?.length || 0;
   // (round 10) a song can be missing because Luminate leaves out songs with no plays, or because it isn't in the report
-  if (n) out.push({ k: "trueup-new", area: "roster", t: `${fmt(n)} roster song${n === 1 ? "" : "s"}: no plays this period, or not in the report yet`,
-    d: d.baseline?.kind === "trueup" ? `Compared with the ${shortDay(d.baseline.on)} update` : `Compared with the ${shortDay(d.baseline?.on) || "last"} portfolio exports`, cta: "Copy", panel: "trueup-new", rank: { kind: "other" } });
+  // r10 fix: the owner's words, and what the count is out of
+  if (n) out.push({ k: "trueup-new", area: "roster", t: `${fmt(n)} roster song${n === 1 ? "" : "s"}: no plays this month, or not added`,
+    d: `${d.total ? `${fmt(n)} of the ${fmt(d.total)} roster songs · ` : ""}${d.baseline?.kind === "trueup" ? `compared with the ${shortDay(d.baseline.on)} update` : `compared with the ${shortDay(d.baseline?.on) || "last"} portfolio exports`}`, cta: "Copy", panel: "trueup-new", rank: { kind: "other" } });
   if (d.schedule?.remind) out.push({ k: "trueup-schedule", area: "roster", t: `Luminate's schedule ends on ${shortDay(d.schedule.ends)}: copy the report to keep it running`,
     cta: "Open", panel: "trueup-schedule", rank: { kind: "other" } });
   return out;

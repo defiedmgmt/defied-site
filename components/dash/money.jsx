@@ -257,8 +257,8 @@ function AcctOverview({ d, onSec }) {
         <p className={clean ? "acct-status ok" : "acct-status"} data-acct-status>
           {clean ? <><CheckCircle2 size={15} /> <span>Stripe and the sheet match for {d.year}{covered ? <span className="acct-round" data-status-covered> · {coveredText}</span> : null}.</span></> : (
             <><AlertTriangle size={15} /> <span>{yr.diff ? `${money(Math.abs(yr.diff))} apart for ${d.year}` : `Stripe and the sheet add up the same for ${d.year}`}
-              {nLog > 0 && <>: {nLog === 1 ? "1 payment" : `${nLog} payments`} to log (<button className="inline-link" data-status-log onClick={() => onSec("log")}>log {nLog === 1 ? "it" : "them"}</button>)</>}
-              {nCheck > 0 && <>{nLog ? " · " : ": "}{nCheck === 1 ? "1 row" : `${nCheck} rows`} to check (<button className="inline-link" data-status-check onClick={() => onSec("check")}>see why</button>)</>}
+              {nLog > 0 && <>: {nLog === 1 ? "1 payment" : `${nLog} payments`} to log <span className="nobr">(<button className="inline-link" data-status-log onClick={() => onSec("log")}>log {nLog === 1 ? "it" : "them"}</button>)</span></>}
+              {nCheck > 0 && <>{nLog ? " · " : ": "}{nCheck === 1 ? "1 row" : `${nCheck} rows`} to check <span className="nobr">(<button className="inline-link" data-status-check onClick={() => onSec("check")}>see why</button>)</span></>}
               {rounding ? <span className="acct-round">{nLog || nCheck ? " · " : ": "}{money(Math.abs(rounding))} is rounding</span> : null}
               {covered ? <span className="acct-round" data-status-covered>{nLog || nCheck || rounding ? " · " : ": "}{coveredText}</span> : null}.</span></>
           )}
