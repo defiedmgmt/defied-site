@@ -14,6 +14,7 @@ import { TodoPage, todoItems, useAutoConfirm, useCuTasks, useSeeds, useSplitFixe
 import { Wordmark } from "./ui";
 import { useTrueUp, trueUpTodoItems } from "../TrueUp"; // TRUEUP-HOOK: the monthly Luminate true-up
 import { ROUTE_TO_PATH } from "../shared/routes";
+import { arSecOf } from "../shared/ar-routes";
 
 // Roles (lib/roles.js): may this account use that section? The server says which in db.access (and
 // enforces it on every request); with no db.access (a client's portal) nothing here applies.
@@ -31,6 +32,8 @@ function placeOf(t, s) {
   if (t === "catalog" && ["splits", "update", "dupes"].includes(sub)) return { tab: "todo", sub };
   // (list B #3: the Luminate tab is gone; its old links open Numbers, where the new numbers are)
   if (t === "luminate") return { tab: "numbers", sub: null };
+  // (A&R r10: its old sub-pages open their new addresses, components/shared/ar-routes.js)
+  if (t === "ar") return { tab: "ar", sub: arSecOf(sub) || null };
   const tab = DASH_TABS.includes(t) ? t : "home";
   return { tab, sub: tab !== "home" ? sub : null };
 }

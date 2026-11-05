@@ -46,7 +46,7 @@ function MoversTable({ title, list, onOpen, kind }) {
             <tr key={`${x.key}|${x.metric}`} onClick={() => onOpen(x.key)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen(x.key)} data-mover={x.key}>
               <td><b>{x.name}</b></td>
               <td>{KIND_LABEL[x.kind]}</td>
-              <td><span className="arh-sub">{x.label}</span></td>
+              <td className="wrap"><span className="arh-sub">{x.label}</span></td>
               <td className="num" title={`${x.label} · ${n0(x.from)} on ${atText(x.fromAt)} → ${n0(x.to)} on ${atText(x.toAt)} · ${x.src}`}>{n0(x.from)} → {n0(x.to)}</td>
               <td className="num" data-dir={dirOf(x.d)}>{signed(x.d)}</td>
               <td className="num" data-dir={dirOf(x.pct)}>{pctSigned(x.pct)}</td>
@@ -73,7 +73,7 @@ function WeekTable({ title, list, onOpen, kind }) {
               <td className="num">{n0(x.lastWeek)}</td>
               <td className="num" data-dir={dirOf(x.d)}>{signed(x.d)}</td>
               <td className="num" data-dir={dirOf(x.pct)}>{pctSigned(x.pct)}</td>
-              <td className="arh-sub">{x.lum ? <i data-lum-src>Luminate · {x.weeks}</i> : `${x.src} · ${dayText(x.from)} → ${dayText(x.to)}`}</td>
+              <td className="arh-sub wrap">{x.lum ? <i data-lum-src>Luminate · {x.weeks}</i> : `${x.src} · ${dayText(x.from)} → ${dayText(x.to)}`}</td>
             </tr>
           ))}
         </tbody>

@@ -11,6 +11,7 @@ import { Area, Avatar, Field, fmt, money, revealChip, useEscape } from "./ui";
 import { AskCard, useDirtyGuard } from "../portal/ClientPortal";
 import { arPgCache } from "../shared/dash-caches";
 import { ExtLink } from "../shared/ui";
+import { arSecOf } from "../shared/ar-routes";
 
 /* staff: A&R — outreach pipeline + advance calculator, both backed by the
    OUTREACH / ADVANCE CALCULATOR sheet tabs. Deliberately isolated from
@@ -68,14 +69,9 @@ export function useArAll() {
 //   Home (/ar) · Team (/ar/team, /ar/team/<userId>) · Mine (/ar/mine) · Watchlist (/ar/watch, /watch/songs,
 //   /watch/confirm) · Sounds (/ar/sounds) · Outreach (/ar/outreach); a row's drawer: /ar/item/<key>
 const AR_PILLS = [["", "Home"], ["team", "Team"], ["mine", "Mine"], ["watch", "Watchlist"], ["sounds", "Sounds"], ["outreach", "Outreach"]];
-// the old addresses (Summary, Trackers, Radar, Board, To do's "watch:open:<key>") open their new place
-export const arSecOf = (sub) => {
-  const s = String(sub || "");
-  const m = /^watch:(open|flash):(.+)$/.exec(s);
-  if (m) return m[1] === "open" ? `item/${m[2]}` : "watch";
-  const old = { summary: "", trackers: "team", tracker: "team", radar: "sounds", board: "outreach", watchlist: "watch" };
-  return s in old ? old[s] : s;
-};
+// the old addresses (Summary, Trackers, Radar, Board, To do's "watch:open:<key>") open their new place: the
+// shell rewrites them (components/shared/ar-routes.js); read here too, for a sub handed in directly
+export { arSecOf };
 // where an address points inside A&R: { view, person, item, pill }
 export function arPlace(sub) {
   const parts = arSecOf(sub).split("/").filter(Boolean);
@@ -101,8 +97,6 @@ function useArView(url) {
 }
 export function ARAdmin({ onGo, sub, onSub, chip = null }) {
   const at = arPlace(sub);
-  // an old address is rewritten to its new one in place (one Back step, not two)
-  useEffect(() => { const s = arSecOf(sub); if ((sub || "") !== s) onSub?.(s || null); }, [sub]); // eslint-disable-line react-hooks/exhaustive-deps
   const go = (path) => onGo("ar", path || null);
   return (
     <div className="ar">

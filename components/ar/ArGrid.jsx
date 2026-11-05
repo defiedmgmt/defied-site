@@ -67,9 +67,9 @@ const nameCol = (label) => ({ id: "name", label, sticky: true, def: true, get: (
   render: (r) => (
     <span className="arg-name">
       <Photo r={r} />
-      <span className="arg-name-t"><b>{r.name}</b>{(r.kind !== "artist" && r.artist) && <em>{r.artist}</em>}</span>
-      {r.roster && <span className="arg-tag" data-tag="roster">Roster</span>}
-      {r.match === "name" && <span className="arg-tag" data-tag="confirm">Confirm Spotify ▸</span>}
+      <span className="arg-name-t"><b>{r.name}</b>{(r.kind !== "artist" && r.artist) && <em>{r.artist}</em>}
+        {(r.roster || r.match === "name") && <span className="arg-tags">{r.roster && <span className="arg-tag" data-tag="roster">Roster</span>}{r.match === "name" && <span className="arg-tag" data-tag="confirm">Confirm Spotify ▸</span>}</span>}
+      </span>
     </span>
   ) });
 const addedByCol = { id: "addedBy", label: "Added by", def: true, get: (r) => r.names.join(", ").toLowerCase(), csv: (r) => r.names.join(", "), render: (r) => <span className="arg-who" title={addedByTitle(r)} data-added-by={r.names.join(", ")}>{r.names.join(", ")}</span> };
