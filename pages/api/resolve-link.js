@@ -12,7 +12,7 @@ import { resolveLink } from "../../lib/links/resolve";
 import { parseLink, wrongKind } from "../../lib/links/parse";
 
 export const config = { maxDuration: 60 };
-const CONTEXTS = { tracker: ["ar"], watchlist: ["ar"], radar: ["ar"], roster: ["publishing", "site"] };
+const CONTEXTS = { tracker: ["ar"], watchlist: ["ar"], radar: ["ar"], sounds: ["ar"], roster: ["publishing", "site"] };
 const KINDS = new Set(["song", "artist", "profile", "channel", "video", "sound"]);
 
 export default async function handler(req, res) {
@@ -31,7 +31,7 @@ export default async function handler(req, res) {
   const wrong = !l.short && wrongKind(l, kinds);
   if (wrong) return res.status(200).json({ ok: false, error: wrong, link: { platform: l.platform, kind: l.kind } });
   try {
-    const r = await resolveLink(url, { paid: !client && !!b.paid });
+    const r = await resolveLink(url, { paid: !client && !!b.paid, me: client ? null : session.user.id });
     if (r.ok && kinds.length && !kinds.includes(r.link.kind)) return res.status(200).json({ ok: false, error: wrongKind(r.link, kinds) });
     res.setHeader("Cache-Control", "no-store");
     if (client) return res.status(200).json({ ...r, already: [], suggestions: [], paid: { needed: false } });

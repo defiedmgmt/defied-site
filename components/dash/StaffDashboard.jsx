@@ -35,7 +35,8 @@ function placeOf(t, s) {
   return { tab, sub: tab !== "home" ? sub : null };
 }
 // a section's address: /dashboard/<tab>[/<sub>], and plain /dashboard for Home
-export const dashPath = (t, s) => (t === "home" && !s ? "/dashboard" : `/dashboard/${t}${s ? `/${encodeURIComponent(s)}` : ""}`);
+// (A&R r10: a sub with more than one part, /ar/team/<id> or /ar/item/<key>, is encoded one segment at a time)
+export const dashPath = (t, s) => (t === "home" && !s ? "/dashboard" : `/dashboard/${t}${s ? `/${String(s).split("/").map(encodeURIComponent).join("/")}` : ""}`);
 // where an address points: its path (/dashboard/<tab>/<sub>), or an old one's ?tab=&sub=
 const dashPlaceOf = (q) => {
   const [t, ...rest] = [].concat(q?.section || []);

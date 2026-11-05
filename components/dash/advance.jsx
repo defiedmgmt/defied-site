@@ -18,7 +18,10 @@ const showVal = (f, v) => (v === "" || v == null ? "blank" : /\.share$/.test(f) 
 // updateProspect carrying only what was changed, each with the value this panel opened with as
 // `expect`); the status and "Advance given?" save at once. The preview totals are computed the way
 // the sheet computes them: Net Streams is the sum of each slot's own streams × its own writer %.
-export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reload, onClose, onChanged, title, picker, extra }) {
+// pipeline (A&R › Outreach, r10): the board's panel is a pipeline only: name, contact, stage, notes, last contact and
+// follow-up. The 5 song slots (streams + writer share, columns R–AA), the estimates and 'Advance given?' are hidden
+// and never sent from it; Publishing › Advance calculator is unchanged.
+export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reload, onClose, onChanged, title, picker, extra, pipeline = false }) {
   const isNew = !prospect;
   const [base] = useState(prospect); // what this panel opened with: the `expect` of every Save
   const [name, setName] = useState(prospect?.name || "");
@@ -68,7 +71,7 @@ export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true
   const slotOf = (s) => ({ slot: s.slot, streams: s.streams === "" ? null : Number(s.streams), share: s.writerShare === "" ? null : Number(s.writerShare) / 100 });
   const save = async () => {
     if (!name.trim()) return;
-    if (isNew) return send({ action: "createProspect", name: name.trim(), contact: contact.trim(), status, notes: notes.trim(), slots: songs.filter((s) => s.streams !== "" || s.writerShare !== "").map(slotOf) });
+    if (isNew) return send({ action: "createProspect", name: name.trim(), contact: contact.trim(), status, notes: notes.trim(), ...(pipeline ? {} : { slots: songs.filter((s) => s.streams !== "" || s.writerShare !== "").map(slotOf) }) });
     // only what changed is sent, each with the value this panel opened with, so a hand edit in the
     // sheet meanwhile (to any field) is never overwritten
     const changes = {}, expect = {};
@@ -83,7 +86,7 @@ export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true
       if (String(s.writerShare) !== String(was.writerShare)) out.share = cell.share;
       return out;
     }).filter((x) => "streams" in x || "share" in x);
-    if (slots.length) { changes.slots = slots; expect.slots = slots.map((s) => base.cells.slots[s.slot - 1]); }
+    if (slots.length && !pipeline) { changes.slots = slots; expect.slots = slots.map((s) => base.cells.slots[s.slot - 1]); }
     if (!Object.keys(changes).length) return onClose();
     return send({ action: "updateProspect", prospectId: base.id, changes, expect });
   };
@@ -161,6 +164,7 @@ export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true
               )}
               <Area label="Notes (also in the OUTREACH sheet)" value={notes} onChange={(e) => setNotes(e.target.value)} />
 
+              {!pipeline && <>
               <p className="fld-label mb" style={{ marginTop: 18 }}>Songs (up to 5) — Gross Streams and Writer %</p>
               {songs.map((s) => (
                 <div key={s.slot} className="ar-song-row">
@@ -170,9 +174,11 @@ export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true
                 </div>
               ))}
               <p className="hint">The OUTREACH tab has 5 song slots; those feed the sheet's estimates.</p>
+              </>}
             </div>
 
             <div>
+              {!pipeline && <>
               <p className="fld-label mb">What they could earn us</p>
               <div className="cat-summary" style={{ marginBottom: 10 }}>
                 {/* the sheet's total first and full width; short numbers so nothing is cut off */}
@@ -196,6 +202,7 @@ export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true
                 </label>
               )}
 
+              </>}
               {!isNew && extra}
               {!isNew && (
                 <>
