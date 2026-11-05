@@ -298,5 +298,5 @@
   .app:not(.pub) .arh .arh-wtabs button { min-height: 40px; flex: none; }
 }
 @media (max-width: 639px) {
-  .ar-types[data-m-scroll] { -webkit-mask: linear-gradient(90deg, #000 88%, transparent); mask: linear-gradient(90deg, #000 88%, transparent); padding-right: 24px; }
+  .arh-wtabs[data-m-scroll], .ar-types[data-m-scroll] { -webkit-mask: linear-gradient(90deg, #000 88%, transparent); mask: linear-gradient(90deg, #000 88%, transparent); padding-right: 24px; }
 }

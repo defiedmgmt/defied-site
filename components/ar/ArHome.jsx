@@ -135,7 +135,7 @@ function WeekCard({ movers, onOpen }) {
   return (
     <div className="gainers home-card arh-card" data-week-section>
       <div className="attn-head"><CalendarRange size={15} /> Week on week
-        <span className="gainer-tabs arh-wtabs" role="tablist" aria-label="Week on week">
+        <span className="gainer-tabs arh-wtabs" role="tablist" aria-label="Week on week" data-m-scroll>
           {tabs.map(([id]) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} data-week-tab={id}>{SHORT_TAB[id] || id}</button>)}
         </span>
       </div>
