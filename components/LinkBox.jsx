@@ -146,9 +146,13 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (canAdd) add(); } }} />
             </label>
           )}
-          {r.missed?.length > 0 && <p className="hint err-text" data-lb-missed>Couldn't read {r.missed.join(" and ")} just now{r.error ? ` (${r.error.replace(/\.$/, "")})` : ""}. Type the name or try again.</p>}
+          {/* a miss with no name: type it in. A miss after the name was read (only the paid numbers failed): say which
+              numbers, once (not "type the name", and not Apify's own error line too) */}
+          {r.missed?.length > 0 && (c.name
+            ? <p className="hint" data-lb-missed>Couldn't read {r.paid?.what || "their numbers"} on {r.missed.join(" and ")} just now. You can still add them; try again in a minute for the numbers.</p>
+            : <p className="hint err-text" data-lb-missed>Couldn't read {r.missed.join(" and ")} just now{r.error ? ` (${r.error.replace(/\.$/, "")})` : ""}. Type the name or try again.</p>)}
           {more === "looking" && <p className="hint lb-wait" data-lb-more><RefreshCw size={12} className="spin" /> Reading {r.paid?.what || "their numbers"} on {PLATFORM_LABEL[r.link.platform]}…</p>}
-          {more?.error && <p className="hint" data-lb-more-err>{more.error}</p>}
+          {more?.error && !(r.missed?.length > 0 && c.name) && <p className="hint" data-lb-more-err>{more.error}</p>}
           {!more && r.paid?.off && <p className="hint" data-lb-off>{r.paid.off}</p>}
           {r.paid?.cost?.line && <p className="hint" data-lb-cost>{r.paid.cost.line}</p>}
           {al.length > 0 && (

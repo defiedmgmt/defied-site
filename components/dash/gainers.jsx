@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { Disc3, ChevronDown, TrendingUp } from "lucide-react";
-import { StagePill } from "./ar-stages";
 import { WowPill } from "./chips";
 import { fmt } from "./ui";
 import { dashCache } from "../shared/dash-caches";
 import { Photo } from "../shared/ui";
 import { dayRange } from "./helpers";
+import { swrJson, peekJson } from "../ui/fetch-cache";
 
 // Home's "This week" card (the roster's biggest gainers, the A&R top people) and the scroll helpers its
 // lists use. Its own module (list B #11), so the helpers every section shares don't load A&R code.
@@ -54,7 +54,22 @@ export const ScrollFoot = ({ n, box }) => (n ? (
 // (each client's songs that have both weeks, added up), ranked on the server by week-on-week %
 // (GET /api/growth?top=1, Spotify streams, global: lib/data/growth.js): from 1,000 streams this week, the
 // rest filling in by streams without a %. Each list says the days it covers ("This week" on the Dashboard).
-// A&R: the same top people as A&R › Summary (Spotify monthly listeners against a week ago).
+// A&R (r10 prove): A&R Home's own day-over-day movers (GET /api/ar-lists?view=home, read once the tab is
+// opened): each row its two readings on two days in a row; until there are two, Luminate's last real weeks
+// (labelled). A row opens that thing's A&R page (/dashboard/ar/item/<key>).
+const AR_HOME = "/api/ar-lists?view=home";
+const AR_UNIT = { streams: "streams", listeners: "listeners", spfollowers: "followers", tiktok: "TikTok", instagram: "Instagram", youtube: "subscribers", videos: "videos" };
+function useArMovers(on) {
+  const [d, setD] = useState(() => peekJson(AR_HOME) || null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { if (on) swrJson(AR_HOME, (j) => { setD(j); setFailed(false); }).catch(() => setFailed(true)); }, [on]);
+  if (!d) return { rows: null, failed };
+  const day = d.movers?.day || { up: [], down: [] };
+  const rows = [...day.up, ...day.down];
+  if (rows.length) return { rows, day: true, from: rows[0].fromAt, to: rows[0].toAt, failed };
+  const wk = d.movers?.week?.streams || { up: [], down: [] };
+  return { rows: [...wk.up, ...wk.down], day: false, failed };
+}
 const GAINER_TABS = [["songs", "Songs"], ["artists", "Artists"], ["ar", "A&R"]];
 function useRosterTop() {
   const [top, setTop] = useState(() => dashCache.top || null);
@@ -88,15 +103,16 @@ export function TopGainers({ db, onGo, arTop, arLoaded }) {
   const client = (id) => db.clients.find((c) => c.id === id);
   // A&R: A&R › Summary's top people (from the summary StaffDashboard already fetches)
   const isAR = kind === "ar";
-  const rows = isAR ? arTop?.people || null : !top ? null : kind === "artists" ? top.artists.filter((a) => client(a.clientId)) : top.songs.filter((s) => placement(s.placementId));
+  const ar = useArMovers(isAR);
+  const rows = isAR ? ar.rows : !top ? null : kind === "artists" ? top.artists.filter((a) => client(a.clientId)) : top.songs.filter((s) => placement(s.placementId));
   // each tab says its own days (a portfolio exported later can move the songs' week)
-  const span = isAR ? arTop?.period : top && (kind === "artists" ? top.artistsWeekOf : top.songsWeekOf);
+  const span = isAR ? null : top && (kind === "artists" ? top.artistsWeekOf : top.songsWeekOf);
   // r10 (H9): fewer than 8 days of Spotify numbers, so the songs and artists are Luminate's newest real week
   const lum = !isAR && top?.source === "luminate" ? (kind === "artists" ? top.artistsLabel : top.songsLabel) : null;
-  const empty = isAR ? (!arTop ? (arLoaded ? "Couldn't load the A&R numbers." : "Loading…") : !rows.length && "No A&R numbers this week yet.")
+  const empty = isAR ? (!rows ? (ar.failed ? "Couldn't load the A&R numbers." : "Loading…") : !rows.length && "No A&R moves yet: they need readings on two days in a row.")
     : !top ? (failed ? "Couldn't load this week's numbers." : "Loading…")
     : !rows.length && "Shows up once there's a week of daily Spotify numbers.";
-  const firstOff = rows ? rows.findIndex((r) => !(r.ranked && r.wowPct != null)) : -1;
+  const firstOff = rows && !isAR ? rows.findIndex((r) => !(r.ranked && r.wowPct != null)) : -1;
   // the rows without a % sit under one caption, after the ranked ones
   const split = (i) => i === firstOff && <div key="split" className="gainer-split">{isAR ? "Not enough history for a % yet" : "Not enough streams for a % yet"}</div>;
   // only a rise gets a rank number; a fall (ranked after every rise) shows its pill, unnumbered and muted
@@ -114,19 +130,21 @@ export function TopGainers({ db, onGo, arTop, arLoaded }) {
         </span>
       </div>
       <div className="home-scroll" ref={body}>
-        {lum ? <p className="gainer-sub" data-lum-week>{lum} · all platforms</p>
+        {isAR && rows?.length ? <p className="gainer-sub" data-ar-movers={ar.day ? "day" : "week"}>{ar.day ? "Day over day · the A&R lists' last two readings" : "Luminate's last real weeks · all platforms"}</p>
+          : lum ? <p className="gainer-sub" data-lum-week>{lum} · all platforms</p>
           : span && <p className="gainer-sub">{dayRange(span.from, span.to)} · vs the week before · {isAR ? "Spotify monthly listeners" : "Spotify streams, global"}</p>}
         {empty ? (
           <p className="gainers-empty">{empty}{!isAR && !top && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
-        ) : isAR ? rows.map((r, i) => [split(i), (
-          // opens that person on A&R's Watchlist, as Summary's rows do
-          <button key={r.key} className="gainer" data-ranked={r.ranked && r.wowPct != null ? "" : undefined} data-fall={fall(r)} onClick={() => onGo("ar", `watch:${r.open ? "open" : "flash"}:${r.key}`)}>
-            {rank(r, i)}
-            <span className="lm-cover gainer-av">{(r.name || "?")[0].toUpperCase()}</span>
-            <span className="lm-song-main"><strong>{r.name}</strong><span className="ar-g-sub">{r.role === "producer" ? "Producer" : "Artist"}{r.stage && <StagePill id={r.stage} />}</span></span>
-            <GainNum r={r} />
+        ) : isAR ? rows.map((r, i) => (
+          // opens that row's own A&R page (its drawer)
+          <button key={`${r.key}|${r.metric}`} className="gainer" data-ranked={r.pct > 0 ? "" : undefined} data-fall={r.pct > 0 ? undefined : ""} data-ar-mover={r.key}
+            title={ar.day ? `${r.label} · ${fmt(r.from)} → ${fmt(r.to)} · ${r.src}` : `${r.label} · ${r.weeks} · ${r.src}`} onClick={() => onGo("ar", `watch:open:${r.key}`)}>
+            <span className="gainer-n">{r.pct > 0 ? i + 1 : "·"}</span>
+            <span className="lm-cover gainer-av">{r.image ? <Photo src={r.image} alt="" fill sizes="40px" /> : (r.name || "?")[0].toUpperCase()}</span>
+            <span className="lm-song-main"><strong>{r.name}</strong><span className="ar-g-sub">{ar.day ? `${r.label} · ${fmt(r.from)} → ${fmt(r.to)}` : `${r.label} · ${r.weeks}`}</span></span>
+            <span className="gainer-num" data-wow={r.pct >= 0 ? "up" : "down"}><WowPill pct={r.pct} /><em>{r.d > 0 ? "+" : ""}{fmt(r.d)} {AR_UNIT[r.metric] || ""}</em></span>
           </button>
-        )]) : kind === "artists" ? rows.map((a, i) => {
+        )) : kind === "artists" ? rows.map((a, i) => {
           const c = client(a.clientId);
           return [split(i), (
             <button key={c.id} className="gainer" data-ranked={a.ranked && a.wowPct != null ? "" : undefined} data-fall={fall(a)} onClick={() => onGo("catalog", `client:${c.id}`)}>

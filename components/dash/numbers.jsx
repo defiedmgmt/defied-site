@@ -132,7 +132,7 @@ export function SourceNums({ d, founder, canEdit, onSaved }) {
   const month = new Date().toLocaleDateString(undefined, { month: "long" });
   return (
     <div className="nums-src" data-nums-sources>
-      {founder && d.cost && <p className="nums-costline" data-costline>About <b>{usd(d.cost.estMonthlyUsd)} a month</b> at this schedule · {usd(d.cost.spentUsd)} spent in {month}{acct ? ` · Apify: ${usd(acct.usageUsd)} of its ${usd(acct.limitUsd)} limit used` : ""}</p>}
+      {founder && d.cost && <p className="nums-costline" data-costline>About <b>{usd(d.cost.estMonthlyUsd)} a month</b> at this schedule · {usd(d.cost.spentUsd)} spent in {month}{acct ? ` · Apify: ${usd(acct.usageUsd)} of its ${usd(acct.limitUsd)} limit used${acct.at ? ` (as of ${shortDay(acct.at)}, ${clock(acct.at)})` : ""}` : ""}</p>}
       {d.sources.map((s) => (
         <div key={s.key} className="nums-srow" data-source={s.key}>
           <div className="nums-srow-t"><b>{s.label}</b><span className="hint">{s.tracked} tracked{s.campaign ? ` · ${s.campaign} in campaign mode` : ""}{founder ? ` · about ${usd(s.estMonthlyUsd)}/month${s.paid ? ` · ${usd(s.spentUsd)} this month` : " · free"}` : s.paid ? "" : " · free"}</span>

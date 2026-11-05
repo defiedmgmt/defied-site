@@ -232,7 +232,12 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
   const subOf = (c) => {
     if (c.sub === "as of") { const v = asOf[c.metric]; return v ? `as of ${dayText(v)}` : ""; }
     if (c.sub === "main") { const v = [asOf.listeners, asOf.streams, asOf.videos].filter(Boolean).sort().pop(); return v ? `as of ${dayText(v)}` : ""; }
-    if (c.sub === "lum") return asOf.lum ? `Luminate · to ${dayText(asOf.lum)}` : "Luminate";
+    // rows' last Luminate weeks can end on different days (an old export's Oct 16–22, a Trend Report's
+    // Oct 23–29): one end day is named, several say so (each cell's tooltip has its own week)
+    if (c.sub === "lum") {
+      const ends = new Set(rows.map((r) => r.lum?.week?.to).filter(Boolean));
+      return ends.size > 1 ? "Luminate · each row's last week" : asOf.lum ? `Luminate · to ${dayText(asOf.lum)}` : "Luminate";
+    }
     if (c.sub === "lumAtd") return asOf.lumAtd ? `to ${dayText(asOf.lumAtd)}` : "";
     return "";
   };

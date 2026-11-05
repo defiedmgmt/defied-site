@@ -191,3 +191,20 @@ button.arh-tile:hover { border-color: var(--d-line-3, #444); }
 }
 .arh-how .inline-link { display: inline-flex; align-items: center; min-height: 44px; }
 .ard-ask { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: var(--d-warn, #e0b48f); }
+
+/* r10 prove: A&R Home's day table (7 columns) gets the full width, one table under the other; the drawer's
+   numbers never break inside a number (As of and the source share one column) */
+.arh-stack { grid-template-columns: minmax(0, 1fr); }
+.ard-nums td.num, .ard-nums td.num * { white-space: nowrap; }
+.ard-asof { white-space: nowrap; }
+.ard-asof small { display: block; font-size: 11px; color: var(--d-ink-4, #777); white-space: normal; }
+@media (max-width: 639px) {
+  /* phones: the trend tables are cards (m-cards); a card's title carries its type and number on a second line */
+  .arh-t.m-cards > tbody > tr > td:first-child { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .arh-t.m-cards .arh-sub.wrap { text-align: right; }
+  .arh-mv.m-cards-wrap { padding: 0 !important; }
+  .ard-nums.m-cards > tbody > tr > td.ard-asof { white-space: normal; }
+  .ard-nums.m-cards .ard-asof small { display: inline; margin-left: 6px; }
+  .ard .arg-links a { width: 44px; height: 44px; font-size: 12px; }
+  .ard-cand-t a { display: inline-flex; align-items: center; min-height: 44px; }
+}

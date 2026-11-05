@@ -37,20 +37,20 @@ function Spark({ points }) {
 function MoversTable({ title, list, onOpen, kind }) {
   if (!list.length) return <div className="arh-mv" data-movers={kind}><h4>{title}</h4><p className="arh-sub" data-movers-none>{kind === "up" ? "Nothing rose" : "Nothing fell"} past the size floors (1,000 streams or listeners, 100 followers, 50 sound videos) between the last two days.</p></div>;
   return (
-    <div className="arh-mv" data-movers={kind}>
+    <div className="arh-mv m-cards-wrap" data-movers={kind}>
       <h4>{title}</h4>
-      <table className="arh-t">
+      <table className="arh-t m-cards">
         <thead><tr><th>Name</th><th>Type</th><th>Number</th><th className="num">Yesterday → Today</th><th className="num">Δ</th><th className="num">%</th><th>14 days</th></tr></thead>
         <tbody>
           {list.map((x) => (
             <tr key={`${x.key}|${x.metric}`} onClick={() => onOpen(x.key)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen(x.key)} data-mover={x.key}>
-              <td><b>{x.name}</b></td>
-              <td>{KIND_LABEL[x.kind]}</td>
-              <td className="wrap"><span className="arh-sub">{x.label}</span></td>
-              <td className="num" title={`${x.label} · ${n0(x.from)} on ${atText(x.fromAt)} → ${n0(x.to)} on ${atText(x.toAt)} · ${x.src}`}>{n0(x.from)} → {n0(x.to)}</td>
-              <td className="num" data-dir={dirOf(x.d)}>{signed(x.d)}</td>
-              <td className="num" data-dir={dirOf(x.pct)}>{pctSigned(x.pct)}</td>
-              <td><Spark points={x.spark} /></td>
+              <td><b>{x.name}</b><span className="arh-sub m-phone">{KIND_LABEL[x.kind]} · {x.label}</span></td>
+              <td className="m-desk">{KIND_LABEL[x.kind]}</td>
+              <td className="wrap m-desk"><span className="arh-sub">{x.label}</span></td>
+              <td className="num" data-label="Yesterday → today" title={`${x.label} · ${n0(x.from)} on ${atText(x.fromAt)} → ${n0(x.to)} on ${atText(x.toAt)} · ${x.src}`}>{n0(x.from)} → {n0(x.to)}</td>
+              <td className="num" data-label="Δ" data-dir={dirOf(x.d)}>{signed(x.d)}</td>
+              <td className="num" data-label="%" data-dir={dirOf(x.pct)}>{pctSigned(x.pct)}</td>
+              <td className="m-desk"><Spark points={x.spark} /></td>
             </tr>
           ))}
         </tbody>
@@ -61,19 +61,19 @@ function MoversTable({ title, list, onOpen, kind }) {
 function WeekTable({ title, list, onOpen, kind }) {
   if (!list.length) return <div className="arh-mv" data-week-movers={kind}><h4>{title}</h4><p className="arh-sub">{kind === "up" ? "Nothing rose" : "Nothing fell"} week on week.</p></div>;
   return (
-    <div className="arh-mv" data-week-movers={kind}>
+    <div className="arh-mv m-cards-wrap" data-week-movers={kind}>
       <h4>{title}</h4>
-      <table className="arh-t">
+      <table className="arh-t m-cards">
         <thead><tr><th>Name</th><th className="num">This week</th><th className="num">Last week</th><th className="num">Δ</th><th className="num">%</th><th>Source · dates</th></tr></thead>
         <tbody>
           {list.map((x) => (
             <tr key={x.key} onClick={() => onOpen(x.key)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen(x.key)} data-week-mover={x.key} className={x.lum ? "lum" : ""}>
               <td><b>{x.name}</b></td>
-              <td className="num">{n0(x.thisWeek)}</td>
-              <td className="num">{n0(x.lastWeek)}</td>
-              <td className="num" data-dir={dirOf(x.d)}>{signed(x.d)}</td>
-              <td className="num" data-dir={dirOf(x.pct)}>{pctSigned(x.pct)}</td>
-              <td className="arh-sub wrap">{x.lum ? <i data-lum-src>Luminate · {x.weeks}</i> : `${x.src} · ${dayText(x.from)} → ${dayText(x.to)}`}</td>
+              <td className="num" data-label="This week">{n0(x.thisWeek)}</td>
+              <td className="num" data-label="Last week">{n0(x.lastWeek)}</td>
+              <td className="num m-desk" data-dir={dirOf(x.d)}>{signed(x.d)}</td>
+              <td className="num" data-label="%" data-dir={dirOf(x.pct)}>{pctSigned(x.pct)}</td>
+              <td className="arh-sub wrap" data-label="Source">{x.lum ? <i data-lum-src>Luminate · {x.weeks}</i> : `${x.src} · ${dayText(x.from)} → ${dayText(x.to)}`}</td>
             </tr>
           ))}
         </tbody>
@@ -141,7 +141,7 @@ export function ArHome({ data, err, retry, onOpen, onView, founder, reload }) {
       <section className="arh-sec" data-day-movers>
         <h3>Day over day</h3>
         {day.up.length || day.down.length ? (
-          <div className="arh-two">
+          <div className="arh-two arh-stack">
             <MoversTable title="Up most" list={day.up} onOpen={onOpen} kind="up" />
             <MoversTable title="Down most" list={day.down} onOpen={onOpen} kind="down" />
           </div>
@@ -165,35 +165,35 @@ export function ArHome({ data, err, retry, onOpen, onView, founder, reload }) {
         <section className="arh-sec" data-adds>
           <h3>New adds this week, by who</h3>
           {data.adds?.length ? (
-            <table className="arh-t">
+            <div className="m-cards-wrap"><table className="arh-t m-cards">
               <thead><tr><th>Person</th><th className="num">Adds</th><th>What they added</th><th>Last add</th></tr></thead>
               <tbody>
                 {data.adds.map((p) => (
                   <tr key={p.id} data-adds-person={p.name}>
-                    <td><b>{p.name}</b></td><td className="num">{p.n}</td>
-                    <td className="arh-chips">{p.items.map((i) => <button key={i.key} type="button" className="arh-chip" onClick={() => onOpen(i.key)} data-add-chip={i.name} title={`${KIND_LABEL[i.kind]} · added ${atText(i.at)}`}>{i.name}</button>)}</td>
-                    <td>{dayText(p.last)}</td>
+                    <td><b>{p.name}</b></td><td className="num" data-label="Adds">{p.n}</td>
+                    <td className="arh-chips" data-label="Added">{p.items.map((i) => <button key={i.key} type="button" className="arh-chip" onClick={() => onOpen(i.key)} data-add-chip={i.name} title={`${KIND_LABEL[i.kind]} · added ${atText(i.at)}`}>{i.name}</button>)}</td>
+                    <td data-label="Last add">{dayText(p.last)}</td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : <p className="arh-empty">Nobody has added anything since Monday.</p>}
         </section>
         <section className="arh-sec" data-expiring>
           <h3>About to expire</h3>
           {data.expiring?.length ? (
-            <table className="arh-t">
+            <div className="m-cards-wrap"><table className="arh-t m-cards">
               <thead><tr><th>Name</th><th>Added by</th><th>Ends</th><th>Left</th><th /></tr></thead>
               <tbody>
                 {data.expiring.map((x) => (
                   <tr key={x.entryId} data-expiring-row={x.name}>
-                    <td><button type="button" className="inline-link" onClick={() => onOpen(x.key)}>{x.name}</button></td><td>{x.who}</td><td>{dayText(x.endsAt)}</td>
-                    <td>{x.state === "expired" ? `Expired · ${x.graceLeft} days to renew` : `${x.daysLeft} days`}</td>
+                    <td><button type="button" className="inline-link" onClick={() => onOpen(x.key)}>{x.name}</button></td><td data-label="Added by">{x.who}</td><td data-label="Ends">{dayText(x.endsAt)}</td>
+                    <td data-label="Left">{x.state === "expired" ? `Expired · ${x.graceLeft} days to renew` : `${x.daysLeft} days`}</td>
                     <td><button type="button" className="btn sm" disabled={busy} onClick={() => renew(x)} data-renew>Renew</button></td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : <p className="arh-empty" data-expiring-empty>Nothing ends in the next 7 days.</p>}
         </section>
       </div>

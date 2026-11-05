@@ -160,24 +160,26 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
 
               <section className="ard-sec" data-drawer-numbers>
                 <h4>Numbers</h4>
-                <table className="ard-nums">
-                  <thead><tr><th>Metric</th><th className="num">Now</th><th className="num">Δ day</th><th className="num">Δ week</th><th>As of</th><th>Source</th></tr></thead>
+                {/* a phone shows each metric as a card (m-cards): its name, then Now / Δ day / Δ week / As of lines */}
+                <div className="ard-nums-wrap m-cards-wrap">
+                <table className="ard-nums m-cards">
+                  <thead><tr><th>Metric</th><th className="num">Now</th><th className="num">Δ day</th><th className="num">Δ week</th><th>As of · source</th></tr></thead>
                   <tbody>
                     {Object.entries(r.m || {}).map(([k, c]) => (
                       <tr key={k} data-metric={k}>
                         <td>{METRIC_NAME[k]}</td>
-                        <td className="num"><MetricCell c={c} label={METRIC_NAME[k]} /></td>
-                        <td className="num"><DeltaCell c={c} span="day" label={METRIC_NAME[k]} /></td>
-                        <td className="num"><DeltaCell c={c} span="week" label={METRIC_NAME[k]} /></td>
-                        <td>{c?.at ? atText(c.at) : ""}</td>
-                        <td>{c?.src || ""}</td>
+                        <td className="num" data-label="Now"><MetricCell c={c} label={METRIC_NAME[k]} /></td>
+                        <td className="num" data-label="Δ day"><DeltaCell c={c} span="day" label={METRIC_NAME[k]} /></td>
+                        <td className="num" data-label="Δ week"><DeltaCell c={c} span="week" label={METRIC_NAME[k]} /></td>
+                        <td className="ard-asof" data-label="As of">{c?.at ? <>{atText(c.at)}{c.src ? <small>{c.src}</small> : null}</> : ""}</td>
                       </tr>
                     ))}
                     {r.lum?.week && (
-                      <tr data-metric="lum"><td><i>Luminate streams, week {r.lum.week.label}</i></td><td className="num">{n0(r.lum.week.v)}</td><td /><td className="num"><span data-dir={dirOf(r.lum.week.pct)}>{pctText(r.lum.week.pct)}</span></td><td>{r.lum.week.label}</td><td>Luminate, all platforms</td></tr>
+                      <tr data-metric="lum"><td><i>Luminate streams, week {r.lum.week.label}</i></td><td className="num" data-label="Now">{n0(r.lum.week.v)}</td><td /><td className="num" data-label="vs week before"><span data-dir={dirOf(r.lum.week.pct)}>{pctText(r.lum.week.pct)}</span></td><td className="ard-asof" data-label="Week">{r.lum.week.label}<small>Luminate, all platforms</small></td></tr>
                     )}
                   </tbody>
                 </table>
+                </div>
               </section>
 
               <section className="ard-sec" data-drawer-chart>
