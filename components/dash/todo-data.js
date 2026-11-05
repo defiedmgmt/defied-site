@@ -73,13 +73,17 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   if (due) out.push({ k: "follow", area: "ar", t: `${due} A&R follow-up${due === 1 ? "" : "s"} due`, cta: "Review", panel: "follow", rank: { kind: "contacts", value: due } });
   // the old Luminate portfolios' songs and artists not tracked yet (list B #3): one row per area, each
   // one finished in the list it opens (Yes to a match, a pasted Spotify link, Not on Spotify)
-  for (const [area, one, many] of [["roster", "Admin Catalog song", "Admin Catalog songs"], ["ar", "Artist or Song Tracker row", "Artist and Song Tracker rows"]]) {
+  // (r10: the A&R rows are on the Watchlist now; what's left is their artists' Spotify match, the row below)
+  for (const [area, one, many] of [["roster", "Admin Catalog song", "Admin Catalog songs"]]) {
     const list = (seeds?.todo || []).filter((r) => r.area === area);
     if (!list.length) continue;
     const check = list.filter((r) => r.status === "check").length, find = list.length - check;
     out.push({ k: `seeds:${area}`, area, t: `${list.length} old Luminate ${list.length === 1 ? one : many} to find on Spotify`,
       d: [check && `${check} ${check === 1 ? "match" : "matches"} to check`, find && `${find} to find`].filter(Boolean).join(" · "), cta: check ? "Check" : "Find", panel: "seeds", seedArea: area, rank: { kind: "fix", value: 0 } });
   }
+  // A&R (r10): the previous watchlist's artists whose same-name Spotify match a person still has to confirm
+  const confirm = ar?.toConfirm || 0;
+  if (confirm) out.push({ k: "arConfirm", area: "ar", t: `${confirm} Watchlist artist${confirm === 1 ? " needs its" : "s need their"} Spotify confirmed`, d: "Pick the right Spotify profile: nothing is tracked until a person taps.", cta: "Confirm", panel: "arConfirm", rank: { kind: "fix", value: 0 } });
   const unread = (db.submissions || []).filter((x) => !x.read).length;
   if (unread) out.push({ k: "messages", area: "site", t: `${unread} new website message${unread === 1 ? "" : "s"}`, cta: "Read", panel: "messages", rank: { kind: "other" } });
   // the sync checks that aren't a row already (Stripe = payments to log, ClickUp = its tasks)

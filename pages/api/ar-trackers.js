@@ -4,11 +4,14 @@
 //      ?find=<link>  who already tracks it (the paste box: "already on Hank's tracker")
 //      ?scores=1     every artist's score, trend and why (the Watchlist)
 //      ?home=1       Home's momentum jumps (Home or A&R; an account limited to its own artists: theirs only)
-// POST {action}: add | renew | setDays | remove | weights. Nothing here writes to a sheet or ClickUp.
+// POST {action}: add | renew | setDays | remove | weights, and (r10, the A&R lists' drawer) confirmMatch | notThem |
+//      setMode (campaign: daily refresh) | toOutreach | notes. Nothing here writes to a sheet or ClickUp.
 import { requireAccess, limited, ownSet } from "../../lib/access";
 import { requireSameOrigin } from "../../lib/session";
+import { sql } from "../../lib/db";
 import * as T from "../../lib/ar/trackers";
 import * as M from "../../lib/ar/momentum";
+import * as L from "../../lib/ar/lists";
 
 const scoreFor = (all, i) => {
   const m = i.entityId && all.get(i.entityId);
@@ -19,7 +22,8 @@ export default async function handler(req, res) {
   const home = req.method === "GET" && !!req.query.home;
   const session = await requireAccess(req, res, home ? ["home", "ar"] : ["ar"]);
   if (!session) return;
-  const user = { id: session.user.id, name: session.user.name || session.user.email || "" };
+  // the same name everywhere a person is shown (users.name, else the email's first part; never the email)
+  const user = { id: session.user.id, name: L.displayName(session.user) };
   try {
     if (req.method === "GET") {
       res.setHeader("Cache-Control", "no-store");
@@ -43,14 +47,31 @@ export default async function handler(req, res) {
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
     const b = req.body && typeof req.body === "object" ? req.body : {};
-    if (b.action === "add") return res.status(200).json(await T.addToTracker({ user, days: b.days, kind: b.kind, spotify: b.spotify, name: b.name, artist: b.artist, genre: b.genre, image: b.image, url: b.url, clip: b.clip, clientId: b.clientId }));
+    if (b.action === "add") return res.status(200).json(await T.addToTracker({ user, days: b.days, kind: b.kind, spotify: b.spotify, name: b.name, artist: b.artist, genre: b.genre, image: b.image, url: b.url, clip: b.clip, clientId: b.clientId, isrc: b.isrc, links: b.links && typeof b.links === "object" ? b.links : {} }));
     if (b.action === "renew") return res.status(200).json(await T.renew({ subject: Array.isArray(b.subjects) ? b.subjects.map(String) : String(b.subject || ""), entryId: b.entryId ? String(b.entryId) : null, user, days: b.days ?? null }));
     if (b.action === "setDays") return res.status(200).json(await T.setDays({ entryId: String(b.entryId || ""), user, days: b.days }));
-    if (b.action === "remove") return res.status(200).json(await T.removeEntry({ entryId: String(b.entryId || "") }));
+    if (b.action === "remove") {
+      // your own entry; a Founder may take anyone's off (the page's confirm names the person)
+      const [e] = await sql`SELECT owner_id FROM ar_tracker WHERE id = ${String(b.entryId || "")} AND removed_at IS NULL`;
+      if (e && e.owner_id !== user.id && req.access?.role !== "founder") return res.status(403).json({ error: "That's on someone else's list. A Founder can take it off." });
+      return res.status(200).json(await T.removeEntry({ entryId: String(b.entryId || "") }));
+    }
+    if (b.action === "confirmMatch") return res.status(200).json(await L.confirmMatch({ id: b.id, spotifyId: String(b.spotifyId || ""), by: user.name }));
+    if (b.action === "notThem") return res.status(200).json(await L.notThem({ id: b.id, spotifyId: String(b.spotifyId || "") }));
+    if (b.action === "notes") return res.status(200).json(await L.saveNotes({ id: b.id, notes: b.notes }));
+    if (b.action === "toOutreach") return res.status(200).json(await L.toOutreach({ id: b.id }));
+    if (b.action === "setMode") {
+      // campaign mode (every number daily) moves here from Numbers: an artist or a sound on the lists
+      const id = String(b.entityId || "");
+      if (!/^(a|w|s):[A-Za-z0-9_-]{1,40}$/.test(id)) return res.status(400).json({ error: "Campaign mode is for an artist or a sound." });
+      const E = await import("../../lib/data/engine");
+      const r = await E.setMode(id, b.mode === "campaign" ? "campaign" : "auto", { by: user.name });
+      return r.error ? res.status(400).json(r) : res.status(200).json(r);
+    }
     if (b.action === "weights") return res.status(200).json({ ok: true, weights: await M.saveMomentumWeights(b.weights || {}) });
     return res.status(400).json({ error: "Unknown action." });
   } catch (err) {
-    if (err instanceof T.TrackerError) return res.status(err.status).json({ error: err.message });
+    if (err instanceof T.TrackerError || (err?.status && err.status < 500)) return res.status(err.status).json({ error: err.message });
     console.error("ar-trackers failed:", err);
     return res.status(503).json({ error: "Couldn't load the trackers — try again in a minute." });
   }

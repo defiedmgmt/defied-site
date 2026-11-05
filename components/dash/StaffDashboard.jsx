@@ -13,6 +13,7 @@ import { Wordmark } from "./ui";
 import { useTrueUp, trueUpTodoItems } from "../trueup-data"; // TRUEUP-HOOK: the monthly Luminate true-up
 import { canUse } from "./access";
 export { canUse, TODO_AREAS } from "./access";
+import { arSecOf } from "../shared/ar-routes";
 
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
@@ -28,11 +29,14 @@ function placeOf(t, s) {
   // (list B #3: the Luminate tab is gone; r10: so is Numbers, whose sources and cost are in Site › Sync now.
   // Their old links, /dashboard/numbers and ?tab=numbers or ?tab=luminate, open Site › Sync)
   if (t === "luminate" || t === "numbers") return { tab: "site", sub: "sync" };
+  // (A&R r10: its old sub-pages open their new addresses, components/shared/ar-routes.js)
+  if (t === "ar") return { tab: "ar", sub: arSecOf(sub) || null };
   const tab = DASH_TABS.includes(t) ? t : "home";
   return { tab, sub: tab !== "home" ? sub : null };
 }
 // a section's address: /dashboard/<tab>[/<sub>], and plain /dashboard for Home
-export const dashPath = (t, s) => (t === "home" && !s ? "/dashboard" : `/dashboard/${t}${s ? `/${encodeURIComponent(s)}` : ""}`);
+// (A&R r10: a sub with more than one part, /ar/team/<id> or /ar/item/<key>, is encoded one segment at a time)
+export const dashPath = (t, s) => (t === "home" && !s ? "/dashboard" : `/dashboard/${t}${s ? `/${String(s).split("/").map(encodeURIComponent).join("/")}` : ""}`);
 // where an address points: its path (/dashboard/<tab>/<sub>), or an old one's ?tab=&sub=
 const dashPlaceOf = (q) => {
   const [t, ...rest] = [].concat(q?.section || []);

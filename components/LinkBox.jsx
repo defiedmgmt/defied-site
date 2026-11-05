@@ -13,6 +13,10 @@
 //        addLabel the button ("Add", "Fill in"); allowDuplicate: a song already on someone's page can still
 //        be filled in (co-writers share songs); compact: no "Paste" word on the button (narrow forms)
 // The other-profiles suggestions show only in a box that takes people (a song form has nowhere to keep them).
+// r10 (A&R lists, home-audit A5-A10): listMode = the A&R lists' box: a 30 / 60 / 90 chooser (a roster artist never
+// expires), "Add to my list", and the already lines decide the button: on your list -> Open it (onOpen, nothing is
+// added); on someone else's -> Add my name too (the same row). Everywhere: a card with no name shows a name field
+// (Add waits for it, nothing is saved as "Spotify artist"), and a lookup that failed says so. onAdd also gets days.
 // Mobile first: one column, 44px taps, nothing wider than the screen at 390px.
 import React, { useEffect, useRef, useState } from "react";
 import { ClipboardPaste, Check, X, RefreshCw, AlertTriangle } from "lucide-react";
@@ -33,13 +37,15 @@ async function ask(body) {
   return j;
 }
 
-export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "Add", allowDuplicate = false, placeholder, autoFocus = false, compact = false, busy: outerBusy = false }) {
+export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "Add", allowDuplicate = false, placeholder, autoFocus = false, compact = false, busy: outerBusy = false, listMode = false, onOpen }) {
   const take = kinds?.length ? kinds : PERSON_KINDS;
   const [text, setText] = useState("");
   const [st, setSt] = useState({ state: "idle" }); // idle | looking | card | error
   const [more, setMore] = useState(null); // the paid step: null | "looking" | "done" | { error }
   const [yes, setYes] = useState({}); // confirmed suggestions, by url
   const [clipErr, setClipErr] = useState("");
+  const [typed, setTyped] = useState(""); // the name, when the link didn't give one
+  const [days, setDays] = useState(30);
   const seq = useRef(0);
   const input = useRef(null);
   const ph = placeholder || (take.includes("song") && take.length === 1 ? PH.song : take.includes("sound") && take.length === 1 ? PH.sound : PH.people);
@@ -47,7 +53,7 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
   // look it up as soon as it reads as a link (typing, pasting, the Paste button)
   useEffect(() => {
     const v = text.trim();
-    setYes({}); setMore(null);
+    setYes({}); setMore(null); setTyped("");
     if (!v) { setSt({ state: "idle" }); return undefined; }
     const l = parseLink(v);
     if (!l) { setSt(/^(https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}\/)/i.test(v) ? { state: "error", error: "Paste a Spotify, TikTok, Instagram or YouTube link." } : { state: "idle" }); return undefined; }
@@ -89,13 +95,20 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
       input.current?.focus();
     }
   };
-  const clear = () => { seq.current++; setText(""); setSt({ state: "idle" }); setMore(null); setYes({}); input.current?.focus(); };
+  const clear = () => { seq.current++; setText(""); setSt({ state: "idle" }); setMore(null); setYes({}); setTyped(""); input.current?.focus(); };
 
   const r = st.state === "card" ? st.r : null;
   const c = r?.card || {};
-  const blocked = !!r?.already?.length && !allowDuplicate;
+  const al = r?.already || [];
+  const mineHit = al.find((a) => a.state === "mine"), otherHit = al.find((a) => a.state === "other"), rosterHit = al.find((a) => a.state === "roster");
+  // the lists: never a second row (yours: Open it; someone else's: Add my name too). Elsewhere: any place that keeps it stops a duplicate.
+  const blocked = listMode ? !!mineHit : al.some((a) => a.state !== "removed" && a.state !== "info") && !allowDuplicate;
   const links = r ? { ...r.links, ...Object.fromEntries(Object.entries(yes).filter(([, s]) => s).map(([, s]) => [s.platform, s.url])) } : {};
-  const add = () => { if (r && !blocked) { onAdd?.({ link: r.link, card: c, links, already: r.already || [] }); clear(); } };
+  const isSound = r?.link?.kind === "sound";
+  const needName = !!r && !c.name && !isSound && more !== "looking";
+  const canAdd = !!r && !blocked && (!needName || !!typed.trim());
+  const add = () => { if (canAdd) { onAdd?.({ link: r.link, card: { ...c, name: c.name || typed.trim() }, links, already: al, days: rosterHit ? null : days }); clear(); } };
+  const addWord = listMode ? (otherHit ? "Add my name too" : "Add to my list") : addLabel;
   const nums = (c.numbers || []).slice(0, 4);
 
   return (
@@ -103,7 +116,7 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
       <style>{CSS}</style>
       <div className="sp-row lb-row">
         <input ref={input} value={text} onChange={(e) => setText(e.target.value)} placeholder={ph} aria-label={ph} inputMode="url" autoComplete="off" autoCapitalize="none" spellCheck={false} autoFocus={autoFocus} data-lb-input
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (r && !blocked) add(); } }} />
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (canAdd) add(); else if (mineHit && onOpen) { onOpen(mineHit); clear(); } } }} />
         {text ? <button type="button" className="btn ghost sm lb-tap" onClick={clear} aria-label="Clear the link" data-lb-clear><X size={15} /></button>
           : <button type="button" className="btn ghost sm lb-tap" onClick={paste} data-lb-paste aria-label="Paste from clipboard"><ClipboardPaste size={15} />{!compact && <span>Paste</span>}</button>}
       </div>
@@ -116,7 +129,7 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
             {c.image || c.preview ? <img className={`lb-img${r.link.kind === "song" || r.link.kind === "sound" || r.link.kind === "video" ? " sq" : ""}`} src={c.image || c.preview} alt="" referrerPolicy="no-referrer" />
               : <span className="lb-img lb-img-none" aria-hidden="true">{(c.name || "?").replace(/^@/, "").slice(0, 1).toUpperCase()}</span>}
             <span className="lb-text">
-              <strong data-lb-name>{c.name || (more === "looking" ? "Reading their profile…" : "No name found: type it in")}</strong>
+              <strong data-lb-name>{c.name || (more === "looking" ? "Reading their profile…" : "No name found: type it below")}</strong>
               <span className="lb-sub">{[r.link.label, c.artist, c.releaseDate && `released ${c.releaseDate}`].filter(Boolean).join(" · ")}</span>
             </span>
           </div>
@@ -127,12 +140,19 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
               {c.isrc && <span className="lb-num">ISRC <b>{c.isrc}</b></span>}
             </div>
           )}
+          {needName && (
+            <label className="lb-namefld"><span>{r.link.kind === "song" ? "Song title" : "Their name"}</span>
+              <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={r.link.kind === "song" ? "Type the song's title" : "Type their name"} data-lb-typed-name
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); if (canAdd) add(); } }} />
+            </label>
+          )}
+          {r.missed?.length > 0 && <p className="hint err-text" data-lb-missed>Couldn't read {r.missed.join(" and ")} just now{r.error ? ` (${r.error.replace(/\.$/, "")})` : ""}. Type the name or try again.</p>}
           {more === "looking" && <p className="hint lb-wait" data-lb-more><RefreshCw size={12} className="spin" /> Reading {r.paid?.what || "their numbers"} on {PLATFORM_LABEL[r.link.platform]}…</p>}
           {more?.error && <p className="hint" data-lb-more-err>{more.error}</p>}
           {!more && r.paid?.off && <p className="hint" data-lb-off>{r.paid.off}</p>}
           {r.paid?.cost?.line && <p className="hint" data-lb-cost>{r.paid.cost.line}</p>}
-          {r.already?.length > 0 && (
-            <p className={`lb-already${blocked ? "" : " soft"}`} data-lb-already role="status"><AlertTriangle size={14} /> {r.already.map((a) => a.text).join(" · ")}</p>
+          {al.length > 0 && (
+            <p className={`lb-already${blocked || otherHit ? "" : " soft"}`} data-lb-already={al.map((a) => a.state).join(" ")} role="status"><AlertTriangle size={14} /> {al.map((a) => a.text).join(" · ")}</p>
           )}
           {r.suggestions?.length > 0 && !blocked && take.some((k) => PERSON_KINDS.includes(k)) && (
             <div className="lb-sugg" data-lb-suggestions>
@@ -149,9 +169,23 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
               })}
             </div>
           )}
+          {listMode && !blocked && (rosterHit
+            ? <p className="hint lb-days" data-lb-days="roster">Roster · never expires</p>
+            : (
+              <div className="lb-days" role="radiogroup" aria-label="How long to track it" data-lb-days={days}>
+                <span>Track for</span>
+                {[30, 60, 90].map((d) => <button type="button" key={d} role="radio" aria-checked={days === d} className={days === d ? "on" : ""} onClick={() => setDays(d)} data-lb-day={d}>{d} days</button>)}
+              </div>
+            ))}
           {!blocked && (
             <div className="lb-foot">
-              <button type="button" className="btn sm lb-add" onClick={add} disabled={outerBusy} data-lb-add>{addLabel}</button>
+              <button type="button" className="btn sm lb-add" onClick={add} disabled={outerBusy || !canAdd} data-lb-add>{addWord}</button>
+              <button type="button" className="btn ghost sm lb-tap" onClick={clear}>Cancel</button>
+            </div>
+          )}
+          {blocked && listMode && mineHit && (
+            <div className="lb-foot">
+              <button type="button" className="btn sm lb-add" onClick={() => { onOpen?.(mineHit); clear(); }} data-lb-open>Open it</button>
               <button type="button" className="btn ghost sm lb-tap" onClick={clear}>Cancel</button>
             </div>
           )}
@@ -192,6 +226,11 @@ const CSS = `
 .lb-s-yes{font-size:12.5px;flex-shrink:0;display:inline-flex;align-items:center;gap:4px;color:var(--d-ink-3,#a3a3a3)}
 .lb-s.on .lb-s-yes{color:var(--d-pos,#8fce8f)}
 .lb-foot{display:flex;gap:8px;flex-wrap:wrap}
+.lb-namefld{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--d-ink-4,#8a8a8a)}
+.lb-namefld input{min-height:44px}
+.lb-days{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0;font-size:12.5px;color:var(--d-ink-4,#8a8a8a)}
+.lb-days button{min-height:44px;min-width:44px;padding:0 12px;border-radius:10px;border:1px solid var(--d-line-2,#2a2a2c);background:transparent;color:var(--d-ink-3,#a3a3a3);font:inherit;cursor:pointer}
+.lb-days button.on{border-color:var(--d-ink,#f5f5f5);color:var(--d-ink,#f5f5f5)}
 .lb-foot .btn{min-height:44px}
 .lb-add{flex:1;justify-content:center}
 .lb .btn.lb-add{background:var(--d-ink,#f5f5f5);color:#000;border-color:transparent}
