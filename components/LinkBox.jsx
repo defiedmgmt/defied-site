@@ -52,6 +52,7 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
   const [clipErr, setClipErr] = useState("");
   const [typed, setTyped] = useState(""); // the name, when the link didn't give one
   const [days, setDays] = useState(30);
+  const [role, setRole] = useState("artist"); // r11 (A&R): an artist's card asks Artist or Producer
   const [retry, setRetry] = useState(0); // "Try again" after a lookup couldn't reach the server
   const seq = useRef(0);
   const input = useRef(null);
@@ -102,7 +103,7 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
       input.current?.focus();
     }
   };
-  const clear = () => { seq.current++; setText(""); setSt({ state: "idle" }); setMore(null); setYes({}); setTyped(""); input.current?.focus(); };
+  const clear = () => { seq.current++; setText(""); setSt({ state: "idle" }); setMore(null); setYes({}); setTyped(""); setRole("artist"); input.current?.focus(); };
 
   const r = st.state === "card" ? st.r : null;
   const c = r?.card || {};
@@ -112,9 +113,11 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
   const blocked = listMode ? !!mineHit : al.some((a) => a.state !== "removed" && a.state !== "info") && !allowDuplicate;
   const links = r ? { ...r.links, ...Object.fromEntries(Object.entries(yes).filter(([, s]) => s).map(([, s]) => [s.platform, s.url])) } : {};
   const isSound = r?.link?.kind === "sound";
+  // r11: a new Watchlist artist (not a song or sound, not the roster, not someone else's row): Artist or Producer
+  const askRole = listMode && !!r && !isSound && r.link.kind !== "song" && !rosterHit && !otherHit;
   const needName = !!r && !c.name && !isSound && more !== "looking";
   const canAdd = !!r && !blocked && (!needName || !!typed.trim());
-  const add = () => { if (canAdd) { onAdd?.({ link: r.link, card: { ...c, name: c.name || typed.trim() }, links, already: al, days: rosterHit ? null : days }); clear(); } };
+  const add = () => { if (canAdd) { onAdd?.({ link: r.link, card: { ...c, name: c.name || typed.trim() }, links, already: al, days: rosterHit ? null : days, role: askRole ? role : null }); clear(); } };
   const addWord = listMode ? (otherHit ? "Add my name too" : "Add to my list") : addLabel;
   const nums = (c.numbers || []).slice(0, 4);
 
@@ -184,6 +187,12 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
                   </button>
                 );
               })}
+            </div>
+          )}
+          {askRole && !blocked && (
+            <div className="lb-days" role="radiogroup" aria-label="Artist or producer" data-lb-role={role}>
+              <span>They're</span>
+              {[["artist", "an Artist"], ["producer", "a Producer"]].map(([k, label]) => <button type="button" key={k} role="radio" aria-checked={role === k} className={role === k ? "on" : ""} onClick={() => setRole(k)} data-lb-role-pick={k}>{label}</button>)}
             </div>
           )}
           {listMode && !blocked && (rosterHit

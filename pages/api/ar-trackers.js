@@ -5,7 +5,7 @@
 //      ?scores=1     every artist's score, trend and why (the Watchlist)
 //      ?home=1       Home's momentum jumps (Home or A&R; an account limited to its own artists: theirs only)
 // POST {action}: add | renew | setDays | remove | weights, and (r10, the A&R lists' drawer) confirmMatch | notThem |
-//      setMode (campaign: daily refresh) | toOutreach | notes. Nothing here writes to a sheet or ClickUp.
+//      setMode (campaign: daily refresh) | toOutreach | notes | setRole (r11: Artist/Producer). Nothing here writes to a sheet or ClickUp.
 import { requireAccess, limited, ownSet } from "../../lib/access";
 import { requireSameOrigin } from "../../lib/session";
 import { sql } from "../../lib/db";
@@ -47,7 +47,13 @@ export default async function handler(req, res) {
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
     const b = req.body && typeof req.body === "object" ? req.body : {};
-    if (b.action === "add") return res.status(200).json(await T.addToTracker({ user, days: b.days, kind: b.kind, spotify: b.spotify, name: b.name, artist: b.artist, genre: b.genre, image: b.image, url: b.url, clip: b.clip, clientId: b.clientId, isrc: b.isrc, links: b.links && typeof b.links === "object" ? b.links : {} }));
+    if (b.action === "add") {
+      const out = await T.addToTracker({ user, days: b.days, kind: b.kind, spotify: b.spotify, name: b.name, artist: b.artist, genre: b.genre, image: b.image, url: b.url, clip: b.clip, clientId: b.clientId, isrc: b.isrc, links: b.links && typeof b.links === "object" ? b.links : {} });
+      // r11 (A2): the paste box's Artist/Producer pick, on a Watchlist artist nobody has typed yet
+      if (L.ROLES.includes(b.role) && String(out?.subject || "").startsWith("w:")) await L.setRole({ id: out.subject.slice(2), role: b.role, onlyIfUnset: true }).catch(() => null);
+      return res.status(200).json(out);
+    }
+    if (b.action === "setRole") return res.status(200).json(await L.setRole({ id: String(b.id || ""), role: b.role }));
     if (b.action === "renew") return res.status(200).json(await T.renew({ subject: Array.isArray(b.subjects) ? b.subjects.map(String) : String(b.subject || ""), entryId: b.entryId ? String(b.entryId) : null, user, days: b.days ?? null }));
     if (b.action === "setDays") return res.status(200).json(await T.setDays({ entryId: String(b.entryId || ""), user, days: b.days }));
     if (b.action === "remove") {

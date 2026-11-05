@@ -1,15 +1,15 @@
 // A&R lists (r10): one row's drawer, /dashboard/ar/item/<key> (from the right, 480px; full screen on a phone). GET
 // /api/ar-lists?item=<key>. What it shows, top to bottom: who added it (your own entry: 30/60/90 · Renew · Remove; a
 // Founder may take anyone's off), the Spotify match to confirm (seeded rows), the numbers table, the Spotify chart,
-// the Luminate history (all platforms, read-only, kept apart), momentum, campaign mode (daily refresh), Add to
-// outreach, and notes (saved on blur). Every number says its source and date; nothing is made up.
+// the Luminate history (all platforms, read-only, kept apart), momentum, campaign mode (daily refresh) and notes (saved
+// on blur). r11: its type chip in the head and, on a Watchlist artist, the one-tap Artist / Producer switch (Outreach
+// is gone). Every number says its source and date; nothing is made up.
 import React, { useEffect, useRef, useState } from "react";
 import { X, ExternalLink, RefreshCw } from "lucide-react";
-import { n0, signed, pctText, dirOf, dayText, atText, kindLabel, post, spanText } from "./fmt";
-import { Photo, Links, DeltaCell, MetricCell } from "./ArGrid";
+import { n0, signed, pctText, dirOf, dayText, atText, post, spanText, typeOf, TYPE_LABEL } from "./fmt";
+import { Photo, Links, DeltaCell, MetricCell, TypeChip } from "./ArGrid";
 
 const METRIC_NAME = { listeners: "Spotify monthly listeners", streams: "Spotify streams", spfollowers: "Spotify followers", tiktok: "TikTok followers", instagram: "Instagram followers", youtube: "YouTube subscribers", videos: "TikTok videos with this sound" };
-const STAGE_LABEL = { reach: "To reach out", reached: "Reached out", talking: "Talking", offer: "Offer sent", signed: "Signed", passed: "Passed" };
 
 // one line, daily points, inline SVG (about 300x140)
 export function LineChart({ points, w = 300, h = 140, label = "" }) {
@@ -60,7 +60,7 @@ function LumHistory({ series }) {
   );
 }
 
-export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onGoOutreach }) {
+export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -102,7 +102,7 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
           {r && <Photo r={r} size={44} />}
           <div className="ard-title">
             <h3>{r ? r.name : d?.gone ? "Not on any list" : "Loading…"}</h3>
-            {r && <span className="ard-sub">{kindLabel(r)}{r.artist ? ` · ${r.artist}` : ""}</span>}
+            {r && <span className="ard-sub"><TypeChip r={r} />{r.artist ? <span>{r.artist}</span> : null}</span>}
           </div>
           <button type="button" className="btn ghost sm" onClick={onClose} aria-label="Close" data-drawer-close><X size={18} /></button>
         </div>
@@ -112,6 +112,19 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
           {note && <p className={`hint ${note.ok ? "ok-text" : "err-text"}`} role="status" data-drawer-note>{note.text}</p>}
           {r && (
             <>
+              {r.kind === "artist" && r.trackedId && !r.roster && (
+                <section className="ard-sec ard-role" data-drawer-type>
+                  <span className="ard-role-l">They're</span>
+                  <span className="ard-role-pick" role="radiogroup" aria-label="Artist or producer">
+                    {["artist", "producer"].map((k) => {
+                      const on = typeOf(r) === k;
+                      return <button key={k} type="button" role="radio" aria-checked={on} className={`btn ghost sm${on ? " on" : ""}`} data-type={k} data-role-pick={k} disabled={busy}
+                        onClick={() => (!on || r.typeKnown === false) && act({ action: "setRole", id: r.trackedId, role: k }, k === "producer" ? `${r.name} is a Producer.` : `${r.name} is an Artist.`)}><i aria-hidden="true" />{TYPE_LABEL[k]}</button>;
+                    })}
+                  </span>
+                  {r.typeKnown === false && <span className="hint ard-role-h" data-role-default>Shown as Artist until someone picks.</span>}
+                </section>
+              )}
               <section className="ard-sec" data-drawer-who>
                 <Links links={r.links} />
                 <ul className="ard-who">
@@ -245,14 +258,6 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
                     <span>Daily updates (campaign mode)</span>
                   </label>
                   <p className="hint">Every number for this {r.kind === "sound" ? "sound" : "artist"} refreshes each day while it's on. It costs a little Apify credit a day.</p>
-                </section>
-              )}
-
-              {r.kind === "artist" && r.trackedId && (
-                <section className="ard-sec" data-drawer-outreach>
-                  <h4>Outreach</h4>
-                  {r.stage ? <p>On the board: <b>{STAGE_LABEL[r.stage] || r.stage}</b> · <button type="button" className="inline-link" onClick={onGoOutreach}>Open in Outreach</button></p>
-                    : <button type="button" className="btn ghost sm" disabled={busy} onClick={() => act({ action: "toOutreach", id: r.trackedId }, "Added to Outreach: To reach out.")} data-to-outreach>Add to outreach</button>}
                 </section>
               )}
 

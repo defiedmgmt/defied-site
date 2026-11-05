@@ -1,4 +1,6 @@
-// A&R lists (r10): ONE spreadsheet-like grid for Team, Mine, Watchlist (artists, songs) and Sounds. The server
+// A&R lists (r10): ONE spreadsheet-like grid for the Watchlist (all, or one type) and My A&R. r11: every row says its
+// type with a colour chip (Artist blue, Producer violet, Song green, TikTok sound cyan: ar-grid.css --type-*) and a
+// 3px bar of that colour on its left edge, on a phone card too. The server
 // (GET /api/ar-lists, lib/ar/lists.js) works out every number; this only draws, sorts, filters and exports them.
 //   desktop  a sticky header (with each column's "as of"), a sticky Name column, click a header to sort (empty
 //            cells always last), Columns ▾ (saved per grid), Export CSV (the visible columns as raw numbers, plus
@@ -9,7 +11,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Clock, ExternalLink, SlidersHorizontal, Download, Columns3, X } from "lucide-react";
 import { thumb } from "../shared/ui";
-import { n0, signed, pctText, dirOf, short, dayText, atText, nyDayOf, kindLabel, trackingText, store, spanText } from "./fmt";
+import { n0, signed, pctText, dirOf, short, dayText, atText, nyDayOf, kindLabel, trackingText, store, spanText, typeOf, TYPE_LABEL } from "./fmt";
 
 // ---------------------------------------------------------------- cells
 const COLS_LABEL = { listeners: "Spotify monthly listeners", streams: "Spotify streams (all-time)", spfollowers: "Spotify followers", tiktok: "TikTok followers", instagram: "Instagram followers", youtube: "YouTube subscribers", videos: "TikTok videos with this sound" };
@@ -62,6 +64,11 @@ export function Links({ links }) {
   if (!ks.length) return <span className="arg-dash" title="No links yet">—</span>;
   return <span className="arg-links">{ks.map((k) => <a key={k} href={links[k]} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title={LINK_LABEL[k]} aria-label={LINK_LABEL[k]} data-link={k}>{LINK_LABEL[k].slice(0, 2)}</a>)}</span>;
 }
+// r11 (A2): the type chip, a dot and the label in the type's colour
+export const TypeChip = ({ r, roster = true }) => {
+  const t = typeOf(r);
+  return <span className="ar-type" data-type={t} data-type-chip={t} title={r.typeKnown === false ? "Artist until someone says Producer (open it to switch)" : undefined}><i aria-hidden="true" />{TYPE_LABEL[t]}{roster && r.roster ? " · Roster" : ""}</span>;
+};
 export const Photo = ({ r, size = 24 }) => (r.image
   ? <img className={`arg-ph${r.kind !== "artist" ? " sq" : ""}`} src={thumb(r.image, 96)} alt="" width={size} height={size} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
   : <span className={`arg-ph none${r.kind !== "artist" ? " sq" : ""}`} aria-hidden="true">{String(r.name || "?").slice(0, 1).toUpperCase()}</span>);
@@ -93,15 +100,14 @@ const lumAtdCol = { id: "lumatd", label: "Luminate all-time", sub: "lumAtd", num
 const trackingCol = { id: "tracking", label: "Tracking", def: true, get: (r) => (r.tracking.roster ? 1e9 : r.tracking.never ? 1e8 : r.tracking.state === "expired" ? -1 : r.tracking.daysLeft ?? 0), csv: (r) => trackingText(r.tracking),
   render: (r, a, ctx) => <TrackingCell r={r} ctx={ctx} /> };
 const linksCol = { id: "links", label: "Links", def: true, nosort: true, get: () => null, csv: (r) => Object.values(r.links || {}).join(" "), render: (r) => <Links links={r.links} /> };
-const typeCol = { id: "type", label: "Type", def: true, get: (r) => `${KIND_ORDER[r.kind]}${r.roster ? "r" : ""}`, csv: (r) => kindLabel(r), render: (r) => <span className="arg-tag" data-tag={r.kind}>{kindLabel(r)}</span> };
+const typeCol = { id: "type", label: "Type", def: true, get: (r) => `${TYPE_ORDER[typeOf(r)]}${r.roster ? "r" : ""}`, csv: (r) => kindLabel(r), render: (r) => <TypeChip r={r} roster={false} /> };
 // To confirm: what each row needs (r10 fix: songs matched by their ISRC are confirmed here too)
 const confirmCol = { id: "confirm", label: "To confirm", def: true, get: (r) => r.match, csv: (r) => (r.match === "isrc" ? "matched by ISRC" : "Spotify profile"),
   render: (r) => <span className="arg-confirm" data-confirm-what={r.match}>{r.match === "isrc" ? "Matched by ISRC: right song?" : `Pick their Spotify${r.candidates?.length ? ` (${r.candidates.length} to choose from)` : ""}`}</span> };
 const momentumCol = { id: "momentum", label: "Momentum", num: true, def: true, get: (r) => r.momentum?.score ?? null, render: (r) => <Momentum m={r.momentum} /> };
 const genreCol = { id: "genre", label: "Genre", def: false, get: (r) => r.genre || null, render: (r) => r.genre || "" };
-const STAGE_LABEL = { reach: "To reach out", reached: "Reached out", talking: "Talking", offer: "Offer sent", signed: "Signed", passed: "Passed" };
-const stageCol = { id: "stage", label: "Outreach", def: false, get: (r) => r.stage || null, render: (r) => (r.stage ? <span className="arg-tag" data-tag="stage">{STAGE_LABEL[r.stage] || r.stage}</span> : "") };
 const KIND_ORDER = { artist: 0, song: 1, sound: 2 };
+const TYPE_ORDER = { artist: 0, producer: 1, song: 2, sound: 3 };
 const UNIT = { artist: "monthly listeners", song: "Spotify streams", sound: "TikTok videos" };
 const MAIN = { artist: "listeners", song: "streams", sound: "videos" };
 
@@ -114,27 +120,28 @@ export function columnsFor(view, { momentumReady = false } = {}) {
     lumWkCol("Luminate streams, week"), linksCol,
   ];
   if (view === "watch") return [
-    nameCol("Artist"), addedByCol, addedCol,
+    nameCol("Artist"), typeCol, addedByCol, addedCol,
     mcol("listeners", "listeners", "Listeners"), dcol("d1", "listeners", "day", "Δ day"), dcol("d7", "listeners", "week", "Δ week"),
     lumWkCol("Luminate streams, week"),
     mcol("tiktok", "tiktok", "TikTok"), dcol("tiktok7", "tiktok", "week", "TikTok Δ week", false),
     mcol("ig", "instagram", "IG"), dcol("ig7", "instagram", "week", "IG Δ week", false),
     mcol("youtube", "youtube", "YouTube"), mcol("spfollowers", "spfollowers", "Spotify followers", false),
-    lumAtdCol, genreCol, stageCol, ...mo, trackingCol, linksCol,
+    lumAtdCol, genreCol, ...mo, trackingCol, linksCol,
   ];
   if (view === "songs") return [
-    nameCol("Song"), addedByCol, addedCol,
+    nameCol("Song"), typeCol, addedByCol, addedCol,
     mcol("streams", "streams", "Streams"), dcol("d1", "streams", "day", "Δ day"), dcol("d7", "streams", "week", "Δ week"),
     lumWkCol("Luminate streams, week"), lumAtdCol,
     { id: "isrc", label: "ISRC", def: false, get: (r) => r.isrc || null, render: (r) => r.isrc || "" },
     trackingCol, linksCol,
   ];
   if (view === "sounds") return [
-    nameCol("Sound"), addedByCol, addedCol,
+    nameCol("Sound"), typeCol, addedByCol, addedCol,
     mcol("videos", "videos", "Videos"), dcol("d1", "videos", "day", "Δ day"), dcol("d7", "videos", "week", "Δ week"),
     trackingCol, linksCol,
   ];
-  // My A&R: compact, every type in one grid
+  // the Watchlist's All and My A&R: compact, every type in one grid (each row's main number: an artist's monthly
+  // listeners, a song's Spotify streams, a sound's videos)
   return [
     nameCol("Name"), typeCol,
     addedByCol, addedCol,
@@ -142,6 +149,7 @@ export function columnsFor(view, { momentumReady = false } = {}) {
       render: (r, a) => <span className="arg-main"><MetricCell c={r.m?.[MAIN[r.kind]]} label={COLS_LABEL[MAIN[r.kind]]} colAsOf={a[MAIN[r.kind]]} /><small>{UNIT[r.kind]}</small></span> },
     { id: "d1", label: "Δ day", num: true, def: true, delta: true, span: "day", get: (r, o) => (o?.reads ? r.m?.[MAIN[r.kind]]?.rd : r.m?.[MAIN[r.kind]]?.d1) ?? null, at: (r) => r.m?.[MAIN[r.kind]]?.at, render: (r, a, ctx, o) => <DeltaCell c={r.m?.[MAIN[r.kind]]} span={o?.reads ? "reads" : "day"} label={COLS_LABEL[MAIN[r.kind]]} /> },
     { id: "d7", label: "Δ week", num: true, def: true, get: (r) => r.m?.[MAIN[r.kind]]?.d7 ?? null, at: (r) => r.m?.[MAIN[r.kind]]?.at, render: (r) => <DeltaCell c={r.m?.[MAIN[r.kind]]} span="week" label={COLS_LABEL[MAIN[r.kind]]} /> },
+    ...(view === "all" ? [lumWkCol("Luminate streams, week")] : []),
     ...(momentumReady ? [{ ...momentumCol, render: (r) => (r.kind === "artist" ? <Momentum m={r.momentum} /> : "") }] : []),
     trackingCol, linksCol,
   ];
@@ -209,8 +217,8 @@ const KEY_NUMS = {
 function PhoneCard({ r, onOpen, open, flash, o = {} }) {
   const left = r.tracking.roster ? "Roster" : r.tracking.never ? "No end date" : r.tracking.state === "expired" ? "Expired · Renew" : `${r.tracking.daysLeft} days left`;
   return (
-    <button type="button" className={`arg-card m-tap${open ? " open" : ""}${flash ? " flash" : ""}`} onClick={() => onOpen(r)} data-row={r.key} data-card={r.key}>
-      <span className="arg-card-1"><Photo r={r} size={36} /><span className="arg-name-t"><b>{r.name}</b>{r.kind !== "artist" && r.artist && <em>{r.artist}</em>}</span><span className="arg-tag" data-tag={r.kind}>{kindLabel(r)}</span>{r.match === "name" && <span className="arg-tag" data-tag="confirm">Confirm ▸</span>}</span>
+    <button type="button" className={`arg-card m-tap${open ? " open" : ""}${flash ? " flash" : ""}`} onClick={() => onOpen(r)} data-row={r.key} data-card={r.key} data-type={typeOf(r)}>
+      <span className="arg-card-1"><Photo r={r} size={36} /><span className="arg-name-t"><b>{r.name}</b>{r.kind !== "artist" && r.artist && <em>{r.artist}</em>}</span><TypeChip r={r} roster={false} />{r.match === "name" && <span className="arg-tag" data-tag="confirm">Confirm ▸</span>}</span>
       <span className="arg-card-2">
         {KEY_NUMS[r.kind](r, o).map(([label, c, extra, d]) => (
           <span key={label} className="arg-kn" data-kn={label}>
@@ -220,7 +228,7 @@ function PhoneCard({ r, onOpen, open, flash, o = {} }) {
           </span>
         ))}
       </span>
-      <span className="arg-card-3">Added by {r.names.join(", ")} · {left}</span>
+      <span className="arg-card-3">{r.roster ? "Roster · " : ""}Added by {r.names.join(", ")} · {left}</span>
     </button>
   );
 }
@@ -236,7 +244,6 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
   const narrow = useNarrow();
   const [q, setQ] = useState("");
   const [person, setPerson] = useState("");
-  const [type, setType] = useState("");
   const [genre, setGenre] = useState("");
   const [sort, setSortS] = useState({ col: null, dir: "desc" });
   const [vis, setVisS] = useState(null);
@@ -250,7 +257,7 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
   const genres = [...new Set(rows.map((r) => r.genre).filter(Boolean))].sort();
   const needle = q.trim().toLowerCase();
   const shown = sortRows(rows.filter((r) => (!needle || [r.name, r.artist, ...Object.values(r.links || {})].some((x) => String(x || "").toLowerCase().includes(needle)))
-    && (!person || r.addedBy.some((w) => w.id === person)) && (!type || r.kind === type) && (!genre || r.genre === genre)), cols.find((c) => c.id === sort.col) || null, sort.dir, o);
+    && (!person || r.addedBy.some((w) => w.id === person)) && (!genre || r.genre === genre)), cols.find((c) => c.id === sort.col) || null, sort.dir, o);
   const newest = Object.values(asOf).filter((v) => /T/.test(String(v))).sort().pop();
   const exportCsv = () => {
     const blob = new Blob([toCsv(shown, visible.filter((c) => c.id !== "links"), o)], { type: "text/csv;charset=utf-8" });
@@ -279,7 +286,6 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
     <>
       <input className="arg-search" type="search" placeholder="Search name, artist or handle" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" data-grid-search />
       {filters.person && <select value={person} onChange={(e) => setPerson(e.target.value)} aria-label="Person" data-filter="person"><option value="">Everyone</option>{people.filter((p) => !p.all).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
-      {filters.type && <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Type" data-filter="type"><option value="">All types</option><option value="artist">Artists</option><option value="song">Songs</option><option value="sound">Sounds</option></select>}
       {genres.length > 0 && <select value={genre} onChange={(e) => setGenre(e.target.value)} aria-label="Genre" data-filter="genre"><option value="">All genres</option>{genres.map((g) => <option key={g}>{g}</option>)}</select>}
     </>
   );
@@ -319,7 +325,7 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
             </thead>
             <tbody ref={body}>
               {shown.map((r, i) => (
-                <tr key={r.key} data-row={r.key} tabIndex={0} className={[openKey === r.key && "open", flashKey === r.key && "flash"].filter(Boolean).join(" ")} onClick={() => onOpen(r)} onKeyDown={(e) => keyNav(e, i)}>
+                <tr key={r.key} data-row={r.key} data-type={typeOf(r)} tabIndex={0} className={[openKey === r.key && "open", flashKey === r.key && "flash"].filter(Boolean).join(" ")} onClick={() => onOpen(r)} onKeyDown={(e) => keyNav(e, i)}>
                   {visible.map((c) => <td key={c.id} className={[c.num && "num", c.sticky && "stick"].filter(Boolean).join(" ")} data-col={c.id}>{c.render(r, asOf, ctx, o)}</td>)}
                 </tr>
               ))}

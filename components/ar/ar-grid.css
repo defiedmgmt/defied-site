@@ -1,7 +1,7 @@
 /* A&R lists (r10): the grid (components/ar/ArGrid.jsx), A&R Home, the drawer and the paste bar. Flat and
    spreadsheet-like, on the dashboard's tokens (--d-*), so it follows the light/dark theme. Phones (<700px): cards,
    a full-screen drawer, 44px taps, no sideways page scroll. Imported once in pages/_app.jsx. */
-.ar-list, .arh { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ar-list { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .ar-paste { display: flex; flex-direction: column; gap: 6px; max-width: 760px; min-width: 0; }
 .ar-toast { margin: 0; font-size: 13px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--d-line-2, #2a2a2c); }
 .ar-toast.ok { color: var(--d-pos, #7ad19a); border-color: var(--d-pos-line, rgba(122,209,154,.3)); background: var(--d-pos-bg, rgba(122,209,154,.06)); }
@@ -101,36 +101,6 @@
 .arg-sheet-f input, .arg-sheet-f select, .arg-sheet select { width: 100%; min-height: 44px; }
 
 /* ---------------------------------------------------------------- A&R Home */
-.arh-fresh { margin: 0; font-size: 12px; color: var(--d-ink-4, #777); display: flex; flex-wrap: wrap; gap: 4px 0; }
-.arh-fresh span + span::before { content: "·"; margin: 0 6px; }
-.arh-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
-.arh-tile { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--d-line-2, #2a2a2c); background: var(--d-s1, #0b0b0c); min-width: 0; }
-button.arh-tile { cursor: pointer; }
-button.arh-tile:hover { border-color: var(--d-line-3, #444); }
-.arh-tile small { font-size: 11.5px; color: var(--d-ink-4, #777); }
-.arh-tile b { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.arh-tile em { font-style: normal; font-size: 11.5px; color: var(--d-ink-4, #777); }
-.arh-tile.warn b { color: var(--d-warn, #e0b48f); }
-.arh-sec { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.arh-sec h3 { margin: 0; font-size: 14px; font-weight: 600; }
-.arh-mv h4 { margin: 0 0 4px; font-size: 12px; font-weight: 500; color: var(--d-ink-3, #a3a3a3); }
-.arh-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; min-width: 0; }
-.arh-mv { min-width: 0; overflow-x: auto; border: 1px solid var(--d-line-2, #2a2a2c); border-radius: 12px; padding: 8px 10px; }
-.arh-t { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.arh-t th { text-align: left; font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; color: var(--d-ink-4, #777); padding: 4px 6px; border-bottom: 1px solid var(--d-line-2, #2a2a2c); white-space: nowrap; }
-.arh-t td { padding: 5px 6px; border-bottom: 1px solid var(--d-line, #1c1c1e); white-space: nowrap; }
-.arh-t tr:last-child td { border-bottom: 0; }
-.arh-t td.wrap { white-space: normal; min-width: 96px; line-height: 1.25; }
-.arh-t .num { text-align: right; }
-.arh-t tbody tr[data-mover], .arh-t tbody tr[data-week-mover] { cursor: pointer; }
-.arh-t tbody tr:hover td { background: var(--d-s2, #161618); }
-.arh-t tr.lum td:not(:first-child) { font-style: italic; }
-.arh-sub { color: var(--d-ink-4, #777); font-size: 11.5px; }
-.arh-spark { display: block; }
-.arh-spark path { fill: none; stroke: var(--d-ink-3, #a3a3a3); stroke-width: 1.4; }
-.arh-spark circle { fill: var(--d-ink-3, #a3a3a3); }
-.arh-empty { margin: 0; padding: 12px 14px; border: 1px dashed var(--d-line-2, #2a2a2c); border-radius: 12px; font-size: 13px; color: var(--d-ink-3, #a3a3a3); }
-.arh-tabs { margin-bottom: 0 !important; padding-bottom: 8px !important; flex-wrap: nowrap !important; overflow-x: auto; }
 .arh-chips { white-space: normal !important; }
 .arh-chip { all: unset; display: inline-flex; align-items: center; height: 24px; padding: 0 9px; margin: 2px 4px 2px 0; border-radius: 100px; border: 1px solid var(--d-line-2, #2a2a2c); font-size: 12px; cursor: pointer; }
 .arh-chip:hover { border-color: var(--d-line-3, #444); }
@@ -179,10 +149,7 @@ button.arh-tile:hover { border-color: var(--d-line-3, #444); }
 .ard-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; min-height: 44px; }
 .ard-sec textarea { width: 100%; min-height: 72px; }
 
-@media (max-width: 1100px) { .arh-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 699px) {
-  .arh-two { grid-template-columns: minmax(0, 1fr); }
-  .arh-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ard { width: 100%; border-left: 0; }
   .ard-bg { background: var(--d-s1, #0b0b0c); }
   .arg-tools .btn, .ar-tabs button, .ar-people button { min-height: 44px; }
@@ -194,16 +161,11 @@ button.arh-tile:hover { border-color: var(--d-line-3, #444); }
 
 /* r10 prove: A&R Home's day table (7 columns) gets the full width, one table under the other; the drawer's
    numbers never break inside a number (As of and the source share one column) */
-.arh-stack { grid-template-columns: minmax(0, 1fr); }
 .ard-nums td.num, .ard-nums td.num * { white-space: nowrap; }
 .ard-asof { white-space: nowrap; }
 .ard-asof small { display: block; font-size: 11px; color: var(--d-ink-4, #777); white-space: normal; }
 @media (max-width: 639px) {
   /* phones: the trend tables are cards (m-cards); a card's title carries its type and number on a second line */
-  .arh-t.m-cards > tbody > tr > td:first-child { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .arh-t.m-cards > tbody > tr > td.m-desk { display: none !important; }
-  .arh-t.m-cards .arh-sub.wrap { text-align: right; }
-  .arh-mv.m-cards-wrap { padding: 0 !important; }
   .ard-nums.m-cards > tbody > tr > td.ard-asof { white-space: normal; }
   .ard-nums.m-cards .ard-asof small { display: inline; margin-left: 0; }
   .ard-nums.m-cards .ard-asof small::before { content: " · "; }
@@ -231,6 +193,111 @@ button.arh-tile:hover { border-color: var(--d-line-3, #444); }
 .ard textarea[data-notes]:focus { outline: none; border-color: var(--d-ink-3, #a3a3a3); }
 .ard-nums th { white-space: nowrap; }
 .ard-confirm-isrc { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.arh-wgroup { margin-top: 14px; }
-.arh-wg-h { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
-.arh-wg-h small, [data-day-title] small { font-weight: 400; margin-left: 6px; }
+
+
+/* ---- r11 (A&R UI): colour-coded types, A&R's one-row head, A&R Home on one screen ---- */
+/* the Watchlist's four types (the merge makes these one set with To do's --area-*) */
+:root { --type-artist: #60a5fa; --type-producer: #a78bfa; --type-song: #34d399; --type-sound: #22d3ee; }
+[data-type="artist"] { --tc: var(--type-artist); }
+[data-type="producer"] { --tc: var(--type-producer); }
+[data-type="song"] { --tc: var(--type-song); }
+[data-type="sound"] { --tc: var(--type-sound); }
+.ar-type { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px 0 7px; border-radius: 100px; flex: none; white-space: nowrap;
+  font-size: 11.5px; font-weight: 500; color: var(--tc); background: color-mix(in srgb, var(--tc) 12%, transparent); border: 1px solid color-mix(in srgb, var(--tc) 34%, transparent); }
+.ar-type i, .ar-types button i, .arh-chip i, .ard-role-pick i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--tc); flex: none; }
+/* the 3px bar on each row's left edge (the sticky Name cell carries it, so it stays while the grid scrolls) */
+.arg-table tr[data-type] > td:first-child { box-shadow: inset 3px 0 0 var(--tc); }
+.arg-card[data-type] { box-shadow: inset 3px 0 0 var(--tc); padding-left: 14px; }
+/* the type filter row, above the person chips */
+.ar-types { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+.ar-types button { flex: none; display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 0 14px; border-radius: 100px; border: 1px solid var(--d-line-2, #2a2a2c); background: none;
+  color: var(--d-ink-3, #a3a3a3); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.ar-types button b { font-weight: 500; color: var(--d-ink-4, #777); font-variant-numeric: tabular-nums; }
+.ar-types button.on { color: var(--d-ink, #fff); border-color: var(--tc, var(--d-line-3, #444)); background: color-mix(in srgb, var(--tc, #fff) 10%, var(--d-s2, #161618)); }
+.ar-types button.warn { color: var(--d-warn, #e0b48f); border-color: var(--d-warn-line, rgba(224,180,143,.3)); }
+.ar-types button.warn.on { background: var(--d-warn-bg, rgba(224,180,143,.1)); }
+/* the drawer's Artist / Producer switch */
+.ard-role { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ard-role-l { font-size: 12.5px; color: var(--d-ink-4, #777); }
+.ard-role-pick { display: inline-flex; gap: 6px; }
+.ard-role-pick .btn { display: inline-flex; align-items: center; gap: 7px; }
+.ard-role-pick .btn.on { color: var(--tc); border-color: color-mix(in srgb, var(--tc) 50%, transparent); background: color-mix(in srgb, var(--tc) 12%, transparent); }
+.ard-role-h { margin: 0; font-size: 12px; }
+.ard-sub { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+
+/* A&R's head: "A&R", the three tabs, and on Home "Updated … ⓘ" and "N to confirm ›" on the right */
+.app:not(.pub) .ar .ar-top { flex-wrap: nowrap; justify-content: flex-start; gap: 12px 20px; margin-bottom: 16px; }
+.app:not(.pub) .ar .ar-top h2 { flex: none; }
+.app:not(.pub) .ar .ar-top .ar-pills { margin: 0; flex: 0 1 auto; min-width: 0; }
+.ar-top-r { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; flex: none; }
+.ar-fresh { position: relative; display: inline-flex; align-items: center; gap: 10px; }
+.ar-fresh-btn { all: unset; display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--d-ink-4, #777); cursor: pointer; white-space: nowrap; }
+.ar-fresh-btn:hover, .ar-fresh-btn[aria-expanded="true"] { color: var(--d-ink-2, #d4d4d4); }
+.ar-fresh-btn:focus-visible { outline: 1px solid #f5f5f5; outline-offset: 3px; border-radius: 4px; }
+.ar-fresh-pop { position: absolute; top: calc(100% + 8px); right: 0; z-index: 30; display: flex; flex-direction: column; gap: 6px; width: max-content; max-width: min(340px, calc(100vw - 32px));
+  padding: 12px 14px; border-radius: 12px; border: 1px solid var(--d-line-2, #2a2a2c); background: var(--d-s2, #161618); box-shadow: 0 12px 32px rgba(0,0,0,.45); font-size: 12.5px; }
+.ar-fresh-li { display: flex; justify-content: space-between; gap: 16px; color: var(--d-ink-4, #777); }
+.ar-fresh-li b { font-weight: 500; color: var(--d-ink-2, #d4d4d4); text-align: right; }
+.ar-confirm-pill { all: unset; display: inline-flex; align-items: center; height: 26px; padding: 0 11px; border-radius: 100px; font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer;
+  color: var(--d-warn, #f59e0b); background: var(--d-warn-bg, rgba(245,158,11,.1)); border: 1px solid var(--d-warn-line, rgba(245,158,11,.32)); }
+.ar-confirm-pill:hover { background: rgba(245,158,11,.16); }
+.ar-confirm-pill:focus-visible { outline: 1px solid #f5f5f5; outline-offset: 2px; }
+
+/* A&R Home: two columns of cards sized to what's in them (no empty band at a card's foot) */
+.arh { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 280px); gap: 16px; align-items: start; min-width: 0; }
+.arh-main, .arh-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.app:not(.pub) .arh .arh-card { align-self: stretch; min-width: 0; }
+.app:not(.pub) .arh .attn-head { min-height: 46px; padding-top: 5px; padding-bottom: 5px; }
+.arh .attn-head svg { color: var(--d-pos); flex: none; }
+.arh [data-adds] .attn-head svg, .arh [data-expiring] .attn-head svg { color: var(--d-ink-3, #a3a3a3); }
+.app:not(.pub) .arh .gainer-sub { margin: 0; padding: 7px 16px 0; font-size: 12.5px; color: var(--d-ink-4, #777); }
+.app:not(.pub) .arh .arh-wtabs { flex-wrap: nowrap; min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.arh-halves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.arh-half { min-width: 0; display: flex; flex-direction: column; }
+.arh-half + .arh-half { border-left: 1px solid var(--d-line, #1c1c1e); }
+.arh-half-h { margin: 0; padding: 7px 14px 3px 12px; font: 600 11px/1.2 var(--d-body, inherit); text-transform: uppercase; letter-spacing: .06em; color: var(--d-ink-4, #777); }
+.app:not(.pub) .arh .gainer { padding: 5px 12px 5px 10px; gap: 9px; }
+.app:not(.pub) .arh .gainer .lm-cover { width: 36px; height: 36px; }
+.app:not(.pub) .arh .gainer .gainer-num { gap: 1px; }
+.app:not(.pub) .arh .gainer .lm-song-main { gap: 1px; }
+.app:not(.pub) .arh .gainer .lm-song-main strong { line-height: 1.25; }
+.app:not(.pub) .arh .gainer .lm-song-main span { font-size: 12px; line-height: 1.25; }
+.app:not(.pub) .arh .gainer .gainer-num em { font-size: 11px; line-height: 1.2; }
+.app:not(.pub) .arh .gainer .wow-pill { height: 22px; font-size: 12.5px; }
+.app:not(.pub) .arh .gainer:last-child { border-bottom: 0; }
+.arh-none { margin: 0; padding: 8px 14px 12px 12px; font-size: 13px; color: var(--d-ink-4, #777); }
+.app:not(.pub) .arh [data-adds] .attn-head, .app:not(.pub) .arh [data-expiring] .attn-head { flex-wrap: nowrap; white-space: nowrap; }
+.arh-head-n { margin-left: auto; font-weight: 400; font-size: 12.5px; color: var(--d-ink-4, #777); }
+.arh-adds { display: flex; flex-direction: column; }
+.arh-add { display: flex; flex-direction: column; gap: 6px; padding: 10px 16px; border-bottom: 1px solid var(--d-line, #1c1c1e); }
+.arh-add-who { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; }
+.arh-add-who b { font-weight: 500; }
+.arh-add-n { font-variant-numeric: tabular-nums; color: var(--d-ink-4, #777); }
+.arh-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.arh-chip { gap: 6px; margin: 0; height: 26px; }
+.arh-week { padding: 10px 16px 12px; display: flex; flex-direction: column; gap: 4px; }
+.arh-week-h { font: 600 11px/1.2 var(--d-body, inherit); text-transform: uppercase; letter-spacing: .06em; color: var(--d-ink-4, #777); }
+.arh-chart svg { height: 78px; max-width: none; }
+.arh-legend { font-size: 11.5px; }
+.arh-exp { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--d-line, #1c1c1e); font-size: 13px; }
+.arh-exp:last-child { border-bottom: 0; }
+.arh-exp-name { font-weight: 500; }
+.arh-exp-when { flex: 1; min-width: 0; color: var(--d-ink-4, #777); font-size: 12.5px; }
+.app:not(.pub) .arh .gainers-empty { padding: 12px 16px; }
+@media (max-width: 1180px) { .arh { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .arh-halves { grid-template-columns: minmax(0, 1fr); } .arh-half + .arh-half { border-left: 0; border-top: 1px solid var(--d-line, #1c1c1e); } }
+@media (max-width: 699px) {
+  .app:not(.pub) .ar .ar-top { flex-wrap: wrap; }
+  .app:not(.pub) .ar .ar-top h2 { flex: 1 1 auto; }
+  .app:not(.pub) .ar .ar-top .ar-pills { order: 3; flex: 1 1 100%; }
+  .app:not(.pub) .arh .gainer .lm-song-main span { white-space: normal; }
+  .ar-types button, .ar-confirm-pill, .ard-role-pick .btn { min-height: 44px; }
+  .ar-fresh-btn { min-height: 44px; }
+  .app:not(.pub) .arh .gainer { min-height: 52px; }
+  .arh-chip { height: 36px; }
+  .app:not(.pub) .arh .arh-wtabs { width: 100%; }
+  .app:not(.pub) .arh .arh-wtabs button { min-height: 40px; flex: none; }
+}
+@media (max-width: 639px) {
+  .arh-wtabs[data-m-scroll], .ar-types[data-m-scroll] { -webkit-mask: linear-gradient(90deg, #000 88%, transparent); mask: linear-gradient(90deg, #000 88%, transparent); padding-right: 24px; }
+}
