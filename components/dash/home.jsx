@@ -144,7 +144,8 @@ function HomeWeekPanel({ at, onClose, children }) {
   const below = vh - at.bottom - 16, above = at.top - 16;
   // r10 (H12): under the day (over Recent payments) whenever three rows fit there, so it never covers the
   // calendar's own head or the cards above it
-  const pos = below >= 200 || below >= above ? { top: at.bottom + 6, maxHeight: below - 6 } : { bottom: vh - at.top + 6, maxHeight: above - 6 };
+  // (r10 fix: with two payments under the calendar there's less room below; two rows' worth (120px) is enough, it scrolls)
+  const pos = below >= 120 || below >= above ? { top: at.bottom + 6, maxHeight: below - 6 } : { bottom: vh - at.top + 6, maxHeight: above - 6 };
   return <div ref={box} className="hw-panel attn todo" role="dialog" aria-label="This day" style={{ left, width: w, ...pos }}>{children}</div>;
 }
 
