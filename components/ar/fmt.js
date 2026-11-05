@@ -23,7 +23,12 @@ const hourText = (t) => new Date(t).toLocaleString("en-US", { timeZone: NY, hour
 export const spanText = (from, to) => (!from || !to ? "" : nyDayOf(from) === nyDayOf(to) ? `${dayText(from)}, ${hourText(from)} → ${hourText(to)}` : `${dayText(from)} → ${dayText(to)}`);
 export const nyDayOf = (t) => (t ? new Intl.DateTimeFormat("en-CA", { timeZone: NY, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(t)) : "");
 export const KIND_LABEL = { artist: "Artist", song: "Song", sound: "Sound" };
-export const kindLabel = (r) => (r.kind === "artist" && r.roster ? "Artist · Roster" : KIND_LABEL[r.kind] || r.kind);
+// r11 (A2): the four colour-coded types (ar-grid.css --type-*). An artist nobody has typed yet is an Artist.
+export const TYPES = ["artist", "producer", "song", "sound"];
+export const TYPE_LABEL = { artist: "Artist", producer: "Producer", song: "Song", sound: "TikTok sound" };
+export const TYPE_PLURAL = { artist: "Artists", producer: "Producers", song: "Songs", sound: "TikTok sounds" };
+export const typeOf = (r) => (TYPES.includes(r?.type) ? r.type : r?.kind === "artist" || !r?.kind ? "artist" : r.kind);
+export const kindLabel = (r) => `${TYPE_LABEL[typeOf(r)] || r.kind}${r.roster ? " · Roster" : ""}`;
 // how long it's tracked: "30d · 12 left" / "Expired · Renew" / "No end date" / "Roster"
 export function trackingText(t, entry) {
   const e = entry || t;

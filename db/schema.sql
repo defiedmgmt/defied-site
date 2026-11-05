@@ -857,3 +857,9 @@ FROM data_entities e LEFT JOIN radar_sounds s ON s.clip_id = substr(e.id, 3)
 WHERE e.kind = 'sound' AND e.active AND e.origins @> '["manual"]'::jsonb
   AND NOT EXISTS (SELECT 1 FROM ar_tracker t WHERE t.subject = e.id)
 ON CONFLICT (id) DO NOTHING;
+
+-- r11 (A&R UI, A2): a Watchlist artist's type for its colour chip. NULL = nobody has said yet (the row shows
+-- "Artist": it is a Spotify artist profile), 'artist' or 'producer' once someone taps the drawer's switch or picks it
+-- in the paste box. A roster row takes clients.role instead. Additive and idempotent: one nullable column, no
+-- default, no backfill (the old A&R rows carry no producer flag: checked on the real preview data, 2026-11-05).
+ALTER TABLE ar_tracked ADD COLUMN IF NOT EXISTS role text;

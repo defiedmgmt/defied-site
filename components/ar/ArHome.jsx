@@ -1,13 +1,17 @@
-// A&R Home (r10, /dashboard/ar): the trends, flat and spreadsheet-like. GET /api/ar-lists?view=home.
-//   a freshness line (each source's newest reading, New York time)
-//   4 tiles: on the lists · added this week · expiring in 7 days · Spotify match to confirm (hidden at 0)
-//   day-over-day movers (up most / down most, 5 each): two readings on consecutive UTC days, size floors
-//   week-on-week movers per metric; Streams falls back to each row's last real Luminate week (labelled, italic)
-//   new adds this week by who · about to expire (Renew) · adds per week (stacked bars, inline SVG)
-//   "How momentum is scored" (the weights; Founders can edit)
-// Every number carries its source and dates in its sub-line or tooltip. Empty states say what's missing.
-import React, { useEffect, useState } from "react";
-import { n0, signed, pctSigned, dirOf, dayText, atText, KIND_LABEL, post, spanText } from "./fmt";
+// A&R Home (r11, /dashboard/ar): ONE screen, like the Dashboard. GET /api/ar-lists?view=home.
+//   left   Week on week (its metric switch in the card's head; Up | Down inside), Day over day (Rising | Falling),
+//          each row drawn like the Dashboard's "This week" card (components/dash/gainers.jsx markup and classes):
+//          rank, photo or cover, name, grey sub-line ("Spotify followers · 5,197 → 5,806"), the % pill and "+609 followers"
+//   right  New adds this week (each person, their count and chips of what they added, the adds-per-week bars) and
+//          About to expire (one line when nothing does)
+//   The freshness ("Updated Nov 5, 7:03 AM ⓘ") and "N to confirm ›" sit in A&R's head (ArFresh, below).
+// Until Spotify has readings 7 days apart, Streams' week on week is each row's last real Luminate week, its weeks
+// named in the card's grey line (or on each row when rows' weeks differ). Every number is the server's, unchanged.
+import React, { useEffect, useRef, useState } from "react";
+import { TrendingUp, CalendarRange, UserPlus, Clock, Info, Disc3 } from "lucide-react";
+import { WowPill } from "../dash/chips";
+import { thumb } from "../shared/ui";
+import { n0, signed, dayText, atText, post, spanText, typeOf, TYPE_LABEL } from "./fmt";
 
 const SPARK_COLORS = ["var(--d-chart-1, #7aa2f7)", "var(--d-chart-2, #9ece6a)", "var(--d-chart-3, #e0af68)", "var(--d-chart-4, #bb9af7)", "var(--d-chart-5, #7dcfff)", "var(--d-chart-6, #f7768e)"];
 
@@ -27,74 +31,12 @@ function Weights({ w, canEdit, onSaved }) {
   );
 }
 
-// 14 days of the row's main number: a tiny line (or one dot while there's one reading)
-function Spark({ points }) {
-  if (!points?.length) return null;
-  const w = 64, h = 18, vs = points.map((p) => p[1]), lo = Math.min(...vs), hi = Math.max(...vs), span = hi - lo || 1;
-  const x = (i) => (points.length === 1 ? w / 2 : (i * (w - 4)) / (points.length - 1) + 2), y = (v) => h - 3 - ((v - lo) / span) * (h - 6);
-  return <svg className="arh-spark" viewBox={`0 0 ${w} ${h}`} width={w} height={h} aria-hidden="true">{points.length > 1 ? <path d={points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p[1]).toFixed(1)}`).join(" ")} /> : <circle cx={x(0)} cy={h / 2} r="2" />}</svg>;
-}
-// r10 fix: "Yesterday → Today" only when the readings are on different New York days; two readings on one day are
-// headed with their times. The 14-day line shows once a row has 3 or more days.
-function MoversTable({ title, list, onOpen, kind, mode = "day", span = null }) {
-  const head = mode === "day" ? "Yesterday → Today" : spanText(span?.from, span?.to) || "Last two readings";
-  const spark = list.some((x) => x.spark?.length >= 3);
-  if (!list.length) return <div className="arh-mv" data-movers={kind}><h4>{title}</h4><p className="arh-sub" data-movers-none>{kind === "up" ? "Nothing rose" : "Nothing fell"} past the size floors (1,000 streams or listeners, 100 followers, 50 sound videos) between the last two {mode === "day" ? "days" : "readings"}.</p></div>;
-  return (
-    <div className="arh-mv m-cards-wrap" data-movers={kind}>
-      <h4>{title}</h4>
-      <table className="arh-t m-cards">
-        <thead><tr><th>Name</th><th>Type</th><th>Number</th><th className="num" data-movers-head>{head}</th><th className="num">Δ</th><th className="num">%</th>{spark && <th>14 days</th>}</tr></thead>
-        <tbody>
-          {list.map((x) => (
-            <tr key={`${x.key}|${x.metric}`} onClick={() => onOpen(x.key)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen(x.key)} data-mover={x.key}>
-              <td><b>{x.name}</b><span className="arh-sub m-phone">{KIND_LABEL[x.kind]} · {x.label}</span></td>
-              <td className="m-desk">{KIND_LABEL[x.kind]}</td>
-              <td className="wrap m-desk"><span className="arh-sub">{x.label}</span></td>
-              <td className="num" data-label={head} title={`${x.label} · ${n0(x.from)} at ${atText(x.fromAt)} → ${n0(x.to)} at ${atText(x.toAt)} · ${x.src}`}>{n0(x.from)} → {n0(x.to)}</td>
-              <td className="num" data-label="Δ" data-dir={dirOf(x.d)}>{signed(x.d)}</td>
-              <td className="num" data-label="%" data-dir={dirOf(x.pct)}>{pctSigned(x.pct)}</td>
-              {spark && <td className="m-desk"><Spark points={x.spark} /></td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-// r10 fix: one Luminate week pair per group, named once in the group's heading; its columns are the weeks
-// themselves ("Oct 16–22"), never "This week" for an old week
-function WeekTable({ title, list, onOpen, kind, group = null }) {
-  if (!list.length) return <div className="arh-mv" data-week-movers={kind}><h4>{title}</h4><p className="arh-sub">{kind === "up" ? "Nothing rose" : "Nothing fell"} week on week.</p></div>;
-  const a = group ? group.thisLabel : "This week", b = group ? group.lastLabel : "Last week";
-  return (
-    <div className="arh-mv m-cards-wrap" data-week-movers={kind}>
-      <h4>{title}</h4>
-      <table className="arh-t m-cards">
-        <thead><tr><th>Name</th><th className="num">{a}</th><th className="num">{b}</th><th className="num">Δ</th><th className="num">%</th>{!group && <th>Source · dates</th>}</tr></thead>
-        <tbody>
-          {list.map((x) => (
-            <tr key={x.key} onClick={() => onOpen(x.key)} tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onOpen(x.key)} data-week-mover={x.key} className={x.lum ? "lum" : ""}>
-              <td><b>{x.name}</b></td>
-              <td className="num" data-label={a}>{n0(x.thisWeek)}</td>
-              <td className="num" data-label={b}>{n0(x.lastWeek)}</td>
-              <td className="num m-desk" data-dir={dirOf(x.d)}>{signed(x.d)}</td>
-              <td className="num" data-label="%" data-dir={dirOf(x.pct)}>{pctSigned(x.pct)}</td>
-              {!group && <td className="arh-sub wrap" data-label="Source">{`${x.src} · ${dayText(x.from)} → ${dayText(x.to)}`}</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 // adds per week: stacked bars, one colour per person, inline SVG
 function AddsChart({ data }) {
   const { weeks = [], people = [] } = data || {};
   const tot = weeks.map((w) => Object.values(w.by).reduce((a, n) => a + n, 0));
   const max = Math.max(1, ...tot);
-  const W = 320, H = 120, bw = (W - 20) / Math.max(1, weeks.length) - 6;
+  const W = 320, H = 78, bw = (W - 20) / Math.max(1, weeks.length) - 6; // r11: small, under the adds
   return (
     <div className="arh-chart" data-adds-chart>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Adds per week">
@@ -105,7 +47,7 @@ function AddsChart({ data }) {
             <g key={w.week}>
               {people.map((p, j) => {
                 const n = w.by[p.id] || 0; if (!n) return null;
-                const h = (n / max) * (H - 30); y -= h;
+                const h = (n / max) * (H - 28); y -= h;
                 return <rect key={p.id} x={x} y={y} width={bw} height={h} fill={SPARK_COLORS[j % SPARK_COLORS.length]}><title>{`${p.name}: ${n} in the week of ${w.label}`}</title></rect>;
               })}
               {tot[i] > 0 && <text x={x + bw / 2} y={y - 3} textAnchor="middle" className="ard-tick" data-bar-n={tot[i]}>{tot[i]}</text>}
@@ -119,113 +61,193 @@ function AddsChart({ data }) {
   );
 }
 
-export function ArHome({ data, err, retry, onOpen, onView, founder, reload }) {
+// what the number under a pill counts ("+609 followers")
+const UNIT = { listeners: "listeners", streams: "streams", spfollowers: "followers", tiktok: "followers", instagram: "followers", youtube: "subscribers", videos: "videos" };
+// a row's grey line names its number short (the unit under the pill says the rest: "+609 followers")
+const ROW_LABEL = { listeners: "Spotify listeners", streams: "Spotify streams", spfollowers: "Spotify followers", tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", videos: "Sound videos" };
+// the week card's metric switch, short (the server's tabs, in its order)
+const SHORT_TAB = { streams: "Streams", listeners: "Listeners", tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", videos: "Sounds" };
+const N = 5;
+
+// one row, the "This week" card's look; it opens that row's drawer
+function MoverRow({ x, i, sub, onOpen, attr, title = null }) {
+  const t = typeOf(x);
+  const round = t === "artist" || t === "producer";
+  return (
+    <button type="button" className="gainer arh-row" data-type={t} {...attr} onClick={() => onOpen(x.key)}
+      title={title || `${x.name} · ${TYPE_LABEL[t]} · ${sub}${x.src ? ` · ${x.src}` : ""}`}>
+      <span className="gainer-n">{i + 1}</span>
+      <span className={`lm-cover${round ? " gainer-av" : ""}`}>
+        {x.image ? <img src={thumb(x.image, 96)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : round ? String(x.name || "?").slice(0, 1).toUpperCase() : <Disc3 size={16} />}
+      </span>
+      <span className="lm-song-main"><strong>{x.name}</strong><span>{sub}</span></span>
+      <span className="gainer-num" data-wow={x.pct >= 0 ? "up" : "down"}><WowPill pct={x.pct} /><em>{signed(x.d)} {UNIT[x.metric] || ""}</em></span>
+    </button>
+  );
+}
+function Half({ title, list, kind, empty, row }) {
+  return (
+    <div className="arh-half" data-half={kind}>
+      <h4 className="arh-half-h">{title}</h4>
+      {list.length ? list.map(row) : <p className="arh-none" data-none={kind}>{empty}</p>}
+    </div>
+  );
+}
+
+// Day over day: two readings on two New York days in a row (or, before a second day, the last two readings)
+function DayCard({ day, onOpen }) {
+  const reads = day.mode === "readings";
+  const span = spanText(day.span?.from, day.span?.to);
+  const row = (x, i) => <MoverRow key={`${x.key}|${x.metric}`} x={x} i={i} onOpen={onOpen} attr={{ "data-mover": x.key }} sub={`${ROW_LABEL[x.metric] || x.label} · ${n0(x.from)} → ${n0(x.to)}`} />;
+  const none = (dir) => `Nothing ${dir} past the size floors.`;
+  return (
+    <div className="gainers home-card arh-card" data-day-movers>
+      <div className="attn-head"><TrendingUp size={15} /> <span data-day-title>{reads ? "Last two readings" : "Day over day"}</span></div>
+      {day.up.length || day.down.length ? (
+        <>
+          <p className="gainer-sub" data-day-sub>{reads ? `${span} · day over day starts with a second day` : `${span} · New York days`}</p>
+          <div className="arh-halves">
+            <Half title="Rising" kind="up" list={day.up.slice(0, N)} empty={none("rose")} row={row} />
+            <Half title="Falling" kind="down" list={day.down.slice(0, N)} empty={none("fell")} row={row} />
+          </div>
+        </>
+      ) : <p className="gainers-empty" data-day-empty>Needs readings on two days in a row.</p>}
+    </div>
+  );
+}
+
+// Week on week, one metric at a time: readings 7 days apart first; Streams falls back to each row's last real
+// Luminate week until then. The groups (one per pair of weeks) are merged into one Up and one Down list.
+export function weekLists(wk, n = N) {
+  const by = (a, b) => Math.abs(b.pct) - Math.abs(a.pct) || Math.abs(b.d) - Math.abs(a.d);
+  const lum = (k) => (wk.groups || []).flatMap((g) => g[k]).sort(by);
+  const up = [...(wk.up || []), ...lum("up")].slice(0, n), down = [...(wk.down || []), ...lum("down")].slice(0, n);
+  const pairs = [...new Set([...up, ...down].filter((x) => x.lum).map((x) => x.weeks))];
+  return { up, down, pairs, live: [...up, ...down].some((x) => !x.lum) };
+}
+function WeekCard({ movers, onOpen }) {
+  const tabs = movers?.tabs || [];
   const [tab, setTab] = useState("streams");
-  const [how, setHow] = useState(false);
+  const wk = movers?.week?.[tab] || { up: [], down: [] };
+  const { up, down, pairs, live } = weekLists(wk);
+  // one pair of Luminate weeks: named once, in the grey line; more than one: on each row
+  const perRow = pairs.length > 1 || (pairs.length && live);
+  const grey = !up.length && !down.length ? ""
+    : pairs.length && !live ? `Luminate · ${perRow ? "each row's week vs the week before" : pairs[0]} · all platforms${movers?.weekFrom ? ` · Spotify from ${movers.weekFrom}` : ""}`
+    : `${SHORT_TAB[tab]} · readings 7 days apart${pairs.length ? " · Luminate weeks where there's no Spotify yet" : ""}`;
+  const row = (x, i) => (
+    <MoverRow key={`${x.key}|${x.metric}`} x={x} i={i} onOpen={onOpen} attr={{ "data-week-mover": x.key, ...(x.lum ? { "data-lum": x.weeks } : {}) }}
+      sub={x.lum ? `${perRow ? x.weeks.split(" vs ")[0] : "Luminate streams"} · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}` : `${ROW_LABEL[x.metric] || x.label} · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}`}
+      title={x.lum ? `${x.name} · Luminate streams, all platforms · ${x.weeks}: ${n0(x.lastWeek)} → ${n0(x.thisWeek)}` : null} />
+  );
+  return (
+    <div className="gainers home-card arh-card" data-week-section>
+      <div className="attn-head"><CalendarRange size={15} /> Week on week
+        <span className="gainer-tabs arh-wtabs" role="tablist" aria-label="Week on week">
+          {tabs.map(([id]) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} data-week-tab={id}>{SHORT_TAB[id] || id}</button>)}
+        </span>
+      </div>
+      {up.length || down.length ? (
+        <>
+          <p className="gainer-sub" data-week-sub>{grey}</p>
+          <div className="arh-halves">
+            <Half title="Up" kind="up" list={up} empty="Nothing rose week on week." row={row} />
+            <Half title="Down" kind="down" list={down} empty="Nothing fell week on week." row={row} />
+          </div>
+        </>
+      ) : <p className="gainers-empty" data-week-empty>Needs readings 7 days apart{movers?.weekFrom ? ` (from ${movers.weekFrom})` : ""}.</p>}
+    </div>
+  );
+}
+
+function AddsCard({ adds, addsByWeek, onOpen }) {
+  const total = adds.reduce((a, p) => a + p.n, 0);
+  return (
+    <div className="home-card arh-card" data-adds>
+      <div className="attn-head"><UserPlus size={15} /> New adds this week {total > 0 && <span className="arh-head-n" data-adds-total={total}>{total} since Monday</span>}</div>
+      {adds.length ? (
+        <div className="arh-adds">
+          {adds.map((p) => (
+            <div key={p.id} className="arh-add" data-adds-person={p.name}>
+              <span className="arh-add-who"><b>{p.name}</b><span className="arh-add-n">{p.n}</span></span>
+              <span className="arh-chips">{p.items.map((i) => <button key={i.key} type="button" className="arh-chip m-tap" data-type={typeOf(i)} onClick={() => onOpen(i.key)} data-add-chip={i.name} title={`${TYPE_LABEL[typeOf(i)]} · added ${atText(i.at)}`}><i />{i.name}</button>)}</span>
+            </div>
+          ))}
+        </div>
+      ) : <p className="gainers-empty">Nobody has added anything since Monday.</p>}
+      <div className="arh-week" data-adds-week><span className="arh-week-h">Adds per week</span><AddsChart data={addsByWeek} /></div>
+    </div>
+  );
+}
+function ExpiringCard({ list, onOpen, reload }) {
   const [busy, setBusy] = useState(false);
-  if (err) return <p className="hint err-text">{err} <button className="btn ghost sm" onClick={retry}>Try again</button></p>;
-  if (!data) return <p className="muted">Loading…</p>;
-  const f = data.fresh || {};
-  const fl = [["Spotify streams", f.streams, true], ["Monthly listeners", f.listeners], ["TikTok", f.tiktok], ["Instagram", f.instagram], ["YouTube", f.youtube]].filter(([, v]) => v);
-  const t = data.tiles || {};
-  const day = data.movers?.day || { up: [], down: [] };
-  const wk = data.movers?.week?.[tab] || { up: [], down: [] };
   const renew = async (x) => { setBusy(true); try { await post("/api/ar-trackers", { action: "renew", entryId: x.entryId }); await reload(); } catch { /* the row stays */ } setBusy(false); };
   return (
-    <div className="arh" data-ar-home>
-      <p className="arh-fresh" data-fresh>
-        {fl.map(([label, v, time]) => <span key={label}>{label} {time ? atText(v) : dayText(v)}</span>)}
-        {f.luminate && <span data-fresh-lum>Luminate weeks to {dayText(f.luminate)}{f.luminateAtd && f.luminateAtd > f.luminate ? ` · all-time to ${dayText(f.luminateAtd)}` : ""}</span>}
-        {!fl.length && <span>No readings yet</span>}
-        {!f.refresh && <span data-refresh-off>Automatic updates: off</span>}
-      </p>
-      <div className="arh-tiles">
-        <button type="button" className="arh-tile m-tap" onClick={() => onView("watch")} data-tile="lists"><small>On the lists</small><b>{t.artists} artists · {t.songs} songs · {t.sounds} sounds</b></button>
-        <button type="button" className="arh-tile m-tap" onClick={() => onView("watch")} data-tile="week"><small>Added this week</small><b>{t.addedThisWeek}</b><em>since Monday, New York</em></button>
-        <div className="arh-tile" data-tile="expiring"><small>Expiring in 7 days</small><b>{t.expiring}</b></div>
-        {t.toConfirm > 0 && <button type="button" className="arh-tile m-tap warn" onClick={() => onView("watch/confirm")} data-tile="confirm"><small>Matches to confirm</small><b>{t.toConfirm}</b><em>Spotify profiles and ISRC songs ▸</em></button>}
-      </div>
-
-      <section className="arh-sec" data-day-movers>
-        <h3 data-day-title>{day.mode === "readings" ? <>Last two readings <small className="arh-sub">{spanText(day.span?.from, day.span?.to)} · day over day starts with a second day</small></> : "Day over day"}</h3>
-        {day.up.length || day.down.length ? (
-          <div className="arh-two arh-stack">
-            <MoversTable title="Up most" list={day.up} onOpen={onOpen} kind="up" mode={day.mode} span={day.span} />
-            <MoversTable title="Down most" list={day.down} onOpen={onOpen} kind="down" mode={day.mode} span={day.span} />
-          </div>
-        ) : <p className="arh-empty" data-day-empty>Needs readings on two days in a row.{data.fresh?.refresh ? " The next real update is tomorrow." : " Automatic updates are off, so the next reading comes when they're turned on or a reading is loaded."}</p>}
-      </section>
-
-      <section className="arh-sec" data-week-section>
-        <h3>Week on week</h3>
-        <div className="subnav arh-tabs" role="tablist" data-m-scroll>
-          {(data.movers?.tabs || []).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "subpill active" : "subpill"} onClick={() => setTab(id)} data-week-tab={id}>{label}</button>)}
+    <div className="home-card arh-card" data-expiring>
+      <div className="attn-head"><Clock size={15} /> About to expire</div>
+      {list.length ? list.map((x) => (
+        <div key={x.entryId} className="arh-exp" data-expiring-row={x.name}>
+          <button type="button" className="inline-link arh-exp-name" onClick={() => onOpen(x.key)}>{x.name}</button>
+          <span className="arh-exp-when">{x.who} · {x.state === "expired" ? `expired · ${x.graceLeft} days to renew` : `${x.daysLeft} ${x.daysLeft === 1 ? "day" : "days"} left`}</span>
+          <button type="button" className="btn sm" disabled={busy} onClick={() => renew(x)} data-renew>Renew</button>
         </div>
-        {wk.up.length || wk.down.length ? (
-          <div className="arh-two">
-            <WeekTable title="Up most" list={wk.up} onOpen={onOpen} kind="up" />
-            <WeekTable title="Down most" list={wk.down} onOpen={onOpen} kind="down" />
-          </div>
-        ) : <p className="arh-empty" data-week-empty>{(wk.groups || []).length ? "Spotify week on week n" : "N"}eeds readings 7 days apart{data.movers?.weekFrom ? ` (from ${data.movers.weekFrom})` : ""}.{(wk.groups || []).length ? " Until then, Luminate's last weeks:" : ""}</p>}
-        {(wk.groups || []).map((g) => (
-          <div key={g.weeks} className="arh-wgroup" data-week-group={g.weeks}>
-            <h4 className="arh-wg-h">Luminate, {g.weeks} <small className="arh-sub">all platforms · {g.n} {g.n === 1 ? "row" : "rows"}</small></h4>
-            <div className="arh-two">
-              <WeekTable title="Up most" list={g.up} onOpen={onOpen} kind="up" group={g} />
-              <WeekTable title="Down most" list={g.down} onOpen={onOpen} kind="down" group={g} />
-            </div>
-          </div>
-        ))}
-      </section>
+      )) : <p className="gainers-empty" data-expiring-empty>Nothing ends in the next 7 days.</p>}
+    </div>
+  );
+}
 
-      <div className="arh-two">
-        <section className="arh-sec" data-adds>
-          <h3>New adds this week, by who</h3>
-          {data.adds?.length ? (
-            <div className="m-cards-wrap"><table className="arh-t m-cards">
-              <thead><tr><th>Person</th><th className="num">Adds</th><th>What they added</th><th>Last add</th></tr></thead>
-              <tbody>
-                {data.adds.map((p) => (
-                  <tr key={p.id} data-adds-person={p.name}>
-                    <td><b>{p.name}</b></td><td className="num" data-label="Adds">{p.n}</td>
-                    <td className="arh-chips" data-label="Added">{p.items.map((i) => <button key={i.key} type="button" className="arh-chip" onClick={() => onOpen(i.key)} data-add-chip={i.name} title={`${KIND_LABEL[i.kind]} · added ${atText(i.at)}`}>{i.name}</button>)}</td>
-                    <td data-label="Last add">{dayText(p.last)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table></div>
-          ) : <p className="arh-empty">Nobody has added anything since Monday.</p>}
-        </section>
-        <section className="arh-sec" data-expiring>
-          <h3>About to expire</h3>
-          {data.expiring?.length ? (
-            <div className="m-cards-wrap"><table className="arh-t m-cards">
-              <thead><tr><th>Name</th><th>Added by</th><th>Ends</th><th>Left</th><th /></tr></thead>
-              <tbody>
-                {data.expiring.map((x) => (
-                  <tr key={x.entryId} data-expiring-row={x.name}>
-                    <td><button type="button" className="inline-link" onClick={() => onOpen(x.key)}>{x.name}</button></td><td data-label="Added by">{x.who}</td><td data-label="Ends">{dayText(x.endsAt)}</td>
-                    <td data-label="Left">{x.state === "expired" ? `Expired · ${x.graceLeft} days to renew` : `${x.daysLeft} days`}</td>
-                    <td><button type="button" className="btn sm" disabled={busy} onClick={() => renew(x)} data-renew>Renew</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table></div>
-          ) : <p className="arh-empty" data-expiring-empty>Nothing ends in the next 7 days.</p>}
-        </section>
-      </div>
-
-      <section className="arh-sec" data-adds-week>
-        <h3>Adds per week</h3>
-        <AddsChart data={data.addsByWeek} />
-      </section>
-      {/* r10 fix (#8): momentum waits for a week of readings, so its weights wait too */}
-      {data.momentumReady && (
-        <p className="arh-how">
-          <button type="button" className="inline-link m-tap" onClick={() => setHow(!how)} aria-expanded={how} data-how>How momentum is scored</button>
-        </p>
+// A&R's head, on Home: "Updated Nov 5, 7:03 AM ⓘ" (the ⓘ lists each source's time, Luminate's weeks and whether
+// automatic updates are on) and, when something waits, "3 to confirm ›" (Watchlist › To confirm)
+export function ArFresh({ data, onConfirm }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const out = (e) => { if (!box.current?.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", out); document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", out); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  if (!data) return null;
+  const f = data.fresh || {};
+  const fl = [["Spotify streams", f.streams, true], ["Monthly listeners", f.listeners], ["TikTok", f.tiktok], ["Instagram", f.instagram], ["YouTube", f.youtube]].filter(([, v]) => v);
+  const newest = fl.map(([, v]) => v).sort().pop();
+  const n = data.tiles?.toConfirm || 0;
+  return (
+    <span className="ar-fresh" ref={box}>
+      <button type="button" className="ar-fresh-btn m-tap" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(!open)} data-fresh>
+        {newest ? `Updated ${atText(newest)}` : "No readings yet"} <Info size={13} aria-label="Where the numbers come from" />
+      </button>
+      {open && (
+        <span className="ar-fresh-pop" role="dialog" aria-label="Where the numbers come from" data-fresh-pop>
+          {fl.map(([label, v, time]) => <span key={label} className="ar-fresh-li"><span>{label}</span><b>{time ? atText(v) : dayText(v)}</b></span>)}
+          {f.luminate && <span className="ar-fresh-li" data-fresh-lum><span>Luminate weeks</span><b>to {dayText(f.luminate)}{f.luminateAtd && f.luminateAtd > f.luminate ? ` · all-time to ${dayText(f.luminateAtd)}` : ""}</b></span>}
+          <span className="ar-fresh-li" data-refresh-off={f.refresh ? undefined : ""}><span>Automatic updates</span><b>{f.refresh ? "on" : "off"}</b></span>
+        </span>
       )}
-      {data.momentumReady && how && <div className="arh-pop"><Weights w={data.weights} canEdit={founder} onSaved={reload} /></div>}
+      {n > 0 && <button type="button" className="ar-confirm-pill m-tap" onClick={onConfirm} data-tile="confirm">{n} to confirm ›</button>}
+    </span>
+  );
+}
+
+export function ArHome({ data, err, retry, onOpen, founder, reload }) {
+  const [how, setHow] = useState(false);
+  if (err) return <p className="hint err-text">{err} <button className="btn ghost sm" onClick={retry}>Try again</button></p>;
+  if (!data) return <p className="muted">Loading…</p>;
+  const day = data.movers?.day || { up: [], down: [] };
+  return (
+    <div className="arh" data-ar-home>
+      <div className="arh-main">
+        <WeekCard movers={data.movers} onOpen={onOpen} />
+        <DayCard day={day} onOpen={onOpen} />
+      </div>
+      <div className="arh-side">
+        <AddsCard adds={data.adds || []} addsByWeek={data.addsByWeek} onOpen={onOpen} />
+        <ExpiringCard list={data.expiring || []} onOpen={onOpen} reload={reload} />
+        {/* r10 fix (#8): momentum waits for a week of readings, so its weights wait too */}
+        {data.momentumReady && <p className="arh-how"><button type="button" className="inline-link m-tap" onClick={() => setHow(!how)} aria-expanded={how} data-how>How momentum is scored</button></p>}
+        {data.momentumReady && how && <div className="arh-pop"><Weights w={data.weights} canEdit={founder} onSaved={reload} /></div>}
+      </div>
     </div>
   );
 }
