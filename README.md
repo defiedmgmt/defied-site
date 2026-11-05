@@ -2,14 +2,24 @@
 
 One Next.js 14 app (pages router) on Vercel:
 
-- **The public site**: home, about, team, roster, contact (`pages/*.jsx`, rendered by `components/App.jsx`).
-- **The staff dashboard** (`/dashboard`): Home, To do, Publishing, Numbers, Money, A&R and Site.
+- **The public site**: home, about, team, roster, contact (`pages/*.jsx`, `components/site/`; about, team, roster and
+  contact are rendered on the server).
+- **The staff dashboard** (`/dashboard`, one address per section: `/dashboard/todo`, `/dashboard/catalog` (Publishing),
+  `/dashboard/money`, `/dashboard/ar`, `/dashboard/site`…): Home, To do, Publishing, Money, A&R and Site.
 - **The client portal** (`/portal`): each client's own songs and splits.
 
 Data lives in Neon Postgres (`lib/db.js`). The dashboard also reads and writes the pub master sheet and reads the
 accounting sheet (Google Sheets, `lib/sheets.js`, `lib/accounting.js`), reads Stripe (`lib/stripe.js`) and uses
-ClickUp (`lib/clickup*.js`). The whole UI and its CSS are in `components/App.jsx`. Server code is in `lib/` and
-`pages/api/`.
+ClickUp (`lib/clickup*.js`). The UI is in `components/` (`app/` the shell, `site/` the public pages, `dash/` the
+dashboard, `portal/` the client portal, `shared/` both sides), its CSS in `styles/app.css`. Server code is in `lib/`
+and `pages/api/`.
+
+Each dashboard section's code is its own download (`components/dash/sections.jsx`, `next/dynamic`): opening
+`/dashboard/money` loads the sidebar and Money, nothing of A&R or Publishing, and the public pages load no dashboard
+code at all. So the shell (`dash/StaffDashboard.jsx`) never imports a section module directly; the small parts
+several sections share live in modules that import no section (`dash/chips.jsx`, `access.js`, `todo-data.js`,
+`home-data.js`, `catalog-data.js`, `clients.jsx`, `ar-stages.jsx`, `portal/ask.jsx`, `trueup-data.js`). A re-export
+in a section module is fine; one in a shared module pulls that section into every page.
 
 ## Run locally
 
@@ -99,9 +109,15 @@ There are no demo logins. Accounts are created in Site › Users.
   are tracked like the roster. Each one keeps its last Luminate numbers as read-only history (Numbers shows them).
   The data cron reads the old Luminate tables again each day (they're never written) and asks Spotify about a few
   more. Nothing reads or writes Luminate itself any more.
-- The pub sheet's STREAM DATA tab is left as it was on the last Luminate update: nothing writes it, and the song
-  rows' Luminate ID column (M) is never written either. Publishing's streams and money are the sheet's, so they
-  stay at those numbers until the owner decides what feeds the sheet next.
+- The pub sheet's STREAM DATA tab is written only by `lib/stream-sheet.js`, behind `STREAM_SHEET_WRITES` (off unless
+  `on`): columns D and E of the rows with a confirmed Spotify match, and the label in G1. The song rows' Luminate ID
+  column (M) is never written. With the switch off the tab stays as it was on the last Luminate update.
+- The monthly true-up (`lib/trueup.js`, To do › "Monthly Luminate update"): drop the month's Luminate Trend Report
+  (Location Worldwide, Daily, with ATD; the 4 portfolio exports still work). A dry run shows what changes and the
+  jump from the numbers we had; Apply saves one run (`trueup_runs`, `trueup_points`, migration 015) and Undo removes
+  it. Songs are found by Luminate ID, then by title without version tags plus an artist in common. A song the file
+  leaves out keeps its last number ("No plays this period, or not in the report yet"). A United States file is shown
+  but can't be applied. Nothing here writes the sheet; the STREAM DATA writer reads the newest totals and ratios.
 
 ## Environment variables
 
@@ -135,6 +151,10 @@ never values.
 | `DATA_HOOK_SECRET` | The secret Apify sends back to `/api/data-hook` when a run ends, so its numbers land at once. Unset, the second daily cron collects them instead. |
 | `DATA_HOOK_URL` | Where Apify calls back. Unset, it's the production site's `/api/data-hook`. |
 | `BLOB_READ_WRITE_TOKEN` | The Vercel Blob store for photos and covers. Vercel adds it when the store is connected. Unset, photos are kept inside the database as before. |
+| `ACCOUNTING_SHEET_LINK_ID` | Only builds the "Open the sheet" link on the accounting sync check (never read or written). A preview can read a stand-in sheet and still open the real one. Unset, the link uses `ACCOUNTING_SHEET_ID`. |
+| `DIGEST_CHANNEL_ID` | The ClickUp Chat channel the Monday team digest posts to. Unset, the team digest isn't sent (it says so in its log). |
+| `DIGEST_PERSONAL_TO` | Who gets a personal Monday digest (a ClickUp direct message): `all`, or names or emails separated by commas. |
+| `PAID_WAIT_MS` | How long the paste box waits for a paid lookup (an Apify run) before answering, in milliseconds. 25000 by default; a run still going is picked up by the next lookup. |
 
 **Write switches (off unless set to `on`)**
 
@@ -145,8 +165,10 @@ never values.
 | `AR_SHEET_WRITES` | The A&R tab's saves to OUTREACH / ADVANCE CALCULATOR. Off in production when unset. |
 | `PUB_SHARE_WRITES` | "Fill in 100%": a blank Writer Share cell on the pub sheet. |
 | `STREAM_SHEET_WRITES` | The pub sheet's STREAM DATA tab from the new numbers, after each data cron tick (lib/stream-sheet.js): column D (streams) and E (source) of the rows with a confirmed Spotify match, and the label in G1. Nothing else on the sheet. |
-| `STREAM_SHEET_MODE` | Not a switch: `estimate` (default, Spotify plays x each song's own Luminate/Spotify ratio, so the sheet stays on Luminate's all-platform scale) or `spotify` (Spotify plays as they are). |
+| `STREAM_SHEET_MODE` | Not a switch: `estimate` (default, Spotify plays x each song's own Luminate/Spotify ratio, refreshed by each monthly true-up, so the sheet stays on Luminate's all-platform scale; on true-up day the number is Luminate's own) or `spotify` (Spotify plays as they are). |
 | `DATA_REFRESH` | Not a write, but it spends money: the daily data crons start Apify runs and read YouTube/Spotify. Off, nothing is fetched (the Numbers page shows what's there). |
+| `DIGEST_WRITES` | The Monday digests: the team post to `DIGEST_CHANNEL_ID` and the personal messages. Off, a Monday run still builds each digest and logs it (`digest_runs`, status "off"), so the preview shows what would have gone out. |
+| `RADAR_SCANS` | Not a write, but it spends money: the TikTok radar's keyword scans and its risers' daily boost. Off, sounds added by link are still tracked one at a time. |
 
 **Build and platform**
 
@@ -154,12 +176,10 @@ never values.
 |---|---|
 | `MIGRATE_ON_BUILD` | `off` skips the build's migrations. `on` runs them on a non-production or local build. |
 | `VERCEL`, `VERCEL_ENV` | Set by Vercel. The build's migrations run only when `VERCEL_ENV` is `production`. |
+| `VERCEL_PROJECT_PRODUCTION_URL` | Set by Vercel. With no `DATA_HOOK_URL`, Apify calls back to `https://<this>/api/data-hook`. |
 | `NODE_ENV` | Set by Next. Secure cookies in production. |
 | `STRIPE_API_BASE` | Staging tests only. Don't set it in Vercel. |
 | `VERCEL_BLOB_API_URL`, `VERCEL_BLOB_RETRIES` | Tests only (the fake Blob store). Don't set them in Vercel. |
-
-**On the Mac helper only (not Vercel):** `HELPER_CONFIG` and `BOT_CONFIG` are the paths of the helper's and the
-export bot's config files (`helper/README.txt`).
 
 ## Notes
 
