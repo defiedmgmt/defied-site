@@ -63,6 +63,7 @@ async function act(body) {
       let r;
       try { r = await lookupIsrc({ song: p.song, artist: p.artist, link: p.link }); } catch (err) { results[g[0]] = { error: err.message }; continue; }
       if (r.failed) { results[g[0]] = { error: r.errors[0]?.message || "The lookup failed" }; continue; } // try again later, nothing saved
+      if (r.retry) { results[g[0]] = { error: "Spotify didn't answer, so nothing was saved. Try again in a few minutes." }; continue; }
       const at = new Date().toISOString();
       const q = g.map((id) => upsertTracking(id, r.hit ? { isrc: r.hit.isrc, isrc_source: r.hit.source, isrc_checked_at: at } : { isrc_checked_at: at }));
       await sql.transaction(q);

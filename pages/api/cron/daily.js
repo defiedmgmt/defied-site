@@ -49,7 +49,7 @@ export default async function handler(req, res) {
     for (const g of [...groups.values()].slice(0, 10)) {
       if (Date.now() - start > 25000) break; // the rest tomorrow
       const r = await lookupIsrc({ song: g[0].song, artist: g[0].artist, link: g[0].link || g.find((x) => x.link)?.link || "" }).catch(() => ({ failed: true }));
-      if (r.failed) break; // the services are down: tomorrow
+      if (r.failed || r.retry) break; // the services are down (or Spotify didn't answer): tomorrow
       report.isrc.looked++;
       if (r.hit) report.isrc.found++; else if (r.candidates.length) report.isrc.offered++;
       const at = new Date().toISOString();
