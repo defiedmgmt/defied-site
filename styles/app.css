@@ -3259,3 +3259,6 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .home-head .hml-dot{margin:0 4px}
   .app:not(.pub) .home-head .home-money-info{width:36px;height:44px;margin:-8px 0 -8px auto}
 }
+/* the three money figures start on one line top (each lines its own label and value up on their baseline) */
+.app:not(.pub) .home-head .home-money-line .hml-grid{align-items:stretch}
+.app:not(.pub) .home-head .home-money-line .hml-stat{align-items:baseline;align-self:stretch}
