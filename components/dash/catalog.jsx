@@ -14,7 +14,6 @@ import { NotOursAsk, SongManager, noSheetTab, pushOwnShare, releaseDay } from ".
 import { AskCard } from "../portal/ask";
 import { ExtLink, Photo } from "../shared/ui";
 import { SectionWait } from "./sections";
-import { IsrcFinder, songsWithoutIsrc } from "./isrc-finder";
 import { findByName, ownSplit } from "../site/data";
 import { normalizeTitle, splitsToConfirm, fullSiteSync } from "./catalog-data";
 export { normalizeTitle, isSheetSyncStale, fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
@@ -605,11 +604,12 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   );
 }
 
-// Publishing: the clients, their songs and splits, the MASTER totals, the Advance calculator and the ISRC finder.
-// A Dashboard task can open it on a client ("client:<id>"), on the calculator ("advance") or on the ISRCs ("isrc").
+// Publishing: the clients, their songs and splits, the MASTER totals and the Advance calculator.
+// A Dashboard task can open it on a client ("client:<id>") or on the calculator ("advance").
+// (r11: the ISRCs tab is gone, the owner: "why is there an isrc tab on the pub tab do i need that ?". The finder is
+// To do's "N songs have no ISRC" row now, /dashboard/todo/isrc; the old /dashboard/catalog/isrc opens it there.)
 export function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, onSub, chip = null }) {
-  const [sec, setSec] = useState(sub === "advance" || sub?.startsWith("advance:") ? "advance" : sub === "isrc" ? "isrc" : "overview");
-  const noIsrc = useMemo(() => songsWithoutIsrc(db, songInfo).length, [db, songInfo]);
+  const [sec, setSec] = useState(sub === "advance" || sub?.startsWith("advance:") ? "advance" : "overview");
   const editSong = sub?.startsWith("edit:") ? db.placements.find((p) => p.id === sub.slice(5)) : null;
   // null clientId = the read-only Overview landing page, not "no selection"
   const [clientId, setClientIdOnly] = useState(sub?.startsWith("client:") ? sub.slice(7) : editSong ? editSong.clientId : null);
@@ -676,7 +676,7 @@ export function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, 
   };
 
   // (a stale copy of the numbers catches up in the background: StaffDashboard starts it)
-  const pick = (id) => (e) => { setSec(id); revealChip(e.currentTarget); onSub?.(id === "advance" || id === "isrc" ? id : clientId ? `client:${clientId}` : null); };
+  const pick = (id) => (e) => { setSec(id); revealChip(e.currentTarget); onSub?.(id === "advance" ? id : clientId ? `client:${clientId}` : null); };
   return (
     <div>
       <div className="admin-head">
@@ -685,9 +685,7 @@ export function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, 
       <div className="subnav">
         <button className={sec === "overview" ? "subpill active" : "subpill"} onClick={pick("overview")}>Overview &amp; clients</button>
         <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={pick("advance")}>Advance<span className="pill-long"> calculator</span></button>
-        <button className={sec === "isrc" ? "subpill active" : "subpill"} data-pub-tab="isrc" onClick={pick("isrc")}>ISRCs{songInfo && noIsrc > 0 && <span className="pill-n" data-isrc-n>{noIsrc}</span>}</button>
       </div>
-      {sec === "isrc" && (songInfo ? <IsrcFinder db={db} songInfo={songInfo} reloadSongInfo={reloadSongInfo} /> : <SectionWait />)}
       {sec === "advance" && <AdvanceTab db={db} pick={sub?.startsWith("advance:") ? sub.slice(8) : null} />}
       {sec === "overview" && <div className="catalog-wrap">
         <div className="catalog-clients" ref={chips}>

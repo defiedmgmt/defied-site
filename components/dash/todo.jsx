@@ -27,6 +27,7 @@ const SplitsToFix = panel(() => import("./catalog"), "SplitsToFix");
 const SongManager = panel(() => import("../portal/ClientPortal"), "SongManager");
 const ArFollowUps = panel(() => import("./todo-ar"), "ArFollowUps");
 const TrueUpPanel = panel(() => import("../TrueUp"), "TrueUpPanel"); // TRUEUP-HOOK: the monthly Luminate true-up
+const IsrcFinder = panel(() => import("./isrc-finder"), "IsrcFinder"); // r11: the ISRC finder, out of Publishing
 
 // One To do row: the sentence opens it, the button does its one thing; open, the panel below holds
 // exactly the controls it needs (the same ones the tabs used to hold). Home's biggest tasks use it too.
@@ -57,6 +58,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "seeds": return <SeedList area={it.seedArea} ctx={ctx} />;
     case "arConfirm": return <div className="todo-sublist"><p className="hint">Their Luminate numbers stay as history. Once you tap the right Spotify profile, its numbers start with the next update.</p><button type="button" className="btn sm" onClick={() => ctx.onGo("ar", "watch/confirm")} data-go-confirm>Open the Watchlist's confirm list</button></div>;
     case "trueup": case "trueup-new": case "trueup-schedule": return <TrueUpPanel kind={it.panel} ctx={ctx} />; // TRUEUP-HOOK
+    case "isrc": return <IsrcFinder db={db} songInfo={ctx.songInfo} reloadSongInfo={ctx.reloadSongInfo} />;
     case "messages": return <SubsAdmin db={db} commit={commit} />;
     case "syncfix": return <SyncFix check={it.check} ctx={ctx} />;
     default: return null;

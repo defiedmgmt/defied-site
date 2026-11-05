@@ -1,37 +1,23 @@
 import { useMemo, useState } from "react";
 import { RefreshCw, CheckCircle2, Search } from "lucide-react";
 import { CardTable } from "../ui/responsive";
-import { normalizeTitle } from "./catalog-data";
+import { songsWithoutIsrc } from "./isrc-data";
 import { IsrcPicks, songsPost } from "./helpers";
 import { fmt } from "./ui";
 import { ExtLink } from "../shared/ui";
-import { spotifyTrack } from "../../lib/duplicates";
 
-// Publishing › ISRCs (/dashboard/catalog/isrc, round 10: the finder screen back, from missing-audit L2). Every
-// pub sheet song with no ISRC yet, once even when two clients' pages have it: the finder's guesses to tap, or
-// the ISRC typed in (with IFPI's free search a tap away). "Find ISRCs" asks the finder (/api/songs findIsrcs:
-// the song's Spotify link, Deezer, MusicBrainz) eight songs at a time; a sure answer is saved at once, a
-// maybe comes back as guesses. Saving sets the ISRC on every page the song is on.
+// The ISRC finder (round 10: the screen back, from missing-audit L2; r11: it opens inside To do, the row "N songs
+// have no ISRC · Find them", /dashboard/todo/isrc, and no longer has a Publishing tab). Every pub sheet song
+// with no ISRC yet, once even when two clients' pages have it: the finder's guesses to tap (cover, artists and
+// release date), or the ISRC typed in (with IFPI's free search a tap away). "Find ISRCs" asks the finder
+// (/api/songs findIsrcs: Spotify's search first, then the song's Spotify link, Deezer, MusicBrainz) eight songs
+// at a time; a sure answer is saved at once, a maybe comes back as guesses. Saving sets the ISRC on every page
+// the song is on.
 const ISRC_RE = /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/;
 const clean = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 const IFPI = "https://isrcsearch.ifpi.org/";
 
-// the songs with no ISRC, one row per song: the same Spotify link, or the same title and artist, is one song
-export function songsWithoutIsrc(db, songInfo) {
-  const tr = songInfo?.tracking || {};
-  const by = new Map();
-  for (const p of db.placements || []) {
-    const sp = spotifyTrack(p.link);
-    const key = sp ? `t:${sp}` : `n:${normalizeTitle(p.song)}|${normalizeTitle(p.artist)}`;
-    const g = by.get(key) || { key, song: p.song || "", artist: p.artist || "", link: p.link || "", ids: [], clientIds: [], isrc: "" };
-    g.ids.push(p.id);
-    if (p.clientId && !g.clientIds.includes(p.clientId)) g.clientIds.push(p.clientId);
-    if (tr[p.id]?.isrc) g.isrc = tr[p.id].isrc;
-    by.set(key, g);
-  }
-  const cands = songInfo?.isrcCandidates || {};
-  return [...by.values()].filter((g) => !g.isrc).map((g) => ({ ...g, picks: g.ids.map((id) => cands[id]).find((x) => x?.length) || [] }));
-}
+export { songsWithoutIsrc } from "./isrc-data";
 
 export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
   const name = useMemo(() => new Map((db.clients || []).map((c) => [c.id, c.name])), [db.clients]);
@@ -118,7 +104,7 @@ export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
           <ExtLink className="btn ghost sm" href={IFPI}>IFPI search ↗</ExtLink>
         </span>
       </div>
-      <p className="hint">The finder checks each song's Spotify link, Deezer and MusicBrainz. Tap the right song, or type the ISRC.</p>
+      <p className="hint">The finder searches Spotify first, then Deezer and MusicBrainz. Tap the right song, or type the ISRC.</p>
       {note && <p className="hint err-text" role="alert">{note}</p>}
       {rows.length > 0 && <CardTable cols={cols} rows={rows} rowKey={(g) => g.key} sort={sort} onSort={onSort} className="isrc-table" data-isrc-table="" />}
     </div>

@@ -46,7 +46,7 @@ export async function songsPost(body) {
 }
 
 // where an ISRC came from, in lib/isrc.js SOURCES' words (App.jsx can't import server code)
-const ISRC_SOURCES = { "spotify-link": "the song's Spotify link", deezer: "Deezer", "deezer-artist": "the artist's Deezer page", musicbrainz: "MusicBrainz", manual: "typed in" };
+const ISRC_SOURCES = { spotify: "Spotify", "spotify-link": "the song's Spotify link", deezer: "Deezer", "deezer-artist": "the artist's Deezer page", musicbrainz: "MusicBrainz", manual: "typed in" };
 // the finder's guesses for a song (any of its pages' ids), or []
 export const isrcPicksOf = (info, ids) => ids.map((id) => info?.isrcCandidates?.[id]).find((x) => x?.length) || [];
 // A row's ⋯ menu (rule 3: one button per row; the rest goes here). Placed on the screen itself like the
@@ -87,6 +87,8 @@ export function RowMenu({ label, items }) {
 
 // The ISRC finder's guesses where it wasn't sure (up to 3, each with its cover, title, artist and where
 // it came from): one tap saves that one
+// a guess's release date as Spotify gives it ("2026-04-03", "2026-04" or "2026"): "Apr 3, 2026" (r11)
+const relDay = (d) => { const [y, m, day] = String(d || "").split("-").map(Number); if (!y) return ""; return !m ? String(y) : new Date(Date.UTC(y, m - 1, day || 1)).toLocaleDateString("en-US", { month: "short", ...(day ? { day: "numeric" } : {}), year: "numeric", timeZone: "UTC" }); };
 export function IsrcPicks({ list, busy, onPick }) {
   return (
     <span className="isrc-picks" data-isrc-picks>
@@ -94,7 +96,7 @@ export function IsrcPicks({ list, busy, onPick }) {
       {list.map((c) => (
         <button key={`${c.isrc}:${c.source}`} type="button" className="isrc-pick" data-isrc-pick={c.isrc} disabled={busy} onClick={() => onPick(c)} title={`${c.isrc} · from ${ISRC_SOURCES[c.source] || c.source}`}>
           <span className="isrc-pick-cover">{c.cover ? <img src={c.cover} alt="" loading="lazy" /> : <Disc3 size={14} />}</span>
-          <span className="isrc-pick-main"><b>{c.title}</b><em>{c.artist}{c.artist ? " · " : ""}{ISRC_SOURCES[c.source] || c.source}</em></span>
+          <span className="isrc-pick-main"><b>{c.title}</b><em>{[c.artist, relDay(c.releaseDate), ISRC_SOURCES[c.source] || c.source].filter(Boolean).join(" · ")}</em></span>
         </button>
       ))}
     </span>

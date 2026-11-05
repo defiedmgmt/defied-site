@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { X, RefreshCw, AlertTriangle, CheckCircle2, ListChecks, CircleDollarSign, CalendarDays, TrendingUp } from "lucide-react";
 import { biggestTasks, nyDay } from "../../lib/todo-rank";
 import { LazySection } from "../ui/responsive";
@@ -23,8 +23,12 @@ export { useHome, monthName, useArSummary, HomeWait } from "./home-data";
 // payments. r10: every card has its own place in the one-screen grid (styles/app.css "One screen"), so nothing
 // spills over another, and a ClickUp list the Defied Bot can't read is one line here. (r10 fix, the owner's
 // N1-N6: less clutter; the Accounting tab, the Spikes card and the big money tiles are gone.)
+// r11: the page is called Dashboard again; Biggest tasks and This week are as tall as their rows (useTopFit), the
+// calendar moves up into the room that frees and Recent payments shows three.
 export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
   const { home, failed, retry, refresh } = useHome();
+  const page = useRef(null);
+  useTopFit(page);
   const unlogged = home?.accounting?.unlogged, toCheck = home?.accounting?.toCheck || 0;
   useEffect(() => {
     if (!unlogged) return;
@@ -47,8 +51,8 @@ export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
   // r10 (C2): the lists ClickUp won't show the Defied Bot (not shared with it): one line, opening To do › ClickUp
   const unread = (ctx.cu.data?.lists || []).filter((l) => l.error);
   return (
-    <div className="home">
-      <div className="admin-head home-head"><h2>Home</h2>{money && <MoneyRow money={m} failed={failed} retry={retry} />}{syncOn && <SyncPill sync={ctx.sync} onGo={ctx.onGo} />}{money && m?.connected && !m.error && <span className="home-src">From Stripe · updated {clock(m.updatedAt)}</span>}</div>
+    <div className="home" ref={page}>
+      <div className="admin-head home-head"><h2>Dashboard</h2>{money && <MoneyRow money={m} failed={failed} retry={retry} />}{syncOn && <SyncPill sync={ctx.sync} onGo={ctx.onGo} />}{money && m?.connected && !m.error && <span className="home-src">From Stripe · updated {clock(m.updatedAt)}</span>}</div>
       {ctx.can("publishing") && <HomeTicker onGo={ctx.onGo} />}
       <div className="home-row">
         <div className="attn home-card todo home-top" data-home-top>
@@ -74,10 +78,61 @@ export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
   );
 }
 
-// Home's week: Monday to Sunday with To do Calendar's own sources (ClickUp's due tasks, payments to log), today marked, at most two a day plus "+N". A day's items open right here, in a
+// r11 (owner-img14: room left at the foot of Biggest tasks and This week; "dont fill the empty space w more rows"):
+// the two top cards' height, the taller one's own (closed rows only; This week its top 5 and, when it has more,
+// the fade and "N more" foot under them), set as --home-top-h for the one-screen grid (styles/app.css "r11"). Read
+// in one synchronous pass with the cards at their own height (data-measure), again whenever their rows change or
+// the window does. This week counts its tallest tab seen on this visit (and window size), so switching Songs /
+// Artists / A&R never moves the calendar. Under 900 px wide or 640 px tall the page scrolls as before and nothing is set.
+const TOP_ROWS = 5, TOP_FOOT = 34, TOP_FADE = 24;
+const ONE_SCREEN = "(min-width:900px) and (min-height:640px)";
+function useTopFit(ref) {
+  useLayoutEffect(() => {
+    const home = ref.current;
+    if (!home) return undefined;
+    let raf = 0, weekMax = 0, size = "";
+    const measure = () => {
+      raf = 0;
+      if (size !== `${window.innerWidth}x${window.innerHeight}`) { size = `${window.innerWidth}x${window.innerHeight}`; weekMax = 0; }
+      if (!window.matchMedia(ONE_SCREEN).matches) { home.style.removeProperty("--home-top-h"); return; }
+      const tasks = home.querySelector("[data-home-top]"), week = home.querySelector(".home-row > .gainers");
+      if (!tasks || !week) return;
+      home.setAttribute("data-measure", "");
+      const a = tasks.getBoundingClientRect().height;
+      const rows = week.querySelectorAll(".home-scroll > .gainer");
+      const b = rows.length > TOP_ROWS ? rows[TOP_ROWS - 1].getBoundingClientRect().bottom - week.getBoundingClientRect().top + TOP_FADE + TOP_FOOT + 1 : week.getBoundingClientRect().height;
+      home.removeAttribute("data-measure");
+      weekMax = Math.max(weekMax, b);
+      const h = `${Math.ceil(Math.max(a, weekMax))}px`;
+      if (home.style.getPropertyValue("--home-top-h") !== h) home.style.setProperty("--home-top-h", h);
+    };
+    const later = () => { if (!raf) raf = requestAnimationFrame(measure); };
+    measure();
+    const mo = new MutationObserver(later);
+    mo.observe(home.querySelector(".home-row") || home, { childList: true, subtree: true, characterData: true });
+    window.addEventListener("resize", later);
+    document.fonts?.ready?.then(later).catch(() => {});
+    return () => { mo.disconnect(); window.removeEventListener("resize", later); cancelAnimationFrame(raf); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
+// Home's week: Monday to Sunday with To do Calendar's own sources (ClickUp's due tasks, payments to log), today marked, at most two a day plus "+N"
+// (r11: as many as the day's box has room for, at least two, now that the calendar takes the room the top cards leave). A day's items open right here, in a
 // small panel under it: a ClickUp task with Done ✓, a site item as its To do row (opening in place). An
 // empty day stays empty.
-const HOME_WEEK_CHIPS = 2;
+const HOME_WEEK_CHIPS = 2, HW_CHIP_H = 41, HW_DAY_TOP = 35; // a two-line chip and its gap; the day's name and padding
+function useChipsFit(ref) {
+  const [n, setN] = useState(HOME_WEEK_CHIPS);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const fit = () => setN(window.matchMedia(ONE_SCREEN).matches ? Math.max(HOME_WEEK_CHIPS, Math.floor((el.clientHeight - HW_DAY_TOP) / HW_CHIP_H)) : HOME_WEEK_CHIPS);
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return n;
+}
 const SITE_ITEM_OF = { money: (it) => it.k === "log" };
 function HomeWeek({ ctx, home, todo }) {
   const today = nyDay(Date.now());
@@ -93,19 +148,21 @@ function HomeWeek({ ctx, home, todo }) {
   const show = (day, el) => { const b = el.closest(".hw-day").getBoundingClientRect(); setOpenK(null); setPick(pick?.day === day ? null : { day, b }); };
   const loading = !ctx.cu.data && !ctx.cu.failed;
   const label = (e) => <><span className="hw-chip-t">{e.label}</span></>;
+  const grid = useRef(null);
+  const chips = useChipsFit(grid);
   return (
-    <div className="home-card home-week" data-home-week data-empty={!loading && days.every((d) => !on(d).length) ? "" : undefined}>
+    <div className="home-card home-week" data-chips={chips} data-home-week data-empty={!loading && days.every((d) => !on(d).length) ? "" : undefined}>
       <div className="attn-head hw-head"><CalendarDays size={15} /> This week's calendar <span className="hw-range">{shortDay(days[0])} – {shortDay(days[6])}</span>
         <button type="button" className="inline-link home-all" data-open-cal onClick={() => ctx.onGo("todo", "calendar")}>Open calendar ›</button></div>
       {/* r10 fix: on a phone an empty week is this one line (the seven empty days took about 300px) */}
       {!loading && days.every((d) => !on(d).length) && <p className="hw-empty-line" data-hw-empty>Nothing due this week.</p>}
-      <div className="hw-grid" role="list">
+      <div className="hw-grid" role="list" ref={grid}>
         {days.map((d) => {
-          const evs = on(d), more = evs.length - HOME_WEEK_CHIPS;
+          const evs = on(d), more = evs.length - chips;
           return (
             <div key={d} role="listitem" className={["hw-day", d === today && "today", d < today && "past", pick?.day === d && "picked"].filter(Boolean).join(" ")} data-day={d}>
               <span className="hw-name">{WEEKDAY_SHORT[dow(d)]} <b>{Number(d.slice(8))}</b>{d === today && <em className="hw-today">Today</em>}</span>
-              {evs.slice(0, more > 0 ? HOME_WEEK_CHIPS - 1 : HOME_WEEK_CHIPS).map((e, i) => (
+              {evs.slice(0, more > 0 ? chips - 1 : chips).map((e, i) => (
                 <button key={i} type="button" className={`hw-chip${e.late ? " late" : ""}`} data-kind={e.kind} data-area={e.kind} title={e.label} onClick={(ev) => show(d, ev.currentTarget)}>{label(e)}</button>
               ))}
               {more > 0 && <button type="button" className="hw-more" data-more={d} onClick={(ev) => show(d, ev.currentTarget)}>+{more + 1} more</button>}
@@ -149,9 +206,10 @@ function HomeWeekPanel({ at, onClose, children }) {
   return <div ref={box} className="hw-panel attn todo" role="dialog" aria-label="This day" style={{ left, width: w, ...pos }}>{children}</div>;
 }
 
-// Home's newest payments: the last two from Stripe (the same rows and Log it as Money › All payments);
-// "All payments (N) ›" opens Money. (r10 fix, N2/N3: two rows, and no Accounting tab: it repeated the money line)
-const HOME_PAY_N = 2;
+// Home's newest payments: the last three from Stripe (the same rows and Log it as Money › All payments);
+// "All payments (N) ›" opens Money. (r10 fix, N2/N3: two rows, and no Accounting tab: it repeated the money line;
+// r11, the owner: "maybe adding a third recent payment": three)
+const HOME_PAY_N = 3;
 function HomePayments({ home, failed, retry, refresh, onGo }) {
   const [logIds, setLogIds] = useState(null);
   const P = home?.payments, A = home?.accounting;
