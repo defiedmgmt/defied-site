@@ -203,7 +203,7 @@ export function ArHome({ data, err, retry, onOpen, onView, founder, reload }) {
         <AddsChart data={data.addsByWeek} />
       </section>
       <p className="arh-how">
-        <button type="button" className="inline-link" onClick={() => setHow(!how)} aria-expanded={how} data-how>How momentum is scored</button>
+        <button type="button" className="inline-link m-tap" onClick={() => setHow(!how)} aria-expanded={how} data-how>How momentum is scored</button>
       </p>
       {how && <div className="arh-pop"><Weights w={data.weights} canEdit={founder} onSaved={reload} /></div>}
     </div>

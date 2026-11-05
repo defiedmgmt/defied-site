@@ -189,3 +189,4 @@ button.arh-tile:hover { border-color: var(--d-line-3, #444); }
   .arg-search { min-width: 0; width: 100%; }
   .ard-head .btn, .ard-who-act .btn, .ard-cand .btn, .ard-switch button { min-height: 44px; min-width: 44px; }
 }
+.arh-how .inline-link { display: inline-flex; align-items: center; min-height: 44px; }
