@@ -134,7 +134,7 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged, onG
                           ) : (
                             <button type="button" className="btn ghost sm err-text" disabled={busy} data-remove-entry
                               onClick={() => { if (w.id !== me) { setAskOff(w.entryId); return; } act({ action: "remove", entryId: w.entryId }, "Taken off your list.").then(() => { if (r.addedBy.length === 1) onClose(); }); }}>
-                              {w.id === me ? "Remove from my list" : `Take off ${w.name}'s list`}
+                              {w.id === me ? "Remove from my list" : w.id === "team:luminate" ? "Take it off the list" : `Take off ${w.name}'s list`}
                             </button>
                           )}
                         </span>

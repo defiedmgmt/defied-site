@@ -143,7 +143,7 @@ export function ArHome({ data, err, retry, onOpen, onView, founder, reload }) {
         <button type="button" className="arh-tile m-tap" onClick={() => onView("watch")} data-tile="lists"><small>On the lists</small><b>{t.artists} artists · {t.songs} songs · {t.sounds} sounds</b></button>
         <button type="button" className="arh-tile m-tap" onClick={() => onView("watch")} data-tile="week"><small>Added this week</small><b>{t.addedThisWeek}</b><em>since Monday, New York</em></button>
         <div className="arh-tile" data-tile="expiring"><small>Expiring in 7 days</small><b>{t.expiring}</b></div>
-        {t.toConfirm > 0 && <button type="button" className="arh-tile m-tap warn" onClick={() => onView("watch/confirm")} data-tile="confirm"><small>Spotify match to confirm</small><b>{t.toConfirm}</b><em>Confirm ▸</em></button>}
+        {t.toConfirm > 0 && <button type="button" className="arh-tile m-tap warn" onClick={() => onView("watch/confirm")} data-tile="confirm"><small>Matches to confirm</small><b>{t.toConfirm}</b><em>Spotify profiles and ISRC songs ▸</em></button>}
       </div>
 
       <section className="arh-sec" data-day-movers>
