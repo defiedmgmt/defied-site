@@ -31,38 +31,29 @@ function Weights({ w, canEdit, onSaved }) {
   );
 }
 
-// adds per week: stacked bars, one colour per person, inline SVG
+// adds per week: the last 6 New York weeks as stacked bars, one colour per person (HTML, so the bars take the card's
+// height and the labels stay 11px); the line above says this week and last week in words
 function AddsChart({ data }) {
   const { people = [] } = data || {};
-  // r11 fix: the last 6 weeks, labels readable at 11px; with only one week that has adds, one line says it instead
   const weeks = (data?.weeks || []).slice(-6);
   const tot = weeks.map((w) => Object.values(w.by).reduce((a, n) => a + n, 0));
   const max = Math.max(1, ...tot);
-  if (tot.filter((t) => t > 0).length <= 1) {
-    const i = tot.length - 1;
-    return <p className="arh-adds-line" data-adds-chart data-adds-line>This week {tot[i] || 0} · last week {tot[i - 1] || 0} <em>· the old list isn't counted</em></p>;
-  }
-  const W = 260, H = 96, bw = (W - 20) / Math.max(1, weeks.length) - 8;
+  const i = tot.length - 1;
   return (
     <div className="arh-chart" data-adds-chart>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Adds per week">
-        {weeks.map((w, i) => {
-          let y = H - 16;
-          const x = 10 + i * ((W - 20) / weeks.length);
-          return (
-            <g key={w.week}>
-              {people.map((p, j) => {
-                const n = w.by[p.id] || 0; if (!n) return null;
-                const h = (n / max) * (H - 28); y -= h;
-                return <rect key={p.id} x={x} y={y} width={bw} height={h} fill={SPARK_COLORS[j % SPARK_COLORS.length]}><title>{`${p.name}: ${n} in the week of ${w.label}`}</title></rect>;
-              })}
-              {tot[i] > 0 && <text x={x + bw / 2} y={y - 3} textAnchor="middle" className="ard-tick" data-bar-n={tot[i]}>{tot[i]}</text>}
-              <text x={x + bw / 2} y={H - 3} textAnchor="middle" className="ard-tick">{w.label}</text>
-            </g>
-          );
-        })}
-      </svg>
-      <p className="arh-legend">{people.map((p, j) => <span key={p.id}><i style={{ background: SPARK_COLORS[j % SPARK_COLORS.length] }} />{p.name}</span>)}{!people.length && "No adds in the last 6 weeks."} <em>Old list not counted.</em></p>
+      <p className="arh-adds-line" data-adds-line>This week {tot[i] || 0} · last week {tot[i - 1] || 0} <em>· old list not counted</em></p>
+      <div className="arh-bars" role="img" aria-label={`Adds per week: ${weeks.map((w, j) => `${w.label} ${tot[j]}`).join(", ")}`}>
+        {weeks.map((w, j) => (
+          <div key={w.week} className="arh-bar-col">
+            <span className="arh-bar-n" data-bar-n={tot[j] || undefined}>{tot[j] || ""}</span>
+            <span className="arh-bar-track">
+              {people.map((p, k) => { const n = w.by[p.id] || 0; return n ? <span key={p.id} className="arh-bar" style={{ height: `${(n / max) * 100}%`, background: SPARK_COLORS[k % SPARK_COLORS.length] }} title={`${p.name}: ${n} in the week of ${w.label}`} /> : null; })}
+            </span>
+            <span className="arh-bar-l">{w.label}</span>
+          </div>
+        ))}
+      </div>
+      {people.length > 1 && <p className="arh-legend">{people.map((p, k) => <span key={p.id}><i style={{ background: SPARK_COLORS[k % SPARK_COLORS.length] }} />{p.name}</span>)}</p>}
     </div>
   );
 }

@@ -429,10 +429,11 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
             read-only reference block above on the very next render — the
             confirmation has to live outside that block or it vanishes
             before anyone sees it */}
-        {saved && <p className="hint ok-text">Added as a prospect ✓ — {scenario.name} is saved on the pub sheet's OUTREACH tab, shown below with its real numbers.</p>}
+        {saved && <p className="hint ok-text">Saved ✓ — {scenario.name} is on the pub sheet's OUTREACH tab, shown below with its real numbers.</p>}
         {scenario.kind === "new" && (
           <button className="btn sm" onClick={saveToOutreach} disabled={busy || !scenario.name.trim() || !netStreams}>
-            {busy ? "Saving…" : "Add as prospect"}
+            {/* r11 fix: Outreach is gone from the app, so the button says where this goes */}
+            {busy ? "Saving…" : "Save to the sheet's OUTREACH tab"}
           </button>
         )}
         {selectedProspect && (

@@ -5,6 +5,7 @@ import { clock } from "./chips";
 import { RowMenu, Sparkline, compact, shortDay } from "./helpers";
 import { fmt } from "./ui";
 import { dataPost, ModeSwitch } from "./lum-history";
+import { PREVIEW } from "../../lib/preview";
 export { dataPost, ModeSwitch, LumHistory } from "./lum-history";
 export { TodoChip } from "./chips";
 
@@ -134,7 +135,12 @@ export function costPicture(d, now = new Date()) {
   return { month: now.toLocaleDateString("en-US", { month: "long" }), est, spent, limit, limitWhy, over, stopDay, budgets, total, budgetsOver: total != null && budgets > total + 0.001 };
 }
 // a run where more than a tenth of what's tracked came back with no number is a warning, not small print
-export const missRate = (s) => { const m = /(\d+) had no number/.exec(s?.last?.error || ""); return m && s.tracked ? Number(m[1]) / s.tracked : 0; };
+export const missRate = (s) => { const m = /(\d+) had no number/.exec(s?.last?.error || ""); return m && s.tracked && !UNDER_1000.has(s.key) ? Number(m[1]) / s.tracked : 0; };
+// r11 fix: Spotify shows no play count under 1,000 plays, so a small song comes back with no number every time (the
+// smallest reading in the preview's real data is 1,004; the 157 songs never read are almost all roster catalog songs
+// found on their releases). That's said in words, not as a warning.
+const UNDER_1000 = new Set(["spotify_streams"]);
+export const missNote = (s) => (UNDER_1000.has(s?.key) && /had no number/.test(s?.last?.error || "") ? " Spotify shows no play count under 1,000 plays, so small songs come back empty." : "");
 // Site › Sync's sources: each one's schedule, scraper, when it last ran (or why it failed or was skipped) and
 // what it tracks. founder: the monthly cost, this month's spend and the budgets (the server sends no dollar
 // figures to anyone else); canEdit (Money too): change the schedule, scraper and budgets.
@@ -155,14 +161,17 @@ export function SourceNums({ d, founder, canEdit, onSaved }) {
         <div className="nums-month" data-cost-month>
           <p className="nums-costline" data-costline>{pic.month}: about <b>{usd2(pic.est)}</b> at this schedule · <b>{usd2(pic.spent)}</b> spent so far (the site's count of its own runs)</p>
           {pic.limit != null && <p className="hint" data-cost-cap>Runs stop at <b>{usd2(pic.limit)}</b> a month: {pic.limitWhy}.{acct ? ` Apify's own count: ${usd2(acct.usageUsd)} of ${usd2(acct.limitUsd)}${acct.at ? ` as of ${shortDay(acct.at)}, ${clock(acct.at)}` : ""}, so runs after that aren't in it yet.` : ""}</p>}
-          {pic.over && <p className="nums-warn" role="alert" data-cost-over>The estimate is over the {usd2(pic.limit)} cap: at this pace the updates stop around {pic.stopDay}. Set a source to weekly to stay under it.</p>}
+          {/* r11 fix: a preview's plan is the copy it was given (it never asks Apify); the live site reads the plan
+              (GET /users/me/limits) at the start of every run, so its line and warning follow the plan really on */}
+          {PREVIEW && acct && <p className="hint" data-cost-preview>In this preview Apify's plan is the copy read {acct.at ? shortDay(acct.at) : "earlier"}. The live site reads the plan from Apify on every run.</p>}
+          {pic.over && !PREVIEW && <p className="nums-warn" role="alert" data-cost-over>The estimate is over the {usd2(pic.limit)} cap: at this pace the updates stop around {pic.stopDay}. Set a source to weekly to stay under it.</p>}
           {pic.budgetsOver && <p className="hint" data-cost-budgets>The sources' own budgets add up to {usd2(pic.budgets)}, more than the {usd2(pic.total)} total. The total wins: a source with budget left still stops once all of them reach {usd2(pic.total)}.</p>}
         </div>
       )}
       {d.sources.map((s) => (
         <div key={s.key} className="nums-srow" data-source={s.key}>
           <div className="nums-srow-t"><b>{s.label}</b><span className="hint">{s.tracked} tracked{s.campaign ? ` · ${s.campaign} in campaign mode` : ""}{founder ? ` · about ${usd(s.estMonthlyUsd)}/month${s.paid ? ` · ${usd(s.spentUsd)} this month` : " · free"}` : s.paid ? "" : " · free"}</span>
-            <span className={`hint${s.last?.status === "failed" ? " err-text" : missRate(s) > 0.1 ? " nums-warn" : ""}`} data-last data-miss={missRate(s) > 0.1 ? "warn" : undefined}>{missRate(s) > 0.1 ? "⚠ " : ""}{s.skipped ? `Skipped ${shortDay(s.skipped.at)}: ${s.skipped.why}` : s.last ? `${s.last.status === "failed" ? "Failed" : s.last.status === "started" ? "Running since" : "Last run"} ${shortDay(s.last.at)}${s.last.error ? `: ${s.last.error}` : ""}` : "Not run yet"}{missRate(s) > 0.1 ? ` That's ${Math.round(missRate(s) * 100)}% of the ${s.tracked}.` : ""}</span></div>
+            <span className={`hint${s.last?.status === "failed" ? " err-text" : missRate(s) > 0.1 ? " nums-warn" : ""}`} data-last data-miss={missRate(s) > 0.1 ? "warn" : undefined}>{missRate(s) > 0.1 ? "⚠ " : ""}{s.skipped ? `Skipped ${shortDay(s.skipped.at)}: ${s.skipped.why}` : s.last ? `${s.last.status === "failed" ? "Failed" : s.last.status === "started" ? "Running since" : "Last run"} ${shortDay(s.last.at)}${s.last.error ? `: ${s.last.error}` : ""}` : "Not run yet"}{missRate(s) > 0.1 ? ` That's ${Math.round(missRate(s) * 100)}% of the ${s.tracked}.` : ""}{missNote(s)}</span></div>
           {canEdit ? (
             <div className="nums-srow-f">
               {s.key !== "spotify_catalog" && <select aria-label="How often" value={f[s.key].schedule} onChange={(e) => set(s.key, { schedule: e.target.value })}><option value="daily">Daily</option><option value="weekly">Weekly</option></select>}

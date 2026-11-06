@@ -8,7 +8,7 @@ import { useArSummary } from "./home-data";
 import { TodoChip } from "./chips";
 import { SECTION_CODE, HomeDashboard, TodoPage, CatalogAdmin, AccountingAdmin, ARAdmin, SiteAdmin } from "./sections";
 import { todoItems, useAutoConfirm, useCuTasks, useSeeds, useSplitFixes, useSyncChecks } from "./todo-data";
-import { Wordmark } from "./ui";
+import { Wordmark, revealChip } from "./ui";
 import { useTrueUp, trueUpTodoItems } from "../trueup-data"; // TRUEUP-HOOK: the monthly Luminate true-up
 import { canUse } from "./access";
 export { canUse, TODO_AREAS } from "./access";
@@ -65,6 +65,11 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const setSub = (s) => { setAt((cur) => (cur.sub === s ? cur : { ...cur, sub: s })); toUrl(tab, s, "replace"); };
   // Back / Forward (and a reload): the address says where to be; an old address is rewritten to its new place
   const section = [].concat(router.query.section || []).join("/");
+  // r11 fix (phones): a sub-tab row that scrolls sideways shows the active tab, not a clipped one at its edge
+  useEffect(() => {
+    const t = setTimeout(() => document.querySelectorAll(".subnav .subpill.active, .subnav [aria-current=page]").forEach((el) => revealChip(el)), 120);
+    return () => clearTimeout(t);
+  }, [section]);
   useEffect(() => {
     if (!router.isReady) return;
     const at = dashPlaceOf(router.query);

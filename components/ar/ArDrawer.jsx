@@ -40,8 +40,9 @@ function LumHistory({ series }) {
     <div className="ard-lum" data-lum-history>
       {atd.length > 0 && (
         <>
-          <LineChart points={atd.map((p) => [p.to, p.v])} label="Luminate all-time streams" />
-          <p className="hint" data-lum-atd>All-time: {atd.map((p) => `${dayText(p.to)} ${n0(p.v)}`).join(" → ")}</p>
+          {/* r11 fix: a chart only from two points; one is a line of text */}
+          {atd.length > 1 && <LineChart points={atd.map((p) => [p.to, p.v])} label="Luminate all-time streams" />}
+          <p className="hint" data-lum-atd>All-time streams: {atd.map((p) => `${dayText(p.to)} ${n0(p.v)}`).join(" → ")}</p>
         </>
       )}
       {two.length > 0 && (
@@ -114,7 +115,7 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
             <>
               {r.kind === "artist" && r.trackedId && !r.roster && (
                 <section className="ard-sec ard-role" data-drawer-type>
-                  <span className="ard-role-l">They're</span>
+                  <span className="ard-role-l">Type</span>
                   <span className="ard-role-pick" role="radiogroup" aria-label="Artist or producer">
                     {["artist", "producer"].map((k) => {
                       const on = typeOf(r) === k;
@@ -122,11 +123,13 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
                         onClick={() => (!on || r.typeKnown === false) && act({ action: "setRole", id: r.trackedId, role: k }, k === "producer" ? `${r.name} is a Producer.` : `${r.name} is an Artist.`)}><i aria-hidden="true" />{TYPE_LABEL[k]}</button>;
                     })}
                   </span>
-                  {r.typeKnown === false && <span className="hint ard-role-h" data-role-default>Shown as Artist until someone picks.</span>}
+                  {r.typeKnown === false && <span className="hint ard-role-h" data-role-default>Nobody has picked yet.</span>}
                 </section>
               )}
               <section className="ard-sec" data-drawer-who>
                 <Links links={r.links} />
+                {/* r11 fix: two lists, named: the team's Watchlist (who added it) and your own My A&R */}
+                <h4 className="ard-who-h">Team watchlist</h4>
                 <ul className="ard-who">
                   {r.addedBy.map((w) => (
                     <li key={w.entryId} data-entry={w.entryId}>
@@ -147,7 +150,7 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
                           ) : (
                             <button type="button" className="btn ghost sm err-text" disabled={busy} data-remove-entry
                               onClick={() => { if (w.id !== me) { setAskOff(w.entryId); return; } act({ action: "remove", entryId: w.entryId }, "Taken off your list.").then(() => { if (r.addedBy.length === 1) onClose(); }); }}>
-                              {w.id === me ? "Remove from my list" : w.id === "team:luminate" ? "Take it off the list" : `Take off ${w.name}'s list`}
+                              {w.id === me ? "Remove from my list" : w.id === "team:luminate" ? "Take off" : `Take off ${w.name}'s list`}
                             </button>
                           )}
                         </span>
@@ -156,8 +159,8 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
                   ))}
                 </ul>
                 {!mine && !r.tracking.roster && (
-                  <p className="hint">Not on your list yet.{" "}
-                    <button type="button" className="btn ghost sm" disabled={busy} onClick={() => act({ action: "addMine", subject: r.key }, "On your list too, for 30 days.")} data-add-mine>Add to my list</button></p>
+                  <p className="hint ard-mine"><b>My A&amp;R:</b> not on it yet.{" "}
+                    <button type="button" className="btn ghost sm" disabled={busy} onClick={() => act({ action: "addMine", subject: r.key }, "On your list too, for 30 days.")} data-add-mine>Add to My A&amp;R</button></p>
                 )}
               </section>
 

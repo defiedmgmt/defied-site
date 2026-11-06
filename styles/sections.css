@@ -24,3 +24,14 @@
   .app:not(.pub) .isrc-table td.isrc-col{min-width:0}
   .app:not(.pub) .isrc-in input{width:100%;flex:1 1 160px}
 }
+
+/* r11 fix: the ISRC finder in the app's own look: inputs like every other field, song names in full white, the row's
+   cells centred on the input and Save; the count line under To do's head is for screen readers only (the head says it) */
+.app:not(.pub) .isrc-count-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.app:not(.pub) .isrc-table th,.app:not(.pub) .isrc-table td{vertical-align:middle}
+.app:not(.pub) .isrc-song b{color:var(--d-ink,#fff);font-weight:500}
+.app:not(.pub) .isrc-in input{height:var(--d-ctl-sm,32px);padding:0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm,8px);background:var(--d-field);color:var(--d-ink);
+  font:500 13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;-webkit-appearance:none;appearance:none}
+.app:not(.pub) .isrc-in input::placeholder{color:var(--d-ph);font-family:var(--d-body,inherit);font-weight:400}
+.app:not(.pub) .isrc-in input:focus{outline:none;border-color:#f5f5f5;box-shadow:0 0 0 3px rgba(255,255,255,.08)}
+.app:not(.pub) .isrc-more{align-self:center;min-height:44px}

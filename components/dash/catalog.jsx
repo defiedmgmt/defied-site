@@ -16,6 +16,7 @@ import { ExtLink, Photo } from "../shared/ui";
 import { SectionWait } from "./sections";
 import { findByName, ownSplit } from "../site/data";
 import { normalizeTitle, splitsToConfirm, fullSiteSync } from "./catalog-data";
+import { dashCache } from "../shared/dash-caches";
 export { normalizeTitle, isSheetSyncStale, fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
 // the Advance calculator reads A&R's sheet (advance.jsx, with A&R's code): its own chunk, loaded when it opens (list B #11)
 const AdvanceTab = dynamic(() => import("./advance").then((m) => m.AdvanceTab), { ssr: false, loading: SectionWait });
@@ -480,6 +481,15 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   // Our fee show; Net streams, Their earnings and the share of the roster's fee wait behind "More columns"
   // (r7: the 3-year forecast lives on the Advance calculator)
   const { growth } = useGrowthState();
+  // r11 fix: until there's a week of daily Spotify numbers, This week is Luminate's newest week, the same one the
+  // Dashboard's This week › Artists shows (GET /api/growth?top=1, shared through dashCache), named on the column
+  const [lumTop, setLumTop] = useState(() => dashCache.top || null);
+  useEffect(() => {
+    if (lumTop) return undefined;
+    let alive = true;
+    fetch("/api/growth?top=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (alive && d?.top) { dashCache.top = d.top; setLumTop(d.top); } }).catch(() => {});
+    return () => { alive = false; };
+  }, [lumTop]);
   // auto: the opening order (This week); with no weekly numbers at all it falls back to Streams (list A 1)
   const [sort, setSort] = useState({ col: "week", dir: -1, auto: true });
   const [more, setMore] = useState(false);
@@ -489,6 +499,9 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
     const end = ws.map((w) => w.weekOf?.to).filter(Boolean).sort().pop();
     if (end) ws = ws.filter((w) => !w.weekOf || w.weekOf.to === end);
     if (!ws.length) return null;
+    return sumWeek(ws);
+  };
+  const sumWeek = (ws) => {
     const t = ws.reduce((a, w) => a + w.thisWeek, 0), l = ws.reduce((a, w) => a + w.lastWeek, 0);
     // under 1,000 streams this week a % says little (1 → 2 is "▲ 100%"): streams only, as on the Dashboard
     return { thisWeek: t, wowPct: l > 0 && t >= WEEK_PCT_MIN ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null };
@@ -501,7 +514,11 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   // Songs = the songs on the site for that writer (the client list's count beside it); the sheet's own
   // count, when it differs, is said under it (a song the site has that isn't on the writer's tab yet)
   const siteSongs = (client, r) => (client ? db.placements.filter((p) => p.clientId === client.id).length : r.songs);
-  const rows = (state.data?.rows || []).map((r) => { const client = findClient(r); return { r, client, wk: weekOf(client), songs: siteSongs(client, r) }; });
+  const spotRows = (state.data?.rows || []).map((r) => { const client = findClient(r); return { r, client, wk: weekOf(client), songs: siteSongs(client, r) }; });
+  const lumWeek = !spotRows.some((x) => x.wk) && lumTop?.source === "luminate" ? lumTop : null;
+  const lumOf = (client) => { const a = client && lumWeek?.artists?.find((x) => x.clientId === client.id); return a ? { thisWeek: a.thisWeek, wowPct: a.ranked ? a.wowPct : null, weekOf: a.weekOf || null, lum: true } : null; };
+  const rows = lumWeek ? spotRows.map((x) => ({ ...x, wk: lumOf(x.client) })) : spotRows;
+  const lumLabel = lumWeek ? String(lumWeek.artistsLabel || "").replace(/^Luminate · /, "") : "";
   const name = (x) => (x.client ? x.client.name : x.r.writer).toLowerCase();
   const noWeeks = !rows.some((x) => x.wk);
   const by = sort.auto && sort.col === "week" && noWeeks ? { col: "gross", dir: -1 } : sort; // the column the rows follow
@@ -532,7 +549,8 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
       </div>
       <p className="hint overview-subhint">
         {streamsAsOf({ lumDay: songInfo?.lumLastDay, pulledAt: db.sheetSync?.lastSyncedAt, sheet: songInfo?.streamSheet })}
-        {span && <span className="overview-week"> · This week = Spotify streams, {dayRange(span.from, span.to)} vs the week before</span>}
+        {span && !lumWeek && <span className="overview-week"> · This week = Spotify streams, {dayRange(span.from, span.to)} vs the week before</span>}
+        {lumWeek && lumLabel && <span className="overview-week" data-lum-week> · This week = Luminate streams, all platforms, {lumLabel}</span>}
       </p>
       <p className="hint overview-subhint" data-stream-data-note>{songInfo?.streamSheet?.text || "Sheet streams: Luminate's last numbers"}</p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
@@ -569,7 +587,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
                     <th key={id} data-col={id} aria-sort={by.col === id ? (by.dir < 0 ? "descending" : "ascending") : undefined}>
                       <button className={by.col === id ? "ar-sort on" : "ar-sort"} onClick={() => setSort(() => ({ col: id, dir: by.col === id ? -by.dir : id === "writer" ? 1 : -1 }))}>{label}{by.col === id ? (by.dir < 0 ? "\u00a0▼" : "\u00a0▲") : ""}</button>
                       {/* which week it is, right on the column */}
-                      {id === "week" && span && <span className="master-week-of">{dayRange(span.from, span.to)} vs the week before</span>}
+                      {id === "week" && (lumWeek ? lumLabel && <span className="master-week-of" data-week-of="luminate">Luminate · {lumLabel}</span> : span && <span className="master-week-of">{dayRange(span.from, span.to)} vs the week before</span>)}
                     </th>
                   ))}
                 </tr>

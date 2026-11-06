@@ -19,6 +19,9 @@ const Dash = ({ why }) => <span className="arg-dash" title={why || ""} data-why=
 export function MetricCell({ c, label, colAsOf }) {
   if (!c || c.none) return <Dash why={c?.none || "Needs a first reading"} />;
   const old = colAsOf && nyDayOf(c.at) < nyDayOf(colAsOf);
+  // r11 fix: in the table a song still to confirm is just its one reading and its day ("61,508 · Nov 4"); why it isn't
+  // tracked is in the tooltip and on its Confirm chip (the drawer keeps the words)
+  if (colAsOf && c.untracked) return <span className="arg-num" title={`${label} · ${n0(c.v)} · ${atText(c.at)} · ${c.src} · Confirm the match to track it daily`} data-v={c.v} data-untracked-cell>{n0(c.v)} <span className="arg-oldday">· {dayText(c.at)}</span></span>;
   return (
     <span className="arg-num" title={`${label} · ${n0(c.v)}${c.approx ? " (rounded)" : ""} · ${atText(c.at)} · ${c.src}`} data-v={c.v}>
       {old && <Clock size={11} className="arg-old" aria-label={`From ${dayText(c.at)}`} />}

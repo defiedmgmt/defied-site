@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { RefreshCw, CheckCircle2, Search } from "lucide-react";
 import { CardTable } from "../ui/responsive";
 import { songsWithoutIsrc } from "./isrc-data";
-import { IsrcPicks, songsPost } from "./helpers";
+import { IsrcPicks, songsPost, useMedia } from "./helpers";
 import { fmt } from "./ui";
 import { ExtLink } from "../shared/ui";
 
@@ -37,6 +37,10 @@ export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
     return list.sort((a, b) => sort.dir * k(a).localeCompare(k(b)) || a.song.localeCompare(b.song));
   }, [all, kept, sort, name]); // eslint-disable-line react-hooks/exhaustive-deps
   const open = rows.filter((g) => !res[g.key]?.isrc);
+  // r11 fix: on a phone the first 20 (136 cards were about 25,000px), "Show more" for the next 20
+  const phone = useMedia("(max-width: 639px)");
+  const [limit, setLimit] = useState(20);
+  const shownRows = phone ? rows.slice(0, limit) : rows;
   const onSort = (col) => setSort((s) => (s.col === col ? { col, dir: -s.dir } : { col, dir: 1 }));
 
   const find = async () => {
@@ -98,7 +102,7 @@ export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
   return (
     <div className="isrc-page" data-isrc-page>
       <div className="isrc-head">
-        <p className="isrc-count" data-isrc-count={open.length}>{open.length ? <><b>{fmt(open.length)}</b> song{open.length === 1 ? "" : "s"} with no ISRC</> : <><CheckCircle2 size={15} /> Every song has its ISRC.</>}</p>
+        <p className={`isrc-count${open.length ? " isrc-count-sr" : ""}`} data-isrc-count={open.length}>{open.length ? <><b>{fmt(open.length)}</b> song{open.length === 1 ? "" : "s"} with no ISRC</> : <><CheckCircle2 size={15} /> Every song has its ISRC.</>}</p>
         <span className="isrc-acts">
           {open.length > 0 && <button type="button" className="btn sm" data-find-isrcs disabled={!!busy} onClick={find}>{busy === "find" ? <><RefreshCw size={14} className="spin" /> Looking…</> : <><Search size={14} /> Find ISRCs</>}</button>}
           <ExtLink className="btn ghost sm" href={IFPI}>IFPI search ↗</ExtLink>
@@ -106,7 +110,8 @@ export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
       </div>
       <p className="hint">The finder searches Spotify first, then Deezer and MusicBrainz. Tap the right song, or type the ISRC.</p>
       {note && <p className="hint err-text" role="alert">{note}</p>}
-      {rows.length > 0 && <CardTable cols={cols} rows={rows} rowKey={(g) => g.key} sort={sort} onSort={onSort} className="isrc-table" data-isrc-table="" />}
+      {rows.length > 0 && <CardTable cols={cols} rows={shownRows} rowKey={(g) => g.key} sort={sort} onSort={onSort} className="isrc-table" data-isrc-table="" />}
+      {phone && rows.length > shownRows.length && <button type="button" className="btn ghost sm isrc-more" data-isrc-more onClick={() => setLimit((n) => n + 20)}>Show {Math.min(20, rows.length - shownRows.length)} more ({fmt(rows.length - shownRows.length)} left)</button>}
     </div>
   );
 }
