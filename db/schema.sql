@@ -863,3 +863,23 @@ ON CONFLICT (id) DO NOTHING;
 -- in the paste box. A roster row takes clients.role instead. Additive and idempotent: one nullable column, no
 -- default, no backfill (the old A&R rows carry no producer flag: checked on the real preview data, 2026-11-05).
 ALTER TABLE ar_tracked ADD COLUMN IF NOT EXISTS role text;
+
+-- 019-ar-confirmed-entities.sql (r11 fix): an old-list artist's confirmed match is tracked on its l:<Luminate id> entity
+UPDATE data_entities e
+   SET active = true,
+       origins = CASE WHEN e.origins @> '["watchlist"]'::jsonb THEN e.origins ELSE e.origins || '["watchlist"]'::jsonb END,
+       updated_at = now()
+  FROM ar_tracked t
+  JOIN lum_history h ON h.lum_id = t.luminate_id AND h.kind = 'artist'
+ WHERE e.id = h.entity_id AND e.id LIKE 'l:%' AND e.kind = 'artist'
+   AND t.kind = 'artist' AND t.match = 'confirmed' AND t.removed_at IS NULL AND t.spotify <> ''
+   AND NOT (e.active AND e.origins @> '["watchlist"]'::jsonb);
+INSERT INTO data_links (entity_id, platform, ref, url)
+SELECT h.entity_id, 'spotify', substring(t.spotify from 'artist/([A-Za-z0-9]{22})'),
+       'https://open.spotify.com/artist/' || substring(t.spotify from 'artist/([A-Za-z0-9]{22})')
+  FROM ar_tracked t
+  JOIN lum_history h ON h.lum_id = t.luminate_id AND h.kind = 'artist'
+  JOIN data_entities e ON e.id = h.entity_id
+ WHERE h.entity_id LIKE 'l:%' AND t.kind = 'artist' AND t.match = 'confirmed' AND t.removed_at IS NULL
+   AND substring(t.spotify from 'artist/([A-Za-z0-9]{22})') IS NOT NULL
+ON CONFLICT (entity_id, platform) DO NOTHING;

@@ -8,6 +8,7 @@ import { HomeWait, monthName } from "./home-data";
 import { fmt, money, useEscape } from "./ui";
 import { AskCard } from "../portal/ask";
 import { ExtLink } from "../shared/ui";
+import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 
 // "Nov", "Oct": this month and the one before, from the day the page is viewed
 const monthShort = (offset) => { const d = new Date(); d.setDate(15); d.setMonth(d.getMonth() + offset); return d.toLocaleDateString("en-US", { month: "short" }); };
@@ -88,7 +89,7 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
       {x.details && onDetails && !done && <> <button className="inline-link" data-skip-details={x.id} onClick={() => { onClose(); onDetails(x.id); }}>Log with details</button></>}</li>
   ))}</ul>;
   let body;
-  if (!canLog) body = <p className="home-muted" data-log-off><AlertTriangle size={15} /> Logging from the dashboard isn't switched on yet. For now, add {ids.length === 1 ? "it" : "them"} in the sheet as a new row with the full amount paid.</p>;
+  if (!canLog) body = <p className="home-muted" data-log-off><AlertTriangle size={15} /> {PREVIEW ? PREVIEW_OFF : <>Logging from the dashboard isn't switched on yet. For now, add {ids.length === 1 ? "it" : "them"} in the sheet as a new row with the full amount paid.</>}</p>;
   else if (done) {
     body = done.error && !done.logged?.length ? <p className="home-muted"><AlertTriangle size={15} /> {done.error}</p> : (
       <>
@@ -319,7 +320,7 @@ function AcctToLog({ d, onLog, onPick }) {
   return (
     <div className="fix-panel acct-panel" data-acct="log">
       <div className="fix-head"><h3>To log ({U.length})</h3>
-        <span className="hint">{d.toLog.canLog ? "Log it shows the row, then adds it to the Income tab. Log with details is for studio work or a payer not on INFO." : "Logging from here isn't switched on yet. Add each one to the sheet as a new row with the full amount paid."}</span></div>
+        <span className="hint">{d.toLog.canLog ? "Log it shows the row, then adds it to the Income tab. Log with details is for studio work or a payer not on INFO." : PREVIEW ? PREVIEW_OFF : "Logging from here isn't switched on yet. Add each one to the sheet as a new row with the full amount paid."}</span></div>
       <div className="fix-sub"><span className="fix-client">{money(d.toLog.total)} paid in total{need ? <span className="acct-via"> · {need} {need === 1 ? "needs" : "need"} details</span> : null}</span>
         {easy.length > 1 && <button className="btn sm" data-log-all onClick={() => onLog(easy.map((p) => p.id))}>Log all {easy.length}</button>}</div>
       {U.map((p) => (
@@ -353,7 +354,7 @@ function LogDetails({ p, options, canLog, onClose, onNext }) {
   return (
     <AskCard title="Log with details" goLabel="Check the row" plain goDisabled={need || !type} onClose={onClose} go={() => { if (!need && type) onNext({ [p.id]: { type, client } }); }}>
       <p>{shortDay(p.at)} · {p.client || p.payer || "Unknown payer"} · {money(p.amount)} paid. The full amount goes in Gross Commission; the sheet works out the shares.</p>
-      {!canLog && <p className="hint">Logging from the dashboard isn't switched on yet, so the next step only says so.</p>}
+      {!canLog && <p className="hint">{PREVIEW ? PREVIEW_OFF : "Logging from the dashboard isn't switched on yet, so the next step only says so."}</p>}
       <label className="fld"><span>Revenue Type</span>
         <select data-pick-type value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t} value={t}>{t}</option>)}</select></label>
       <label className="fld"><span>Artist / Client</span>

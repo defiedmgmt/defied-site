@@ -11,6 +11,7 @@ import { dataPost } from "./chips";
 import { DropNote, Field, fmt, money } from "./ui";
 import { AskCard } from "../portal/ask";
 import { ExtLink } from "../shared/ui";
+import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 import { syncFix } from "./todo-data";
 import { PanelWait } from "./sections";
 export { useCuTasks, useSyncChecks, todoItems, useSplitFixes, useAutoConfirm, syncFix, useSeeds } from "./todo-data";
@@ -142,7 +143,7 @@ function ShareFix({ kind, ctx, viaCta = false }) {
         <AskCard title={items.length === 1 ? "Fill in the sheet's blank share?" : `Fill in ${items.length} blank shares?`} goLabel={items.length === 1 ? "Fill in 100%" : `Fill in ${items.length}`} busyLabel="Writing…" plain goDisabled={!writes} go={fill} onClose={() => setAsk(false)}>
           <p data-ask-writes>Writes 100% into the Writer Share cell only ({cells.join("; ")}). Nothing else on the sheet changes. The song's earnings on the sheet go up with it.</p>
           <ul className="ask-places">{items.map((x) => <li key={x.p.id}>{x.p.song || "Untitled"} ({x.client.name}): blank → 100%</li>)}</ul>
-          {!writes && <p className="hint" data-ask-off>Writing to the pub sheet from here isn't switched on yet. Type 100% into {cells.length === 1 ? "that cell" : "those cells"} instead.{fixes?.data?.sheetUrl && <> <ExtLink className="inline-link" href={fixes.data.sheetUrl}>Open the sheet ↗</ExtLink></>}</p>}
+          {!writes && <p className="hint" data-ask-off>{PREVIEW ? PREVIEW_OFF : <>Writing to the pub sheet from here isn't switched on yet. Type 100% into {cells.length === 1 ? "that cell" : "those cells"} instead.</>}{fixes?.data?.sheetUrl && <> <ExtLink className="inline-link" href={fixes.data.sheetUrl}>Open the sheet ↗</ExtLink></>}</p>}
         </AskCard>
       )}
     </div>
@@ -298,7 +299,7 @@ export function CuTodoRow({ t, cu }) {
         <em>{[list?.name, t.people?.length ? t.people.map((p) => p.name).join(", ") : null, t.due && `${b === "overdue" ? "Late · was due" : "Due"} ${nyShort(t.due)}`, t.priority && t.priority !== "normal" && `${PRIORITY[t.priority] || t.priority} priority`].filter(Boolean).join(" · ")}</em>
         {err && <em className="err-text" role="alert">{err}</em>}
       </span>
-      <button type="button" className="btn ghost sm" data-done={t.id} disabled={busy || !writes} title={writes ? "Set it to done in ClickUp" : "Writing to ClickUp isn't switched on yet"} onClick={done}>{busy ? "Saving…" : "Done ✓"}</button>
+      <button type="button" className="btn ghost sm" data-done={t.id} disabled={busy || !writes} title={writes ? "Set it to done in ClickUp" : PREVIEW ? PREVIEW_OFF : "Writing to ClickUp isn't switched on yet"} onClick={done}>{busy ? "Saving…" : "Done ✓"}</button>
     </div>
   );
 }
@@ -318,7 +319,7 @@ function NewTaskCard({ cu, onClose }) {
   };
   return (
     <AskCard title="New ClickUp task" goLabel="Add task" busyLabel="Adding…" plain goDisabled={!f.name.trim() || !cu.data?.writes} go={go} onClose={onClose}>
-      {!cu.data?.writes && <p className="hint">Writing to ClickUp isn't switched on yet.</p>}
+      {!cu.data?.writes && <p className="hint">{PREVIEW ? PREVIEW_OFF : "Writing to ClickUp isn't switched on yet."}</p>}
       <Field label="Name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} data-new-name autoFocus />
       <label className="fld"><span>List</span>
         <select data-new-list value={f.list} onChange={(e) => setF({ ...f, list: e.target.value })}>{lists.map((l) => <option key={l.key} value={l.key}>{l.name}</option>)}</select></label>

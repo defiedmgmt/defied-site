@@ -43,6 +43,8 @@ const fontCache = [{ key: "Cache-Control", value: "public, max-age=31536000, imm
 const assetCache = [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }];
 
 const nextConfig = {
+  // r11 fix: "1" on every build but the live site's production one (lib/preview.js: a preview says its saves are off)
+  env: { DEFIED_PREVIEW: process.env.VERCEL_ENV === "production" ? "" : "1" },
   // no "X-Powered-By: Next.js" header on every response
   poweredByHeader: false,
   // Back/Forward land where the visitor left each page (Next keeps the offset per history
