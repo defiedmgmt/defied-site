@@ -179,6 +179,7 @@ never values.
 | Name | What it's for |
 |---|---|
 | `MIGRATE_ON_BUILD` | `off` skips the build's migrations. `on` runs them on a non-production or local build. |
+| `DEFIED_PREVIEW` | Never set by hand: `next.config.js` makes it at build time from Vercel's own `VERCEL_ENV` (`""` on the live production build, `"1"` on every other build). On a preview a write whose gate is off says "Saves are off in this preview. They turn on when we go live." (lib/preview.js). |
 | `VERCEL`, `VERCEL_ENV` | Set by Vercel. The build's migrations run only when `VERCEL_ENV` is `production`. |
 | `VERCEL_PROJECT_PRODUCTION_URL` | Set by Vercel. With no `DATA_HOOK_URL`, Apify calls back to `https://<this>/api/data-hook`. |
 | `NODE_ENV` | Set by Next. Secure cookies in production. |
