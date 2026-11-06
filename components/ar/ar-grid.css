@@ -327,7 +327,7 @@
   .app:not(.pub) .ar:has(> .arh) { display: flex; flex-direction: column; height: calc(100dvh - 52px); }
   .app:not(.pub):has(> .storage-warn) .ar:has(> .arh) { height: calc(100dvh - 52px - var(--d-ban-h)); }
   .app:not(.pub) .ar > .arh { flex: 1 1 auto; min-height: 0; align-items: stretch; }
-  .arh-main { display: grid !important; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); min-height: 0; }
+  .arh-main { display: grid !important; grid-template-rows: minmax(min-content, 1fr) minmax(min-content, 1fr); min-height: 0; }
   .arh-side { min-height: 0; }
   .app:not(.pub) .arh .arh-card { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   .app:not(.pub) .arh .arh-card > .attn-head { flex: none; }
