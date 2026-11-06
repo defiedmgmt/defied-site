@@ -337,7 +337,7 @@
   .app:not(.pub) .arh [data-adds] .arh-week { flex: 1 1 auto; min-height: 0; }
   .app:not(.pub) .arh [data-adds] .arh-bars { flex: 1 1 auto; height: auto; min-height: 110px; }
   /* the rows spread over the card's height (up to 60px each) instead of leaving its bottom empty */
-  .app:not(.pub) .arh .arh-half > .gainer { flex: 0 1 60px; min-height: 46px; }
+  .app:not(.pub) .arh .arh-half > .gainer { flex: 1 1 46px; min-height: 46px; max-height: 60px; }
 }
 @media (min-width: 761px) { .app:not(.pub) .arh [data-week-section] { min-height: 300px; } }
 @media (max-width: 639px) {
@@ -349,3 +349,6 @@
 /* the drawer's two lists, named (r11 fix) */
 .ard-who-h { margin: 10px 0 2px; font: 600 11px/1.2 var(--d-body, inherit); text-transform: uppercase; letter-spacing: .06em; color: var(--d-ink-4, #777); }
 .ard-mine b { color: var(--d-ink-2, #d4d4d4); font-weight: 600; }
+/* r11 fix: the confirmed old-list artists now show their numbers ("192,100 · Nov 4"), so the cells are 1px
+   tighter at the sides and the default columns still fit 1440 with no sideways scroll */
+@media (max-width: 1600px) { .arg-table td, .arg-table th { padding-left: 5px; padding-right: 5px; } }
