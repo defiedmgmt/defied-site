@@ -11,7 +11,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { TrendingUp, CalendarRange, UserPlus, Clock, Info, Disc3 } from "lucide-react";
 import { WowPill } from "../dash/chips";
 import { thumb } from "../shared/ui";
-import { n0, signed, dayText, atText, post, spanText, typeOf, TYPE_LABEL, weekLists } from "./fmt";
+import { n0, dayText, atText, post, spanText, typeOf, TYPE_LABEL, weekSections, ROW_LABEL, moverSub, moverAmount } from "./fmt";
 
 const SPARK_COLORS = ["var(--d-chart-1, #7aa2f7)", "var(--d-chart-2, #9ece6a)", "var(--d-chart-3, #e0af68)", "var(--d-chart-4, #bb9af7)", "var(--d-chart-5, #7dcfff)", "var(--d-chart-6, #f7768e)"];
 
@@ -33,10 +33,16 @@ function Weights({ w, canEdit, onSaved }) {
 
 // adds per week: stacked bars, one colour per person, inline SVG
 function AddsChart({ data }) {
-  const { weeks = [], people = [] } = data || {};
+  const { people = [] } = data || {};
+  // r11 fix: the last 6 weeks, labels readable at 11px; with only one week that has adds, one line says it instead
+  const weeks = (data?.weeks || []).slice(-6);
   const tot = weeks.map((w) => Object.values(w.by).reduce((a, n) => a + n, 0));
   const max = Math.max(1, ...tot);
-  const W = 320, H = 78, bw = (W - 20) / Math.max(1, weeks.length) - 6; // r11: small, under the adds
+  if (tot.filter((t) => t > 0).length <= 1) {
+    const i = tot.length - 1;
+    return <p className="arh-adds-line" data-adds-chart data-adds-line>This week {tot[i] || 0} · last week {tot[i - 1] || 0} <em>· the old list isn't counted</em></p>;
+  }
+  const W = 260, H = 96, bw = (W - 20) / Math.max(1, weeks.length) - 8;
   return (
     <div className="arh-chart" data-adds-chart>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Adds per week">
@@ -56,15 +62,12 @@ function AddsChart({ data }) {
           );
         })}
       </svg>
-      <p className="arh-legend">{people.map((p, j) => <span key={p.id}><i style={{ background: SPARK_COLORS[j % SPARK_COLORS.length] }} />{p.name}</span>)}{!people.length && "No adds in the last 8 weeks."} <em>The Luminate import isn't counted.</em></p>
+      <p className="arh-legend">{people.map((p, j) => <span key={p.id}><i style={{ background: SPARK_COLORS[j % SPARK_COLORS.length] }} />{p.name}</span>)}{!people.length && "No adds in the last 6 weeks."} <em>Old list not counted.</em></p>
     </div>
   );
 }
 
-// what the number under a pill counts ("+609 followers")
-const UNIT = { listeners: "listeners", streams: "streams", spfollowers: "followers", tiktok: "followers", instagram: "followers", youtube: "subscribers", videos: "videos" };
-// a row's grey line names its number short (the unit under the pill says the rest: "+609 followers")
-const ROW_LABEL = { listeners: "Listeners", streams: "Streams", spfollowers: "Spotify followers", tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", videos: "Sound videos" };
+// (a row's words, ROW_LABEL / UNIT / moverSub / moverAmount, are in fmt.js: the Dashboard's A&R tab uses them too)
 // the week card's metric switch, short (the server's tabs, in its order)
 const SHORT_TAB = { streams: "Streams", listeners: "Listeners", tiktok: "TikTok", instagram: "Instagram", youtube: "YouTube", videos: "Sounds" };
 const N = 5;
@@ -81,15 +84,21 @@ function MoverRow({ x, i, sub, onOpen, attr, title = null }) {
         {x.image ? <img src={thumb(x.image, 96)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /> : round ? String(x.name || "?").slice(0, 1).toUpperCase() : <Disc3 size={16} />}
       </span>
       <span className="lm-song-main"><strong>{x.name}</strong><span>{sub}</span></span>
-      <span className="gainer-num" data-wow={x.pct >= 0 ? "up" : "down"}><WowPill pct={x.pct} /><em>{signed(x.d)} {UNIT[x.metric] || ""}</em></span>
+      <span className="gainer-num" data-wow={x.pct >= 0 ? "up" : "down"}><WowPill pct={x.pct} /><em>{moverAmount(x)}</em></span>
     </button>
   );
 }
-function Half({ title, list, kind, empty, row }) {
+function Half({ title, list, kind, empty, row, sections = null }) {
   return (
     <div className="arh-half" data-half={kind}>
       <h4 className="arh-half-h">{title}</h4>
-      {list.length ? list.map(row) : <p className="arh-none" data-none={kind}>{empty}</p>}
+      {sections ? sections.map((s, j) => (
+        // r11 fix: each pair of weeks ranked on its own, an older pair under its own small line
+        <React.Fragment key={s.weeks || "live"}>
+          {s.lum && (j > 0 || sections.length > 1 || sections[0].lum) && <p className="arh-weeks" data-weeks-head={s.weeks}>{j > 0 ? `Older week · ${s.weeks}` : s.weeks}</p>}
+          {s[kind].length ? s[kind].map(row) : <p className="arh-none" data-none={kind}>{empty}</p>}
+        </React.Fragment>
+      )) : list.length ? list.map(row) : <p className="arh-none" data-none={kind}>{empty}</p>}
     </div>
   );
 }
@@ -98,7 +107,7 @@ function Half({ title, list, kind, empty, row }) {
 function DayCard({ day, onOpen }) {
   const reads = day.mode === "readings";
   const span = spanText(day.span?.from, day.span?.to);
-  const row = (x, i) => <MoverRow key={`${x.key}|${x.metric}`} x={x} i={i} onOpen={onOpen} attr={{ "data-mover": x.key }} sub={`${ROW_LABEL[x.metric] || x.label} · ${n0(x.from)} → ${n0(x.to)}`} />;
+  const row = (x, i) => <MoverRow key={`${x.key}|${x.metric}`} x={x} i={i} onOpen={onOpen} attr={{ "data-mover": x.key, ...(x.approx ? { "data-approx": "" } : {}) }} sub={moverSub(x)} />;
   const none = (dir) => `Nothing ${dir} past the size floors.`;
   return (
     <div className="gainers home-card arh-card" data-day-movers>
@@ -116,38 +125,48 @@ function DayCard({ day, onOpen }) {
   );
 }
 
-// Week on week, one metric at a time (weekLists in fmt.js: readings 7 days apart first, then Luminate's weeks)
-function WeekCard({ movers, onOpen }) {
+// Week on week, one metric at a time. Readings 7 days apart first; until then Streams is each row's last real Luminate
+// week, each pair of weeks ranked on its own (weekSections in fmt.js). A metric with nothing yet is greyed in the
+// switch ("from Nov 11"; Sounds: "add a sound first"), and the card keeps its height whichever is picked.
+function WeekCard({ movers, onOpen, sounds }) {
   const tabs = movers?.tabs || [];
   const [tab, setTab] = useState("streams");
-  const wk = movers?.week?.[tab] || { up: [], down: [] };
-  const { up, down, pairs, live } = weekLists(wk);
-  // one pair of Luminate weeks: named once, in the grey line; more than one: on each row
-  const perRow = pairs.length > 1 || (pairs.length && live);
-  const grey = !up.length && !down.length ? ""
-    : pairs.length && !live ? `Luminate · ${perRow ? "each row's week vs the week before" : pairs[0]} · all platforms${movers?.weekFrom ? ` · Spotify from ${movers.weekFrom}` : ""}`
-    : `${SHORT_TAB[tab]} · readings 7 days apart${pairs.length ? " · Luminate weeks where there's no Spotify yet" : ""}`;
+  const has = (id) => { const w = movers?.week?.[id]; return !!w && ((w.up || []).length + (w.down || []).length + (w.groups || []).reduce((a, g) => a + g.up.length + g.down.length, 0)) > 0; };
+  const later = (id) => (id === "videos" && !sounds ? "add a sound first" : movers?.weekFrom ? `from ${movers.weekFrom}` : "needs a week of readings");
+  const secs = weekSections(movers?.week?.[tab] || { up: [], down: [] });
+  const lumOnly = secs.length > 0 && secs.every((x) => x.lum);
+  const grey = !secs.length ? "" : lumOnly ? `Luminate weeks, all platforms.${movers?.weekFrom ? ` Spotify week on week starts ${movers.weekFrom}.` : ""}`
+    : `${SHORT_TAB[tab]} · readings 7 days apart${secs.some((x) => x.lum) ? " · then Luminate weeks where there's no Spotify yet" : ""}`;
   const row = (x, i) => (
     <MoverRow key={`${x.key}|${x.metric}`} x={x} i={i} onOpen={onOpen} attr={{ "data-week-mover": x.key, ...(x.lum ? { "data-lum": x.weeks } : {}) }}
-      sub={x.lum ? `${perRow ? x.weeks.split(" vs ")[0] : "Streams"} · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}` : `${ROW_LABEL[x.metric] || x.label} · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}`}
+      sub={x.lum ? `Streams · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}` : `${ROW_LABEL[x.metric] || x.label} · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}`}
       title={x.lum ? `${x.name} · Luminate streams, all platforms · ${x.weeks}: ${n0(x.lastWeek)} → ${n0(x.thisWeek)}` : null} />
   );
+  const none = tab === "videos" && !sounds ? "Add a TikTok sound to the Watchlist first: its video count is tracked from then on."
+    : `${SHORT_TAB[tab] || "This"} week on week needs readings 7 days apart${movers?.weekFrom ? `: it starts ${movers.weekFrom}` : ""}.`;
   return (
     <div className="gainers home-card arh-card" data-week-section>
       <div className="attn-head"><CalendarRange size={15} /> Week on week
-        <span className="gainer-tabs arh-wtabs" role="tablist" aria-label="Week on week" data-m-scroll>
-          {tabs.map(([id]) => <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)} data-week-tab={id}>{SHORT_TAB[id] || id}</button>)}
+        <span className="gainer-tabs arh-wtabs" role="tablist" aria-label="Week on week">
+          {tabs.map(([id]) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} className={`${tab === id ? "active" : ""}${has(id) ? "" : " arh-wtab-later"}`} onClick={() => setTab(id)} data-week-tab={id}
+              data-later={has(id) ? undefined : later(id)} title={has(id) ? undefined : `${SHORT_TAB[id] || id}: ${later(id)}`}>{SHORT_TAB[id] || id}</button>
+          ))}
         </span>
+        {/* on a phone: one compact select instead of six tabs that don't fit */}
+        <select className="arh-wselect" aria-label="Week on week" value={tab} onChange={(e) => setTab(e.target.value)} data-week-select>
+          {tabs.map(([id]) => <option key={id} value={id}>{SHORT_TAB[id] || id}{has(id) ? "" : ` (${later(id)})`}</option>)}
+        </select>
       </div>
-      {up.length || down.length ? (
+      {secs.length ? (
         <>
           <p className="gainer-sub" data-week-sub>{grey}</p>
           <div className="arh-halves">
-            <Half title="Up" kind="up" list={up} empty="Nothing rose week on week." row={row} />
-            <Half title="Down" kind="down" list={down} empty="Nothing fell week on week." row={row} />
+            <Half title="Up" kind="up" sections={secs} empty="Nothing rose." row={row} />
+            <Half title="Down" kind="down" sections={secs} empty="Nothing fell." row={row} />
           </div>
         </>
-      ) : <p className="gainers-empty" data-week-empty>Needs readings 7 days apart{movers?.weekFrom ? ` (from ${movers.weekFrom})` : ""}.</p>}
+      ) : <p className="gainers-empty" data-week-empty>{none}</p>}
     </div>
   );
 }
@@ -230,7 +249,7 @@ export function ArHome({ data, err, retry, onOpen, founder, reload }) {
   return (
     <div className="arh" data-ar-home>
       <div className="arh-main">
-        <WeekCard movers={data.movers} onOpen={onOpen} />
+        <WeekCard movers={data.movers} onOpen={onOpen} sounds={(data.tiles?.sounds || 0) > 0} />
         <DayCard day={day} onOpen={onOpen} />
       </div>
       <div className="arh-side">

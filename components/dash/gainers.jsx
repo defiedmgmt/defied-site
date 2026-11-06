@@ -6,7 +6,7 @@ import { dashCache } from "../shared/dash-caches";
 import { Photo } from "../shared/ui";
 import { dayRange } from "./helpers";
 import { swrJson, peekJson } from "../ui/fetch-cache";
-import { spanText } from "../ar/fmt";
+import { spanText, nyDayOf, n0, moverSub, moverAmount } from "../ar/fmt";
 
 // Home's "This week" card (the roster's biggest gainers, the A&R top people) and the scroll helpers its
 // lists use. Its own module (list B #11), so the helpers every section shares don't load A&R code.
@@ -62,19 +62,22 @@ export const ScrollFoot = ({ n, box }) => (n ? (
 // opened): each row its two readings on two days in a row; until there are two, Luminate's last real weeks
 // (labelled). A row opens that thing's A&R page (/dashboard/ar/item/<key>).
 const AR_HOME = "/api/ar-lists?view=home";
-const AR_UNIT = { streams: "streams", listeners: "listeners", spfollowers: "followers", tiktok: "TikTok", instagram: "Instagram", youtube: "subscribers", videos: "videos" };
 function useArMovers(on) {
   const [d, setD] = useState(() => peekJson(AR_HOME) || null);
   const [failed, setFailed] = useState(false);
   useEffect(() => { if (on) swrJson(AR_HOME, (j) => { setD(j); setFailed(false); }).catch(() => setFailed(true)); }, [on]);
   if (!d) return { rows: null, failed };
   const day = d.movers?.day || { up: [], down: [] };
-  const rows = [...day.up, ...day.down];
-  // r10 fix: two readings on one New York day are "the last two readings" with their times, never "day over day"
-  if (rows.length) return { rows, day: true, sub: day.mode === "readings" ? `Last two readings · ${spanText(day.span?.from, day.span?.to)}` : "Day over day · New York days", failed };
+  // r11 fix: the card's 5 rows on every tab (the biggest moves, rises first), each numbered, worded as on A&R Home
+  const top5 = (up, down) => { const by = (a, b) => Math.abs(b.pct) - Math.abs(a.pct); return [...up, ...down].sort(by).slice(0, 5).sort((a, b) => (b.pct > 0) - (a.pct > 0) || Math.abs(b.pct) - Math.abs(a.pct)); };
+  const rows = top5(day.up, day.down);
+  // r10 fix: two readings on one New York day are "the last two readings" with their times, never "day over day";
+  // r11 fix: the newest reading today says "Today vs yesterday" (it isn't this week)
+  const today = nyDayOf(Date.now()) === nyDayOf(day.span?.to);
+  if (rows.length) return { rows, day: true, sub: day.mode === "readings" ? `Last two readings · ${spanText(day.span?.from, day.span?.to)}` : today ? "Today vs yesterday · New York days" : `Day over day · ${spanText(day.span?.from, day.span?.to)}`, failed };
   const wk = d.movers?.week?.streams || { up: [], down: [] };
-  const live = [...(wk.up || []), ...(wk.down || [])], g = (wk.groups || [])[0];
-  return { rows: live.length ? live : g ? [...g.up, ...g.down] : [], day: false, sub: live.length ? "Week on week · Spotify" : g ? `Luminate, ${g.weeks} · all platforms` : "", failed };
+  const live = top5(wk.up || [], wk.down || []), g = (wk.groups || [])[0];
+  return { rows: live.length ? live : g ? top5(g.up, g.down) : [], day: false, sub: live.length ? "Week on week · Spotify" : g ? `Luminate, ${g.weeks} · all platforms` : "", failed };
 }
 const GAINER_TABS = [["songs", "Songs"], ["artists", "Artists"], ["ar", "A&R"]];
 function useRosterTop() {
@@ -145,10 +148,10 @@ export function TopGainers({ db, onGo, arTop, arLoaded }) {
           // opens that row's own A&R page (its drawer)
           <button key={`${r.key}|${r.metric}`} className="gainer" data-ranked={r.pct > 0 ? "" : undefined} data-fall={r.pct > 0 ? undefined : ""} data-ar-mover={r.key}
             title={ar.day ? `${r.label} · ${fmt(r.from)} → ${fmt(r.to)} · ${r.src}` : `${r.label} · ${r.weeks} · ${r.src}`} onClick={() => onGo("ar", `watch:open:${r.key}`)}>
-            <span className="gainer-n">{r.pct > 0 ? i + 1 : "·"}</span>
+            <span className="gainer-n">{i + 1}</span>
             <span className="lm-cover gainer-av">{r.image ? <Photo src={r.image} alt="" fill sizes="40px" /> : (r.name || "?")[0].toUpperCase()}</span>
-            <span className="lm-song-main"><strong>{r.name}</strong><span className="ar-g-sub">{ar.day ? `${r.label} · ${fmt(r.from)} → ${fmt(r.to)}` : `${r.label} · ${r.weeks}`}</span></span>
-            <span className="gainer-num" data-wow={r.pct >= 0 ? "up" : "down"}><WowPill pct={r.pct} /><em>{r.d > 0 ? "+" : ""}{fmt(r.d)} {AR_UNIT[r.metric] || ""}</em></span>
+            <span className="lm-song-main"><strong>{r.name}</strong><span className="ar-g-sub">{ar.day ? moverSub(r) : `Streams · ${n0(r.lastWeek)} → ${n0(r.thisWeek)}`}</span></span>
+            <span className="gainer-num" data-wow={r.pct >= 0 ? "up" : "down"}><WowPill pct={r.pct} /><em>{moverAmount(r)}</em></span>
           </button>
         )) : kind === "artists" ? rows.map((a, i) => {
           const c = client(a.clientId);

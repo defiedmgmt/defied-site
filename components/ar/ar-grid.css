@@ -301,3 +301,41 @@
 @media (max-width: 639px) {
   .arh-wtabs[data-m-scroll], .ar-types[data-m-scroll] { -webkit-mask: linear-gradient(90deg, #000 88%, transparent); mask: linear-gradient(90deg, #000 88%, transparent); padding-right: 24px; }
 }
+
+/* ---- r11 fix (owner-eyes review) ---- */
+/* Week on week: a metric with nothing yet is greyed (its "from Nov 11" in the tooltip and the card's line); on a
+   phone the six tabs become one compact select */
+.app:not(.pub) .arh .arh-wtabs button.arh-wtab-later:not(.active) { color: var(--d-ink-4, #777); opacity: .7; }
+.arh-wselect { display: none; }
+/* each pair of Luminate weeks is ranked on its own: a small line names it, an older pair under its own */
+.arh-weeks { margin: 0; padding: 6px 12px 2px; font-size: 11.5px; color: var(--d-ink-4, #777); border-top: 1px solid var(--d-line, #1c1c1e); }
+.arh-half-h + .arh-weeks { border-top: 0; padding-top: 0; }
+/* adds per week: one line when only one week has adds; else bars with readable 11px labels */
+.arh-adds-line { margin: 0; font-size: 13px; color: var(--d-ink-2, #d4d4d4); font-variant-numeric: tabular-nums; }
+.arh-adds-line em { color: var(--d-ink-4, #777); font-style: normal; }
+.arh-chart .ard-tick { font-size: 11px; fill: var(--d-ink-3, #a3a3a3); }
+.arh-chart svg { height: 96px; }
+/* one screen at 1440x900 and 1512x860: the cards fill the window to its bottom (the page's 20px bottom padding),
+   Week on week and Day over day share the left column's height, "Added this week" takes the right column's rest */
+@media (min-width: 1181px) and (min-height: 640px) {
+  .app:not(.pub) .dash-main:has(.ar > .arh), .app:not(.pub) .dash-main:has(.ar .arg-scroll) { padding-bottom: 20px; }
+  .app:not(.pub) .ar:has(> .arh) { display: flex; flex-direction: column; height: calc(100dvh - 52px); }
+  .app:not(.pub):has(> .storage-warn) .ar:has(> .arh) { height: calc(100dvh - 52px - var(--d-ban-h)); }
+  .app:not(.pub) .ar > .arh { flex: 1 1 auto; min-height: 0; align-items: stretch; }
+  .arh-main { display: grid !important; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); min-height: 0; }
+  .arh-side { min-height: 0; }
+  .app:not(.pub) .arh .arh-card { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .app:not(.pub) .arh .arh-card > .attn-head { flex: none; }
+  .app:not(.pub) .arh .arh-halves { flex: 1 1 auto; min-height: 0; }
+  .app:not(.pub) .arh [data-adds] { flex: 1 1 auto; }
+  .app:not(.pub) .arh [data-adds] .arh-week { margin-top: auto; }
+  /* the rows spread over the card's height (up to 60px each) instead of leaving its bottom empty */
+  .app:not(.pub) .arh .arh-half > .gainer { flex: 0 1 60px; min-height: 46px; }
+}
+@media (min-width: 761px) { .app:not(.pub) .arh [data-week-section] { min-height: 300px; } }
+@media (max-width: 639px) {
+  .app:not(.pub) .arh .arh-wtabs { display: none; }
+  .arh-wselect { display: block; margin-left: auto; min-height: 44px; max-width: 52%; padding: 0 10px; border-radius: 10px; border: 1px solid var(--d-line-2, #2a2a2c); background: var(--d-s2, #141416); color: var(--d-ink, #fff); font: inherit; font-size: 14px; }
+  /* the Watchlist's type and person chips wrap onto a second line instead of running off the screen */
+  .app:not(.pub) .ar .ar-types, .app:not(.pub) .ar .ar-people { flex-wrap: wrap; overflow: visible; -webkit-mask: none; mask: none; padding-right: 0; }
+}

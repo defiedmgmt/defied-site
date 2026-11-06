@@ -92,7 +92,10 @@ const nameCol = (label) => ({ id: "name", label, sticky: true, def: true, get: (
       </span>
     </span>
   ) });
-const addedByCol = { id: "addedBy", label: "Added by", def: true, get: (r) => r.names.join(", ").toLowerCase(), csv: (r) => r.names.join(", "), render: (r) => <span className="arg-who" title={addedByTitle(r)} data-added-by={r.names.join(", ")}>{r.names.join(", ")}</span> };
+// r11 fix: a roster row says "Roster" (the old list's import isn't a person); someone who added it too comes after
+const IMPORT_NAME = "Old list (imported)";
+export const whoText = (r) => { const p = r.roster ? r.names.filter((n) => n !== IMPORT_NAME) : r.names; return r.roster ? ["Roster", ...p].join(" · ") : p.join(", "); };
+const addedByCol = { id: "addedBy", label: "Added by", def: true, get: (r) => whoText(r).toLowerCase(), csv: (r) => whoText(r), render: (r) => <span className="arg-who" title={addedByTitle(r)} data-added-by={whoText(r)}>{whoText(r)}</span> };
 const addedCol = { id: "added", label: "Added", def: true, get: (r) => r.addedAt, csv: (r) => String(r.addedAt).slice(0, 10), render: (r) => <span title={atText(r.addedAt)}>{dayText(r.addedAt)}</span> };
 const lumWkCol = (label) => ({ id: "lumwk", label: "Lum wk", sub: "lum", num: true, def: true, title: label, get: (r) => r.lum?.week?.v ?? null, csv: (r) => r.lum?.week?.v ?? "", at: (r) => r.lum?.week?.to, src: (r) => (r.lum?.week ? "Luminate, all platforms" : ""), render: (r) => <LumCell lum={r.lum} /> });
 const lumAtdCol = { id: "lumatd", label: "Luminate all-time", sub: "lumAtd", num: true, def: false, get: (r) => r.lum?.atd ?? null, at: (r) => r.lum?.on, src: (r) => (r.lum?.atd != null ? "Luminate, all platforms" : ""),
@@ -228,7 +231,7 @@ function PhoneCard({ r, onOpen, open, flash, o = {} }) {
           </span>
         ))}
       </span>
-      <span className="arg-card-3">{r.roster ? "Roster · " : ""}Added by {r.names.join(", ")} · {left}</span>
+      <span className="arg-card-3">{r.roster ? whoText(r) : `Added by ${whoText(r)} · ${left}`}</span>
     </button>
   );
 }
@@ -250,6 +253,24 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
   const [sheet, setSheet] = useState(false);
   const [colsOpen, setColsOpen] = useState(false);
   const body = useRef(null);
+  // r11 fix: one scroll. The table's box ends at the window's bottom (the page's own bottom padding kept), so the page
+  // itself doesn't scroll as well; only a list longer than that scrolls, inside the box, its header staying put.
+  const box = useRef(null);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || typeof window === "undefined") return undefined;
+    const fit = () => {
+      const main = el.closest(".dash-main");
+      const pb = main ? parseFloat(getComputedStyle(main).paddingBottom) || 0 : 0;
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      el.style.maxHeight = `${Math.max(320, Math.floor(window.innerHeight - top - pb))}px`;
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(fit) : null;
+    ro?.observe(document.body);
+    return () => { window.removeEventListener("resize", fit); ro?.disconnect(); };
+  });
   useEffect(() => { setSortS(store.get(`ar-grid:${id}:sort`, { col: null, dir: "desc" })); setVisS(store.get(`ar-grid:${id}:cols`, null)); }, [id]);
   const visible = cols.filter((c) => c.sticky || (vis ? vis.includes(c.id) : c.def));
   const setSort = (col) => { const next = sort.col === col ? { col, dir: sort.dir === "desc" ? "asc" : "desc" } : { col, dir: "desc" }; setSortS(next); store.set(`ar-grid:${id}:sort`, next); };
@@ -311,7 +332,7 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
       <p className="arg-count" data-grid-count={shown.length}>{shown.length} {shown.length === 1 ? "row" : "rows"}{newest ? ` · as of ${dayText(newest)}` : ""}</p>
       {!shown.length && <p className="arg-empty">{rows.length ? "Nothing matches that search." : empty}</p>}
       {shown.length > 0 && !narrow && (
-        <div className="arg-scroll">
+        <div className="arg-scroll" ref={box} data-one-scroll>
           <table className="arg-table">
             <thead>
               <tr>
