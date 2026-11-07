@@ -129,7 +129,7 @@ export function Footer({ route, inert }) {
           <img src="/brand/d.png" alt="" width="45" height="36" loading="lazy" decoding="async" draggable={false} />
           <span className="ft-mark-shine" aria-hidden="true" />
         </TLink>
-        <p className="ft-copy">© {new Date().getFullYear()} Defied Management</p>
+        <p className="ft-copy" suppressHydrationWarning>© {new Date().getFullYear()} Defied Management</p>
         <nav className="ft-links" aria-label="Footer">
           <TLink href={ROUTE_TO_PATH.contact} {...(route === "contact" ? { "aria-current": "page" } : {})}>Contact</TLink>
         </nav>

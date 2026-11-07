@@ -1,10 +1,9 @@
 import PageShell from "../components/PageShell";
 import { PublicPage, useApp } from "../components/app/AppRoot";
 import { TeamPage } from "../components/site/people";
-import { publicPageProps } from "../lib/public-data";
 
-// rendered on the server from the site data (list B #11), so the page's content is in its HTML
-export const getServerSideProps = publicPageProps;
+// r11 launch: a static page served from the CDN, as on live (no database read per visit); the content
+// comes from the app shell's publicData (the browser's saved copy, then /api/public-data)
 
 export default function TeamRoute() {
   const { publicData } = useApp();

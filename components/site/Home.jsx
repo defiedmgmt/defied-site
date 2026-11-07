@@ -86,6 +86,8 @@ export function Home() {
       {/* arriving through the logo morph, the morph is the entrance: no light-scan wipe to hide
           the wordmark it lands on, and the rest of the hero follows on the short timings */}
       <section className={`ign${seen || viaVT ? " ign-seen" : ""}${viaVT ? " ign-vt" : ""}`} ref={heroRef}>
+        {/* r11 launch: runs while the server's HTML is parsed, so a same-session reload never starts the full wipe */}
+        <script dangerouslySetInnerHTML={{ __html: 'try{if(sessionStorage.getItem("dm-ignited")==="1")document.currentScript.parentNode.classList.add("ign-seen")}catch(e){}' }} />
         <TLink
           href={ROUTE_TO_PATH.about}
           vt="page-brand"

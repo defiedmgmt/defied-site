@@ -24,6 +24,9 @@ export function Contact({ publicData }) {
   const cardRef = useRef(null);
   const sentHead = useRef(null);
   const submitRef = useRef(null);
+  // r11 launch: the form is in the HTML before the code runs; a disabled submit stops a native GET with the fields
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
   useEffect(() => { if (sent) sentHead.current?.focus({ preventScroll: true }); }, [sent]);
   // the submit button is disabled while sending, which drops keyboard focus to <body>: give it back
   useEffect(() => { if (err && document.activeElement === document.body) submitRef.current?.focus(); }, [err]);
@@ -106,7 +109,7 @@ export function Contact({ publicData }) {
             </div>
             <label className="ct-fld"><span>Message</span><textarea name="message" rows={5} required value={f.message} onChange={set("message")} /></label>
             {err && <p className="ct-err" role="alert">{err} You can also email submissions@defiedmgmt.com.</p>}
-            <button ref={submitRef} className="pill pill-solid pill-full" type="submit" disabled={busy}>
+            <button ref={submitRef} className="pill pill-solid pill-full" type="submit" disabled={busy || !ready}>
               {busy ? <><RefreshCw size={15} className="spin" /> Sending…</> : "Send message"}
             </button>
           </form>

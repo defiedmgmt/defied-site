@@ -167,7 +167,10 @@ export function Roster({ publicData }) {
   const visible = clients.filter((c) => filter === "all" || (filter === "producers" ? isProducer(c) : isArtist(c)));
   useLitBand(gridRef, [publicData, filter]);
 
-  const urlSlug = router.isReady ? router.query.artist : undefined;
+  // r11 launch: only once mounted, as on live (the panel reads the document; drawn on the server it 500'd)
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const urlSlug = mounted && router.isReady ? router.query.artist : undefined;
   const active = bySlug(clients, urlSlug);
   // the open card's own key, even when the link used an older one
   const activeSlug = active ? slugOf(active) : urlSlug;

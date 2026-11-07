@@ -16,6 +16,9 @@ export function Login({ login, notice }) {
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const submitRef = useRef(null);
+  // r11 launch: the form is in the HTML before the code runs; a disabled submit stops a native GET with the fields
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
   // the submit button is disabled while signing in, which drops keyboard focus to <body>: give it back
   useEffect(() => { if (err && document.activeElement === document.body) submitRef.current?.focus(); }, [err]);
   const submit = async (e) => {
@@ -47,7 +50,7 @@ export function Login({ login, notice }) {
           </div>
         </div>
         {(err || notice) && <p className="ct-err" role="alert">{err || notice}</p>}
-        <button ref={submitRef} className="pill pill-solid pill-full" type="submit" disabled={busy}>
+        <button ref={submitRef} className="pill pill-solid pill-full" type="submit" disabled={busy || !ready}>
           {busy ? <><RefreshCw size={15} className="spin" /> Signing in…</> : "Sign in"}
         </button>
       </form>

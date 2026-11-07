@@ -26,7 +26,8 @@ export default async function handler(req, res) {
 
   try { report.sync = await syncSiteFromSheet(); } catch (err) {
     report.syncError = err.message;
-    await notifyClickUp(`**Nightly sync failed**: ${err.message}\nThe site's numbers weren't refreshed tonight. [Open dashboard](https://www.defiedmgmt.com/dashboard)`);
+    // r11 launch: posting to ClickUp's Dashboard Alerts chat is its own gate (off by default)
+    if (process.env.CLICKUP_ALERTS === "on") await notifyClickUp(`**Nightly sync failed**: ${err.message}\nThe site's numbers weren't refreshed tonight. [Open dashboard](https://www.defiedmgmt.com/dashboard)`);
   }
 
   // up to 10 songs a night that have no ISRC yet and weren't looked up in the last 2 weeks: a sure hit
