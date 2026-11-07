@@ -441,7 +441,7 @@ export function TodoPage({ ctx, todo, sub, onSub, areaN }) {
 // "Done for you": what the dashboard did by itself, said once. Today that's the ClickUp tasks it keeps
 // current (each area's checklist ticks itself); A2 adds what it confirms on its own (an even split the sheet
 // already holds), each with Undo (ctx.doneForYou: [{ k, text, undo }]).
-const OWN_NAMES = { payments: "Log new payments", "area:publishing": "Publishing", "area:ar": "A&R" };
+const OWN_NAMES = { payments: "Log new payments", "area:publishing": "Publishing", "area:ar": "A&R", "area:money": "Money" };
 function DoneForYou({ ctx }) {
   const own = (ctx.cu.data?.own || []).filter((t) => OWN_NAMES[t.kind]);
   const extra = ctx.doneForYou || [];

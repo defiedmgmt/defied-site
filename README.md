@@ -142,7 +142,6 @@ never values.
 | `STRIPE_READ_KEY` | A restricted, read-only Stripe key. Used by Money and Home. |
 | `CLICKUP_API_TOKEN` | ClickUp: To do's tasks, the dashboard's own tasks, alerts. |
 | `CLICKUP_ALERTS_CHANNEL_ID` | The ClickUp Chat channel for dashboard alerts. Defaults to "Dashboard Alerts". |
-| `CLICKUP_SYNC_WEEKDAY` | Day of the weekly sync task. 1 = Monday, the default. |
 | `SONGLINK_API_KEY` | song.link key for the ISRC finder. Optional. |
 | `CRON_SECRET` | Vercel sends it to `/api/cron/daily`, `/api/cron/data` and `/api/cron/data-collect`. Without it, those jobs refuse to run. |
 | `APIFY_TOKEN` | Apify, for the automated numbers: Spotify streams per song and monthly listeners, Instagram/TikTok followers, TikTok sounds. |
