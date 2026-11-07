@@ -306,7 +306,6 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
   const [recoupMonths, setRecoupMonths] = useState(recoupTargetMonths);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const [saved, setSaved] = useState(false);
 
   const selectedProspect = scenario.kind === "outreach" ? prospects.find((p) => p.id && p.id === scenario.key) : null;
   const selectedClient = scenario.kind === "client" ? signedClients.find((c) => c.id === scenario.key) : null;
@@ -320,7 +319,6 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
     : (Number(scenario.grossStreams) || 0) * ((Number(scenario.writerShare) || 0) / 100);
 
   const selectScenario = (value) => {
-    setSaved(false);
     if (!value) { setScenario(BLANK_SCENARIO); return; }
     const [kind, key] = value.split(":");
     if (kind === "outreach") {
@@ -331,7 +329,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
       setScenario({ kind, key, name: c?.name || "", contact: "", grossStreams: "", writerShare: "" });
     }
   };
-  const setField = (patch) => { setSaved(false); setScenario({ ...scenario, ...patch }); };
+  const setField = (patch) => { setScenario({ ...scenario, ...patch }); };
 
   const result = useMemo(() => calcAdvance({
     netStreams,
@@ -342,20 +340,6 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
     recoupMonths: Number(recoupMonths) || 12,
   }), [netStreams, recoupMonths, assumptions]);
   const estRevenue = netStreams * assumptions.blendedRate;
-
-  const saveToOutreach = async () => {
-    if (!scenario.name.trim() || !netStreams) return;
-    setBusy(true); setErr(null);
-    try {
-      const { prospect } = await arWrite({
-        action: "createProspect", name: scenario.name.trim(), contact: scenario.contact.trim(),
-        slots: [{ slot: 1, streams: Number(scenario.grossStreams) || 0, share: (Number(scenario.writerShare) || 0) / 100 }],
-      });
-      await reload();
-      setScenario({ kind: "outreach", key: prospect.id, name: scenario.name, contact: scenario.contact, grossStreams: "", writerShare: "" });
-      setSaved(true);
-    } catch (e) { setErr(e.message); } finally { setBusy(false); }
-  };
 
   const setGiven = async (given) => {
     if (!selectedProspect) return;
@@ -425,17 +409,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
         />
         <p className="hint">Paid back out of our fee, not their share.</p>
         {err && <p className="hint err-text">{err}</p>}
-        {/* saving flips scenario.kind to "outreach", which swaps in the
-            read-only reference block above on the very next render — the
-            confirmation has to live outside that block or it vanishes
-            before anyone sees it */}
-        {saved && <p className="hint ok-text">Saved ✓ — {scenario.name} is on the pub sheet's OUTREACH tab, shown below with its real numbers.</p>}
-        {scenario.kind === "new" && (
-          <button className="btn sm" onClick={saveToOutreach} disabled={busy || !scenario.name.trim() || !netStreams}>
-            {/* r11 fix: Outreach is gone from the app, so the button says where this goes */}
-            {busy ? "Saving…" : "Save to the sheet's OUTREACH tab"}
-          </button>
-        )}
+        {/* r11 launch: no "Save to the sheet's OUTREACH tab" for a from-scratch scenario; Outreach is gone (owner) */}
         {selectedProspect && (
           <div className="ar-given-row">
             {/* a blank cell is "Not answered" (as on the panel), never a lit No; said on the label, before
