@@ -71,10 +71,10 @@ export default async function handler(req, res) {
   // the A&R artists' Deezer pages (fans, and the tracks a songs-only artist is followed by): a few a night
   try { report.deezer = await refreshDeezer({ limit: 8 }); report.arIsrc = await refreshArIsrcs({ limit: 3 }); } catch (err) { report.deezerError = err.message; }
 
-  // the weekly "clear the sync tasks" task (Mondays) and "Log new payments" (H.3/H.4): one stored
-  // task each, written only with CLICKUP_TASK_WRITES=on
   // each client's manager from the accounting sheet's INFO tab (Site › Users; reads the sheet only)
   try { const m = await refreshManagers(); report.managers = m.error ? { error: m.error } : { matched: m.matched }; } catch (err) { report.managersError = err.message; }
+  // "Log new payments" and the Publishing, A&R and Money tasks (one stored task each), written only with
+  // CLICKUP_TASK_WRITES=on
   try { report.clickupTasks = await checkClickUpTasks({ force: true }); } catch (err) { report.clickupTasksError = err.message; }
   await setState("cron", report);
   return res.status(200).json(report);
