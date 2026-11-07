@@ -104,14 +104,14 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
     body = (
       <>
         {pay && <p className="log-for" data-log-for>For the {shortDay(pay.at)} payment from {pay.client || pay.payer || "an unknown payer"}, {money(pay.amount)} paid.</p>}
-        {rowsN > 0 && <p className="log-lead">{n === 0 ? "No rows are ticked, so nothing goes" : n === 1 ? "This row goes" : `These ${n} rows go`} on the Income tab, under its last row. The sheet works out the month, manager and shares, the same as a row typed by hand.{rowsN > 1 ? " Untick one to leave it out for now." : ""}</p>}
+        {rowsN > 0 && <p className="log-lead">{n === 0 ? "No rows are ticked, so nothing goes" : n === 1 ? "This row goes" : `These ${n} rows go`} on the Income tab, under its last row. The sheet works out the month, manager and shares, the same as a row typed by hand{plan.rows.some((r) => r.manager) ? " (a test paid through a co-manager's link gets its manager and share typed in, like your own test rows)" : ""}.{rowsN > 1 ? " Untick one to leave it out for now." : ""}</p>}
         {rowsN > 0 && (
           <div className="log-table" role="table" aria-label="Rows to add">
             <div className="log-tr log-th" role="row"><span role="columnheader">Date</span><span role="columnheader">Artist / Client</span><span role="columnheader">Revenue type</span><span role="columnheader" className="acct-amt">Gross commission</span></div>
             {plan.rows.map((r) => (
               <label key={r.id} className={off.has(r.id) ? "log-tr off" : "log-tr"} role="row" data-row={r.id}>
                 <span role="cell" className="log-date"><input type="checkbox" checked={!off.has(r.id)} disabled={busy} onChange={() => tick(r.id)} aria-label={`Add ${r.client}, ${money(r.amount)}`} />{r.date}</span>
-                <span role="cell" className="acct-who">{r.client || <span className="acct-blank">(blank)</span>}{r.test && <> <TestChip /></>}{r.notes ? <em> · {r.notes}</em> : null}</span><span role="cell">{r.type}</span><span role="cell" className="acct-amt">{money(r.amount)}</span>
+                <span role="cell" className="acct-who">{r.client || <span className="acct-blank">(blank)</span>}{r.test && <> <TestChip /></>}{r.notes ? <em> · {r.notes}</em> : null}{r.manager ? <em> · {r.manager} gets {money(r.managerShare)}</em> : null}</span><span role="cell">{r.type}</span><span role="cell" className="acct-amt">{money(r.amount)}</span>
               </label>
             ))}
           </div>
