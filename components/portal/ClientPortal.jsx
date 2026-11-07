@@ -114,6 +114,12 @@ export async function pushOwnShare(saved, client, liveIds, keepPercent = null) {
   }
 }
 
+// the song editor's Save keeps the sheet's exact share (its sheet facts) when the site's whole percent only rounds it
+// (33.33 is 33 on the site, 12.5 is 12): writing 0.33 over 0.3333 moved the row's net streams with nothing changed.
+// More than half a point apart is a real change, and the site's percent goes. null: send the site's percent
+export const sheetShareToKeep = (fact, mine) =>
+  fact?.share != null && mine && Math.abs(Number(fact.share) - Number(mine.percent)) <= 0.5 ? Number(fact.share) : null;
+
 // editorOnly (To do's Fix / Update): only the song's editor and the strip after its Save, none of the client's page
 // a placement's Spotify track as the numbers' entity key (t:<id>), or null
 const trackKey = (link) => { const m = /open\.spotify\.com\/(?:intl-[a-z-]+\/)?track\/([A-Za-z0-9]{22})/.exec(String(link || "")); return m ? `t:${m[1]}` : null; };
@@ -265,7 +271,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
     // not someone we auto-provision sheet tracking for. If that person is
     // also a client, their own row comes from adding this same song under
     // their own page, the same way this one did.
-    pushOwnShare(saved, client, done.placements.map((p) => p.id)).then((err) => {
+    const keep = sheetShareToKeep(db.sheetFacts?.songs?.[placementId], ownSplit(saved, client));
+    pushOwnShare(saved, client, done.placements.map((p) => p.id), keep).then((err) => {
       if (err && isStaff) setPushWarn(err);
     });
   };
