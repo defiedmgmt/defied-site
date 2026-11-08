@@ -3330,3 +3330,28 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .home .attn-row[data-task] .btn::after{content:" ›";white-space:pre}
   .app:not(.pub) .home .attn-row[data-task] .attn-chev{display:none}
 }
+/* the Log confirm's rows as fields (r11, Log it / Log all / Log with details): each row a small card, its fields
+   filled in already and two to a line; on phones the lists and notes take the whole line, Date with Gross
+   Commission and Manager with Manager Share stay paired */
+.app:not(.pub) .logedit-rows{display:flex;flex-direction:column;gap:12px}
+.app:not(.pub) .logedit-row{min-width:0;padding:12px 14px 14px;border:1px solid var(--d-line);border-radius:var(--d-r-md)}
+.app:not(.pub) .logedit-tick{display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13.5px;line-height:1.45;color:var(--d-ink);overflow-wrap:anywhere}
+.app:not(.pub) .logedit-tick input{flex:none;width:16px;height:16px;margin:2px 0 0;accent-color:var(--d-ink)}
+.app:not(.pub) .logedit-tick em{font-style:normal;color:var(--d-ink-4)}
+.app:not(.pub) .logedit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;min-width:0;margin:12px 0 0;padding:0;border:0}
+.app:not(.pub) .logedit-grid .fld{gap:6px}
+.app:not(.pub) .logedit-money{display:flex;align-items:center;gap:6px;font-size:15px;letter-spacing:0;color:var(--d-ink-3)}
+.app:not(.pub) .logedit-money input{flex:1 1 auto;text-align:right;font-variant-numeric:tabular-nums}
+.app:not(.pub) .logedit-grid :is(input,select)[aria-invalid=true]{border-color:var(--d-warn)}
+.app:not(.pub) .logedit-row .hint.warn-text{margin:0;font-size:12.5px;line-height:1.45;color:var(--d-warn)}
+.app:not(.pub) .logedit-split{margin:12px 0 0;font-size:12.5px;line-height:1.5;color:var(--d-ink-3)}
+.app:not(.pub) .logedit-diff{margin:8px 0 0;padding:8px 10px;border:1px solid var(--d-warn-line);border-radius:var(--d-r-field);background:var(--d-warn-bg);font-size:12.5px;line-height:1.5;color:var(--d-warn)}
+.app:not(.pub) .logedit-row.off :is(.logedit-grid,.logedit-split,.logedit-diff){opacity:.4}
+.app:not(.pub) .logedit-row.off .logedit-sum{color:var(--d-ink-4);text-decoration:line-through;text-decoration-color:var(--d-line-3)}
+/* a formula that changed on the write: said loudly, under the Added line */
+.app:not(.pub) .logedit-alarm{display:flex;align-items:flex-start;gap:8px;margin:0;padding:10px 12px;border:1px solid var(--d-warn-line);border-radius:var(--d-r-md);background:var(--d-warn-bg);font-size:13.5px;line-height:1.5;color:var(--d-warn)}
+.app:not(.pub) .logedit-alarm svg{flex:none;margin-top:3px}
+@media (max-width:599px){
+  .app:not(.pub) .logedit-grid > .logedit-wide{grid-column:1 / -1}
+  .app:not(.pub) .logedit-row{padding:12px}
+}

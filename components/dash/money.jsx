@@ -6,9 +6,9 @@ import { clock } from "./chips";
 import { payDay, shortDay } from "./helpers";
 import { HomeWait, monthName } from "./home-data";
 import { fmt, money, useEscape } from "./ui";
-import { AskCard } from "../portal/ask";
 import { ExtLink } from "../shared/ui";
 import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
+import { typedMoney, checkEdit, sheetSplit, coShare, COMMISSION, GENERAL } from "../../lib/log-fields";
 
 // "Nov", "Oct": this month and the one before, from the day the page is viewed
 const monthShort = (offset) => { const d = new Date(); d.setDate(15); d.setMonth(d.getMonth() + offset); return d.toLocaleDateString("en-US", { month: "short" }); };
@@ -59,15 +59,36 @@ function PayRow({ p, over, onLog }) {
 // "Log it" / "Log all": the exact rows first (a dry run on the server, fresh from Stripe and the
 // sheet), then one click adds them to the accounting sheet's Income tab. Off until the server's
 // ACCOUNTING_SHEET_WRITES is on, and then it only says so.
+// r11 (the owner: "autofill but gimme the option to change"): every row's fields show filled in the way the site
+// worked them out, each one open to change, checked as it's typed (lib/log-fields.js, the server's rule too). A row
+// nobody touched is sent as before (only its id) and goes in exactly as it always did.
 // the confirm's title follows the ticked rows (every row starts ticked, test payments too)
 const logTitle = (n) => (n === 1 ? "Log this payment" : n === 0 ? "Log payments" : `Log ${n} payments`);
+const centsOf = (n) => Math.round(Number(n) * 100);
+const centsText = (n) => (centsOf(n) / 100).toFixed(2);
+// a row's fields as the inputs hold them (text), from what the dry run worked out
+const fieldsOf = (r) => ({ day: r.day, type: r.type, client: r.client, amount: centsText(r.amount), account: r.account, notes: r.notes || "",
+  manager: r.manager || r.co?.via || "", managerShare: centsText(r.manager ? r.managerShare : coShare(centsOf(r.amount), r.co?.keep || 0) / 100), shareTyped: false });
+// a co-manager's General / Company row: its Manager and Manager Share are typed (fields); anywhere else the sheet
+// works them out (shown, not editable)
+const coRow = (r, v) => !!r.co && v.client === GENERAL;
+// what's sent for a row: every field it shows, or null while each one is still the site's own
+function editOf(r, v) {
+  const co = coRow(r, v);
+  const same = v.day === r.day && v.type === r.type && v.client === r.client && typedMoney(v.amount).cents === centsOf(r.amount) && v.account === r.account
+    && v.notes.trim() === String(r.notes || "").trim() && (co ? !!r.manager && v.manager === r.manager && typedMoney(v.managerShare, { zero: true }).cents === centsOf(r.managerShare) : !r.manager);
+  return same ? null : { day: v.day, type: v.type, client: v.client, amount: v.amount, account: v.account, notes: v.notes, ...(co ? { manager: v.manager, managerShare: v.managerShare } : {}) };
+}
+// a select's choices: the sheet's list, plus the row's own value when the list doesn't have it (it still goes in as is)
+const choices = (list, own) => (own && !(list || []).includes(own) ? [own, ...(list || [])] : list || []);
 // details: {[id]: {type, client}}, the owner's own picks (Accounting › To log's Log with details);
 // pay: the payment they're for, named above the row. onDetails(id): a skipped payment's Log with details.
 export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay = null, onDetails = null }) {
-  const [plan, setPlan] = useState(null); // {rows, skipped} | {error}
+  const [plan, setPlan] = useState(null); // {rows, skipped, year, options} | {error}
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null); // the write's answer
   const [off, setOff] = useState(() => new Set()); // rows unticked: left out of this write, still to log
+  const [vals, setVals] = useState({}); // {[id]: the row's fields as typed}
   const close = () => { if (busy) return; if (done) onDone(); onClose(); };
   useEscape(close);
   const post = (body) => fetch("/api/accounting-log", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify(body) })
@@ -76,13 +97,36 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
   useEffect(() => {
     if (!canLog) return;
     let alive = true;
-    post({ ids, dryRun: true, ...(details ? { details } : {}) }).then((d) => alive && setPlan(d));
+    post({ ids, dryRun: true, ...(details ? { details } : {}) }).then((d) => { if (!alive) return; setPlan(d); setVals(Object.fromEntries((d.rows || []).map((r) => [r.id, fieldsOf(r)]))); });
     return () => { alive = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const go = async () => { setBusy(true); const d = await post({ ids: ids.filter((id) => !off.has(id)), ...(details ? { details } : {}) }); setBusy(false); setDone(d); };
-  const rowsN = plan?.rows?.length || 0;
-  const n = (plan?.rows || []).filter((r) => !off.has(r.id)).length; // the ticked ones
+  const opts = plan?.options || null; // null: the sheet's lists didn't read, so the rows show as they'll go in
+  const rows = (plan?.rows || []).map((r) => {
+    const v = vals[r.id] || fieldsOf(r);
+    const edit = opts ? editOf(r, v) : null;
+    const chk = edit ? checkEdit(edit, r, opts, { year: plan.year, co: r.co }) : null;
+    return { r, v, edit, why: chk?.problems || {} };
+  });
+  const ticked = rows.filter((x) => !off.has(x.r.id));
+  const bad = ticked.filter((x) => Object.keys(x.why).length).length;
+  const go = async () => {
+    const edits = Object.fromEntries(ticked.filter((x) => x.edit).map((x) => [x.r.id, x.edit]));
+    setBusy(true);
+    const d = await post({ ids: ids.filter((id) => !off.has(id)), ...(details ? { details } : {}), ...(Object.keys(edits).length ? { edits } : {}) });
+    setBusy(false); setDone(d);
+  };
+  const rowsN = rows.length;
+  const n = ticked.length;
   const tick = (id) => setOff((s) => { const x = new Set(s); x.has(id) ? x.delete(id) : x.add(id); return x; });
+  // a field typed: a co-manager's Manager Share follows the amount (and comes back with General / Company) until
+  // the owner types their own
+  const setField = (r, k, value) => setVals((all) => {
+    const v = { ...(all[r.id] || fieldsOf(r)), [k]: value };
+    if (k === "managerShare") v.shareTyped = true;
+    if (r.co && (k === "amount" || k === "client") && !v.shareTyped) { const c = typedMoney(v.amount).cents; if (c != null) v.managerShare = centsText(coShare(c, r.co.keep) / 100); }
+    if (r.co && k === "client" && value === GENERAL && !v.manager) v.manager = r.manager || r.co.via;
+    return { ...all, [r.id]: v };
+  });
   // each skipped line names its payment ("Oct 6 · Payer · $X:"), and offers Log with details where that's the way
   const reasons = (list) => list?.length > 0 && <ul className="log-skipped">{list.map((x) => (
     <li key={x.id} data-skip={x.id}>{x.what && <strong>{x.what}: </strong>}{x.reason}
@@ -94,6 +138,7 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
     body = done.error && !done.logged?.length ? <p className="home-muted"><AlertTriangle size={15} /> {done.error}</p> : (
       <>
         {done.logged?.length > 0 && <p className="log-done" data-log-done><CheckCircle2 size={15} /> Added to the Income tab: {done.logged.length === 1 ? `row ${done.logged[0].row}` : `rows ${done.logged[0].row}–${done.logged[done.logged.length - 1].row}`}.{done.left > 0 ? ` ${done.left} still to log.` : " Every Stripe payment is in the sheet now."}</p>}
+        {done.alarm && <p className="logedit-alarm" role="alert" data-log-alarm><AlertTriangle size={15} /> <span>{done.alarm}</span></p>}
         {done.error && <p className="home-muted"><AlertTriangle size={15} /> {done.error}</p>}
         {reasons(done.skipped)}
       </>
@@ -104,8 +149,13 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
     body = (
       <>
         {pay && <p className="log-for" data-log-for>For the {shortDay(pay.at)} payment from {pay.client || pay.payer || "an unknown payer"}, {money(pay.amount)} paid.</p>}
-        {rowsN > 0 && <p className="log-lead">{n === 0 ? "No rows are ticked, so nothing goes" : n === 1 ? "This row goes" : `These ${n} rows go`} on the Income tab, under its last row. The sheet works out the month, manager and shares, the same as a row typed by hand{plan.rows.some((r) => r.manager) ? " (a test paid through a co-manager's link gets its manager and share typed in, like your own test rows)" : ""}.{rowsN > 1 ? " Untick one to leave it out for now." : ""}</p>}
-        {rowsN > 0 && (
+        {rowsN > 0 && <p className="log-lead">{n === 0 ? "No rows are ticked, so nothing goes" : n === 1 ? "This row goes" : `These ${n} rows go`} on the Income tab, under its last row.{opts ? " Each field is filled in already. Change any of them first if you need to." : ""} The sheet works out the month, manager and shares, the same as a row typed by hand{plan.rows.some((r) => r.manager) ? " (a test paid through a co-manager's link gets its manager and share typed in, like your own test rows)" : ""}.{rowsN > 1 ? " Untick one to leave it out for now." : ""}</p>}
+        {rowsN > 0 && opts && (
+          <div className="logedit-rows" data-log-edit>
+            {rows.map((x) => <LogEditRow key={x.r.id} {...x} opts={opts} year={plan.year} off={off.has(x.r.id)} busy={busy} onTick={() => tick(x.r.id)} onField={(k, value) => setField(x.r, k, value)} />)}
+          </div>
+        )}
+        {rowsN > 0 && !opts && (
           <div className="log-table" role="table" aria-label="Rows to add">
             <div className="log-tr log-th" role="row"><span role="columnheader">Date</span><span role="columnheader">Artist / Client</span><span role="columnheader">Revenue type</span><span role="columnheader" className="acct-amt">Gross commission</span></div>
             {plan.rows.map((r) => (
@@ -116,7 +166,7 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
             ))}
           </div>
         )}
-        {rowsN > 0 && <p className="hint log-acct">Account: {plan.rows[0].account}. The full amount paid goes in Gross Commission, like the rows already there. Names are written the way the sheet already spells them.</p>}
+        {rowsN > 0 && <p className="hint log-acct">{opts ? "" : `Account: ${plan.rows[0].account}. The sheet's lists couldn't be read just now, so these rows can't be changed here. `}The full amount paid goes in Gross Commission, like the rows already there. Names are written the way the sheet already spells them.</p>}
         {reasons(plan.skipped)}
         {rowsN === 0 && !plan.skipped?.length && <p className="home-muted">Nothing to add.</p>}
       </>
@@ -131,13 +181,71 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
           {done || !canLog || !rowsN ? <button className="btn sm" onClick={close}>{done ? "Done" : "Close"}</button> : (
             <>
               <button className="btn ghost sm" onClick={close} disabled={busy}>Cancel</button>
-              <button className="btn sm" data-log-go onClick={go} disabled={busy || !n}>{busy ? "Adding…" : !n ? "Nothing ticked" : n === 1 ? "Add 1 row to the sheet" : `Add ${n} rows to the sheet`}</button>
+              <button className="btn sm" data-log-go onClick={go} disabled={busy || !n || bad > 0}>{busy ? "Adding…" : !n ? "Nothing ticked" : bad ? `Check the marked ${bad === 1 ? "row" : "rows"}` : n === 1 ? "Add 1 row to the sheet" : `Add ${n} rows to the sheet`}</button>
             </>
           )}
         </div>
       </div>
     </div>
   );
+}
+
+// One row of the Log confirm as fields (r11): Date, Gross Commission, Revenue Type, Artist / Client, Account and
+// Source / Notes, each filled in already; on a co-manager's row Manager and Manager Share too, else what the
+// sheet will work out for them (INFO's manager and percentage), as text. why: {field: reason} for a change that
+// doesn't fit the sheet's lists, said under that field.
+function LogEditRow({ r, v, why, opts, year, off, busy, onTick, onField }) {
+  const id = r.id;
+  const amt = typedMoney(v.amount).cents;
+  const co = coRow(r, v);
+  const share = co ? typedMoney(v.managerShare, { zero: true }).cents : null;
+  const split = !co && amt != null ? sheetSplit(v.client, amt, opts.roster) : null;
+  const bad = (k) => (why[k] ? "true" : "false");
+  const say = (k) => why[k] && <span className="hint warn-text" data-why={k}>{why[k]}</span>;
+  const field = (k) => ({ "data-f": k, value: v[k] ?? "", "aria-invalid": bad(k), onChange: (e) => onField(k, e.target.value) });
+  return (
+    <div className={off ? "logedit-row off" : "logedit-row"} data-row={id}>
+      <label className="logedit-tick">
+        <input type="checkbox" checked={!off} disabled={busy} onChange={onTick} aria-label={`Add ${v.client || "this row"}, ${money(amt != null ? amt / 100 : r.amount)}`} />
+        <span className="logedit-sum">{v.client || <span className="acct-blank">(no client)</span>} · {money(amt != null ? amt / 100 : r.amount)}{r.test && <> <TestChip /></>}<em> · paid {shortDay(r.stripe?.day || r.day)}</em></span>
+      </label>
+      <fieldset className="logedit-grid" disabled={busy || off}>
+        <label className="fld"><span>Date</span>
+          <input type="date" min={`${year}-01-01`} max={`${year}-12-31`} {...field("day")} />{say("day")}</label>
+        <label className="fld"><span>Gross Commission</span>
+          <span className="logedit-money">$<input inputMode="decimal" autoComplete="off" {...field("amount")} onFocus={(e) => e.target.select()} /></span>{say("amount")}</label>
+        <label className="fld logedit-wide"><span>Revenue Type</span>
+          <select {...field("type")}>{choices(opts.types, r.type).map((t) => <option key={t} value={t}>{t}</option>)}</select>{say("type")}</label>
+        <label className="fld logedit-wide"><span>Artist / Client</span>
+          <select {...field("client")}><option value="">(blank, as on Other Income rows)</option>{choices(opts.clients, r.client).map((c) => <option key={c} value={c}>{c}</option>)}</select>{say("client")}</label>
+        <label className="fld logedit-wide"><span>Account</span>
+          <select {...field("account")}>{choices(opts.accounts, r.account).map((a) => <option key={a} value={a}>{a}</option>)}</select>{say("account")}</label>
+        <label className="fld logedit-wide"><span>Source / Notes</span>
+          <input type="text" maxLength={200} autoComplete="off" placeholder="Optional" {...field("notes")} />{say("notes")}</label>
+        {co && <>
+          <label className="fld"><span>Manager</span>
+            <select {...field("manager")}>{choices(opts.managers, r.manager || r.co.via).map((m) => <option key={m} value={m}>{m}</option>)}</select>{say("manager")}</label>
+          <label className="fld"><span>Manager Share</span>
+            <span className="logedit-money">$<input inputMode="decimal" autoComplete="off" {...field("managerShare")} onFocus={(e) => e.target.select()} /></span>{say("managerShare")}</label>
+        </>}
+      </fieldset>
+      {co ? amt != null && share != null && share <= amt && <p className="logedit-split" data-split>DEFIED SHARE: {money((amt - share) / 100)}. The sheet works it out (Gross Commission less Manager Share).</p>
+        : split && <p className="logedit-split" data-split>{split.manager ? <>The sheet works out the rest: Manager {split.manager}, Manager Share {money(split.share / 100)}, DEFIED SHARE {money(split.defied / 100)}.</>
+          : <>The sheet works out the rest: no manager, so DEFIED SHARE is the full {money(amt / 100)}.</>}</p>}
+      {amt != null && r.stripe && amt !== centsOf(r.stripe.amount) && <p className="logedit-diff" data-diff>Stripe says {money(r.stripe.amount)}; the sheet will say {money(amt / 100)}. It still counts as logged. To check may list the difference: Mark as OK there if it's right.</p>}
+    </div>
+  );
+}
+
+// Log with details opens the same confirm (r11), its Revenue Type and Artist / Client to start the way the old
+// picker did: a payer who is a client on INFO (Stripe's "Reallyindig0" is INFO's "reallyindig0") as their
+// Management Commission with INFO's spelling, anyone else as Other Income with no client (studio work, a payer
+// not on INFO). Every field can still be changed there.
+export function detailsDefaults(p, options) {
+  const types = options?.types || [], clients = options?.clients || [];
+  const onInfo = clients.find((c) => c.toLowerCase() === String(p.client || p.payer || "").trim().toLowerCase());
+  if (onInfo && types.includes(COMMISSION)) return { type: COMMISSION, client: onInfo };
+  return { type: types.includes("Other Income") ? "Other Income" : types.find((t) => t !== COMMISSION) || types[0] || "", client: "" };
 }
 
 // Money (staff only, GET /api/accounting): Overview (the sheet's tiles and Stripe against the sheet
@@ -151,8 +259,7 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
   const [d, setD] = useState(null);
   const [failed, setFailed] = useState(false);
   const [logIds, setLogIds] = useState(null); // Log it / Log all
-  const [pick, setPick] = useState(null); // the payment Log with details is for
-  const [detail, setDetail] = useState(null); // {ids, details, p}: the confirm after the picks
+  const [detail, setDetail] = useState(null); // {ids, details, p}: Log with details' confirm, its picks filled in
   const [okBusy, setOkBusy] = useState(null);
   const [okErr, setOkErr] = useState(null);
   const load = (fresh = false) => {
@@ -173,6 +280,8 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
   }, [d]); // eslint-disable-line react-hooks/exhaustive-deps
   // the overview's "log them" / "see why" open those to-dos in To do
   const toSec = (k) => (k === "log" || k === "check" ? onGo?.("todo", k) : onSub?.(k === "overview" ? null : k));
+  // Log with details (r11): straight to the same editable confirm, Revenue Type and Artist / Client filled in
+  const setPick = (p) => setDetail({ ids: [p.id], details: { [p.id]: detailsDefaults(p, d?.options) }, p });
   // a payment Log it skipped: straight to Log with details for it
   const pickById = (id) => { const p = d?.toLog?.items?.find((x) => x.id === id); if (p) setPick(p); };
   const markOk = async (key) => {
@@ -195,8 +304,7 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
   const modals = (
     <>
       {logIds && <LogConfirm ids={logIds} canLog={!!d?.toLog?.canLog} onClose={() => setLogIds(null)} onDone={() => load(true)} onDetails={pickById} />}
-      {pick && <LogDetails p={pick} options={d?.options} canLog={!!d?.toLog?.canLog} onClose={() => setPick(null)} onNext={(details) => { setPick(null); setDetail({ ids: [pick.id], details, p: pick }); }} />}
-      {detail && <LogConfirm ids={detail.ids} details={detail.details} pay={detail.p} canLog={!!d?.toLog?.canLog} onClose={() => setDetail(null)} onDone={() => load(true)} />}
+      {detail && <LogConfirm key={detail.ids[0]} ids={detail.ids} details={detail.details} pay={detail.p} canLog={!!d?.toLog?.canLog} onClose={() => setDetail(null)} onDone={() => load(true)} />}
     </>
   );
   if (part) return <div className="acct-part" data-acct-part={part}>{body}{modals}</div>;
@@ -310,7 +418,8 @@ function AcctOverview({ d, onSec }) {
 }
 
 // Every payment the sheet doesn't have: Log it (the dashboard places it) or Log with details (the
-// owner picks the Revenue Type and Artist / Client: studio work, a payer not on INFO, a first payment)
+// owner picks the Revenue Type and Artist / Client: studio work, a payer not on INFO, a first payment;
+// r11: in the same confirm as Log it, every field open to change)
 function AcctToLog({ d, onLog, onPick }) {
   const U = d.toLog?.items;
   if (!U) return <p className="home-muted"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the payments missing from the sheet can't be checked.</p>;
@@ -336,32 +445,6 @@ function AcctToLog({ d, onLog, onPick }) {
         </div>
       ))}
     </div>
-  );
-}
-
-// Log with details: the Revenue Type (the Income tab's own list) and Artist / Client (INFO's list, or
-// blank like the Other Income rows), then the same confirm, claim and read-back as Log it
-function LogDetails({ p, options, canLog, onClose, onNext }) {
-  const types = options?.types || [], clients = options?.clients || [];
-  // a payer who is a client on INFO (Stripe's "Reallyindig0" is INFO's "reallyindig0"): their commission goes
-  // in as Management Commission with INFO's spelling, so both start picked
-  const onInfo = clients.find((c) => c.toLowerCase() === String(p.client || p.payer || "").trim().toLowerCase());
-  const [type, setType] = useState(onInfo && types.includes("Management Commission") ? "Management Commission"
-    : types.includes("Other Income") && !p.client ? "Other Income" : types[0] || "");
-  const [client, setClient] = useState(onInfo || "");
-  const need = type === "Management Commission" && !client;
-  const offInfo = onInfo && (type !== "Management Commission" || !client);
-  return (
-    <AskCard title="Log with details" goLabel="Check the row" plain goDisabled={need || !type} onClose={onClose} go={() => { if (!need && type) onNext({ [p.id]: { type, client } }); }}>
-      <p>{shortDay(p.at)} · {p.client || p.payer || "Unknown payer"} · {money(p.amount)} paid. The full amount goes in Gross Commission; the sheet works out the shares.</p>
-      {!canLog && <p className="hint">{PREVIEW ? PREVIEW_OFF : "Logging from the dashboard isn't switched on yet, so the next step only says so."}</p>}
-      <label className="fld"><span>Revenue Type</span>
-        <select data-pick-type value={type} onChange={(e) => setType(e.target.value)}>{types.map((t) => <option key={t} value={t}>{t}</option>)}</select></label>
-      <label className="fld"><span>Artist / Client</span>
-        <select data-pick-client value={client} onChange={(e) => setClient(e.target.value)}><option value="">(blank, as on Other Income rows)</option>{clients.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>
-      {need ? <p className="hint warn-text" data-pick-need>A Management Commission row needs an Artist / Client.</p>
-        : offInfo && <p className="hint warn-text" data-pick-info>{onInfo} is a client on INFO: commission payments are Management Commission, with {onInfo} as Artist / Client.</p>}
-    </AskCard>
   );
 }
 

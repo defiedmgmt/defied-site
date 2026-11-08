@@ -1,7 +1,9 @@
 // Staff-only one-click logging of Stripe payments into the accounting sheet's Income tab
-// (lib/accounting-log.js). POST {ids:[…], dryRun?:true, details?:{[id]:{type, client}}}: the dry run says the exact rows that would be
-// added (and why any can't be); without it the rows are added, each payment at most once. Writes are
-// off unless ACCOUNTING_SHEET_WRITES=on (503 with a plain line).
+// (lib/accounting-log.js). POST {ids:[…], dryRun?:true, details?:{[id]:{type, client}}, edits?:{[id]:{day, type,
+// client, amount, account, notes, manager?, managerShare?}}}: the dry run says the exact rows that would be
+// added (and why any can't be), with the sheet's lists the confirm's fields pick from; without it the rows are
+// added, each payment at most once, a row's edits (r11: what the owner changed in the confirm) checked again here
+// against those lists first. Writes are off unless ACCOUNTING_SHEET_WRITES=on (503 with a plain line).
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
 import { logPayments, LogError } from "../../lib/accounting-log";
@@ -17,7 +19,7 @@ export default async function handler(req, res) {
   const body = req.body || {};
   try {
     const by = session.user.name || session.user.email || "staff";
-    return res.status(200).json(await logPayments({ ids: body.ids, by, dryRun: !!body.dryRun, details: body.details }));
+    return res.status(200).json(await logPayments({ ids: body.ids, by, dryRun: !!body.dryRun, details: body.details, edits: body.edits }));
   } catch (err) {
     if (err instanceof LogError) return res.status(err.status).json({ error: err.message });
     console.error("accounting-log failed:", err);
