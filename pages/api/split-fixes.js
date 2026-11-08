@@ -2,7 +2,8 @@
 // GET = { auto: { done, held }, writes, sheetUrl } (writes: whether "Fill in" may write, PUB_SHARE_WRITES).
 // POST {action:"auto", items} records the even splits the browser just confirmed by themselves (DB only: the
 // split itself was saved by the dashboard's own save); {action:"undo", ids} takes them off that list for good;
-// {action:"fill", placementId} writes the site's 100% into the sheet's blank Writer Share cell of that song's row.
+// {action:"fill", placementId, share, row} writes the share typed in the dialog (100 if none) into the sheet's blank
+// Writer Share cell of that song's row (row: the one the dialog named; refused if the song's row has moved).
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess, limited, ownSet } from "../../lib/access";
 import { sql } from "../../lib/db";
@@ -26,7 +27,7 @@ export default async function handler(req, res) {
     const by = session.user.name || session.user.email || "";
     const out = b.action === "auto" ? await recordAuto(b.items, by)
       : b.action === "undo" ? await undoAuto(b.ids)
-      : b.action === "fill" ? await fillBlankShare(b.placementId)
+      : b.action === "fill" ? await fillBlankShare(b.placementId, { share: b.share, row: b.row })
       : { error: "Unknown action." };
     if (out.error) return res.status(out.status || 400).json({ error: out.error, off: !!out.off });
     return res.status(200).json(out);

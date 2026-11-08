@@ -13,6 +13,7 @@ import { AskCard } from "../portal/ask";
 import { ExtLink } from "../shared/ui";
 import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 import { syncFix } from "./todo-data";
+import { ownAt, typedShare } from "../../lib/split-fixes";
 import { PanelWait } from "./sections";
 export { useCuTasks, useSyncChecks, todoItems, useSplitFixes, useAutoConfirm, syncFix, useSeeds } from "./todo-data";
 
@@ -94,8 +95,9 @@ function PubFix({ kind, ctx, viaCta = false }) {
 
 // The two shares with one clear answer (lib/split-fixes.js), each One tap with its preview first:
 //   shareSite  no split here while the sheet has 100%: the client at 100% on the site (DB only; the sheet has it)
-//   shareSheet 100% here while the sheet's Writer Share is blank (it earns nothing there): 100% goes into that one
-//              cell (PUB_SHARE_WRITES; off, the card says which cells to type it in)
+//   shareSheet 100% here while the sheet's Writer Share is blank (it earns nothing there): the share typed in the
+//              dialog (100% to start, the site's) goes into that one cell (PUB_SHARE_WRITES; off, the card says
+//              which cells to type it in). A share other than the site's is saved on the site too, so they match
 function ShareFix({ kind, ctx, viaCta = false }) {
   const { db, commit, fixes } = ctx;
   const fx = useMemo(() => shareFixesOf(db), [db]);
@@ -110,19 +112,28 @@ function ShareFix({ kind, ctx, viaCta = false }) {
     setAsk(false);
     if (done) flash({ text: `Done. ${items.length === 1 ? `"${items[0].p.song || "Untitled"}" has` : `${items.length} songs have`} the sheet's split now (100%). Nothing was written to the sheet.` });
   };
-  const fill = async () => {
-    const ok = [], bad = [];
+  // shares: { songId: the % typed for it }
+  const fill = async (shares) => {
+    const ok = [], bad = [], moved = new Map();
     for (const x of items) { // one at a time, each re-checked on the server just before its cell is written
-      const r = await fetch("/api/split-fixes", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "fill", placementId: x.p.id }) }).catch(() => null);
+      const r = await fetch("/api/split-fixes", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "fill", placementId: x.p.id, share: shares[x.p.id], row: x.row }) }).catch(() => null);
       const j = r ? await r.json().catch(() => ({})) : {};
-      if (r?.ok) ok.push(`${j.tab} ${j.cell}`); else bad.push(`"${x.p.song || "Untitled"}": ${j.error || "no answer"}`);
+      if (!r?.ok) { bad.push(`"${x.p.song || "Untitled"}": ${j.error || "no answer"}`); continue; }
+      const share = j.share ?? shares[x.p.id];
+      ok.push(`${j.tab} ${j.cell}: ${share}%`);
+      // the site's split for that client follows the sheet (the same save as "Use the sheet's split")
+      if (Math.abs(share - x.site) >= 0.05) moved.set(x.p.id, { splits: ownAt(x.p.splits, x.client.name, share), who: x.client.name, share });
     }
     setAsk(false);
+    // the fetches took a while: the save is worked out from the copy this started from (commit's base)
+    const saved = moved.size ? await commit({ ...db, placements: db.placements.map((p) => (moved.has(p.id) ? { ...p, splits: moved.get(p.id).splits } : p)) }, db) : null;
     // the sheet's new earnings come back with a pull (it reads every tab again, as Pull from the sheet does)
-    if (ok.length) await fullSiteSync(db, commit).catch(() => {});
-    flash({ warn: !!bad.length, text: [ok.length && `Filled in 100% on the sheet (${ok.join(", ")}).`, bad.length && `Not written: ${bad.join("; ")}.`].filter(Boolean).join(" ") });
+    if (ok.length) await fullSiteSync(saved || db, commit).catch(() => {});
+    const m = [...moved.values()];
+    const site = !m.length ? null : !saved ? `The site's split wasn't saved: set ${m.map((x) => `${x.who} to ${x.share}%`).join(", ")} on the song.`
+      : m.length === 1 ? `The site's split for ${m[0].who} is ${m[0].share}% now too.` : `The site's splits match too.`;
+    flash({ warn: !!bad.length || (!!m.length && !saved), text: [ok.length && `Filled in on the sheet (${ok.join(", ")}).`, site, bad.length && `Not written: ${bad.join("; ")}.`].filter(Boolean).join(" ") });
   };
-  const cells = items.map((x) => `${tabOf(x.client)} tab, D${x.row}`);
   return (
     <div className="todo-sublist" data-share-fix={kind}>
       {items.map((x) => (
@@ -139,14 +150,38 @@ function ShareFix({ kind, ctx, viaCta = false }) {
           <ul className="ask-places">{items.map((x) => <li key={x.p.id}>{x.p.song || "Untitled"}: no split → {x.client.name} 100%</li>)}</ul>
         </AskCard>
       )}
-      {ask && kind === "shareSheet" && (
-        <AskCard title={items.length === 1 ? "Fill in the sheet's blank share?" : `Fill in ${items.length} blank shares?`} goLabel={items.length === 1 ? "Fill in 100%" : `Fill in ${items.length}`} busyLabel="Writing…" plain goDisabled={!writes} go={fill} onClose={() => setAsk(false)}>
-          <p data-ask-writes>Writes 100% into the Writer Share cell only ({cells.join("; ")}). Nothing else on the sheet changes. The song's earnings on the sheet go up with it.</p>
-          <ul className="ask-places">{items.map((x) => <li key={x.p.id}>{x.p.song || "Untitled"} ({x.client.name}): blank → 100%</li>)}</ul>
-          {!writes && <p className="hint" data-ask-off>{PREVIEW ? PREVIEW_OFF : <>Writing to the pub sheet from here isn't switched on yet. Type 100% into {cells.length === 1 ? "that cell" : "those cells"} instead.</>}{fixes?.data?.sheetUrl && <> <ExtLink className="inline-link" href={fixes.data.sheetUrl}>Open the sheet ↗</ExtLink></>}</p>}
-        </AskCard>
-      )}
+      {ask && kind === "shareSheet" && <FillShareAsk items={items} tabOf={tabOf} writes={writes} sheetUrl={fixes?.data?.sheetUrl} go={fill} onClose={() => setAsk(false)} />}
     </div>
+  );
+}
+
+// "Fill in the sheet's blank share?": each song's share typed in (r11, the owner: "why can i only fill in 100
+// percent"), the site's own % to start. Checked as it's typed (lib/split-fixes.js typedShare, the route's rule too)
+const pctText = (n) => String(Math.round(Number(n) * 10) / 10);
+function FillShareAsk({ items, tabOf, writes, sheetUrl, go, onClose }) {
+  const [typed, setTyped] = useState(() => Object.fromEntries(items.map((x) => [x.p.id, pctText(x.site)])));
+  const rows = items.map((x) => ({ x, t: typedShare(typed[x.p.id] ?? pctText(x.site)), cell: `${tabOf(x.client)} tab, D${x.row}` }));
+  const allOk = rows.every((r) => r.t.share != null);
+  const one = rows.length === 1 ? rows[0] : null;
+  const label = one ? (one.t.share != null ? `Fill in ${pctText(one.t.share)}%` : "Fill in") : `Fill in ${rows.length}`;
+  return (
+    <AskCard title={one ? "Fill in the sheet's blank share?" : `Fill in ${rows.length} blank shares?`} goLabel={label} busyLabel="Writing…" plain goDisabled={!writes || !allOk}
+      go={() => go(Object.fromEntries(rows.map((r) => [r.x.p.id, r.t.share])))} onClose={onClose}>
+      <p data-ask-writes>{one ? `Writes ${one.t.share != null ? `${pctText(one.t.share)}%` : "the share you type"} into the Writer Share cell only (${one.cell}).` : `Writes each share into its Writer Share cell only (${rows.map((r) => r.cell).join("; ")}).`} Nothing else on the sheet changes. {one ? "The song's earnings on the sheet go up with it." : "The songs' earnings on the sheet go up with them."}</p>
+      {rows.map(({ x, t }) => (
+        <div key={x.p.id} className="ask-share" data-share-row={x.p.id}>
+          <p className="ask-share-song">{x.p.song || "Untitled"} <span>· blank on the sheet, {pctText(x.site)}% here</span></p>
+          <label className="fld">
+            <span>{x.client.name}'s share</span>
+            <span className="ask-share-in"><input data-share-in={x.p.id} inputMode="decimal" autoComplete="off" value={typed[x.p.id] ?? ""} aria-invalid={t.share == null} aria-label={`${x.client.name}'s share of ${x.p.song || "Untitled"}, in percent`}
+              onFocus={(e) => e.target.select()} onChange={(e) => setTyped((v) => ({ ...v, [x.p.id]: e.target.value }))} />%</span>
+            {t.share == null ? <span className="hint warn-text" data-share-why>{t.reason}</span>
+              : Math.abs(t.share - x.site) >= 0.05 && <span className="hint" data-share-site>The site's split for {x.client.name} changes to {pctText(t.share)}% too, so both match.</span>}
+          </label>
+        </div>
+      ))}
+      {!writes && <p className="hint" data-ask-off>{PREVIEW ? PREVIEW_OFF : <>Writing to the pub sheet from here isn't switched on yet. Type {one ? (one.t.share != null ? `${pctText(one.t.share)}%` : "the share") : "the shares"} into {one ? "that cell" : "those cells"} instead.</>}{sheetUrl && <> <ExtLink className="inline-link" href={sheetUrl}>Open the sheet ↗</ExtLink></>}</p>}
+    </AskCard>
   );
 }
 

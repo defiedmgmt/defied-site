@@ -1998,6 +1998,14 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .ask-body > p.hint{font-size:12.5px;color:var(--d-ink-3);margin-bottom:0}
 .app:not(.pub) .ask-places{margin:0 0 12px;padding-left:18px;font-size:13.5px;line-height:1.6;color:var(--d-ink)}
 .app:not(.pub) .ask-type{width:100%;height:40px;margin-top:4px}
+/* "Fill in the sheet's blank share?" (r11): each song, then its share typed in a short box with the % beside it */
+.app:not(.pub) .ask-share{margin:0 0 14px}
+.app:not(.pub) .ask-share-song{margin:0;font-size:13.5px;line-height:1.5;color:var(--d-ink);overflow-wrap:anywhere}
+.app:not(.pub) .ask-share-song span{color:var(--d-ink-3)}
+.app:not(.pub) .ask-body .ask-share .fld{margin-top:8px}
+.app:not(.pub) .ask-share-in{display:flex;align-items:center;gap:8px;font-size:15px;letter-spacing:0;color:var(--d-ink-3)}
+.app:not(.pub) .ask-share-in input{flex:none;width:112px;text-align:right;font-variant-numeric:tabular-nums}
+.app:not(.pub) .ask-share-in input[aria-invalid=true]{border-color:var(--d-warn-line)}
 /* the merge card (H1): the two cards and the one the merge leaves, side by side; stacked on phones */
 .app:not(.pub) .ask-card.ask-wide{max-width:880px}
 .app:not(.pub) .dupe-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 12px}

@@ -406,8 +406,8 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
         : fresh.dropRow != null ? `It has its own row on the ${tab} tab (row ${fresh.dropRow}), so it can't be merged here.`
         : `It has no row on the ${tab} tab (checked just now), so nothing is written there for it.`}</p>
       <p data-merge-share>{shareText}{rename && <> <span data-merge-rename>Row {fresh.keepRow} on the {tab} tab is renamed to "{title}".</span></>}</p>
-      {/* the weekly ClickUp task counts the Publishing to-dos: it's checked at a Dashboard load (every 10 minutes at most) */}
-      <p className="hint" data-merge-clickup>The weekly ClickUp task updates its counts at the next Dashboard load.</p>
+      {/* the merge is a staff save: the Publishing ClickUp task follows it at once (lib/area-tasks.js afterAction) */}
+      <p className="hint" data-merge-clickup>The Publishing task in ClickUp updates itself right after the merge.</p>
       {blocked && <p className="warn-text" role="alert" data-merge-blocked>{blocked}</p>}
       <div className="dupe-cols">
         {col(keep, "keep", retitled && keptHead.length ? `Kept: ${keptHead.join(" and ")}` : "Keeps this card")}
