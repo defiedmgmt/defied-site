@@ -132,18 +132,18 @@ function ShareFix({ kind, ctx, viaCta = false }) {
     const m = [...moved.values()];
     const site = !m.length ? null : !saved ? `The site's split wasn't saved: set ${m.map((x) => `${x.who} to ${x.share}%`).join(", ")} on the song.`
       : m.length === 1 ? `The site's split for ${m[0].who} is ${m[0].share}% now too.` : `The site's splits match too.`;
-    flash({ warn: !!bad.length || (!!m.length && !saved), text: [ok.length && `Filled in on the sheet (${ok.join(", ")}).`, site, bad.length && `Not written: ${bad.join("; ")}.`].filter(Boolean).join(" ") });
+    flash({ warn: !!bad.length || (!!m.length && !saved), text: [ok.length && `Filled in on the sheet (${ok.join(", ")}).`, site, bad.length && `Not written: ${bad.join("; ").replace(/\.$/, "")}.`].filter(Boolean).join(" ") });
   };
   return (
     <div className="todo-sublist" data-share-fix={kind}>
       {items.map((x) => (
         <div key={x.p.id} className="fix-row" data-song={x.p.id}>
           <span className="fix-song"><span className="fix-who">{x.client.name} · </span>{x.p.song || "Untitled"}</span>
-          <span className="fix-mid"><span className="fix-sheet" data-sheet-change={kind}>{kind === "shareSite" ? `no split here → ${x.client.name} 100%, as on the sheet` : `sheet blank (D${x.row}) → 100%, as here`}</span></span>
+          <span className="fix-mid"><span className="fix-sheet" data-sheet-change={kind}>{kind === "shareSite" ? `no split here → ${x.client.name} 100%, as on the sheet` : `sheet blank (D${x.row}): type the share, ${x.site ?? 100}% here`}</span></span>
         </div>
       ))}
       {!items.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every share matches the sheet.</p>
-        : <button className="btn sm" data-share-go={kind} onClick={() => setAsk(true)}>{kind === "shareSite" ? "Use the sheet's split" : items.length === 1 ? "Fill in 100%" : `Fill in ${items.length}`}</button>}
+        : <button className="btn sm" data-share-go={kind} onClick={() => setAsk(true)}>{kind === "shareSite" ? "Use the sheet's split" : items.length === 1 ? "Fill in the share" : `Fill in ${items.length}`}</button>}
       {ask && kind === "shareSite" && (
         <AskCard title={items.length === 1 ? "Use the sheet's split?" : `Use the sheet's split for ${items.length} songs?`} goLabel="Use the sheet's split" busyLabel="Saving…" plain go={useSheet} onClose={() => setAsk(false)}>
           <p data-ask-writes>Saved on the site only. The sheet already says 100%, so nothing is written to it.</p>

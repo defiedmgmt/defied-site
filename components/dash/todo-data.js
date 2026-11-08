@@ -73,7 +73,7 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   if (fx.site.length) out.push({ k: "shareSite", area: "roster", tap: true, t: fx.site.length === 1 ? `"${fx.site[0].p.song || "Untitled"}" has no split here; the sheet has 100%` : `${fx.site.length} songs have no split here; the sheet has 100%`,
     d: fx.site.length > 1 ? few(fx.site) : `${fx.site[0].client.name}'s tab`, cta: "Use the sheet's split", panel: "shareSite", rank: { kind: "fix", value: streams(fx.site.map((x) => x.p)) } });
   if (fx.sheet.length) out.push({ k: "shareSheet", area: "roster", tap: true, t: fx.sheet.length === 1 ? `"${fx.sheet[0].p.song || "Untitled"}" has a blank share on the sheet` : `${fx.sheet.length} songs have a blank share on the sheet`,
-    d: "100% here. A blank share earns nothing on the sheet.", cta: fx.sheet.length === 1 ? "Fill in 100%" : `Fill in ${fx.sheet.length}`, panel: "shareSheet", rank: { kind: "fix", value: streams(fx.sheet.map((x) => x.p)) } });
+    d: "A blank share earns nothing on the sheet. Type the share, 100% to start.", cta: fx.sheet.length === 1 ? "Fill in the share" : `Fill in ${fx.sheet.length}`, panel: "shareSheet", rank: { kind: "fix", value: streams(fx.sheet.map((x) => x.p)) } });
   // (r11: Outreach is gone, and with it the "N A&R follow-ups due" row)
   // the old Luminate portfolios' songs and artists not tracked yet (list B #3): one row per area, each
   // one finished in the list it opens (Yes to a match, a pasted Spotify link, Not on Spotify)
