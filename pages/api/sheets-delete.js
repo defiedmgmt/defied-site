@@ -3,7 +3,13 @@
 // doesn't keep counting toward anyone's streams/revenue. Only clears the
 // site-owned columns (Song Title, Recording Artist, Writer Share %,
 // Luminate ID, Site Sync ID); formula columns are never touched.
-import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers, findRowBySyncId, clearSongRow } from "../../lib/sheets";
+// r11 todofix: through the formula guard (lib/sheet-writes.js guardedClear):
+// the tab read with FORMULA first, nothing cleared when one of those cells
+// holds a formula or the row is the Total row (or below), and the tab read
+// again after. A refusal is a 409 { error, refused, results }; a formula that
+// changed comes back as `alarm`, said loudly.
+import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers, findRowBySyncId } from "../../lib/sheets";
+import { guardedClear } from "../../lib/sheet-writes";
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess, limited, mayUseClient } from "../../lib/access";
 import { ownerOf } from "../../lib/names";
@@ -52,15 +58,20 @@ export default async function handler(req, res) {
       const syncId = `${placementId}:${name.toLowerCase()}`;
       const row = await findRowBySyncId(sheets, spreadsheetId, tab.title, syncId);
       if (row) {
-        await clearSongRow(sheets, spreadsheetId, tab.title, row);
-        results.push({ name, tab: tab.title, cleared: true });
+        const out = await guardedClear(sheets, spreadsheetId, tab.title, row);
+        if (out.alarm) console.error(`sheets-delete: ${out.alarm}`);
+        results.push(out.refused ? { name, tab: tab.title, cleared: false, refused: out.refused } : { name, tab: tab.title, cleared: true, ...(out.alarm ? { alarm: out.alarm } : {}) });
       } else {
         results.push({ name, tab: tab.title, cleared: false });
       }
     }
 
-    return res.status(200).json({ ok: true, results });
+    const refused = results.filter((r) => r.refused), alarms = results.map((r) => r.alarm).filter(Boolean);
+    if (refused.length) return res.status(409).json({ error: refused.map((r) => r.refused).join(" "), refused: true, results });
+    return res.status(200).json({ ok: true, results, ...(alarms.length ? { alarm: alarms.join(" ") } : {}) });
   } catch (err) {
-    return res.status(502).json({ error: err.message || "Sheet delete failed." });
+    const back = err.readBack;
+    if (back && !back.ok) console.error(`sheets-delete: ${back.alarm}`);
+    return res.status(502).json({ error: err.message || "Sheet delete failed.", ...(back ? { checked: true, ...(back.ok ? {} : { alarm: back.alarm }) } : {}) });
   }
 }

@@ -183,12 +183,15 @@ function ShareFix({ kind, ctx, viaCta = false }) {
 
 // "Use the sheet's split?" (r11 todoedit, the owner: "autofill numbers and give me the option to type them"): each
 // song's client share in a box, the sheet's % to start (FillShareAsk's look). Left as the sheet has it, it's saved on
-// the site only, exactly as before; another share is written into that row's Writer Share cell too, so both match
+// the site only, exactly as before; another share is written into that row's Writer Share cell too, so both match.
+// r11 todofix: a share that leaves the site's split short of 100% says the song goes to Review splits after
 function UseSheetAsk({ items, tabOf, writes, sheetUrl, go, onClose }) {
   const [typed, setTyped] = useState(() => Object.fromEntries(items.map((x) => [x.p.id, pctText(x.sheet)])));
   const rows = items.map((x) => {
     const t = typedShare(typed[x.p.id] ?? pctText(x.sheet));
-    return { x, t, moves: t.share != null && Math.abs(t.share - x.sheet) >= 0.05, cell: `${tabOf(x.client)} tab, D${x.row}` };
+    const moves = t.share != null && Math.abs(t.share - x.sheet) >= 0.05;
+    const total = moves ? ownAt(x.splits, x.client.name, t.share).reduce((a, r) => a + (Number(r.percent) || 0), 0) : 100;
+    return { x, t, moves, short: Math.abs(total - 100) >= 0.05 ? total : null, cell: `${tabOf(x.client)} tab, D${x.row}` };
   });
   const allOk = rows.every((r) => r.t.share != null);
   const moving = rows.filter((r) => r.moves);
@@ -200,7 +203,7 @@ function UseSheetAsk({ items, tabOf, writes, sheetUrl, go, onClose }) {
       <p data-ask-writes>{!moving.length ? "Saved on the site only. The sheet already says 100%, so nothing is written to it."
         : one ? `Saved on the site, and written into the Writer Share cell only (${one.cell}): ${pctText(one.x.sheet)}% → ${pctText(one.t.share)}%. Nothing else on the sheet changes. The song's earnings on the sheet change with it.`
         : `A share that isn't the sheet's is written into its Writer Share cell too (${moving.map((r) => r.cell).join("; ")}). Nothing else on the sheet changes. The rest are saved on the site only.`}</p>
-      {rows.map(({ x, t, moves, cell }) => (
+      {rows.map(({ x, t, moves, short, cell }) => (
         <div key={x.p.id} className="ask-share" data-share-row={x.p.id}>
           <p className="ask-share-song">{x.p.song || "Untitled"} <span>· no split here, {pctText(x.sheet)}% on the sheet</span></p>
           <label className="fld">
@@ -209,6 +212,7 @@ function UseSheetAsk({ items, tabOf, writes, sheetUrl, go, onClose }) {
               onChange={(e) => setTyped((v) => ({ ...v, [x.p.id]: e.target.value }))} />
             {t.share == null ? <span className="hint warn-text" data-share-why>{t.reason}</span>
               : moves && <span className="hint" data-share-sheet>The sheet's share changes to {pctText(t.share)}% too ({cell}), so both match.</span>}
+            {t.share != null && short != null && <span className="hint" data-share-review>The song's split on the site then adds up to {pctText(short)}%, not 100%, so the song goes to Review splits afterwards.</span>}
           </label>
         </div>
       ))}

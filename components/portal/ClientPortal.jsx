@@ -27,7 +27,9 @@ export const releaseDay = (s) => {
 };
 
 // Delete and "This isn't ours": the song off the site, then its row off its client's pub sheet tab.
-// Resolves what happened on the sheet, once both are done; null when the site save failed.
+// Resolves what happened on the sheet, once both are done; null when the site save failed. (r11 todofix: the route
+// guards the clear: a cell holding a formula is never cleared ("refused", its reason), and a formula that changed
+// with the clear comes back as `alarm`, said loudly)
 async function dropSong(db, commit, target, client) {
   if (!(await commit({ ...db, placements: db.placements.filter((p) => p.id !== target.id) }))) return null;
   const tab = client?.sheetTabName?.trim() || client?.name || "";
@@ -39,23 +41,29 @@ async function dropSong(db, commit, target, client) {
       body: JSON.stringify({ placementId: target.id, splits: [{ name: client?.sheetTabName || client?.name }] }),
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Sheet delete failed (${res.status})`);
+    if (res.status === 409 && data.refused) return { sheet: "refused", tab: (data.results || [])[0]?.tab || tab, error: data.error };
+    if (!res.ok) throw Object.assign(new Error(data.error || `Sheet delete failed (${res.status})`), { alarm: data.alarm });
     const r = (data.results || [])[0] || {};
-    return { sheet: r.cleared ? "cleared" : r.found === false ? "noTab" : "notFound", tab: r.tab || tab };
+    return { sheet: r.cleared ? "cleared" : r.found === false ? "noTab" : "notFound", tab: r.tab || tab, alarm: data.alarm || r.alarm || null };
   } catch (err) {
     console.error("Sheet delete failed:", err);
-    return { sheet: "failed", tab, error: err.message };
+    return { sheet: "failed", tab, error: err.message, alarm: err.alarm || null };
   }
 }
 // the last sheet sync found no tab for this client: a Delete or "This isn't ours" has no row to clear
 export const noSheetTab = (songInfo, client) => !!client && (songInfo?.missingTabs || []).includes(client.name);
-// the one line a Delete leaves under the client's header: what happened on the pub sheet
-const dropNote = (o) => ({
-  cleared: { text: `Deleted. Its row on the ${o.tab} tab is cleared.` },
-  notFound: { warn: true, text: `Deleted here, but its row on the ${o.tab} tab wasn't found. Delete that row in the pub sheet by hand, or the next numbers sync brings the song back.` },
-  noTab: { text: `Deleted. The pub sheet has no ${o.tab} tab, so there was no row to clear.` },
-  failed: { warn: true, text: `Deleted here, but the pub sheet couldn't be updated (${o.error || "no answer"}). Delete its row on the ${o.tab} tab by hand.` },
-}[o.sheet] || { text: "Deleted. It had no row on the pub sheet." });
+// the one line a Delete leaves under the client's header: what happened on the pub sheet (a formula that changed
+// with the clear, after it, loudly)
+const dropNote = (o) => {
+  const n = {
+    cleared: { text: `Deleted. Its row on the ${o.tab} tab is cleared.` },
+    notFound: { warn: true, text: `Deleted here, but its row on the ${o.tab} tab wasn't found. Delete that row in the pub sheet by hand, or the next numbers sync brings the song back.` },
+    noTab: { text: `Deleted. The pub sheet has no ${o.tab} tab, so there was no row to clear.` },
+    refused: { warn: true, text: `Deleted here, but its row on the ${o.tab} tab was left as it is: ${o.error} Check that row in the pub sheet.` },
+    failed: { warn: true, text: `Deleted here, but the pub sheet couldn't be updated (${o.error || "no answer"}). Delete its row on the ${o.tab} tab by hand.` },
+  }[o.sheet] || { text: "Deleted. It had no row on the pub sheet." };
+  return o.alarm ? { warn: true, text: `${n.text} ${o.alarm}` } : n;
+};
 
 // "This isn't ours": every place the app knows the song is, then one step takes it out of all of
 // them (site, its sheet row) and notes it, so the sheet never brings it back. onDone gets the result line.
@@ -70,12 +78,15 @@ export function NotOursAsk({ db, commit, songInfo, target, client, onDone, onClo
     if (!out) return onClose(); // the save's own error banner says why
     let noted = null;
     try { await songsPost({ action: "notOurs", clientId: target.clientId, song: target.song, artist: target.artist, luminateId: target.luminateId || "", placementId: target.id }); } catch (e) { noted = e.message; }
-    const sheetBad = out.sheet === "notFound" || out.sheet === "failed";
+    const sheetBad = out.sheet === "notFound" || out.sheet === "failed" || out.sheet === "refused";
     const text = [
-      out.sheet === "cleared" ? "Removed from the catalog and the pub sheet." : sheetBad ? `Removed from the catalog, but its row on the ${out.tab} tab ${out.sheet === "failed" ? "couldn't be cleared" : "wasn't found"}. Delete that row in the pub sheet by hand.` : "Removed from the catalog.",
+      out.sheet === "cleared" ? "Removed from the catalog and the pub sheet."
+        : out.sheet === "refused" ? `Removed from the catalog, but its row on the ${out.tab} tab was left as it is: ${out.error} Check that row in the pub sheet.`
+        : sheetBad ? `Removed from the catalog, but its row on the ${out.tab} tab ${out.sheet === "failed" ? "couldn't be cleared" : "wasn't found"}. Delete that row in the pub sheet by hand.` : "Removed from the catalog.",
       noted && `It couldn't be recorded as removed (${noted}), so a numbers sync may bring it back.`,
+      out.alarm,
     ].filter(Boolean).join(" ");
-    onDone({ warn: sheetBad || !!noted, text });
+    onDone({ warn: sheetBad || !!noted || !!out.alarm, text });
   };
   return (
     <AskCard title={`Remove "${target.song || "Untitled"}" from the catalog?`} goLabel="Remove from catalog" busyLabel="Removing…" go={go} onClose={onClose}>
@@ -88,11 +99,14 @@ export function NotOursAsk({ db, commit, songInfo, target, client, onDone, onClo
 // Save's sheet step (the song editor, and Splits to confirm's Confirm): only the split that belongs to
 // whoever's catalog page this is goes to the pub sheet. A co-writer typed into another split, or an
 // unnamed person from the even default, is just a name on the site, never someone we provision sheet
-// tracking for. Resolves null, or what went wrong (a slow or failed push never undoes the site save)
-export async function pushOwnShare(saved, client, liveIds, keepPercent = null) {
+// tracking for. A slow or failed push never undoes the site save.
+// r11 todofix: the push route guards the write (pages/api/sheets-push.js). Resolves { ok, alarm? } or { error,
+// refused (the guard said no: nothing written), written (false: nothing was), checked (the route read its write back
+// even so), alarm? }; alarm: a formula that changed with the write, said loudly. keep: the share as the sheet has it,
+// for a write that only renames the row (a merge, build I2); check: "confirm" | "merge", the route's total rule
+export async function pushShare(saved, client, liveIds, { keep = null, check = null } = {}) {
   const mine = ownSplit(saved, client);
-  // keepPercent: the share as the sheet has it, for a write that only renames the row (a merge, build I2)
-  const splits = mine ? [{ name: client?.sheetTabName || client?.name, percent: keepPercent ?? mine.percent }] : [];
+  const splits = mine ? [{ name: client?.sheetTabName || client?.name, percent: keep ?? mine.percent }] : [];
   try {
     const res = await fetch("/api/sheets-push", {
       method: "POST",
@@ -103,15 +117,22 @@ export async function pushOwnShare(saved, client, liveIds, keepPercent = null) {
         // from one whose syncId belongs to a placement that no longer
         // exists on this browser — see findUnclaimedRowByTitle.
         liveIds,
+        ...(check ? { check } : {}),
       }),
     });
-    if (res.ok) return null;
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Sheet sync failed (${res.status})`);
+    if (res.ok) return data.alarm ? { ok: true, alarm: data.alarm } : { ok: true };
+    console.error("Sheet push failed:", data.error || res.status);
+    return { error: data.error || `Sheet sync failed (${res.status})`, refused: !!data.refused, written: data.written, checked: !!data.checked, ...(data.alarm ? { alarm: data.alarm } : {}) };
   } catch (err) {
     console.error("Sheet push failed:", err);
-    return err.message || "Sheet sync failed — the local save is fine, but the pub sheet wasn't updated.";
+    return { error: err.message || "Sheet sync failed — the local save is fine, but the pub sheet wasn't updated." };
   }
+}
+// the song editor's Save: null, or what to say (what went wrong, or a formula that changed with the write)
+export async function pushOwnShare(saved, client, liveIds, keepPercent = null) {
+  const r = await pushShare(saved, client, liveIds, { keep: keepPercent });
+  return r.error ? [r.error, r.alarm].filter(Boolean).join(" ") : r.alarm || null;
 }
 
 // the song editor's Save keeps the sheet's exact share (its sheet facts) when the site's whole percent only rounds it

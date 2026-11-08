@@ -3,7 +3,14 @@
 // Stamps each row's Site Sync ID so the next push updates that exact row
 // instead of appending a duplicate, and the next pull matches it by
 // syncId instead of re-detecting it as "new" every time.
-import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers, writeSyncId } from "../../lib/sheets";
+// r11 todofix: each stamp goes through the formula guard (lib/sheet-writes.js
+// guardedStamp): the tab is read with FORMULA first, a stamp into a cell that
+// holds a formula or into the Total row (or below) is refused, naming the cell,
+// and the tab is read again after. Every stamp refused (the merge card sends
+// one) is a 409 { error, refused, written: false }; otherwise { ok, stamped,
+// refused, alarm? } (alarm: a formula that changed, said loudly).
+import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers } from "../../lib/sheets";
+import { guardedStamp } from "../../lib/sheet-writes";
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess, mayUseClient } from "../../lib/access";
 import { ownerOf } from "../../lib/names";
@@ -28,6 +35,7 @@ export default async function handler(req, res) {
     const songClient = Object.fromEntries((await sql`SELECT id, client_id FROM placements WHERE id = ANY(${ids})`).map((p) => [p.id, p.client_id]));
     // an account limited to its own artists stamps only their songs' rows
     if (ids.some((id) => songClient[id] && !mayUseClient(req, songClient[id]))) return res.status(403).json({ error: "That song isn't one of your artists'." });
+    const items = [];
     for (const c of claims) {
       if (!c.tab || !c.row || !c.syncId) continue;
       // c.tab is the client's name or override, not the tab's real title —
@@ -37,10 +45,17 @@ export default async function handler(req, res) {
       const me = ownerOf(known, c.tab, songClient[String(c.syncId).split(":")[0]]);
       const tab = findTab(tabs, c.tab, tabsOfOthers(known, me));
       if (!tab) continue;
-      await writeSyncId(sheets, spreadsheetId, tab.title, c.row, c.syncId);
+      items.push({ tab: tab.title, row: Number(c.row), syncId: String(c.syncId) });
     }
-    return res.status(200).json({ ok: true });
+    const out = await guardedStamp(sheets, spreadsheetId, items);
+    for (const a of out.alarms) console.error(`sheets-claim: ${a}`);
+    // nothing stamped and something refused: an error, so no caller goes on as if its row were marked
+    if (out.refused.length && !out.stamped.length) return res.status(409).json({ error: out.refused.map((r) => r.reason).join(" "), refused: out.refused, written: false });
+    return res.status(200).json({ ok: true, stamped: out.stamped.length, refused: out.refused, ...(out.alarms.length ? { alarm: out.alarms.join(" ") } : {}) });
   } catch (err) {
-    return res.status(502).json({ error: err.message || "Claim-back failed." });
+    // a stamp that failed was read back all the same (it may have landed)
+    const back = err.readBack;
+    if (back && !back.ok) console.error(`sheets-claim: ${back.alarm}`);
+    return res.status(502).json({ error: err.message || "Claim-back failed.", ...(back ? { checked: true, ...(back.ok ? {} : { alarm: back.alarm }) } : {}) });
   }
 }

@@ -8,7 +8,8 @@ import { useEscape } from "../dash/ui";
 // red button and Cancel. Esc, ×, Cancel or a click outside cancel; the red button waits for go().
 // plain: a normal button for a step that loses nothing; typeName: the button stays off until that is typed.
 // alt: { label, run } a second answer beside the red one (the merge card's "Not the same song"); wide: room for columns
-export function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClose, plain = false, typeName = null, alt = null, wide = false, goDisabled = false }) {
+// goWhy: why the button is off, said beside it (r11 todofix: the merge card, whose reason is otherwise a screen down)
+export function AskCard({ title, children, goLabel, busyLabel = "Working…", go, onClose, plain = false, typeName = null, alt = null, wide = false, goDisabled = false, goWhy = null }) {
   const [busy, setBusy] = useState(false);
   const [typed, setTyped] = useState("");
   const running = useRef(false); // set at once: a double click lands before the busy re-render
@@ -25,6 +26,7 @@ export function AskCard({ title, children, goLabel, busyLabel = "Working…", go
           {typeName && <input className="ask-type" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Enter" && run()} disabled={busy} aria-label={`Type ${typeName} to confirm`} placeholder={typeName} autoComplete="off" spellCheck={false} autoFocus />}
         </div>
         <div className="modal-foot">
+          {goWhy && goDisabled && <p className="ask-go-why" role="status" data-ask-go-why>{goWhy}</p>}
           {/* Cancel has the focus: Enter never deletes by accident */}
           <button className="btn ghost sm" onClick={close} disabled={busy} autoFocus={!typeName}>Cancel</button>
           {alt && <button className="btn ghost sm" data-ask-alt onClick={() => run(alt.run)} disabled={busy}>{alt.label}</button>}
