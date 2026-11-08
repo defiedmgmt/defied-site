@@ -4,10 +4,16 @@
 // split itself was saved by the dashboard's own save); {action:"undo", ids} takes them off that list for good;
 // {action:"fill", placementId, share, row} writes the share typed in the dialog (100 if none) into the sheet's blank
 // Writer Share cell of that song's row (row: the one the dialog named; refused if the song's row has moved).
+// r11 todoedit: {action:"setShare", placementId, share, row, from} "Use the sheet's split" with a share typed other
+// than the sheet's: that one cell becomes the typed share (from: the sheet's % the dialog showed, still there);
+// {action:"guard", placementId, percent, splits, exact, row, keep, liveIds} and {action:"guardAfter", placementId,
+// tab, row, sig, cells, percent}: the formula check before and after the song row push Splits to confirm and the
+// merge card send (reads only). Every write here reads the tab with FORMULA first and again after
+// (lib/split-fixes-store.js).
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess, limited, ownSet } from "../../lib/access";
 import { sql } from "../../lib/db";
-import { autoState, recordAuto, undoAuto, fillBlankShare, shareWritesOn } from "../../lib/split-fixes-store";
+import { autoState, recordAuto, undoAuto, fillBlankShare, setSheetShare, pushGuard, pushAfter, shareWritesOn } from "../../lib/split-fixes-store";
 
 // an account limited to its own artists (lib/roles.js): the ids of their songs, else null (every song)
 const ownSongs = async (req) => (limited(req) ? new Set((await sql`SELECT id FROM placements WHERE client_id = ANY(${[...ownSet(req)]})`).map((r) => r.id)) : null);
@@ -22,12 +28,15 @@ export default async function handler(req, res) {
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
     const b = req.body || {};
-    const touched = b.action === "fill" ? [b.placementId] : b.action === "auto" ? (Array.isArray(b.items) ? b.items.map((x) => x?.id) : []) : Array.isArray(b.ids) ? b.ids : [];
+    const touched = ["fill", "setShare", "guard", "guardAfter"].includes(b.action) ? [b.placementId] : b.action === "auto" ? (Array.isArray(b.items) ? b.items.map((x) => x?.id) : []) : Array.isArray(b.ids) ? b.ids : [];
     if (mine && !touched.every((id) => mine.has(id))) return res.status(403).json({ error: "That song isn't one of your artists'." });
     const by = session.user.name || session.user.email || "";
     const out = b.action === "auto" ? await recordAuto(b.items, by)
       : b.action === "undo" ? await undoAuto(b.ids)
       : b.action === "fill" ? await fillBlankShare(b.placementId, { share: b.share, row: b.row })
+      : b.action === "setShare" ? await setSheetShare(b.placementId, { share: b.share, row: b.row, from: b.from })
+      : b.action === "guard" ? await pushGuard({ placementId: b.placementId, percent: b.percent, splits: b.splits, exact: b.exact, row: b.row, keep: b.keep === true, liveIds: b.liveIds })
+      : b.action === "guardAfter" ? await pushAfter({ tab: b.tab, row: b.row, sig: b.sig, cells: b.cells, percent: b.percent })
       : { error: "Unknown action." };
     if (out.error) return res.status(out.status || 400).json({ error: out.error, off: !!out.off });
     return res.status(200).json(out);

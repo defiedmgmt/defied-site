@@ -34,6 +34,11 @@ export function Wordmark({ height = 34, hero = false }) {
 export const Field = ({ label, hint, ...p }) => (
   <label className="fld"><span>{label}</span><input {...p} />{hint && <span className="hint">{hint}</span>}</label>
 );
+// a share typed in a confirm card (r11 todoedit, the look of "Fill in the sheet's blank share?"): a short box with the
+// % beside it, the number keypad on phones, its text selected on focus so one tap and a number replaces it
+export const PctInput = ({ invalid = false, ...p }) => (
+  <span className="ask-share-in"><input inputMode="decimal" autoComplete="off" aria-invalid={invalid} onFocus={(e) => e.target.select()} {...p} />%</span>
+);
 export const Area = ({ label, ...p }) => (
   <label className="fld"><span>{label}</span><textarea rows={3} {...p} /></label>
 );

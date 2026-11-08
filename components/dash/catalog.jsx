@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { X, Plus, LayoutGrid, Folder, RefreshCw } from "lucide-react";
 import { splitWords, orderSplits } from "../../lib/splits";
+import { typedSplit, pctText } from "../../lib/split-fixes";
 import LinkBox from "../LinkBox";
 import { SONG_GAPS } from "../../lib/sheet-facts";
 import { mergedCard, mergedTitle } from "../../lib/duplicates";
@@ -9,7 +10,7 @@ import { PhoneSort } from "../ui/responsive";
 import { NAME_TAKEN, clientDeleteAsk, deleteClientCascade, nameTaken } from "./clients";
 import { WowPill } from "./chips";
 import { GAP_WORDS, WEEK_PCT_MIN, dayRange, dupeName, songsPost, songsToUpdate, useGrowthState } from "./helpers";
-import { Avatar, DropNote, Field, fmt, landOn, money, revealChip, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "./ui";
+import { Avatar, DropNote, Field, PctInput, fmt, landOn, money, revealChip, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "./ui";
 import { NotOursAsk, SongManager, noSheetTab, pushOwnShare, releaseDay } from "../portal/ClientPortal";
 import { AskCard } from "../portal/ask";
 import { ExtLink, Photo } from "../shared/ui";
@@ -27,13 +28,44 @@ const sheetRowOf = (p, rows, live) => rows.find((r) => r.syncId && r.syncId.spli
   || (p.luminateId && rows.find((r) => r.luminateId && r.luminateId === p.luminateId))
   || rows.find((r) => (!r.syncId || !live.has(r.syncId.split(":")[0])) && normalizeTitle(r.song) === normalizeTitle(p.song)) || null;
 const pctOf = (v) => `${splitPct([{ percent: v }])}%`;
+// The formula guard's two reads around a song row push (r11 todoedit; /api/split-fixes guard and guardAfter, read
+// only): the answer, or { error } when it couldn't be asked (then nothing is written: the push waits for a yes)
+async function guardPost(body) {
+  const r = await fetch("/api/split-fixes", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify(body) }).catch(() => null);
+  const j = r ? await r.json().catch(() => ({})) : {};
+  return r?.ok ? j : { error: j.error || "The pub sheet couldn't be checked just now, so nothing was written to it." };
+}
+// Each person on a split with their % in a box (r11 todoedit, the owner: "autofill numbers and give me the option to
+// type them"): the confirm cards and the merge card. splits: what the site worked out; typed: { rowId: text };
+// check: typedSplit's answer for them; under: what a total under 100% means here (the merge only)
+function SplitBoxes({ splits, typed, onType, check, song, under = null }) {
+  const label = (r) => (r.unnamed ? r.label || `${r.role} (unnamed)` : `${r.name || "Unnamed"}${r.role ? ` · ${String(r.role).trim().toLowerCase()}` : ""}`);
+  const sides = [["artist", check.sides.Artist], ["producer", check.sides.Producer]].filter(([, v]) => v > 0).map(([k, v]) => `${k} side ${pctText(v)}%`);
+  const words = check.reason || `Adds up to ${pctText(check.total)}%${sides.length ? ` (${sides.join(", ")})` : ""}.${under && check.total < 99.95 ? ` ${under}` : ""}`;
+  return (
+    <div className="todoedit-split" data-split-boxes>
+      {orderSplits(splits).map((r) => (
+        <label key={r.id} className="fld todoedit-pct" data-split-row={r.id}>
+          <span>{label(r)}</span>
+          <PctInput data-pct-in={r.id} value={typed?.[r.id] ?? pctText(Number(r.percent) || 0)} invalid={!!check.bad[r.id]} aria-label={`${label(r)}'s share of ${song || "Untitled"}, in percent`}
+            onChange={(e) => onType(r.id, e.target.value)} />
+        </label>
+      ))}
+      <p className={check.reason ? "todoedit-total warn-text" : "todoedit-total"} data-split-total role={check.reason ? "alert" : undefined}>{words}</p>
+    </div>
+  );
+}
 export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus, onGo, dupes = [], onDupe }) {
   const { assumed, look, all: flat } = useMemo(() => splitsToConfirm(db, songInfo), [db, songInfo]);
   const n = assumed.length + look.length;
   const [ask, setAsk] = useState(null);
   const [note, setNote] = useState(null);
   const [all, setAll] = useState(false); // the Confirm all card
-  const [askOne, setAskOne] = useState(null); // a single Confirm that changes the sheet: its card
+  const [askOne, setAskOne] = useState(null); // a single Confirm: its card (r11 todoedit: every Confirm, its shares typed)
+  // the shares typed in the cards (r11 todoedit): { songId: { rowId: text } }; a song with none keeps the even split
+  const [typed, setTyped] = useState({});
+  const typeIn = (id) => (rowId, v) => setTyped((t) => ({ ...t, [id]: { ...t[id], [rowId]: v } }));
+  const checkOf = (x) => typedSplit(x.r.splits, typed[x.p.id] || {}, { exact: true, own: x.client?.name });
   const [busy, setBusy] = useState(null); // the song being confirmed
   const box = useRef(null);
   // opened from the Dashboard's To do: the list is what to look at
@@ -69,8 +101,9 @@ export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus
     }).catch(() => {}); // unread: every Confirm that writes then asks first
     return () => { off = true; };
   }, [readKey, reads]); // eslint-disable-line react-hooks/exhaustive-deps
-  const plan = (x) => {
-    const own = x.client && ownSplit({ splits: x.r.splits }, x.client);
+  // splits: the split being confirmed (the even one, or the one typed in its card)
+  const plan = (x, splits = x.r.splits) => {
+    const own = x.client && ownSplit({ splits }, x.client);
     if (!own) return { kind: "none" };
     if (noSheetTab(songInfo, x.client)) return { kind: "tabless" };
     const will = Number(own.percent), now = sheetNow[x.p.id];
@@ -79,27 +112,35 @@ export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus
     if (now.share == null || Math.abs(now.share - will) > 0.05) return { kind: "change", from: now.share, will };
     return { kind: "same", will };
   };
-  const asks = (pl) => pl.kind === "change" || pl.kind === "new" || pl.kind === "unread";
   // the change in a few words, on the row and in the cards
   const changeWords = (pl) => pl.kind === "change" ? `sheet now ${pl.from == null ? "blank" : pctOf(pl.from)} → ${pctOf(pl.will)}`
     : pl.kind === "new" ? `not on the sheet yet → ${pctOf(pl.will)}`
     : pl.kind === "tabless" ? "set the sheet tab first" : null;
-  const confirmSplits = async (items) => { // (not "confirm": that reads like the browser dialog)
+  // edits: { songId: the split typed in its card } (checked by typedSplit); a song not in it keeps its even split
+  const confirmSplits = async (items, edits = {}) => { // (not "confirm": that reads like the browser dialog)
     setNote(null);
-    const plans = new Map(items.map((x) => [x.p.id, plan(x)]));
-    const by = new Map(items.map((x) => [x.p.id, x.r.splits]));
+    const splitOf = (x) => edits[x.p.id] || x.r.splits;
+    const plans = new Map(items.map((x) => [x.p.id, plan(x, splitOf(x))]));
+    const by = new Map(items.map((x) => [x.p.id, splitOf(x)]));
     const done = await commit({ ...db, placements: db.placements.map((p) => (by.has(p.id) ? { ...p, splits: by.get(p.id) } : p)) });
     if (!done) return; // the save's own error banner says why, and nothing went to the sheet
     const live = done.placements.map((p) => p.id);
-    const failed = [], wrote = [], changed = [], tabless = [];
+    const failed = [], wrote = [], changed = [], tabless = [], refused = [], alarms = [];
     // one at a time: two pushes to the same tab at once could both pick the same empty row
     for (const x of items) {
       const saved = done.placements.find((p) => p.id === x.p.id);
       const client = done.clients?.find((c) => c.id === x.p.clientId) || x.client;
       if (!saved || !client || !ownSplit(saved, client)) continue; // not on their own split: nothing to write
       if (noSheetTab(songInfo, client)) { tabless.push(`${saved.song || "Untitled"} (${client.name})`); continue; }
+      // the formula guard (r11 todoedit): the row the push will write is read with FORMULA first (a formula in A, B,
+      // D or N, and nothing is written), the split checked on the server too; the tab is read again after the push
+      const percent = Number(ownSplit(saved, client).percent);
+      const g = await guardPost({ action: "guard", placementId: saved.id, percent, splits: saved.splits, exact: true, liveIds: live });
+      if (!g.ok) { refused.push(`"${saved.song || "Untitled"}": ${g.error}`); continue; }
       const err = await pushOwnShare(saved, client, live);
       if (err) { failed.push(`${saved.song || "Untitled"} (${err})`); continue; }
+      const a = await guardPost({ action: "guardAfter", placementId: saved.id, tab: g.tab, row: g.row, sig: g.sig, cells: g.cells, percent });
+      if (!a.ok) alarms.push(a.alarm || `Row ${g.row} of the ${g.tab} tab couldn't be read back after the write. Check it on the sheet.`);
       wrote.push(x);
       const pl = plans.get(x.p.id);
       if (pl.kind === "change") changed.push(`${saved.song || "Untitled"} ${pl.from == null ? "blank" : pctOf(pl.from)} → ${pctOf(pl.will)}`);
@@ -107,21 +148,40 @@ export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus
     }
     setReads((k) => k + 1);
     const tabNote = tabless.length ? ` Not written to the pub sheet, because the client's sheet tab isn't set: ${tabless.join(", ")}. Set the sheet tab first, then open the song and Save.` : "";
-    if (failed.length) return setNote({ warn: true, text: `Confirmed on the site, but the pub sheet wasn't updated for ${failed.join(", ")}. Open the song and Save again.${tabNote}` });
+    // a refused write and a formula that changed are said first and loudly, whatever else happened
+    const guardNote = [refused.length && `Confirmed on the site, but not written to the pub sheet: ${refused.join(" ")}`, ...alarms].filter(Boolean).join(" ");
+    if (failed.length) return setNote({ warn: true, text: `Confirmed on the site, but the pub sheet wasn't updated for ${failed.join(", ")}. Open the song and Save again.${tabNote}${guardNote ? ` ${guardNote}` : ""}` });
+    if (guardNote && !wrote.length) return setNote({ warn: true, text: `${guardNote}${tabNote}` });
     if (items.length === 1) {
       const x = items[0], pl = plans.get(x.p.id);
       const sheet = !wrote.length ? "" : pl.kind === "change" ? ` ${x.client.name}'s writer share on the ${tabOf(x.client)} tab went from ${pl.from == null ? "blank" : pctOf(pl.from)} to ${pctOf(pl.will)}.`
         : pl.kind === "new" ? ` It was added to the ${tabOf(x.client)} tab with ${x.client.name}'s writer share at ${pctOf(pl.will)}.`
         : ` ${x.client.name}'s writer share on the ${tabOf(x.client)} tab is ${pctOf(pl.will)}.`;
-      return setNote({ warn: !!tabless.length, text: `Confirmed "${x.p.song || "Untitled"}": ${splitWords(x.r.splits, null, { confirmed: true })}.${sheet}${tabNote}` });
+      return setNote({ warn: !!tabless.length || !!alarms.length, text: `Confirmed "${x.p.song || "Untitled"}": ${splitWords(splitOf(x), null, { confirmed: true })}.${sheet}${tabNote}${guardNote ? ` ${guardNote}` : ""}` });
     }
-    const w = wrote.length;
-    setNote({ warn: !!tabless.length, text: `Confirmed ${items.length} even splits.${w ? ` ${w} writer share${w === 1 ? " is" : "s are"} on the sheet${changed.length ? `; ${changed.length} changed (${changed.join(", ")})` : ""}.` : ""}${tabNote}` });
+    const w = wrote.length, typedN = items.filter((x) => edits[x.p.id]).length;
+    setNote({ warn: !!tabless.length || !!guardNote, text: `Confirmed ${items.length} ${typedN ? "splits" : "even splits"}${typedN ? ` (${typedN} as typed)` : ""}.${w ? ` ${w} writer share${w === 1 ? " is" : "s are"} on the sheet${changed.length ? `; ${changed.length} changed (${changed.join(", ")})` : ""}.` : ""}${tabNote}${guardNote ? ` ${guardNote}` : ""}` });
   };
-  const one = async (x) => { setBusy(x.p.id); try { await confirmSplits([x]); } finally { setBusy(null); } };
+  const one = async (x, splits = null) => { setBusy(x.p.id); try { await confirmSplits([x], splits ? { [x.p.id]: splits } : {}); } finally { setBusy(null); } };
+  // a card opens with the even split in its boxes, whatever was typed in it last time
+  const openOne = (x) => { setTyped((t) => ({ ...t, [x.p.id]: {} })); setAskOne(x); };
+  const openAll = () => { setTyped({}); setAll(true); };
+  // the Confirm all card, worked out from what's typed in it
+  const allChecks = new Map(assumed.map((x) => [x.p.id, checkOf(x)]));
+  const allPlan = (x) => plan(x, allChecks.get(x.p.id).splits);
   const allWrites = assumed.filter(pushes);
-  const allChanges = assumed.filter((x) => { const k = plan(x).kind; return k === "change" || k === "new"; });
-  const allTabless = assumed.filter((x) => plan(x).kind === "tabless");
+  const allChanges = assumed.filter((x) => { const k = allPlan(x).kind; return k === "change" || k === "new"; });
+  const allTabless = assumed.filter((x) => allPlan(x).kind === "tabless");
+  const allBad = assumed.filter((x) => allChecks.get(x.p.id).reason).length;
+  // what Confirm does to the sheet, for the one card (r11 todoedit: a share that already matches is said too, as the
+  // card opens for every Confirm now)
+  const sheetWords = (x, pl) => pl.kind === "change"
+    ? `This changes ${x.client.name}'s writer share on the ${tabOf(x.client)} tab of the pub sheet from ${pl.from == null ? "blank" : pctOf(pl.from)} to ${pctOf(pl.will)}. The song's earnings on the sheet change with it.`
+    : pl.kind === "new" ? `The ${tabOf(x.client)} tab of the pub sheet has no row for this song yet. Confirm adds it with ${x.client.name}'s writer share at ${pctOf(pl.will)}.`
+    : pl.kind === "unread" ? `This writes ${x.client.name}'s ${pctOf(pl.will)} to the ${tabOf(x.client)} tab of the pub sheet. The share on the sheet now couldn't be read.`
+    : pl.kind === "same" ? `${x.client.name}'s writer share on the ${tabOf(x.client)} tab is already ${pctOf(pl.will)}, so the sheet stays as it is.`
+    : pl.kind === "tabless" ? `Saved on the site only: set ${x.client.name}'s sheet tab first.`
+    : `${x.client?.name || "The client"} isn't on this split, so nothing is written to the pub sheet.`;
   const tabs = new Set(allWrites.map((x) => x.client.id)).size;
   const row = (x, acts, mid) => (
     <div className="fix-row" key={x.p.id} data-song={x.p.id} data-kind={x.r.status === "assumed" ? "assumed" : "look"}>
@@ -131,7 +191,6 @@ export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus
       <span className="fix-acts">{acts}</span>
     </div>
   );
-  const oneAsk = askOne && plan(askOne);
   return (
     <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="splits">
       <div className="fix-head">
@@ -145,7 +204,7 @@ export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus
           {/* one flat list, biggest streams first: an even split has Confirm, one that needs a look has Fix */}
           <div className="fix-sub">
             <span className="fix-client" data-split-counts>{[assumed.length && `${assumed.length} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} review`].filter(Boolean).join(" · ")}</span>
-            {assumed.length > 0 && <button className="btn sm" data-confirm-all disabled={!!busy} onClick={() => setAll(true)}>Confirm all {assumed.length}</button>}
+            {assumed.length > 0 && <button className="btn sm" data-confirm-all disabled={!!busy} onClick={openAll}>Confirm all {assumed.length}</button>}
           </div>
           {flat.map((x) => {
             if (x.r.status !== "assumed") return row(x, <>
@@ -154,34 +213,38 @@ export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus
             </>, <span className="fix-mid"><span className="fix-words fix-why"><span className="split-warn fix-pct">{splitPct(x.p.splits)}%</span> {x.r.reason}</span></span>);
             const pl = plan(x), cw = changeWords(pl);
             return row(x,
-              <button className="btn sm" data-confirm disabled={!!busy} onClick={() => (asks(pl) ? setAskOne(x) : one(x))}>{busy === x.p.id ? "Confirming…" : "Confirm"}</button>,
+              <button className="btn sm" data-confirm disabled={!!busy} onClick={() => openOne(x)}>{busy === x.p.id ? "Confirming…" : "Confirm"}</button>,
               <span className="fix-mid"><span className="fix-words">{splitWords(x.r.splits, x.p.splits)}</span>
                 {cw && <span className={`fix-sheet${pl.kind === "tabless" ? " tabless" : ""}`} data-sheet-change={pl.kind}>{cw}</span>}</span>);
           })}
         </div>
       )}
       {all && (
-        <AskCard title={`Confirm ${assumed.length} even split${assumed.length === 1 ? "" : "s"}?`} goLabel={`Confirm all ${assumed.length}`} busyLabel="Confirming…" plain
-          go={async () => { await confirmSplits(assumed); setAll(false); }} onClose={() => setAll(false)}>
+        <AskCard title={`Confirm ${assumed.length} even split${assumed.length === 1 ? "" : "s"}?`} goLabel={`Confirm all ${assumed.length}`} busyLabel="Confirming…" plain goDisabled={allBad > 0}
+          go={async () => { await confirmSplits(assumed, Object.fromEntries(assumed.filter((x) => allChecks.get(x.p.id).edited).map((x) => [x.p.id, allChecks.get(x.p.id).splits]))); setAll(false); }} onClose={() => setAll(false)}>
           <p data-ask-writes>{allWrites.length
             ? `Writes the writer share for ${allWrites.length} song${allWrites.length === 1 ? "" : "s"} on ${tabs} client${tabs === 1 ? "'s" : "s'"} sheet tab${tabs === 1 ? "" : "s"}.`
             : "Nothing is written to the pub sheet: none of these clients is on their own split."} Unnamed people are only kept on the site.</p>
           {allChanges.length > 0 && <p data-ask-changes>{allChanges.length === 1 ? "1 of them changes" : `${allChanges.length} of them change`} the share on the sheet now, and that song's earnings change with it.</p>}
           {allTabless.length > 0 && <p data-ask-tabless>{allTabless.length === 1 ? "1 song is" : `${allTabless.length} songs are`} saved on the site only: set the client's sheet tab first.</p>}
-          <ul className="ask-places">{assumed.map((x) => { const cw = changeWords(plan(x)); return <li key={x.p.id}>{x.p.song || "Untitled"} ({x.client?.name || "no client"}): {splitWords(x.r.splits, x.p.splits)}{cw && <b className="ask-change"> · {cw}</b>}</li>; })}</ul>
+          <p className="hint" data-ask-type>Each song starts at the even split. Type a share to change it; each song has to add up to 100%.</p>
+          {allBad > 0 && <p className="hint warn-text" data-ask-bad>{allBad === 1 ? "1 song doesn't" : `${allBad} songs don't`} add up yet.</p>}
+          {assumed.map((x) => { const ck = allChecks.get(x.p.id), cw = changeWords(allPlan(x)); return (
+            <div key={x.p.id} className="todoedit-song" data-confirm-song={x.p.id}>
+              <p className="ask-share-song">{x.p.song || "Untitled"} <span>· {x.client?.name || "no client"}</span>{cw && <b className="todoedit-change"> · {cw}</b>}</p>
+              <SplitBoxes splits={x.r.splits} typed={typed[x.p.id]} onType={typeIn(x.p.id)} check={ck} song={x.p.song} />
+            </div>
+          ); })}
         </AskCard>
       )}
-      {askOne && (
-        <AskCard title={`Confirm "${askOne.p.song || "Untitled"}"?`} goLabel="Confirm" busyLabel="Confirming…" plain
-          go={async () => { await one(askOne); setAskOne(null); }} onClose={() => setAskOne(null)}>
-          <p>{splitWords(askOne.r.splits, askOne.p.splits)}.</p>
-          <p data-ask-change>{oneAsk.kind === "change"
-            ? `This changes ${askOne.client.name}'s writer share on the ${tabOf(askOne.client)} tab of the pub sheet from ${oneAsk.from == null ? "blank" : pctOf(oneAsk.from)} to ${pctOf(oneAsk.will)}. The song's earnings on the sheet change with it.`
-            : oneAsk.kind === "new"
-              ? `The ${tabOf(askOne.client)} tab of the pub sheet has no row for this song yet. Confirm adds it with ${askOne.client.name}'s writer share at ${pctOf(oneAsk.will)}.`
-              : `This writes ${askOne.client.name}'s ${pctOf(oneAsk.will)} to the ${tabOf(askOne.client)} tab of the pub sheet. The share on the sheet now couldn't be read.`} Unnamed people stay on the site only.</p>
+      {askOne && (() => { const ck = checkOf(askOne), pl = plan(askOne, ck.splits); return (
+        <AskCard title={`Confirm "${askOne.p.song || "Untitled"}"?`} goLabel="Confirm" busyLabel="Confirming…" plain goDisabled={!!ck.reason}
+          go={async () => { await one(askOne, ck.edited ? ck.splits : null); setAskOne(null); }} onClose={() => setAskOne(null)}>
+          <p className="hint" data-ask-type>The even split to start. Type a share to change it; it has to add up to 100%.</p>
+          <SplitBoxes splits={askOne.r.splits} typed={typed[askOne.p.id]} onType={typeIn(askOne.p.id)} check={ck} song={askOne.p.song} />
+          <p data-ask-change>{sheetWords(askOne, pl)} Unnamed people stay on the site only.</p>
         </AskCard>
-      )}
+      ); })()}
       {ask && (
         <NotOursAsk db={db} commit={commit} songInfo={songInfo} target={ask.p} client={ask.client} onClose={() => setAsk(null)}
           onDone={(r) => { setAsk(null); setNote(r); reloadSongInfo?.(); }} />
@@ -263,6 +326,9 @@ export function SongsToUpdate({ db, songInfo, onFix, focus, dupes = [], onDupe }
 // client's own share changes (the song editor's Save step, pushOwnShare). (The Luminate id is the sheet row's
 // own column M, which the sheet's formulas still read; the site never writes it.) "Not the same song" is kept
 // (app_state, /api/songs) so the pair never comes back.
+// r11 todoedit: the split after merging is typed in (each person's % in a box, the merge's own split to start); the
+// share the sheet gets follows it. The kept row is read with FORMULA before the Site Sync ID stamp and the push (a
+// formula in A, B, D or N, and nothing changes), and the tab's formulas are read again after.
 const splitLine = (splits) => {
   const list = orderSplits(splits || []);
   if (!list.length) return "No split yet";
@@ -275,7 +341,11 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
   // the title it keeps (build I2), which staff can switch
   const pick = mergedTitle(keep, drop);
   const [title, setTitle] = useState(pick.title);
-  const merged = { ...mergedCard(keep, drop), song: title };
+  const base = mergedCard(keep, drop);
+  // the split after merging, as typed (r11 todoedit): { rowId: text }; untouched, it's the merge's own split exactly
+  const [typed, setTyped] = useState({});
+  const check = typedSplit(base.splits, typed, { exact: false, own: client?.name });
+  const merged = { ...base, song: title, splits: check.splits };
   const tab = client?.sheetTabName?.trim() || client?.name || "";
   // the client's tab as it is now, read when the card opens and again at Merge (a read only, as Splits to confirm
   // does): the facts are from the last pull, and a row typed in, imported or added by a Save since then would make
@@ -326,9 +396,10 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
   const retitled = title.trim() !== (keep.song || "").trim();
   const and = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0] || "");
   const keeps = [row != null && `row ${row} on the ${tab} tab`, keep.luminateId && "the Luminate id"].filter(Boolean);
+  const splitFromOther = !check.edited && base.splits !== keep.splits;
   const takes = [fromOther("releaseDate") && "release date", fromOther("link") && "link", fromOther("cover") && "cover",
-    fromOther("luminateId") && "Luminate id", merged.splits !== keep.splits && "split"].filter(Boolean);
-  const outcome = `One card is left, titled "${title || "Untitled"}"${keeps.length ? `: it keeps ${and(keeps)}` : ""}${takes.length ? `${keeps.length ? "," : ""} and takes the ${and(takes)} from the other card` : ""}. The other card comes off the site.`;
+    fromOther("luminateId") && "Luminate id", splitFromOther && "split"].filter(Boolean);
+  const outcome = `One card is left, titled "${title || "Untitled"}"${keeps.length ? `: it keeps ${and(keeps)}` : ""}${takes.length ? `${keeps.length ? "," : ""} and takes the ${and(takes)} from the other card` : ""}.${check.edited ? " Its split is the one typed below." : ""} The other card comes off the site.`;
   const keptHead = [row != null && "sheet row", keep.luminateId && "Luminate id"].filter(Boolean);
   // the second card's title is the one kept: not struck through
   const dropTitleKept = !!(drop.song || "").trim() && title.trim() === (drop.song || "").trim();
@@ -340,6 +411,12 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
         <label key={t} className={title === t ? "on" : ""}><input type="radio" name="dupe-title" checked={title === t} onChange={() => setTitle(t)} /><span><b>{t}</b><small>{why}</small></span></label>
       ))}
     </span>) : title || "Untitled";
+  const splitBoxes = (
+    <div className="todoedit-merge-split" data-merge-split>
+      <SplitBoxes splits={base.splits} typed={typed} onType={(id, v) => setTyped((t) => ({ ...t, [id]: v }))} check={check} song={title}
+        under="Under 100%, so the song stays in Splits to confirm after the merge." />
+    </div>
+  );
   const fields = (p, side) => [
     ["Title", side === "merged" ? titleChoice : p.song || "Untitled"],
     ["Streams", fmt(p.streams || 0)],
@@ -349,7 +426,8 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
     ["Release date", p.releaseDate ? releaseDay(p.releaseDate) : "None", side === "merged" && fromOther("releaseDate")],
     ["Link", p.link ? <ExtLink className="inline-link" href={p.link}>Open track ↗</ExtLink> : "None", side === "merged" && fromOther("link")],
     ["Cover", p.cover ? <span className="dupe-cover"><Photo src={p.cover} alt="" /></span> : "None", side === "merged" && fromOther("cover")],
-    ["Split", splitLine(p.splits), side === "merged" && p.splits !== keep.splits],
+    // the merged card's split is typed right here (r11 todoedit): its boxes, the merge's own numbers to start
+    ["Split", side === "merged" && base.splits.length ? splitBoxes : splitLine(p.splits), side === "merged" && splitFromOther],
   ];
   const col = (p, side, head) => (
     <div className={`dupe-col ${side}${side === "drop" && dropTitleKept ? " title-kept" : ""}`} data-dupe-col={side}>
@@ -367,6 +445,13 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
     if (f.dropRow != null) return setBlocked(`"${drop.song || "Untitled"}" now has its own row on the ${tab} tab (row ${f.dropRow}). Removing the card would leave that row counting on the sheet, so nothing was changed. Remove the row from the sheet first, or choose Not the same song.`);
     const share = planFor(f);
     const renameNow = renames(f, share.kind);
+    // the formula guard (r11 todoedit): before anything is written, the kept row is read with FORMULA (a formula in
+    // A, B, D or N, and nothing changes), and the share and the typed split are checked on the server too
+    let g = null;
+    if (share.kind === "change" || renameNow) {
+      g = await guardPost({ action: "guard", placementId: keep.id, row: f.keepRow, percent: share.kind === "change" ? share.will : f.share, splits: merged.splits, exact: false, keep: share.kind !== "change" });
+      if (!g.ok) return setBlocked(`Nothing was changed: ${g.error}`);
+    }
     // the kept row was found by its title only (typed in by hand, no Site Sync ID, no Luminate id in M): stamp its
     // Site Sync ID before anything else, so the push below writes that row, never a second one under the new title
     if ((share.kind === "change" || renameNow) && !f.keepById) {
@@ -382,15 +467,22 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
     if (!done) return; // the save's own error banner says why; nothing went to the sheet
     const saved = done.placements.find((p) => p.id === keep.id);
     const c = done.clients?.find((x) => x.id === keep.clientId) || client;
-    let err = null;
-    if (share.kind === "change" && saved && ownSplit(saved, c)) err = await pushOwnShare(saved, c, done.placements.map((p) => p.id));
+    let err = null, pushed = null;
+    if (share.kind === "change" && saved && ownSplit(saved, c)) { pushed = share.will; err = await pushOwnShare(saved, c, done.placements.map((p) => p.id)); }
     // only the song name changes: the share goes back exactly as the sheet has it
-    else if (renameNow && saved && ownSplit(saved, c)) err = await pushOwnShare(saved, c, done.placements.map((p) => p.id), f.share);
+    else if (renameNow && saved && ownSplit(saved, c)) { pushed = f.share; err = await pushOwnShare(saved, c, done.placements.map((p) => p.id), f.share); }
+    // the tab read again after the stamp and the push: every formula as it was, the row's share as sent
+    let alarm = null;
+    if (g) {
+      const a = await guardPost({ action: "guardAfter", placementId: keep.id, tab: g.tab, row: g.row, sig: g.sig, cells: g.cells, percent: err ? undefined : pushed ?? undefined });
+      if (!a.ok) alarm = a.alarm || `Row ${g.row} of the ${g.tab} tab couldn't be read back after the write. Check it on the sheet.`;
+    }
     reloadSongInfo?.();
     const n = done.placements.filter((p) => p.clientId === keep.clientId).length;
-    onDone(err
+    const res = err
       ? { warn: true, text: `Merged into "${title}", but the pub sheet wasn't updated (${err}). Open the song and Save again.` }
-      : { text: `${title === keep.song ? `Merged "${drop.song || "Untitled"}" into "${keep.song || "Untitled"}".` : `Merged "${keep.song || "Untitled"}" and "${drop.song || "Untitled"}" into one card, "${title || "Untitled"}".`} ${client?.name || "The client"} has ${n} song${n === 1 ? "" : "s"}.${share.kind === "change" ? ` The writer share on the ${tab} tab is now ${pctOf(share.will)}.` : ""}${renameNow ? ` Row ${f.keepRow} on the ${tab} tab is now "${title}".` : ""}` });
+      : { text: `${title === keep.song ? `Merged "${drop.song || "Untitled"}" into "${keep.song || "Untitled"}".` : `Merged "${keep.song || "Untitled"}" and "${drop.song || "Untitled"}" into one card, "${title || "Untitled"}".`} ${client?.name || "The client"} has ${n} song${n === 1 ? "" : "s"}.${share.kind === "change" ? ` The writer share on the ${tab} tab is now ${pctOf(share.will)}.` : ""}${renameNow ? ` Row ${f.keepRow} on the ${tab} tab is now "${title}".` : ""}` };
+    onDone(alarm ? { warn: true, text: `${res.text} ${alarm}` } : res);
   };
   const notSame = async () => {
     try { await songsPost({ action: "notDuplicate", ids: [keep.id, drop.id] }); } catch (e) { onDone({ warn: true, text: `Couldn't save that: ${e.message}` }); return; }
@@ -398,7 +490,7 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
     onDone({ text: `Kept both "${keep.song}" and "${drop.song}". They won't be asked about again.` });
   };
   return (
-    <AskCard title="Merge these two cards?" goLabel="Merge cards" busyLabel="Working…" plain wide go={merge} onClose={onClose} alt={{ label: "Not the same song", run: notSame }}>
+    <AskCard title="Merge these two cards?" goLabel="Merge cards" busyLabel="Working…" plain wide go={merge} onClose={onClose} alt={{ label: "Not the same song", run: notSame }} goDisabled={!!check.reason}>
       <p data-dupe-why>{client?.name ? `${client.name}'s page has` : "These are"} two cards with {pair.why}.{retitled ? "" : " After merging, one card is left."}</p>
       {/* what happens, above the columns so it's in view at 1280x800 before Merge cards */}
       <p data-merge-drop>{retitled ? outcome : `"${drop.song || "Untitled"}" is removed from the site.`} {!fresh ? `Checking the ${tab} tab for its row…`

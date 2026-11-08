@@ -8,12 +8,12 @@ import { fullSiteSync, shareFixesOf } from "./catalog-data";
 import { IsrcPicks, RowMenu, dupeWords, findTabClient, isrcPicksOf, likelyDupes, noTabNames, shortDay, useMedia } from "./helpers";
 import { useHome } from "./home-data";
 import { dataPost } from "./chips";
-import { DropNote, Field, fmt, money } from "./ui";
+import { DropNote, Field, PctInput, fmt, money } from "./ui";
 import { AskCard } from "../portal/ask";
 import { ExtLink } from "../shared/ui";
 import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 import { syncFix } from "./todo-data";
-import { ownAt, typedShare } from "../../lib/split-fixes";
+import { ownAt, typedShare, pctText } from "../../lib/split-fixes";
 import { PanelWait } from "./sections";
 export { useCuTasks, useSyncChecks, todoItems, useSplitFixes, useAutoConfirm, syncFix, useSeeds } from "./todo-data";
 
@@ -94,7 +94,9 @@ function PubFix({ kind, ctx, viaCta = false }) {
 }
 
 // The two shares with one clear answer (lib/split-fixes.js), each One tap with its preview first:
-//   shareSite  no split here while the sheet has 100%: the client at 100% on the site (DB only; the sheet has it)
+//   shareSite  no split here while the sheet has 100%: the client at 100% on the site (DB only; the sheet has it).
+//              r11 todoedit: the client's share is typed in the dialog, the sheet's % to start; another share is
+//              written into the sheet's Writer Share cell first (setShare, PUB_SHARE_WRITES), then saved on the site
 //   shareSheet 100% here while the sheet's Writer Share is blank (it earns nothing there): the share typed in the
 //              dialog (100% to start, the site's) goes into that one cell (PUB_SHARE_WRITES; off, the card says
 //              which cells to type it in). A share other than the site's is saved on the site too, so they match
@@ -106,21 +108,50 @@ function ShareFix({ kind, ctx, viaCta = false }) {
   const tabOf = (c) => c.sheetTabName?.trim() || c.name;
   const writes = !!fixes?.data?.writes;
   const flash = (n) => (ctx.flash ? ctx.flash(n) : null);
-  const useSheet = async () => {
-    const by = new Map(items.map((x) => [x.p.id, x.splits]));
-    const done = await commit({ ...db, placements: db.placements.map((p) => (by.has(p.id) ? { ...p, splits: by.get(p.id) } : p)) });
+  const name = (x) => `"${x.p.song || "Untitled"}"`;
+  // shares: { songId: the % typed for it } (the sheet's own % when it wasn't changed)
+  const useSheet = async (shares = {}) => {
+    const keep = [], moved = new Map(), cells = [], bad = [], alarms = [];
+    for (const x of items) {
+      const share = shares[x.p.id] ?? x.sheet;
+      if (!(Math.abs(share - x.sheet) >= 0.05)) { keep.push(x); continue; }
+      // one at a time, each checked on the server just before its cell is written (still no split here, the row
+      // the dialog named, the sheet's share still the one it showed, the cell not a formula)
+      const r = await fetch("/api/split-fixes", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "setShare", placementId: x.p.id, share, row: x.row, from: x.sheet }) }).catch(() => null);
+      const j = r ? await r.json().catch(() => ({})) : {};
+      if (!r?.ok) { bad.push(`${name(x)}: ${j.error || "no answer"}`); continue; }
+      cells.push(`${j.tab} ${j.cell}: ${j.share}%`);
+      if (j.alarm) alarms.push(j.alarm);
+      moved.set(x.p.id, { x, splits: ownAt(x.splits, x.client.name, j.share ?? share), share: j.share ?? share });
+    }
+    const by = new Map([...keep.map((x) => [x.p.id, x.splits]), ...[...moved].map(([id, m]) => [id, m.splits])]);
+    const next = { ...db, placements: db.placements.map((p) => (by.has(p.id) ? { ...p, splits: by.get(p.id) } : p)) };
+    // nothing typed: the same save as before r11; after a sheet write it's worked out from the copy this started from
+    const done = !by.size ? null : moved.size || bad.length ? await commit(next, db) : await commit(next);
     setAsk(false);
-    if (done) flash({ text: `Done. ${items.length === 1 ? `"${items[0].p.song || "Untitled"}" has` : `${items.length} songs have`} the sheet's split now (100%). Nothing was written to the sheet.` });
+    if (!moved.size && !bad.length) { if (done) flash({ text: `Done. ${items.length === 1 ? `${name(items[0])} has` : `${items.length} songs have`} the sheet's split now (100%). Nothing was written to the sheet.` }); return; }
+    const m = [...moved.values()];
+    if (m.length) await fullSiteSync(done || db, commit).catch(() => {}); // the sheet's new earnings, as after a fill
+    flash({ warn: !!bad.length || !!alarms.length || (!!m.length && !done), text: [
+      keep.length && done && `${keep.length === 1 ? `${name(keep[0])} has` : `${keep.length} songs have`} the sheet's split now (100%).`,
+      m.length && `Written on the sheet (${cells.join(", ")}).`,
+      m.length && (!done ? `The site's split wasn't saved: set ${m.map((y) => `${y.x.client.name} to ${y.share}%`).join(", ")} on the song.`
+        : m.length === 1 ? `The site's split for ${m[0].x.client.name} is ${m[0].share}% now too.` : "The site's splits match too."),
+      bad.length && `Not saved: ${bad.join("; ").replace(/\.$/, "")}.`,
+      ...alarms,
+    ].filter(Boolean).join(" ") });
   };
   // shares: { songId: the % typed for it }
   const fill = async (shares) => {
-    const ok = [], bad = [], moved = new Map();
+    const ok = [], bad = [], moved = new Map(), alarms = [];
     for (const x of items) { // one at a time, each re-checked on the server just before its cell is written
       const r = await fetch("/api/split-fixes", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "fill", placementId: x.p.id, share: shares[x.p.id], row: x.row }) }).catch(() => null);
       const j = r ? await r.json().catch(() => ({})) : {};
       if (!r?.ok) { bad.push(`"${x.p.song || "Untitled"}": ${j.error || "no answer"}`); continue; }
       const share = j.share ?? shares[x.p.id];
       ok.push(`${j.tab} ${j.cell}: ${share}%`);
+      // the read-back after the write found a formula changed on the tab: said loudly, as it is
+      if (j.alarm) alarms.push(j.alarm);
       // the site's split for that client follows the sheet (the same save as "Use the sheet's split")
       if (Math.abs(share - x.site) >= 0.05) moved.set(x.p.id, { splits: ownAt(x.p.splits, x.client.name, share), who: x.client.name, share });
     }
@@ -132,7 +163,7 @@ function ShareFix({ kind, ctx, viaCta = false }) {
     const m = [...moved.values()];
     const site = !m.length ? null : !saved ? `The site's split wasn't saved: set ${m.map((x) => `${x.who} to ${x.share}%`).join(", ")} on the song.`
       : m.length === 1 ? `The site's split for ${m[0].who} is ${m[0].share}% now too.` : `The site's splits match too.`;
-    flash({ warn: !!bad.length || (!!m.length && !saved), text: [ok.length && `Filled in on the sheet (${ok.join(", ")}).`, site, bad.length && `Not written: ${bad.join("; ").replace(/\.$/, "")}.`].filter(Boolean).join(" ") });
+    flash({ warn: !!bad.length || !!alarms.length || (!!m.length && !saved), text: [ok.length && `Filled in on the sheet (${ok.join(", ")}).`, site, bad.length && `Not written: ${bad.join("; ").replace(/\.$/, "")}.`, ...alarms].filter(Boolean).join(" ") });
   };
   return (
     <div className="todo-sublist" data-share-fix={kind}>
@@ -144,20 +175,50 @@ function ShareFix({ kind, ctx, viaCta = false }) {
       ))}
       {!items.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every share matches the sheet.</p>
         : <button className="btn sm" data-share-go={kind} onClick={() => setAsk(true)}>{kind === "shareSite" ? "Use the sheet's split" : items.length === 1 ? "Fill in the share" : `Fill in ${items.length}`}</button>}
-      {ask && kind === "shareSite" && (
-        <AskCard title={items.length === 1 ? "Use the sheet's split?" : `Use the sheet's split for ${items.length} songs?`} goLabel="Use the sheet's split" busyLabel="Saving…" plain go={useSheet} onClose={() => setAsk(false)}>
-          <p data-ask-writes>Saved on the site only. The sheet already says 100%, so nothing is written to it.</p>
-          <ul className="ask-places">{items.map((x) => <li key={x.p.id}>{x.p.song || "Untitled"}: no split → {x.client.name} 100%</li>)}</ul>
-        </AskCard>
-      )}
+      {ask && kind === "shareSite" && <UseSheetAsk items={items} tabOf={tabOf} writes={writes} sheetUrl={fixes?.data?.sheetUrl} go={useSheet} onClose={() => setAsk(false)} />}
       {ask && kind === "shareSheet" && <FillShareAsk items={items} tabOf={tabOf} writes={writes} sheetUrl={fixes?.data?.sheetUrl} go={fill} onClose={() => setAsk(false)} />}
     </div>
   );
 }
 
+// "Use the sheet's split?" (r11 todoedit, the owner: "autofill numbers and give me the option to type them"): each
+// song's client share in a box, the sheet's % to start (FillShareAsk's look). Left as the sheet has it, it's saved on
+// the site only, exactly as before; another share is written into that row's Writer Share cell too, so both match
+function UseSheetAsk({ items, tabOf, writes, sheetUrl, go, onClose }) {
+  const [typed, setTyped] = useState(() => Object.fromEntries(items.map((x) => [x.p.id, pctText(x.sheet)])));
+  const rows = items.map((x) => {
+    const t = typedShare(typed[x.p.id] ?? pctText(x.sheet));
+    return { x, t, moves: t.share != null && Math.abs(t.share - x.sheet) >= 0.05, cell: `${tabOf(x.client)} tab, D${x.row}` };
+  });
+  const allOk = rows.every((r) => r.t.share != null);
+  const moving = rows.filter((r) => r.moves);
+  const one = rows.length === 1 ? rows[0] : null;
+  const label = !moving.length ? "Use the sheet's split" : one ? `Save ${pctText(one.t.share)}%` : `Save ${rows.length}`;
+  return (
+    <AskCard title={one ? "Use the sheet's split?" : `Use the sheet's split for ${rows.length} songs?`} goLabel={label} busyLabel="Saving…" plain goDisabled={!allOk || (!!moving.length && !writes)}
+      go={() => go(Object.fromEntries(rows.map((r) => [r.x.p.id, r.t.share])))} onClose={onClose}>
+      <p data-ask-writes>{!moving.length ? "Saved on the site only. The sheet already says 100%, so nothing is written to it."
+        : one ? `Saved on the site, and written into the Writer Share cell only (${one.cell}): ${pctText(one.x.sheet)}% → ${pctText(one.t.share)}%. Nothing else on the sheet changes. The song's earnings on the sheet change with it.`
+        : `A share that isn't the sheet's is written into its Writer Share cell too (${moving.map((r) => r.cell).join("; ")}). Nothing else on the sheet changes. The rest are saved on the site only.`}</p>
+      {rows.map(({ x, t, moves, cell }) => (
+        <div key={x.p.id} className="ask-share" data-share-row={x.p.id}>
+          <p className="ask-share-song">{x.p.song || "Untitled"} <span>· no split here, {pctText(x.sheet)}% on the sheet</span></p>
+          <label className="fld">
+            <span>{x.client.name}'s share</span>
+            <PctInput data-share-in={x.p.id} value={typed[x.p.id] ?? ""} invalid={t.share == null} aria-label={`${x.client.name}'s share of ${x.p.song || "Untitled"}, in percent`}
+              onChange={(e) => setTyped((v) => ({ ...v, [x.p.id]: e.target.value }))} />
+            {t.share == null ? <span className="hint warn-text" data-share-why>{t.reason}</span>
+              : moves && <span className="hint" data-share-sheet>The sheet's share changes to {pctText(t.share)}% too ({cell}), so both match.</span>}
+          </label>
+        </div>
+      ))}
+      {!!moving.length && !writes && <p className="hint" data-ask-off>{PREVIEW ? PREVIEW_OFF : <>Writing to the pub sheet from here isn't switched on yet. Type {one ? `${pctText(one.t.share)}%` : "the shares"} into {moving.length === 1 ? "that cell" : "those cells"} instead, or keep the sheet's %.</>}{sheetUrl && <> <ExtLink className="inline-link" href={sheetUrl}>Open the sheet ↗</ExtLink></>}</p>}
+    </AskCard>
+  );
+}
+
 // "Fill in the sheet's blank share?": each song's share typed in (r11, the owner: "why can i only fill in 100
 // percent"), the site's own % to start. Checked as it's typed (lib/split-fixes.js typedShare, the route's rule too)
-const pctText = (n) => String(Math.round(Number(n) * 10) / 10);
 function FillShareAsk({ items, tabOf, writes, sheetUrl, go, onClose }) {
   const [typed, setTyped] = useState(() => Object.fromEntries(items.map((x) => [x.p.id, pctText(x.site)])));
   const rows = items.map((x) => ({ x, t: typedShare(typed[x.p.id] ?? pctText(x.site)), cell: `${tabOf(x.client)} tab, D${x.row}` }));
@@ -247,6 +308,7 @@ function SeedList({ area, ctx }) {
   );
 }
 const SOCIALS = [["instagram", "Instagram"], ["tiktok", "TikTok"], ["youtube", "YouTube"]];
+const ISRC_RE = /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/; // the server's own check (lib/data/seeds.js decideSeed)
 // picks: the ISRC finder's guesses for a song with no ISRC (one tap: kept on the song, then looked up on Spotify)
 function SeedRow({ r, picks = [], onDone }) {
   const artist = r.kind === "artist";
@@ -256,6 +318,11 @@ function SeedRow({ r, picks = [], onDone }) {
   const [other, setOther] = useState(!r.spotify);
   const [so, setSo] = useState({ instagram: r.socials?.instagram || "", tiktok: r.socials?.tiktok || "", youtube: r.socials?.youtube || "" });
   const [isrc, setIsrc] = useState(r.isrc || "");
+  // r11 todoedit: the ISRC typed (beside the finder's guesses, or alone without them), or a kept one changed
+  const [typeIsrc, setTypeIsrc] = useState(false);
+  const [isrcIn, setIsrcIn] = useState("");
+  const isrcV = isrcIn.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const isrcOk = ISRC_RE.test(isrcV);
   const send = async (body, done) => {
     setBusy(true); setErr(null);
     try {
@@ -263,7 +330,7 @@ function SeedRow({ r, picks = [], onDone }) {
       if (artist && body.op !== "skip" && SOCIALS.some(([k]) => so[k].trim() !== (r.socials?.[k] || ""))) await dataPost({ action: "seed", lumId: r.lumId, op: "socials", socials: so });
       const out = await dataPost({ action: "seed", lumId: r.lumId, ...body });
       // an ISRC Spotify has no song for: kept, and the line stays for a link
-      if (body.op === "isrc" && out.match !== "matched") { setIsrc(out.isrc || body.isrc); setErr("Spotify has no song with that ISRC. Paste its Spotify link instead."); setBusy(false); return; }
+      if (body.op === "isrc" && out.match !== "matched") { setIsrc(out.isrc || body.isrc); setTypeIsrc(false); setErr("Spotify has no song with that ISRC. Paste its Spotify link instead."); setBusy(false); return; }
       onDone(done);
     } catch (e) { setErr(e.message); setBusy(false); }
   };
@@ -292,9 +359,20 @@ function SeedRow({ r, picks = [], onDone }) {
           </span>
         </div>
       )}
-      {!artist && other && (isrc
-        ? <p className="hint seed-isrc">ISRC <code>{isrc}</code> (Spotify has nothing under it yet)</p>
-        : picks.length > 0 && <IsrcPicks list={picks} busy={busy} onPick={(c) => send({ op: "isrc", isrc: c.isrc, source: c.source }, `Found "${r.name}" on Spotify by its ISRC.`)} />)}
+      {!artist && other && (isrc && !typeIsrc
+        ? <p className="hint seed-isrc">ISRC <code>{isrc}</code> (Spotify has nothing under it yet) <button type="button" className="inline-link" data-seed-isrc-change onClick={() => { setIsrcIn(isrc); setTypeIsrc(true); }}>Change it</button></p>
+        : picks.length > 0 && !typeIsrc && !isrc ? <>
+          {/* a tapped guess still saves at once, as before; the link below types one instead */}
+          <IsrcPicks list={picks} busy={busy} onPick={(c) => send({ op: "isrc", isrc: c.isrc, source: c.source }, `Found "${r.name}" on Spotify by its ISRC.`)} />
+          <button type="button" className="inline-link todoedit-isrc-type" data-seed-isrc-type onClick={() => setTypeIsrc(true)}>None of these: type the ISRC</button>
+        </> : (
+          <span className="todoedit-isrc" data-seed-isrc-box>
+            <input value={isrcIn} onChange={(e) => setIsrcIn(e.target.value)} placeholder={isrc ? "Type the ISRC" : "Or type its ISRC"} aria-label={`ISRC for ${r.name}`} maxLength={15} autoComplete="off" spellCheck={false}
+              aria-invalid={isrcV.length >= 12 && !isrcOk} data-seed-isrc onKeyDown={(e) => e.key === "Enter" && isrcOk && !busy && send({ op: "isrc", isrc: isrcV }, `Found "${r.name}" on Spotify by its ISRC.`)} />
+            <button type="button" className="btn ghost sm" data-seed-isrc-save disabled={busy || !isrcOk || isrcV === isrc} onClick={() => send({ op: "isrc", isrc: isrcV }, `Found "${r.name}" on Spotify by its ISRC.`)}>{busy ? "Saving…" : "Save ISRC"}</button>
+            {isrcV.length >= 12 && !isrcOk && <em className="hint err-text" data-seed-isrc-why>An ISRC is 12 letters and numbers, like USUM72506269.</em>}
+          </span>
+        ))}
       {artist && (
         <div className="seed-socials">
           {SOCIALS.map(([k, label]) => <input key={k} value={so[k]} onChange={(e) => setSo((x) => ({ ...x, [k]: e.target.value }))} placeholder={`${label} (optional)`} aria-label={`${label} link for ${r.name}`} />)}
