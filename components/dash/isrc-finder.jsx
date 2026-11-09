@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { RefreshCw, CheckCircle2, Search } from "lucide-react";
 import { CardTable } from "../ui/responsive";
 import { songsWithoutIsrc } from "./isrc-data";
@@ -25,7 +25,9 @@ export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
   const [res, setRes] = useState({}); // key -> { isrc } | { notFound } | { error } | { candidates }
   const [typed, setTyped] = useState({});
   const [typing, setTyping] = useState(() => new Set());
-  const [busy, setBusy] = useState(null); // "find" | a song's key
+  const [busy, setBusy] = useState(null); // "find" while Find ISRCs runs
+  const [saving, setSaving] = useState(() => new Set()); // the songs whose pick or typed ISRC is being saved
+  const picked = useRef(new Set()); // songs saved by hand during this visit: a running Find ISRCs skips them
   const [note, setNote] = useState(null);
   const [sort, setSort] = useState({ col: "client", dir: 1 });
   const [kept, setKept] = useState({}); // the songs saved on this visit: they stay on the list, ticked
@@ -48,9 +50,12 @@ export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
     let left = open.filter((g) => !res[g.key]?.notFound);
     try {
       for (let pass = 0; left.length && pass < 8; pass++) {
+        left = left.filter((g) => !picked.current.has(g.key));
+        if (!left.length) break;
         const part = left.slice(0, 8);
         const { results } = await songsPost({ action: "findIsrcs", groups: part.map((g) => g.ids) });
-        setRes((r) => { const n = { ...r }; for (const g of part) if (results[g.ids[0]] && !results[g.ids[0]].later) n[g.key] = results[g.ids[0]]; return n; });
+        // a song picked or typed while the run was going keeps its saved ISRC
+        setRes((r) => { const n = { ...r }; for (const g of part) if (results[g.ids[0]] && !results[g.ids[0]].later && !r[g.key]?.isrc) n[g.key] = results[g.ids[0]]; return n; });
         setKept((k) => { const n = { ...k }; for (const g of part) if (results[g.ids[0]]?.isrc) n[g.key] = g; return n; });
         left = left.filter((g, i) => i >= 8 || results[g.ids[0]]?.later);
       }
@@ -59,14 +64,15 @@ export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
     finally { setBusy(null); }
   };
   const save = async (g, isrc, source = null) => {
-    setBusy(g.key); setNote(null);
+    // during Find ISRCs the button stays "find"; the row being saved shows on its own
+    setSaving((s) => new Set([...s, g.key])); setNote(null); picked.current.add(g.key);
     try {
       await songsPost(source ? { action: "pickIsrc", placementIds: g.ids, isrc, source } : { action: "setIsrc", placementIds: g.ids, isrc });
       setRes((r) => ({ ...r, [g.key]: { isrc } }));
       setKept((k) => ({ ...k, [g.key]: g }));
       reloadSongInfo?.();
     } catch (e) { setNote(e.message); }
-    finally { setBusy(null); }
+    finally { setSaving((s) => { const n = new Set(s); n.delete(g.key); return n; }); }
   };
 
   const cell = (g) => {
@@ -75,7 +81,7 @@ export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
     const picks = r.candidates?.length ? r.candidates : g.picks;
     if (picks.length && !typing.has(g.key)) return (
       <span className="isrc-cell">
-        <IsrcPicks list={picks} busy={!!busy} onPick={(c) => save(g, c.isrc, c.source)} />
+        <IsrcPicks list={picks} busy={saving.has(g.key)} onPick={(c) => save(g, c.isrc, c.source)} />
         <button type="button" className="inline-link" data-isrc-type onClick={() => setTyping((s) => new Set([...s, g.key]))}>None of these: type it</button>
       </span>
     );
@@ -86,7 +92,7 @@ export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
         <span className="isrc-in">
           <input value={typed[g.key] ?? ""} placeholder="Type the ISRC" aria-label={`ISRC for ${g.song || "this song"}`} data-isrc-input maxLength={15}
             onChange={(e) => setTyped((t) => ({ ...t, [g.key]: e.target.value }))} onKeyDown={(e) => e.key === "Enter" && ISRC_RE.test(v) && save(g, v)} />
-          <button type="button" className="btn ghost sm" data-isrc-save disabled={!ISRC_RE.test(v) || !!busy} onClick={() => save(g, v)}>{busy === g.key ? "Saving…" : "Save"}</button>
+          <button type="button" className="btn ghost sm" data-isrc-save disabled={!ISRC_RE.test(v) || saving.has(g.key)} onClick={() => save(g, v)}>{saving.has(g.key) ? "Saving…" : "Save"}</button>
         </span>
         {r.notFound ? <em className="hint">The finder found nothing.</em> : r.error ? <em className="hint err-text">{r.error}</em> : null}
         {bad && <em className="hint err-text">An ISRC is 12 letters and numbers, like USUM72506269.</em>}
