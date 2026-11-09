@@ -167,7 +167,9 @@ export function songsToUpdate(db, songInfo) {
   for (const p of db.placements) {
     if (held.has(p.id)) continue;
     const split = splitTotal(p.splits) === 100 ? "ok" : evenSplit(p.splits).status;
-    const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split }).filter((x) => !(x.k === "share" && fillIds.has(p.id)));
+    // a song taken down from streaming (song_tracking.skip) has no date or link to find; its money gaps stay
+    const gone = !!songInfo?.tracking?.[p.id]?.skip;
+    const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split }).filter((x) => !(x.k === "share" && fillIds.has(p.id)) && !(gone && (x.k === "date" || x.k === "link")));
     if (!gaps.some((x) => GAP_WORDS[x.k])) continue;
     // a split to confirm or review is Splits to confirm's (build I3): listed here only for the other gaps, with a pointer
     out.push({ p, client: (db.clients || []).find((c) => c.id === p.clientId) || null, gaps: gaps.filter((x) => GAP_WORDS[x.k]), splitSee: gaps.some((x) => !GAP_WORDS[x.k]) });

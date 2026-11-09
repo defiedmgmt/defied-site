@@ -7,6 +7,7 @@ export function songsWithoutIsrc(db, songInfo) {
   const tr = songInfo?.tracking || {};
   const by = new Map();
   for (const p of db.placements || []) {
+    if (tr[p.id]?.skip) continue; // taken down from streaming: there is no ISRC to find
     const sp = spotifyTrack(p.link);
     const key = sp ? `t:${sp}` : `n:${normalizeTitle(p.song)}|${normalizeTitle(p.artist)}`;
     const g = by.get(key) || { key, song: p.song || "", artist: p.artist || "", link: p.link || "", ids: [], clientIds: [], isrc: "" };
