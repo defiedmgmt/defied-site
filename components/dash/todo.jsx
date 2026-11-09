@@ -301,9 +301,28 @@ function SyncFix({ check, ctx }) {
 function SeedList({ area, ctx }) {
   const rows = (ctx.seeds?.data?.todo || []).filter((r) => r.area === area);
   const [note, setNote] = useState(null);
+  // songs taken down from streaming (owner, Nov 8): not tracked, their Luminate all-time stays as their streams
+  const songs = rows.filter((r) => r.kind !== "artist");
+  const [askGone, setAskGone] = useState(false);
+  const allGone = async () => {
+    const bad = [];
+    for (const r of songs) {
+      try { await dataPost({ action: "seed", lumId: r.lumId, op: "skip" }); ctx.seeds.drop(r.lumId); } catch (e) { bad.push(`${r.name}: ${e.message}`); }
+    }
+    setAskGone(false);
+    const done = songs.length - bad.length;
+    (ctx.flash || setNote)({ warn: !!bad.length, text: [done && `${done} ${done === 1 ? "song is" : "songs are"} marked removed from streaming. Their Luminate all-time stays as their streams.`, bad.length && `Not saved: ${bad.join("; ")}.`].filter(Boolean).join(" ") });
+  };
   return (
     <div className="todo-sublist seed-list" data-seed-list={area}>
-      <p className="hint">From the old Luminate {area === "ar" ? "Artist and Song Trackers" : "Admin Catalogs"}. Once one is on Spotify here, its numbers come in with the next daily update; its Luminate numbers stay as history.</p>
+      <p className="hint">From the old Luminate {area === "ar" ? "Artist and Song Trackers" : "Admin Catalogs"}. Once one is on Spotify here, its numbers come in with the next daily update; its Luminate numbers stay as history. A song taken down from streaming can be marked as removed instead.</p>
+      {songs.length > 1 && <button className="btn ghost sm seed-all-gone" data-seed-all-gone onClick={() => setAskGone(true)}>All {songs.length} removed from streaming</button>}
+      {askGone && (
+        <AskCard title={`Mark ${songs.length} songs as removed from streaming?`} goLabel={`Mark ${songs.length} removed`} busyLabel="Saving…" plain go={allGone} onClose={() => setAskGone(false)}>
+          <p>They come off this list and aren't looked for on Spotify. Each keeps its Luminate all-time as its streams. Nothing is written to the sheets.</p>
+          <ul className="ask-places">{songs.map((r) => <li key={r.lumId}>{r.name}{r.atd != null ? `: ${fmt(r.atd)} all-time (Luminate, ${shortDay(r.atdOn)})` : ""}</li>)}</ul>
+        </AskCard>
+      )}
       {rows.map((r) => <SeedRow key={r.lumId} r={r} picks={r.kind !== "artist" && !r.isrc ? isrcPicksOf(ctx.songInfo, r.placementIds || []) : []}
         onDone={(text) => { const last = rows.length === 1; ctx.seeds.drop(r.lumId); if (last && ctx.flash) ctx.flash({ text }); else setNote({ text }); }} />)}
       {!rows.length && <p className="home-muted acct-clear"><CheckCircle2 size={15} /> All found.</p>}
@@ -359,7 +378,9 @@ function SeedRow({ r, picks = [], onDone }) {
           <input className="seed-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={artist ? "Their Spotify artist link" : "The song's Spotify link"} aria-label={`Spotify link for ${r.name}`} />
           <span className="seed-btns">
             <button className="btn sm" data-seed-save disabled={busy || !url.trim()} onClick={() => send({ op: "link", url }, `Tracking ${what} from the next update.`)}>{busy ? "Saving…" : "Save"}</button>
-            <RowMenu label={`More for ${r.name}`} items={[{ label: "Not on Spotify: don't track", onClick: () => send({ op: "skip" }, `${r.name} won't be tracked. Its Luminate numbers stay as history.`) }]} />
+            {artist
+              ? <RowMenu label={`More for ${r.name}`} items={[{ label: "Not on Spotify: don't track", onClick: () => send({ op: "skip" }, `${r.name} won't be tracked. Its Luminate numbers stay as history.`) }]} />
+              : <button className="btn ghost sm" data-seed-gone disabled={busy} onClick={() => send({ op: "skip" }, `"${r.name}" is marked removed from streaming. Its Luminate all-time${r.atd != null ? `, ${fmt(r.atd)},` : ""} stays as its streams.`)}>Removed from streaming</button>}
           </span>
         </div>
       )}
