@@ -183,9 +183,13 @@ function TrackingCell({ r, ctx }) {
 
 // ---------------------------------------------------------------- sorting and CSV
 const cmp = (a, b) => (Array.isArray(a) ? (a[0] - b[0] || cmp(a[1], b[1])) : typeof a === "number" ? a - b : String(a).localeCompare(String(b)));
+// a row's gain for "Top gainers": its main number's % over the day, else over the week, else Luminate's week
+export const gainOf = (r) => { const c = r.m?.[MAIN[r.kind]]; const v = c?.p1 ?? c?.p7 ?? r.lum?.week?.pct; return Number.isFinite(v) ? v : null; };
 export function sortRows(rows, col, dir, o = {}) {
   const out = [...rows];
-  if (!col) return out.sort((a, b) => (b.momentum?.score ?? -1) - (a.momentum?.score ?? -1) || String(b.addedAt).localeCompare(String(a.addedAt)));
+  const newestFirst = (a, b) => String(b.addedAt).localeCompare(String(a.addedAt));
+  if (!col && o.order === "added") return out.sort(newestFirst);
+  if (!col) return out.sort((a, b) => { const x = gainOf(a), y = gainOf(b); return x == null && y == null ? newestFirst(a, b) : x == null ? 1 : y == null ? -1 : y - x || newestFirst(a, b); });
   return out.sort((a, b) => {
     const x = col.get(a, o), y = col.get(b, o);
     if (x == null && y == null) return 0;
@@ -252,6 +256,7 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
   const [person, setPerson] = useState("");
   const [genre, setGenre] = useState("");
   const [sort, setSortS] = useState({ col: null, dir: "desc" });
+  const [order, setOrderS] = useState("gainers"); // the Sort menu: "gainers" | "added" (a clicked header wins until the menu is used)
   const [vis, setVisS] = useState(null);
   const [sheet, setSheet] = useState(false);
   const [colsOpen, setColsOpen] = useState(false);
@@ -274,14 +279,15 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
     ro?.observe(document.body);
     return () => { window.removeEventListener("resize", fit); ro?.disconnect(); };
   });
-  useEffect(() => { setSortS(store.get(`ar-grid:${id}:sort`, { col: null, dir: "desc" })); setVisS(store.get(`ar-grid:${id}:cols`, null)); }, [id]);
+  useEffect(() => { setSortS(store.get(`ar-grid:${id}:sort`, { col: null, dir: "desc" })); setVisS(store.get(`ar-grid:${id}:cols`, null)); setOrderS(store.get(`ar-grid:${id}:order`, "gainers")); }, [id]);
+  const setOrder = (v) => { setOrderS(v); store.set(`ar-grid:${id}:order`, v); const next = { col: null, dir: "desc" }; setSortS(next); store.set(`ar-grid:${id}:sort`, next); };
   const visible = cols.filter((c) => c.sticky || (vis ? vis.includes(c.id) : c.def));
   const setSort = (col) => { const next = sort.col === col ? { col, dir: sort.dir === "desc" ? "asc" : "desc" } : { col, dir: "desc" }; setSortS(next); store.set(`ar-grid:${id}:sort`, next); };
   const toggleCol = (cid) => { const base = vis || cols.filter((c) => c.def).map((c) => c.id); const next = base.includes(cid) ? base.filter((x) => x !== cid) : [...base, cid]; setVisS(next); store.set(`ar-grid:${id}:cols`, next); };
   const genres = [...new Set(rows.map((r) => r.genre).filter(Boolean))].sort();
   const needle = q.trim().toLowerCase();
   const shown = sortRows(rows.filter((r) => (!needle || [r.name, r.artist, ...Object.values(r.links || {})].some((x) => String(x || "").toLowerCase().includes(needle)))
-    && (!person || r.addedBy.some((w) => w.id === person)) && (!genre || r.genre === genre)), cols.find((c) => c.id === sort.col) || null, sort.dir, o);
+    && (!person || r.addedBy.some((w) => w.id === person)) && (!genre || r.genre === genre)), cols.find((c) => c.id === sort.col) || null, sort.dir, { ...o, order });
   const newest = Object.values(asOf).filter((v) => /T/.test(String(v))).sort().pop();
   const exportCsv = () => {
     const blob = new Blob([toCsv(shown, visible.filter((c) => c.id !== "links"), o)], { type: "text/csv;charset=utf-8" });
@@ -309,6 +315,11 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
   const tools = (
     <>
       <input className="arg-search" type="search" placeholder="Search name, artist or handle" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" data-grid-search />
+      <select value={sort.col ? "" : order} onChange={(e) => setOrder(e.target.value)} aria-label="Sort" data-grid-order>
+        {sort.col && <option value="" disabled>Sort: by column</option>}
+        <option value="gainers">Sort: Top gainers</option>
+        <option value="added">Sort: Newest added</option>
+      </select>
       {filters.person && <select value={person} onChange={(e) => setPerson(e.target.value)} aria-label="Person" data-filter="person"><option value="">Everyone</option>{people.filter((p) => !p.all).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
       {genres.length > 0 && <select value={genre} onChange={(e) => setGenre(e.target.value)} aria-label="Genre" data-filter="genre"><option value="">All genres</option>{genres.map((g) => <option key={g}>{g}</option>)}</select>}
     </>
