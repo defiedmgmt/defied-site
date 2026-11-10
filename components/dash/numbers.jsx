@@ -38,8 +38,10 @@ export function NumTile({ m, label, sub, k }) {
 // anyone's personal digest, and sees who gets one and what this week's run did.
 const pctSigned = (p) => (p == null ? "" : `${p > 0 ? "+" : p < 0 ? "−" : ""}${Math.abs(p)}%`);
 function DigestItem({ k, it }) {
-  const main = k === "radar" ? `${it.title}${it.artist ? ` — ${it.artist}` : ""}` : it.name || it.title || "";
-  const nums = k === "roster"
+  const song = k === "rosterSongs" || k === "trackedSongs";
+  const main = k === "radar" || song ? `${it.title || it.name}${it.artist ? ` — ${it.artist}` : ""}` : it.name || it.title || "";
+  const nums = song ? [<span key="s"><b>{fmt(it.thisWeek)}</b> streams this week{it.pct != null && it.lastWeek > 0 && <> <span className={it.pct >= 0 ? "pos" : "neg"}>{pctSigned(it.pct)}</span></>}</span>]
+    : k === "roster"
     ? [it.streams && <span key="s"><b>{fmt(it.streams.thisWeek)}</b> streams this week <span className={it.streams.pct >= 0 ? "pos" : "neg"}>{pctSigned(it.streams.pct)}</span></span>,
       ...(it.followers || []).map((f) => <span key={f.key}>{f.label} <b>{f.approx ? "about " : ""}{big(f.latest)}</b> <span className={f.pct >= 0 ? "pos" : "neg"}>{pctSigned(f.pct)}</span></span>)]
     : k === "radar" ? [<span key="v"><b>{fmt(it.newVideos)}</b> new videos{it.pct != null && <> <span className={it.pct >= 0 ? "pos" : "neg"}>{pctSigned(Math.round(it.pct * 10) / 10)}</span></>}</span>]
