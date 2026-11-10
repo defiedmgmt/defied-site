@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { X, Plus, Trash2, Pencil, Check, ChevronUp, ChevronDown, AlertTriangle } from "lucide-react";
+import { X, Plus, Trash2, Pencil, Check, ChevronUp, ChevronDown, AlertTriangle, Music, Link2 } from "lucide-react";
+import { ExtLink } from "../shared/ui";
 import { filledSplits } from "../../lib/splits";
 import { SECTIONS, ROLES, accessFor, cleanAccess, sameManager } from "../../lib/roles";
 import { changedFields, saveRow } from "../app/saves";
@@ -370,6 +371,32 @@ export function UsersAdmin({ db, commit, reloadDb }) {
   );
 }
 
+// (2026-11-10) music files on website messages: Dropbox's connection, for Founders (lib/dropbox.js)
+function DropboxLine({ founder }) {
+  const [st, setSt] = useState(null), [busy, setBusy] = useState(false), [err, setErr] = useState(null);
+  const back = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("dropbox") : null;
+  const load = () => fetch("/api/dropbox/connect?status=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then(setSt).catch(() => setSt(null));
+  useEffect(() => { load(); }, []);
+  const off = async () => {
+    setBusy(true); setErr(null);
+    const r = await fetch("/api/dropbox/connect", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "disconnect" }) }).catch(() => null);
+    if (!r?.ok) setErr("Couldn't disconnect. Try again."); await load(); setBusy(false);
+  };
+  if (!st) return null;
+  const said = { connected: "Dropbox is connected.", cancelled: "Dropbox wasn't connected (cancelled).", expired: "That took too long. Press Connect Dropbox again.", failed: "Dropbox didn't connect. Try again.", founders: "Only a Founder can connect Dropbox." }[back];
+  return (
+    <p className="hint dropbox-line" data-dropbox={st.connected ? "on" : "off"}>
+      <Music size={14} />{" "}
+      {st.connected ? <>Music files from the website go to Dropbox › Apps › Defied Submissions{st.by ? ` (connected by ${st.by})` : ""}.</> : <>Music files on the website form are off until Dropbox is connected.</>}
+      {founder && (st.connected
+        ? <> <button type="button" className="inline-link" disabled={busy} onClick={off} data-dropbox-off>Disconnect</button></>
+        : <> <a className="btn sm" href="/api/dropbox/connect" data-dropbox-connect>Connect Dropbox</a></>)}
+      {said && <span className={back === "connected" ? " ok-text" : " err-text"}> {said}</span>}
+      {err && <span className="err-text"> {err}</span>}
+    </p>
+  );
+}
+const fileSize = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((b || 0) / 1024))} KB`);
 export function SubsAdmin({ db, commit }) {
   const unreadCount = db.submissions.filter((s) => !s.read).length;
   const toggleRead = (id) => {
@@ -380,6 +407,7 @@ export function SubsAdmin({ db, commit }) {
       <div className="admin-head">
         <h2>Messages{unreadCount > 0 && <span className="nav-badge msg-count-badge">{unreadCount}</span>}</h2>
       </div>
+      <DropboxLine founder={db.access?.role === "founder"} />
       {db.submissions.length === 0 ? <div className="admin-empty">No messages yet.</div> : (
         <div className="subs">
           {db.submissions.map((s) => (
@@ -397,8 +425,16 @@ export function SubsAdmin({ db, commit }) {
               <div className="sub-contact-row">
                 <EmailButton email={s.email} inline />
                 {s.instagram && <span className="tag">@{s.instagram.replace(/^@/, "")}</span>}
+                {s.musicLink && <ExtLink href={s.musicLink} className="tag sub-link"><Link2 size={12} /> Music link</ExtLink>}
               </div>
               <p>{s.message}</p>
+              {(s.files?.length > 0 || s.filesStatus === "uploading" || s.filesStatus === "failed") && (
+                <div className="sub-files" data-sub-files={s.filesStatus}>
+                  {s.filesStatus === "uploading" ? <span className="hint">Files still uploading…</span>
+                    : s.files?.length ? s.files.map((f) => f.url ? <ExtLink key={f.url} href={f.url} className="sub-file"><Music size={13} /> {f.name} <em>{fileSize(f.size)}</em></ExtLink> : null)
+                    : <span className="hint">The files didn't arrive.</span>}
+                </div>
+              )}
               <span className="sub-date">{new Date(s.at).toLocaleString()}</span>
             </div>
           ))}

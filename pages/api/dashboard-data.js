@@ -59,7 +59,9 @@ function toUser(row) {
   return { id: row.id, email: row.email, role: row.role, name: row.name, clientId: row.client_id };
 }
 function toSubmission(row) {
-  return { id: row.id, name: row.name, email: row.email, instagram: row.instagram, subject: row.subject, message: row.message, at: row.created_at, read: row.read };
+  // (2026-11-10) its music link and Dropbox files: shown in Site › Messages, never written back from a save
+  return { id: row.id, name: row.name, email: row.email, instagram: row.instagram, subject: row.subject, message: row.message, at: row.created_at, read: row.read,
+    musicLink: row.music_link || "", files: Array.isArray(row.files) ? row.files : [], filesStatus: row.files_status || "" };
 }
 function toNotable(row) {
   return { id: row.id, song: row.song, artist: row.artist, client: row.client, cover: row.cover, releaseDate: row.release_date, link: row.link };
@@ -439,11 +441,18 @@ async function handlePost(req, res, session) {
     }
   }
   if ("submissions" in body) {
-    queries.push(sql`DELETE FROM submissions`);
-    for (const s of body.submissions.map(submissionRow)) {
+    // (2026-11-10) an upsert, not delete-all-and-insert: a message's music link, files and ClickUp post stay as stored,
+    // and a message that arrived after this tab loaded (newer than everything it sent) is never deleted by its save
+    const rows = body.submissions.map(submissionRow);
+    const ids = rows.map((s) => s.id);
+    const newest = rows.map((s) => s.created_at).filter(Boolean).sort().pop() || null;
+    queries.push(ids.length ? sql`DELETE FROM submissions WHERE id != ALL(${ids}) AND (${newest}::timestamptz IS NULL OR created_at <= ${newest}::timestamptz)` : sql`DELETE FROM submissions WHERE created_at < now() - interval '1 minute'`);
+    for (const s of rows) {
       queries.push(sql`
         INSERT INTO submissions (id, name, email, instagram, subject, message, created_at, read)
         VALUES (${s.id}, ${s.name}, ${s.email}, ${s.instagram}, ${s.subject}, ${s.message}, ${s.created_at}, ${s.read})
+        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, email = EXCLUDED.email, instagram = EXCLUDED.instagram,
+          subject = EXCLUDED.subject, message = EXCLUDED.message, read = EXCLUDED.read
       `);
     }
   }

@@ -27,7 +27,9 @@ const securityHeaders = [
       // the API layer only ever talks to the browser same-origin; outbound calls to
       // Google/Spotify/Luminate happen server-side in API routes, never from client JS.
       // vitals.vercel-insights.com is where Vercel Web Analytics beacons page views.
-      "connect-src 'self' https://vitals.vercel-insights.com",
+      // content.dropboxapi.com: the contact form sends a music file straight to its one-time Dropbox upload link
+      // (2026-11-10, lib/dropbox.js); CSP_EXTRA_CONNECT is only for the local test copy's stand-in Dropbox
+      `connect-src 'self' https://vitals.vercel-insights.com https://content.dropboxapi.com${process.env.CSP_EXTRA_CONNECT ? ` ${process.env.CSP_EXTRA_CONNECT}` : ""}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",

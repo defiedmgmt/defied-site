@@ -73,6 +73,11 @@ CREATE TABLE IF NOT EXISTS submissions (
   created_at timestamptz NOT NULL DEFAULT now(),
   read boolean NOT NULL DEFAULT false
 );
+-- 020: music link and files on a message (Dropbox), and each attempt's file count
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS music_link text NOT NULL DEFAULT '';
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS files jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS files_status text NOT NULL DEFAULT '';
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS clickup_message_id text NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS notable_releases (
   id text PRIMARY KEY,
@@ -112,6 +117,7 @@ CREATE TABLE IF NOT EXISTS contact_attempts (
   attempted_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS contact_attempts_ip_time_idx ON contact_attempts(ip, attempted_at);
+ALTER TABLE contact_attempts ADD COLUMN IF NOT EXISTS files integer NOT NULL DEFAULT 0; -- 020
 
 -- Luminate helper (dashboard v2, batch 1). Adds tables only: nothing that
 -- already exists is changed, so running it again is harmless. None of these
