@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { X, LogOut, Plus, Disc3, RefreshCw, AlertTriangle, CheckCircle2, Eye } from "lucide-react";
+import { X, LogOut, Plus, Disc3, RefreshCw, AlertTriangle, CheckCircle2, Eye, PauseCircle, PlayCircle } from "lucide-react";
 import { evenSplit, splitWords, filledSplits, orderSplits } from "../../lib/splits";
 import { netStreamsOf } from "../../lib/sheet-facts";
 import { changedFields, goneText } from "../app/saves";
@@ -11,6 +11,7 @@ import { Avatar, DropNote, Field, PhotoUpload, SplitsEditor, SplitsPie, Wordmark
 import { ROUTE_TO_PATH } from "../shared/routes";
 import { ExtLink, Photo } from "../shared/ui";
 import { LumHistory } from "../dash/lum-history";
+import { ArtistStats, useArtistNumbers, setTracking } from "../dash/artist-stats";
 import { ownSplit, personKey } from "../site/data";
 import { AskCard } from "./ask";
 export { AskCard, useDirtyGuard } from "./ask";
@@ -312,59 +313,17 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
     setOpenId(null); setEditing(null);
     if (isStaff) setDelNote(dropNote(out));
   };
+  // (2026-11-10) the top of a roster artist's page: its campaign numbers, then the streams and money, then the songs
+  const nums = useArtistNumbers(isStaff && !editorOnly ? clientId : null);
+  const [stopAsk, setStopAsk] = useState(false);
+  const tracking = nums.artist?.mode !== "off";
+  const moreItems = isStaff && nums.artist ? [{ key: "tracking", label: tracking ? "Stop tracking this artist" : "Start tracking again", icon: tracking ? <PauseCircle size={14} /> : <PlayCircle size={14} />, onClick: () => (tracking ? setStopAsk(true) : setTracking(clientId, true).then(nums.reload)) }] : [];
   const startAdd = () => setEditing({ id: null, clientId, song: "", artist: client?.name || "", releaseDate: "", link: "", cover: "", notable: false, luminateId: "", splits: [{ id: uid(), name: client?.name || "", role: client?.role || "", percent: 0 }] });
 
-  return (
-    <>
-      {/* read-only: shows staff which sheet tab this client's numbers come from (Stack!e reads tab Stackie) */}
-      {isStaff && client && !editorOnly && (
-        <div className="client-head">
-          <Avatar src={client.photo} name={client.name} size={40} />
-          <div className="client-head-text">
-            <div className="client-head-name">{client.name}</div>
-            <div className="client-head-meta">{client.role || "Client"} · {!songs.length ? "No songs yet. Their pub sheet tab is made with their first song."
-              : noSheetTab(songInfo, client) ? <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span>
-              : `Sheet tab: ${client.sheetTabName?.trim() || client.name}`}</div>
-          </div>
-          {onDeleteClient && <ClientMore onDelete={() => onDeleteClient(client)} />}
-        </div>
-      )}
-      {isStaff && fixNote?.upd && (
-        <p className="hint fix-strip" role="status" data-upd-strip>
-          {fixNote.saved && <><CheckCircle2 size={14} /> <span>Saved.</span></>}
-          {fixNote.next
-            ? <button className="inline-link" data-upd-next onClick={() => onFix?.(fixNote.next.p.id, fixNote.next.gaps[0].field)}>Next to update: {fixNote.next.p.song || "Untitled"} ({fixNote.next.client?.name || "a deleted client"}) →</button>
-            : <span>No more songs to update.</span>}
-          {" · "}<button className="inline-link" data-upd-back onClick={() => onFixList?.("update")}>Back to Songs to update</button>
-        </p>
-      )}
-      {isStaff && fixNote && !fixNote.upd && (
-        <p className="hint fix-strip" role="status">
-          <CheckCircle2 size={14} /> <span>Saved. {fixNote.left ? `${fixNote.left} left` : "All splits add up now."}</span>
-          {fixNote.next && <> · <button className="inline-link" onClick={() => onFix?.(fixNote.next.p.id)}>Next: {fixNote.next.p.song || "Untitled"} ({fixNote.next.client?.name || "a deleted client"}) →</button></>}
-          {" · "}<button className="inline-link" onClick={() => onFixList?.()}>Back to the list</button>
-        </p>
-      )}
-      {isStaff && <DropNote note={delNote} />}
-      {!editorOnly && <>
-      <div className="portal-block-head">
-        <div>
-          <h2>Songs &amp; Splits</h2>
-          <p className="muted">
-            {/* the song count already lives in the summary's Songs stat for
-                clients — repeating it here would just be the same number
-                twice. Staff never see a Songs stat there, so keep it here. */}
-            {(isStaff || !db.sheetSync?.lastSyncedAt) && `${songs.length} Song${songs.length === 1 ? "" : "s"} · `}
-            Click any to see the breakdown.
-          </p>
-          {isStaff && pushWarn && <p className="hint err-text">{pushWarn}</p>}
-        </div>
-        <button className="btn sm" onClick={startAdd}><Plus size={15} /> Add Song</button>
-      </div>
-
-      {db.sheetSync?.lastSyncedAt && (
+  const summaryBlock = db.sheetSync?.lastSyncedAt && (
         <div className="cat-summary">
           <div className="cat-summary-grid">
+
             <div className="cat-stat" data-gross="site"><span className="cat-stat-label">Gross Streams{isStaff && <span className="cat-stat-note"> (songs on the site)</span>}</span><span className="cat-stat-val">{fmt(summary.gross)}</span></div>
             {/* staff see where each comes from, as the two can differ: the net is the pub sheet's own figure once a pull read the tab */}
             <div className="cat-stat" data-net={netShown.fromSheet ? "sheet" : "estimate"}><span className="cat-stat-label">Net Streams{!netShown.fromSheet ? <span className="cat-stat-note"> (estimate)</span> : isStaff && <span className="cat-stat-note"> (from the pub sheet)</span>}</span><span className="cat-stat-val">{fmt(netShown.value)}</span></div>
@@ -385,10 +344,65 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
             {isStaff ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt })
               : `Streams as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}
           </p>
-          {/* r10: what Luminate had for this artist (read only) and campaign mode, from the old Numbers tab */}
-          {isStaff && <LumHistory k={`a:${clientId}`} campaign />}
+        </div>
+  );
+  return (
+    <>
+      {/* read-only: shows staff which sheet tab this client's numbers come from (Stack!e reads tab Stackie) */}
+      {isStaff && client && !editorOnly && (
+        <div className="client-head">
+          <Avatar src={client.photo} name={client.name} size={40} />
+          <div className="client-head-text">
+            <div className="client-head-name">{client.name}</div>
+            <div className="client-head-meta">{client.role || "Client"} · {!songs.length ? "No songs yet. Their pub sheet tab is made with their first song."
+              : noSheetTab(songInfo, client) ? <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span>
+              : `Sheet tab: ${client.sheetTabName?.trim() || client.name}`}</div>
+          </div>
+          {(onDeleteClient || moreItems.length > 0) && <ClientMore onDelete={onDeleteClient ? () => onDeleteClient(client) : undefined} items={moreItems} />}
         </div>
       )}
+      {isStaff && fixNote?.upd && (
+        <p className="hint fix-strip" role="status" data-upd-strip>
+          {fixNote.saved && <><CheckCircle2 size={14} /> <span>Saved.</span></>}
+          {fixNote.next
+            ? <button className="inline-link" data-upd-next onClick={() => onFix?.(fixNote.next.p.id, fixNote.next.gaps[0].field)}>Next to update: {fixNote.next.p.song || "Untitled"} ({fixNote.next.client?.name || "a deleted client"}) →</button>
+            : <span>No more songs to update.</span>}
+          {" · "}<button className="inline-link" data-upd-back onClick={() => onFixList?.("update")}>Back to Songs to update</button>
+        </p>
+      )}
+      {isStaff && fixNote && !fixNote.upd && (
+        <p className="hint fix-strip" role="status">
+          <CheckCircle2 size={14} /> <span>Saved. {fixNote.left ? `${fixNote.left} left` : "All splits add up now."}</span>
+          {fixNote.next && <> · <button className="inline-link" onClick={() => onFix?.(fixNote.next.p.id)}>Next: {fixNote.next.p.song || "Untitled"} ({fixNote.next.client?.name || "a deleted client"}) →</button></>}
+          {" · "}<button className="inline-link" onClick={() => onFixList?.()}>Back to the list</button>
+        </p>
+      )}
+      {isStaff && <DropNote note={delNote} />}
+      {stopAsk && (
+        <AskCard title={`Stop tracking ${client?.name || "this artist"}?`} goLabel="Stop tracking" busyLabel="Stopping…" onClose={() => setStopAsk(false)}
+          go={async () => { await setTracking(clientId, false); setStopAsk(false); await nums.reload(); }}>
+          <p>Every automatic number for them stops updating (Spotify, TikTok, Instagram, YouTube). What's been read so far is kept, and you can start it again from More ▾.</p>
+        </AskCard>
+      )}
+      {!editorOnly && <>
+      {isStaff && <ArtistStats nums={nums} />}
+      {isStaff && summaryBlock}
+      <div className="portal-block-head">
+        <div>
+          <h2>Songs &amp; Splits</h2>
+          <p className="muted">
+            {/* the song count already lives in the summary's Songs stat for
+                clients — repeating it here would just be the same number
+                twice. Staff never see a Songs stat there, so keep it here. */}
+            {(isStaff || !db.sheetSync?.lastSyncedAt) && `${songs.length} Song${songs.length === 1 ? "" : "s"} · `}
+            Click any to see the breakdown.
+          </p>
+          {isStaff && pushWarn && <p className="hint err-text">{pushWarn}</p>}
+        </div>
+        <button className="btn sm" onClick={startAdd}><Plus size={15} /> Add Song</button>
+      </div>
+
+      {!isStaff && summaryBlock}
 
       {songs.length === 0 ? (
         <p className="muted">No songs yet — add the first one.</p>

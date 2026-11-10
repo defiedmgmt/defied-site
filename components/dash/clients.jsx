@@ -15,7 +15,8 @@ import { ownSplit, sameName } from "../site/data";
 // the generic WRITER pool. Returns a warning string on partial failure, or
 // null if everything cleared cleanly.
 // the client header's More ▾: Delete client lives here, away from the chips you click all day
-export function ClientMore({ onDelete }) {
+// items: [{ label, icon, onClick, key }] above Delete (2026-11-10: Stop tracking this artist moved here)
+export function ClientMore({ onDelete, items = [] }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
   useEscape(() => setOpen(false), open);
@@ -30,7 +31,8 @@ export function ClientMore({ onDelete }) {
       <button className="btn ghost sm" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>More <ChevronDown size={14} /></button>
       {open && (
         <div className="client-more-menu" role="menu">
-          <button role="menuitem" data-del-client onClick={() => { setOpen(false); onDelete(); }}><Trash2 size={14} /> Delete client</button>
+          {items.map((it) => <button key={it.key} role="menuitem" data-more-item={it.key} onClick={() => { setOpen(false); it.onClick(); }}>{it.icon}{it.label}</button>)}
+          {onDelete && <button role="menuitem" data-del-client onClick={() => { setOpen(false); onDelete(); }}><Trash2 size={14} /> Delete client</button>}
         </div>
       )}
     </div>
