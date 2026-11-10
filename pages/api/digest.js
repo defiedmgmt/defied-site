@@ -4,7 +4,7 @@
 // the list of people and what this week's run did for each (digest_runs). Reads only; nothing is sent here.
 import { requireAccess } from "../../lib/access";
 import { sql } from "../../lib/db";
-import { buildTeamDigest, buildPersonalDigest, messageOf, digestWritesOn, digestWeek, personalPeople } from "../../lib/digest";
+import { buildTeamDigest, buildPersonalDigest, messageOf, teamMessagesOf, digestWritesOn, digestWeek, personalPeople } from "../../lib/digest";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only." });
@@ -25,7 +25,8 @@ export default async function handler(req, res) {
     ]);
     const out = {
       week: digestWeek(now), writesOn: digestWritesOn(), schedule: "Mondays, 9 AM New York time",
-      team: { ...team, text: messageOf(team), channelSet: !!String(process.env.DIGEST_CHANNEL_ID || "").trim() },
+      // the team digest is two ClickUp messages (roster, then the tracked artists): shown one after the other
+      team: { ...team, text: teamMessagesOf(team).map((m) => m.content).join("\n\n———\n\n"), channelSet: !!String(process.env.DIGEST_CHANNEL_ID || "").trim() },
       personal: { ...personal, text: personal.sections.length ? messageOf(personal) : "" },
     };
     if (founder) {

@@ -3396,3 +3396,6 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 @media (max-width:599px){
   .app:not(.pub) .modal-foot .ask-go-why{flex-basis:100%;order:-1;margin:0 0 2px}
 }
+/* (2026-11-10) To do › A&R entries about to end: the names, then Renew all / Pick in My A&R */
+.app:not(.pub) .todo-names{display:grid;gap:4px;margin:0 0 10px;padding-left:18px;font-size:13.5px;color:var(--d-ink-2)}
+.app:not(.pub) .todo-actions{display:flex;flex-wrap:wrap;gap:8px}

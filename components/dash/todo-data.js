@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { endingWords } from "../ar/fmt";
 import { autoConfirms, autoWords } from "../../lib/split-fixes";
 import { fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
 import { dashTasks, dupeIds, songsToUpdate } from "./helpers";
@@ -88,6 +89,9 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   // A&R (r10): the previous watchlist's artists whose same-name Spotify match a person still has to confirm
   const confirm = ar?.toConfirm || 0;
   if (confirm) out.push({ k: "arConfirm", area: "ar", t: `${confirm} Watchlist artist${confirm === 1 ? " needs its" : "s need their"} Spotify confirmed`, d: "Pick the right Spotify profile: nothing is tracked until a person taps.", cta: "Confirm", panel: "arConfirm", rank: { kind: "fix", value: 0 } });
+  // (2026-11-10) your A&R entries ending within 7 days, or ended: renew them here before they stop
+  const ending = ar?.ending || [];
+  if (ending.length) out.push({ k: "arEnding", area: "ar", t: `A&R: ${endingWords(ending)}`, d: "Renew to keep tracking them. An ended one comes off the list 14 days later.", cta: "Renew", panel: "arEnding", ending, rank: { kind: "fix", value: 0 } });
   const unread = (db.submissions || []).filter((x) => !x.read).length;
   if (unread) out.push({ k: "messages", area: "site", t: `${unread} new website message${unread === 1 ? "" : "s"}`, cta: "Read", panel: "messages", rank: { kind: "other" } });
   // the sync checks that aren't a row already (Stripe = payments to log, ClickUp = its tasks)

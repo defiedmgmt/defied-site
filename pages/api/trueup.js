@@ -9,6 +9,7 @@
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
 import { trueUpState, previewTrueUp, applyTrueUp, undoTrueUp, setSchedule } from "../../lib/trueup";
+import { streamSheetMonthly } from "../../lib/stream-sheet";
 
 // two reports of 500 songs fit easily (the full-roster Trend Report, 305 songs a day for a week, is ~210 KB)
 export const config = { api: { bodyParser: { sizeLimit: "4mb" } }, maxDuration: 60 };
@@ -33,7 +34,7 @@ export default async function handler(req, res) {
     const body = req.body || {}, by = session.user.name || session.user.email || "staff";
     if (body.action === "preview") {
       const out = await previewTrueUp(files(body.files));
-      return res.status(200).json({ errors: out.errors, files: out.files, plan: short(out.plan), blocked: out.blocked || null });
+      return res.status(200).json({ errors: out.errors, files: out.files, plan: short(out.plan), blocked: out.blocked || null, sheetMonthly: streamSheetMonthly() });
     }
     if (body.action === "apply") {
       const out = await applyTrueUp(files(body.files), { by });

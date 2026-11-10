@@ -75,3 +75,13 @@ export function weekSections(wk, n = 5) {
   const ups = cap("up"), downs = cap("down");
   return secs.map((s, i) => ({ ...s, up: ups[i], down: downs[i] })).filter((s) => s.up.length || s.down.length);
 }
+// (2026-11-10) your entries ending within 7 days or ended (A&R's red banner, To do's A&R row): [{ state, daysLeft }]
+// "14 of your entries end in 6 days" / "…end within 7 days, the first in 2 days" / "· 3 have ended"
+export function endingWords(ending) {
+  const soon = ending.filter((w) => w.state === "soon"), gone = ending.length - soon.length;
+  const days = soon.map((w) => w.daysLeft || 1), first = Math.min(...days), dd = (n) => `${n} ${n === 1 ? "day" : "days"}`;
+  return [
+    soon.length && `${soon.length} of your entries ${soon.length === 1 ? "ends" : "end"} ${days.every((x) => x === first) ? `in ${dd(first)}` : `within 7 days, the first in ${dd(first)}`}`,
+    gone && `${gone} ${gone === 1 ? "has" : "have"} ended`,
+  ].filter(Boolean).join(" · ");
+}

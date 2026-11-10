@@ -72,7 +72,7 @@ function TrueUpDrop({ d }) {
     setBusy("applying");
     try {
       const r = await post("/api/trueup", { action: "apply", files });
-      setDone({ run: r.run, on: out.plan.exportOn }); setOut(null); setFiles(null);
+      setDone({ run: r.run, on: out.plan.exportOn, sheet: r.sheet || null }); setOut(null); setFiles(null);
       setRecent({ id: r.run.id });
       await reloadTrueUp();
     } catch (e) { setOut({ ...out, fatal: e.message }); }
@@ -122,6 +122,7 @@ function TrueUpDrop({ d }) {
             {p.unknown.length > 0 && <p className="tu-line hint" data-unknown={p.unknown.length}>{plural(p.unknown.length, p.unknown.every((u) => u.kind === "release") ? "release" : "song")} in the files {p.unknown.length === 1 ? "isn't" : "aren't"} linked to a roster song here, so {p.unknown.length === 1 ? "it's" : "they're"} left out: {p.unknown.slice(0, 5).map((u) => u.name).join(", ")}{p.unknown.length > 5 ? ` and ${fmt(p.unknown.length - 5)} more` : ""}.</p>}
             {p.notIn?.n > 0 && <p className="tu-line hint" data-not-in-file={p.notIn.n}>{plural(p.notIn.n, "roster song")} {p.notIn.n === 1 ? "isn't" : "aren't"} in the files ({d.notInWords || "no plays this month, or not added"}): {p.notIn.n === 1 ? "it keeps its" : "they keep their"} last number.</p>}
             {p.older.length > 0 && <p className="tu-line hint">{plural(p.older.length, "song")} left out: this file is older than the update they already have.</p>}
+            {out.sheetMonthly && p.songs > 0 && !out.blocked && <p className="tu-line" data-trueup-sheet>Apply also puts these Luminate totals into the pub sheet's STREAM DATA (column D), so the sheet's earnings follow them.</p>}
             <div className="lm-result-acts">
               {p.songs > 0 && !out.blocked && <button className="btn sm" data-trueup-apply disabled={!!busy} onClick={apply}>{busy === "applying" ? "Applying…" : `Apply ${plural(p.songs, "song")}`}</button>}
               <button className="btn ghost sm" disabled={!!busy} onClick={() => { setOut(null); setFiles(null); }}>Cancel</button>
@@ -129,7 +130,7 @@ function TrueUpDrop({ d }) {
           </>}
         </div>
       )}
-      {done?.run && <p className="hint del-note" role="status" data-trueup-done><CheckCircle2 size={14} /> <span>Saved Luminate's {shortDay(done.on)} numbers for {plural(done.run.counts.songs, "song")}. The sheet's streams take them on their next update, while Sheet streams are on. <button className="inline-link" data-trueup-undo disabled={!!busy} onClick={() => undo(done.run.id)}>Undo</button></span></p>}
+      {done?.run && <p className="hint del-note" role="status" data-trueup-done><CheckCircle2 size={14} /> <span>Saved Luminate's {shortDay(done.on)} numbers for {plural(done.run.counts.songs, "song")}. {done.sheet?.error ? <span className="err-text" data-trueup-sheet-err>The pub sheet didn't update ({done.sheet.error}). </span> : done.sheet?.written != null ? `The pub sheet's STREAM DATA has them now (${plural(done.sheet.written, "row")} changed). ` : "The sheet's streams take them on their next update, while Sheet streams are on. "}<button className="inline-link" data-trueup-undo disabled={!!busy} onClick={() => undo(done.run.id)}>Undo</button></span></p>}
       {done?.undone && <p className="hint del-note" role="status" data-trueup-undone><CheckCircle2 size={14} /> <span>Undone: nothing from that update is left.</span></p>}
       {done?.error && <p className="hint err-text">{done.error}</p>}
       {!done && !out && last && <p className="hint tu-last" data-trueup-last>Last update: the {shortDay(last.export_on)} file, {plural(last.counts?.songs || 0, "song")}, saved {shortDay(last.applied_at)}{last.applied_by ? ` by ${last.applied_by}` : ""}. <button className="inline-link" data-trueup-undo disabled={!!busy} onClick={() => undo(last.id)}>Undo</button></p>}

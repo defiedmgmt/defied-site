@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { RefreshCw, AlertTriangle } from "lucide-react";
 import { dashCache } from "../shared/dash-caches";
 
@@ -29,15 +29,16 @@ export const monthName = (ym) => (ym ? new Date(`${ym}-15T12:00:00`).toLocaleDat
 // again when the Dashboard opens. null while loading or when it couldn't load (no badge, no task).
 export function useArSummary(tab) {
   const [t, setT] = useState(null);
+  const [again, setAgain] = useState(0); // reload(): after a renewal in To do
   useEffect(() => {
-    if (tab !== "home" && t) return;
+    if (tab !== "home" && t && !again) return;
     let alive = true;
     // a failed read keeps the last answer, or marks it answered so the To do count doesn't wait forever
     const miss = () => alive && setT((x) => x || { failed: true });
     fetch("/api/ar?summary=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => (d ? alive && setT(d) : miss())).catch(miss);
     return () => { alive = false; };
-  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
-  return t;
+  }, [tab, again]); // eslint-disable-line react-hooks/exhaustive-deps
+  return useMemo(() => t && { ...t, reload: () => setAgain((n) => n + 1) }, [t]);
 }
 
 // A card's calm line while /api/home is on its way, or when it couldn't load at all

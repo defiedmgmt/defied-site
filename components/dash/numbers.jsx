@@ -83,7 +83,7 @@ export function DigestPreview() {
   return (
     <div className="dg" data-digest-preview>
       <p className="dg-status" data-dg-status>{d.writesOn ? `Posts to ClickUp ${d.schedule}.` : `Posting is off for now (DIGEST_WRITES), so nothing is sent. This is exactly what ${d.schedule.replace(/^Mondays/, "Monday")} would send.`}{d.writesOn && !d.team.channelSet ? " The team channel isn't set yet (DIGEST_CHANNEL_ID)." : ""}</p>
-      <DigestBlock d={d.team} label="Team digest (the team's ClickUp channel)" />
+      <DigestBlock d={d.team} label="Team digest (2 messages in ClickUp's Weekly Digest channel)" />
       {d.people && (
         <label className="fld dg-who"><span>Personal digest for</span>
           <select value={who || d.personal.user?.id || ""} onChange={(e) => setWho(e.target.value)} aria-label="Personal digest for">

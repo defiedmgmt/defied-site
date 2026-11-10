@@ -48,6 +48,33 @@ export function TodoRow({ it, open, onToggle, ctx }) {
     </div>
   );
 }
+// (2026-11-10) A&R entries about to end: each with its days left, Renew all, or open My A&R to pick
+function ArEnding({ it, ctx }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const renewAll = async () => {
+    setBusy(true); setErr(null);
+    let bad = 0;
+    for (const e of it.ending) {
+      const r = await fetch("/api/ar-trackers", { method: "POST", headers: { "content-type": "application/json", "x-requested-with": "defied-site" }, body: JSON.stringify({ action: "renew", entryId: e.entryId }) }).catch(() => null);
+      if (!r?.ok) bad++;
+    }
+    setBusy(false);
+    if (bad) setErr(`${bad} didn't renew. Try again.`);
+    ctx.ar?.reload?.();
+  };
+  return (
+    <div className="todo-sublist" data-ar-ending>
+      <ul className="todo-names">{it.ending.slice(0, 8).map((e) => <li key={e.entryId || e.name}>{e.name} · <span className="err-text">{e.state === "expired" ? "ended" : `${e.daysLeft} ${e.daysLeft === 1 ? "day" : "days"} left`}</span></li>)}</ul>
+      {it.ending.length > 8 && <p className="hint">and {it.ending.length - 8} more</p>}
+      {err && <p className="hint err-text" role="alert">{err}</p>}
+      <div className="todo-actions">
+        <button type="button" className="btn sm" disabled={busy} onClick={renewAll} data-renew-all>{busy ? "Renewing…" : it.ending.length === 1 ? "Renew it" : `Renew all ${it.ending.length}`}</button>
+        <button type="button" className="btn ghost sm" onClick={() => ctx.onGo("ar", "mine")} data-go-mine>Pick in My A&R</button>
+      </div>
+    </div>
+  );
+}
 function TodoPanel({ it, ctx, onClose, viaCta = false }) {
   const { db, commit, onGo } = ctx;
   switch (it.panel) {
@@ -57,6 +84,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log" && viaCta} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
     case "seeds": return <SeedList area={it.seedArea} ctx={ctx} />;
     case "arConfirm": return <div className="todo-sublist"><p className="hint">Their Luminate numbers stay as history. Once you tap the right Spotify profile, its numbers start with the next update.</p><button type="button" className="btn sm" onClick={() => ctx.onGo("ar", "watch/confirm")} data-go-confirm>Open the Watchlist's confirm list</button></div>;
+    case "arEnding": return <ArEnding it={it} ctx={ctx} />;
     case "trueup": case "trueup-new": case "trueup-schedule": return <TrueUpPanel kind={it.panel} ctx={ctx} />; // TRUEUP-HOOK
     case "isrc": return <IsrcFinder db={db} songInfo={ctx.songInfo} reloadSongInfo={ctx.reloadSongInfo} />;
     case "messages": return <SubsAdmin db={db} commit={commit} />;

@@ -161,17 +161,25 @@ export function columnsFor(view, { momentumReady = false } = {}) {
   ];
 }
 
+// (2026-11-10) a row whose tracking ends within 7 days, or has ended, is marked red: on My A&R by your own
+// entry, elsewhere by the row's (it stops being tracked when its last entry ends). -> "soon" | "expired" | null
+export const endingOf = (r, ctx) => {
+  if (r.tracking.roster) return null;
+  const t = (ctx?.manage && ctx?.me && r.addedBy.find((w) => w.id === ctx.me)) || r.tracking;
+  return !t.never && (t.state === "soon" || t.state === "expired") ? t.state : null;
+};
 // how long it's tracked; on Mine (and in the drawer) your own entry's 30/60/90, Renew and Remove
 function TrackingCell({ r, ctx }) {
   const mine = ctx?.me ? r.addedBy.find((w) => w.id === ctx.me) : null;
   const t = r.tracking;
   const text = t.roster ? "Roster" : t.never ? "No end date" : t.state === "expired" ? "Expired" : `${t.daysLeft} left`;
-  if (!ctx?.manage || !mine || t.roster || mine.never) return <span className="arg-track" data-state={t.state} data-tracking={text}>{t.state === "expired" ? <><Clock size={12} /> Expired</> : text}</span>;
+  if (!ctx?.manage || !mine || t.roster || mine.never) return <span className="arg-track" data-state={t.state} data-tracking={text}>{t.state === "expired" || t.state === "soon" ? <><Clock size={12} /> {text}</> : text}</span>;
   return (
     <span className="arg-track mine" data-state={mine.state} onClick={(e) => e.stopPropagation()}>
       {mine.state === "expired"
         ? <button className="btn sm arg-renew" onClick={() => ctx.renew(mine)} data-renew>Renew</button>
-        : <span data-tracking={`${mine.days || ""}d · ${mine.daysLeft} left`}>{mine.days ? `${mine.days}d · ` : ""}{mine.daysLeft} left</span>}
+        : <span data-tracking={`${mine.days || ""}d · ${mine.daysLeft} left`}>{mine.state === "soon" && <Clock size={12} />}{mine.days ? `${mine.days}d · ` : ""}{mine.daysLeft} left</span>}
+      {mine.state === "soon" && <button className="btn sm arg-renew" onClick={() => ctx.renew(mine)} data-renew>Renew</button>}
       <select aria-label="How long" value={String(mine.days || "")} onChange={(e) => ctx.setDays(mine, Number(e.target.value))} data-set-days>
         {!mine.days && <option value="">Length</option>}
         {[30, 60, 90].map((d) => <option key={d} value={d}>{d}d</option>)}
@@ -224,10 +232,10 @@ const KEY_NUMS = {
   song: (r, o) => [["Streams", r.m?.streams], [o.reads ? "Δ last" : "Δ day", r.m?.streams, null, o.reads ? "rd" : "d1"], ["Δ week", r.m?.streams, null, "d7"]],
   sound: (r, o) => [["Videos", r.m?.videos], [o.reads ? "Δ last" : "Δ day", r.m?.videos, null, o.reads ? "rd" : "d1"], ["Δ week", r.m?.videos, null, "d7"]],
 };
-function PhoneCard({ r, onOpen, open, flash, o = {} }) {
+function PhoneCard({ r, onOpen, open, flash, o = {}, ending = null }) {
   const left = r.tracking.roster ? "Roster" : r.tracking.never ? "No end date" : r.tracking.state === "expired" ? "Expired · Renew" : `${r.tracking.daysLeft} days left`;
   return (
-    <button type="button" className={`arg-card m-tap${open ? " open" : ""}${flash ? " flash" : ""}`} onClick={() => onOpen(r)} data-row={r.key} data-card={r.key} data-type={typeOf(r)}>
+    <button type="button" className={`arg-card m-tap${open ? " open" : ""}${flash ? " flash" : ""}`} onClick={() => onOpen(r)} data-row={r.key} data-card={r.key} data-type={typeOf(r)} data-ending={ending || undefined}>
       <span className="arg-card-1"><Photo r={r} size={36} /><span className="arg-name-t"><b>{r.name}</b>{r.kind !== "artist" && r.artist && <em>{r.artist}</em>}</span><TypeChip r={r} roster={false} />{r.match === "name" && <span className="arg-tag" data-tag="confirm">Confirm ▸</span>}</span>
       <span className="arg-card-2">
         {KEY_NUMS[r.kind](r, o).map(([label, c, extra, d]) => (
@@ -238,7 +246,7 @@ function PhoneCard({ r, onOpen, open, flash, o = {} }) {
           </span>
         ))}
       </span>
-      <span className="arg-card-3">{r.roster ? whoText(r) : `Added by ${whoText(r)} · ${left}`}</span>
+      <span className="arg-card-3">{r.roster ? whoText(r) : <>Added by {whoText(r)} · <span className="arg-left">{ending && <Clock size={11} />}{left}</span></>}</span>
     </button>
   );
 }
@@ -360,7 +368,7 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
             </thead>
             <tbody ref={body}>
               {shown.map((r, i) => (
-                <tr key={r.key} data-row={r.key} data-type={typeOf(r)} tabIndex={0} className={[openKey === r.key && "open", flashKey === r.key && "flash"].filter(Boolean).join(" ")} onClick={() => onOpen(r)} onKeyDown={(e) => keyNav(e, i)}>
+                <tr key={r.key} data-row={r.key} data-type={typeOf(r)} data-ending={endingOf(r, ctx) || undefined} tabIndex={0} className={[openKey === r.key && "open", flashKey === r.key && "flash"].filter(Boolean).join(" ")} onClick={() => onOpen(r)} onKeyDown={(e) => keyNav(e, i)}>
                   {visible.map((c) => <td key={c.id} className={[c.num && "num", c.sticky && "stick"].filter(Boolean).join(" ")} data-col={c.id}>{c.render(r, asOf, ctx, o)}</td>)}
                 </tr>
               ))}
@@ -368,7 +376,7 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
           </table>
         </div>
       )}
-      {shown.length > 0 && narrow && <div className="arg-cards">{shown.map((r) => <PhoneCard key={r.key} r={r} onOpen={onOpen} open={openKey === r.key} flash={flashKey === r.key} o={o} />)}</div>}
+      {shown.length > 0 && narrow && <div className="arg-cards">{shown.map((r) => <PhoneCard key={r.key} r={r} onOpen={onOpen} open={openKey === r.key} flash={flashKey === r.key} o={o} ending={endingOf(r, ctx)} />)}</div>}
       {sheet && (
         <div className="arg-sheet-bg" onClick={(e) => e.target === e.currentTarget && setSheet(false)}>
           <div className="arg-sheet" role="dialog" aria-label="Sort and filter" data-sheet>

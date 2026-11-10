@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Clock } from "lucide-react";
 import { ArHome, ArFresh } from "../ar/ArHome";
 import { ArGrid } from "../ar/ArGrid";
 import { ArDrawer } from "../ar/ArDrawer";
@@ -9,7 +10,7 @@ import { shortDay } from "./helpers";
 import { fmt, revealChip } from "./ui";
 import { arPgCache } from "../shared/dash-caches";
 import { arSecOf } from "../shared/ar-routes";
-import { typeOf } from "../ar/fmt";
+import { typeOf, endingWords } from "../ar/fmt";
 // (list B #11) the pills and stages Home and Publishing draw too live in leaf modules; still exported from here
 import { AR_STAGES } from "./ar-stages";
 export { AR_STAGES, StagePill } from "./ar-stages";
@@ -181,8 +182,9 @@ function ArListView({ at, go }) {
     renew: (w) => act({ action: "renew", entryId: w.entryId }, "Renewed."),
     remove: (w, r) => act({ action: "remove", entryId: w.entryId }, r.addedBy.length > 1 ? `Your name is off ${r.name}. It stays on the list for ${r.names.filter((n) => n !== w.name).join(", ")}.` : `${r.name} is off your list.`),
   };
-  // My A&R: what of yours ends this week, with one Renew for all of it
-  const ending = at.view === "mine" ? all.map((r) => r.addedBy.find((w) => w.id === me)).filter((w) => w && !w.never && (w.state === "soon" || w.state === "expired")) : [];
+  // what of yours ends within 7 days (or has ended), with one Renew for all of it: red, on My A&R and the Watchlist (2026-11-10)
+  const ending = me ? all.map((r) => r.addedBy.find((w) => w.id === me)).filter((w) => w && !w.never && (w.state === "soon" || w.state === "expired")) : [];
+  const endingText = endingWords(ending);
   const added = (res) => {
     v.load().then(() => {
       const key = res?.subject;
@@ -218,9 +220,9 @@ function ArListView({ at, go }) {
         </div>
       )}
       {ending.length > 0 && (
-        <p className="ar-banner" data-mine-ending>
-          {ending.length} of yours {ending.length === 1 ? "ends" : "end"} this week ·{" "}
-          <button type="button" className="inline-link" onClick={async () => { for (const w of ending) await arTrackerPost({ action: "renew", entryId: w.entryId }).catch(() => null); setNote({ ok: true, text: "Renewed." }); v.load(); }} data-renew-all>{ending.length === 1 ? "Renew it" : ending.length === 2 ? "Renew both" : `Renew all ${ending.length}`}</button>
+        <p className="ar-banner ending" role="status" data-mine-ending>
+          <Clock size={14} aria-hidden="true" /> {endingText} ·{" "}
+          <button type="button" className="inline-link" onClick={async () => { let bad = 0; for (const w of ending) await arTrackerPost({ action: "renew", entryId: w.entryId }).catch(() => { bad++; }); setNote(bad ? { ok: false, text: `${bad} didn't renew. Try again.` } : { ok: true, text: "Renewed." }); v.load(); }} data-renew-all>{ending.length === 1 ? "Renew it" : ending.length === 2 ? "Renew both" : `Renew all ${ending.length}`}</button>
         </p>
       )}
       {note && <p className={`hint ${note.ok ? "ok-text" : "err-text"}`} role="status" data-list-note>{note.text}</p>}

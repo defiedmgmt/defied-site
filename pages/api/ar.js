@@ -81,7 +81,7 @@ export default async function handler(req, res) {
   if (!session) return;
   try {
     if (req.method === "GET" && req.query.events) return res.status(200).json({ events: await eventsOf(String(req.query.events)) });
-    if (req.method === "GET" && req.query.summary) return res.status(200).json(await arSummary());
+    if (req.method === "GET" && req.query.summary) return res.status(200).json(await arSummary({ userId: session.user.id }));
     // Add artist: a pasted Spotify / Instagram / TikTok link -> name, photo, genre (read-only, public pages)
     if (req.method === "GET" && req.query.lookup) return res.status(200).json(await lookupArtist(String(req.query.lookup).slice(0, 400)));
     if (req.method === "GET") {
