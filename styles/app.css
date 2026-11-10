@@ -828,6 +828,7 @@ html:has(.app:not(.pub) .modal){overflow:hidden}
 .app:not(.pub) .modal-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;gap:16px;padding:20px 22px}
 .app:not(.pub) .modal-foot{flex:none;align-items:center;gap:8px;padding:14px 22px;border-top:1px solid var(--d-line);background:var(--d-s1)}
 .app:not(.pub) .modal-foot .btn{height:var(--d-ctl)}
+.app:not(.pub) .modal-card > form{display:contents}   /* the password card: Enter saves, the body and foot lay out as in any card */
 /* crop (stays centred on every size). It never runs past the screen: on a short one the picture area scrolls
    and Cancel / Use photo stay in view (phones held sideways get the side-by-side layout below) */
 .app:not(.pub) .modal.crop-overlay{padding:12px}
@@ -969,6 +970,9 @@ html:has(.app:not(.pub) .modal){overflow:hidden}
   .app:not(.pub) .dash-side-foot{flex-direction:row;align-items:center;margin:0;padding:0;border:0}
   .app:not(.pub) .dash-role{display:none}
   .app:not(.pub) .dash-out{width:auto;height:var(--d-ctl-sm);padding:0 14px;gap:8px;border:1px solid var(--d-line-3);border-radius:100px;color:var(--d-ink);font-size:13.5px}
+  .app:not(.pub) .dash-side-foot{gap:8px}
+  .app:not(.pub) .dash-pw{width:var(--d-ctl-sm);padding:0;justify-content:center}   /* the top bar: a key icon beside Sign out */
+  .app:not(.pub) .dash-pw-label{display:none}
   /* bottom tab bar = the existing nav, fixed. No transform/filter/backdrop-filter may sit on ANY ancestor (.dash-side, .dash, .view, .app) */
   .app:not(.pub) .dash-side nav{position:fixed;left:0;right:0;bottom:0;z-index:40;display:grid;grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:0;
     height:calc(var(--d-tab-h) + env(safe-area-inset-bottom));padding:0 4px env(safe-area-inset-bottom);overflow:visible;

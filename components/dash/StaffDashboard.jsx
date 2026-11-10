@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { LogOut, ListMusic, RefreshCw, Handshake, LayoutDashboard, ListChecks, Receipt, MoreHorizontal, Globe } from "lucide-react";
+import { LogOut, ListMusic, RefreshCw, Handshake, LayoutDashboard, ListChecks, Receipt, MoreHorizontal, Globe, KeyRound } from "lucide-react";
 import { ROLES, TAB_SECTION, AREA_SECTION } from "../../lib/roles";
 import { fullSiteSync, isSheetSyncStale } from "./catalog-data";
 import { useArSummary } from "./home-data";
@@ -13,6 +13,7 @@ import { useTrueUp, trueUpTodoItems } from "../trueup-data"; // TRUEUP-HOOK: the
 import { canUse } from "./access";
 export { canUse, TODO_AREAS } from "./access";
 import { arSecOf } from "../shared/ar-routes";
+import { PasswordCard } from "./password";
 
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
@@ -141,6 +142,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   // the tabs this account may use: Site holds Users too. Any other address opens the first of them.
   const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : can(TAB_SECTION[id])));
   const at = tabs.some(([id]) => id === tab) ? tab : tabs[0]?.[0];
+  const [pwOpen, setPwOpen] = useState(false); // "Password": each login changes its own (components/dash/password.jsx)
   const roleWord = db.access ? `${ROLES[db.access.role]?.label || "Staff"}${db.access.ownOnly ? " · own artists" : ""}` : "Staff — full edit access";
   return (
     <div className="dash">
@@ -158,6 +160,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         </nav>
         <div className="dash-side-foot">
           <div className="dash-role" data-role={db.access?.role}>{roleWord}</div>
+          <button className="dash-out dash-pw" onClick={() => setPwOpen(true)} aria-label="Change your password" data-change-password><KeyRound size={16} /> <span className="dash-pw-label">Password</span></button>
           <button className="dash-out" onClick={logout} disabled={signingOut}>{signingOut ? <><RefreshCw size={16} className="spin" /> Signing out…</> : <><LogOut size={16} /> Sign out</>}</button>
         </div>
       </aside>
@@ -170,6 +173,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {at === "catalog" && <CatalogAdmin db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={<TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={<TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
       </main>
+      {pwOpen && <PasswordCard onClose={() => setPwOpen(false)} />}
     </div>
   );
 }
