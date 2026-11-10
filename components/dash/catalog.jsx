@@ -680,12 +680,13 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
     <div>
       <div className="admin-head">
         <h2>Overview</h2>
-        <div className="overview-links">
+        {/* (2026-11-10, the owner) Refresh numbers and the pub sheet's Drive folder are the Founders' */}
+        {seeMoney && <div className="overview-links">
           <button className="btn ghost sm" onClick={runStreamSync} disabled={streamSync.syncing} title="Pull every client's numbers from the pub sheet again">
             <RefreshCw size={14} className={streamSync.syncing ? "spin" : ""} /> {streamSync.syncing ? "Refreshing numbers…" : "Refresh numbers"}
           </button>
           {links.folder && <ExtLink href={links.folder} className="btn ghost sm" title="Open the pub sheet's Drive folder"><Folder size={14} /> Folder</ExtLink>}
-        </div>
+        </div>}
       </div>
       <p className="hint overview-subhint">{streamsAsOf({ pulledAt: db.sheetSync?.lastSyncedAt })}</p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
