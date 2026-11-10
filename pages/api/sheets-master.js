@@ -35,6 +35,12 @@ export default async function handler(req, res) {
     // the money; without it the line just says "the sheet's blended rate"
     const a = await readAssumptions(sheets, spreadsheetId).catch(() => ({}));
     // runRate (B9) and decayRate (B8): the forecast tile says Year 1 = the fee so far × B9 × (1 − B8)
+    // (2026-11-10) the money is the Founders' (Money access): streams and song counts only for anyone else
+    if (!(req.access?.sections || []).includes("money")) {
+      const keep = ({ writer, sheetTab, songs, grossStreams, netStreams }) => ({ writer, sheetTab, songs, grossStreams, netStreams });
+      const totals = Object.fromEntries(Object.entries(rollup.totals || {}).filter(([k]) => /streams|songs/i.test(k)));
+      return res.status(200).json({ totals, rows: rollup.rows.map(keep), rosterTotal: rollup.rosterTotal ? keep(rollup.rosterTotal) : null, links, rate: null, runRate: null, decayRate: null });
+    }
     return res.status(200).json({ ...rollup, links, rate: a.blendedRate || null, runRate: a.runRate || null, decayRate: a.decayRate ?? null });
   } catch (err) {
     return res.status(502).json({ error: err.message || "Failed to read the MASTER tab." });

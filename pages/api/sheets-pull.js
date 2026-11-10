@@ -58,7 +58,8 @@ export default async function handler(req, res) {
       // matches dashboard-data.js's redaction policy: a client sees their own
       // streams, never revenue/admin fee — the UI never calls this route as
       // a client anymore, but the API shouldn't rely on that to stay true.
-      const rows = isStaff ? rawRows : rawRows.map(({ grossRevenue, adminFee, ...r }) => r);
+      // (2026-11-10) and staff without Money (a Co-manager) get the streams without the money too
+      const rows = isStaff && (req.access?.sections || []).includes("money") ? rawRows : rawRows.map(({ grossRevenue, adminFee, ...r }) => r);
       out.push({ clientId: c.id, tabFound: true, totalStreams, rows });
     }
 

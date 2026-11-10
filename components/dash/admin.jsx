@@ -5,7 +5,7 @@ import { SECTIONS, ROLES, accessFor, cleanAccess, sameManager } from "../../lib/
 import { changedFields, saveRow } from "../app/saves";
 import { canUse } from "./access";
 import { findTabClient, noTabNames, shortDay } from "./helpers";
-import { Area, Avatar, EmailButton, Field, PhotoUpload, SplitsEditor, splitTotal, uid, useEscape } from "./ui";
+import { Area, Avatar, EmailButton, Field, PhotoUpload, SplitsEditor, splitTotal, uid } from "./ui";
 import { AskCard } from "../portal/ask";
 import { nameTaken, deleteClientCascade, clientDeleteAsk, NAME_TAKEN, SpotifyFill } from "./clients";
 export { ClientMore, clientDeleteAsk, deleteClientCascade, NAME_TAKEN, nameTaken, SpotifyFill } from "./clients";
@@ -19,7 +19,7 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
   const [delAsk, setDelAsk] = useState(null); // the row its Delete asks about
   const [listErr, setListErr] = useState(null); // a Delete that was refused ("There has to be at least one staff account.")
   const from = useRef(null); // the row as it was when the form opened
-  useEscape(() => setEditing(null), !!editing && !saving); // as Cancel: a save in flight finishes into its own form
+  // (2026-11-10) no Esc and no click outside: the window closes only with its X or Cancel, so typing isn't lost
   useEffect(() => {
     if (!editing) return;
     const prev = document.body.style.overflow;
@@ -86,7 +86,7 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
       </div>
 
       {editing && (
-        <div className="modal" onClick={(e) => e.target === e.currentTarget && setEditing(null)}>
+        <div className="modal">
           <div className="modal-card">
             <div className="modal-head">
               <h3>{editing.id ? "Edit" : "New"} {title.replace(/s$/, "")}</h3>
@@ -304,7 +304,7 @@ export function UsersAdmin({ db, commit, reloadDb }) {
     await commit({ ...db, users });
   };
   const setPick = (e, set, v) => set({ ...e, role: v === "client" ? "client" : "staff", staffRole: v === "client" ? null : v,
-    access: v === "comanager" && e.access?.ownOnly ? { ownOnly: true } : {} });
+    access: v === "comanager" && e.access?.ownOnly === false ? { ownOnly: false } : {} });
   const setSection = (e, set, k, on) => set({ ...e, access: cleanAccess(pickOf(e), { ...e.access, sections: { ...(e.access?.sections || {}), [k]: on } }) });
   return (
     <>
@@ -336,7 +336,7 @@ export function UsersAdmin({ db, commit, reloadDb }) {
           )}
           {e.role === "staff" && founder && pick === "comanager" && (
             <label className="check-row" data-own-only>
-              <input type="checkbox" checked={!!e.access?.ownOnly} onChange={(ev) => set({ ...e, access: cleanAccess("comanager", { ...e.access, ownOnly: ev.target.checked }) })} />
+              <input type="checkbox" checked={!!a?.ownOnly} onChange={(ev) => set({ ...e, access: cleanAccess("comanager", { ...e.access, ownOnly: ev.target.checked }) })} />
               <span>Only their own artists: the ones with this name as Assigned Manager on the accounting sheet's INFO tab.</span>
             </label>
           )}
@@ -357,7 +357,7 @@ export function UsersAdmin({ db, commit, reloadDb }) {
                   </label>
                 );
               })}
-              <p className="hint">{ROLES[pick].label} starts with {pick === "founder" ? "everything" : pick === "comanager" ? "everything but Money and Users" : "Site only"}. Tick or untick to change it for this person.</p>
+              <p className="hint">{ROLES[pick].label} starts with {pick === "founder" ? "everything" : pick === "comanager" ? "Clients (their own artists) and A&R, with no money" : "Site only"}. Tick or untick to change it for this person.</p>
             </fieldset>
           )}
           <p className="hint">Clients only see their own placements and splits. They can never edit the website.</p>

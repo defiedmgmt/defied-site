@@ -137,7 +137,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const allTabs = [
     ["home", "Dashboard", LayoutDashboard], ["todo", "To do", ListChecks, todoN],
     ["ar", "A&R", Handshake, 0, "ar"], ["money", "Money", Receipt, 0, "money"],
-    ["catalog", "Publishing", ListMusic, 0, "roster"], ["site", "Site", Globe, 0, "site"],
+    ["catalog", "Clients", ListMusic, 0, "roster"], ["site", "Site", Globe, 0, "site"],
   ];
   // the tabs this account may use: Site holds Users too. Any other address opens the first of them.
   const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : can(TAB_SECTION[id])));
@@ -168,10 +168,10 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {!at && <div className="admin-empty" data-no-sections>Your account has nothing turned on yet. Ask a Founder to turn on what you need in Site › Users.</div>}
         {at === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcctN} />}
         {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} />}
-        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} chip={<TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
-        {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={<TodoChip n={areaN("site")} area="site" onGo={go} />} />}
-        {at === "catalog" && <CatalogAdmin db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={<TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
-        {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={<TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
+        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
+        {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("site")} area="site" onGo={go} />} />}
+        {at === "catalog" && <CatalogAdmin db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
+        {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
       </main>
       {pwOpen && <PasswordCard onClose={() => setPwOpen(false)} />}
     </div>

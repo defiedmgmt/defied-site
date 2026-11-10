@@ -539,7 +539,7 @@ function CuSection({ cu, list, person, setList, setPerson, onNew }) {
   );
 }
 
-const AREA_CHIPS = [["all", "All"], ["money", "Money"], ["roster", "Publishing"], ["ar", "A&R"], ["clickup", "ClickUp"], ["site", "Site"]];
+const AREA_CHIPS = [["all", "All"], ["money", "Money"], ["roster", "Clients"], ["ar", "A&R"], ["clickup", "ClickUp"], ["site", "Site"]];
 export function TodoPage({ ctx, todo, sub, onSub, areaN }) {
   const isArea = TODO_AREAS.includes(sub);
   const [area, setArea] = useState(isArea ? sub : "all");

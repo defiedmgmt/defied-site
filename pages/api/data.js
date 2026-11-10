@@ -124,7 +124,7 @@ async function seeds(req, res) {
     const b = req.body || {};
     const [row] = (await loadSeeds()).filter((r) => r.lum_id === String(b.lumId || ""));
     if (!row) return res.status(404).json({ error: "That one isn't on the list any more." });
-    if (!areas.includes(row.area)) return res.status(403).json({ error: row.area === "ar" ? "That one is A&R's." : "That one is Publishing's." });
+    if (!areas.includes(row.area)) return res.status(403).json({ error: row.area === "ar" ? "That one is A&R's." : "That one is Clients'." });
     const by = session.user.name || session.user.email || session.user.id || "";
     const source = ["deezer", "deezer-artist", "musicbrainz", "spotify-link"].includes(b.source) ? b.source : "manual";
     const r = await decideSeed(row.lum_id, { op: String(b.op || ""), url: String(b.url || "").slice(0, 400), socials: b.socials && typeof b.socials === "object" ? b.socials : {}, isrc: String(b.isrc || "").slice(0, 20), source }, by);

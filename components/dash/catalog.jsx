@@ -10,6 +10,7 @@ import { PhoneSort } from "../ui/responsive";
 import { NAME_TAKEN, clientDeleteAsk, deleteClientCascade, nameTaken } from "./clients";
 import { WowPill } from "./chips";
 import { GAP_WORDS, WEEK_PCT_MIN, dayRange, dupeName, songsPost, songsToUpdate, useGrowthState } from "./helpers";
+import { canUse } from "./access";
 import { Avatar, DropNote, Field, PctInput, fmt, landOn, money, revealChip, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "./ui";
 import { NotOursAsk, SongManager, noSheetTab, pushShare, releaseDay } from "../portal/ClientPortal";
 import { AskCard } from "../portal/ask";
@@ -644,8 +645,10 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
     return { thisWeek: t, wowPct: l > 0 && t >= WEEK_PCT_MIN ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null };
   };
   const MORE_COLS = ["net", "earn", "share"];
-  const cols = [["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"], ...(more ? [["net", "Net streams"], ["earn", "Their earnings"]] : []), ["fee", "Our fee"],
-    ...(more ? [["share", "% of roster fee"]] : [])];
+  // (2026-11-10) the money columns are the Founders' (Money access); a Co-manager sees streams only
+  const seeMoney = canUse(db, "money");
+  const cols = [["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"], ...(more ? [["net", "Net streams"]] : []),
+    ...(seeMoney ? [...(more ? [["earn", "Pub earnings"]] : []), ["fee", "Potential admin fee"], ...(more ? [["share", "% of roster fee"]] : [])] : [])];
   const val = { songs: (x) => x.songs, gross: (x) => x.r.grossStreams, net: (x) => x.r.netStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, share: (x) => Number(x.r.pctOfRoster) };
   const cell = { writer: null, songs: (r) => r.songs, gross: (r) => fmt(r.grossStreams), net: (r) => fmt(r.netStreams), earn: (r) => money(r.grossRevenue), fee: (r) => money(r.adminFee), share: (r) => `${r.pctOfRoster}%` };
   // Songs = the songs on the site for that writer (the client list's count beside it); the sheet's own
@@ -684,12 +687,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
           {links.folder && <ExtLink href={links.folder} className="btn ghost sm" title="Open the pub sheet's Drive folder"><Folder size={14} /> Folder</ExtLink>}
         </div>
       </div>
-      <p className="hint overview-subhint">
-        {streamsAsOf({ lumDay: songInfo?.lumLastDay, pulledAt: db.sheetSync?.lastSyncedAt, sheet: songInfo?.streamSheet })}
-        {span && !lumWeek && <span className="overview-week"> · This week = Spotify streams, {dayRange(span.from, span.to)} vs the week before</span>}
-        {lumWeek && lumLabel && <span className="overview-week" data-lum-week> · This week = Luminate streams, all platforms, {lumLabel}</span>}
-      </p>
-      <p className="hint overview-subhint" data-stream-data-note>{songInfo?.streamSheet?.text || "Sheet streams: Luminate's last numbers"}</p>
+      <p className="hint overview-subhint">{streamsAsOf({ pulledAt: db.sheetSync?.lastSyncedAt })}</p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
@@ -702,13 +700,13 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
             <div className="cat-summary-grid pub-tiles">
               {/* MASTER adds each writer's gross up: a song two roster writers share is in it twice */}
               <div className="cat-stat" data-stat="streams" title="Added up by writer: a song two writers share counts once for each"><span className="cat-stat-label">Gross streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
-              <div className="cat-stat" data-stat="earnings"><span className="cat-stat-label">Their earnings</span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>
-              <div className="cat-stat" data-stat="fee"><span className="cat-stat-label">Our fee so far</span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>
+              {seeMoney && <div className="cat-stat" data-stat="earnings"><span className="cat-stat-label">Pub earnings</span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>}
+              {seeMoney && <div className="cat-stat" data-stat="fee"><span className="cat-stat-label">Potential admin fee</span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>}
             </div>
             {/* the one place the money's explained: everything below (and each client's page) is the same estimate */}
-            <p className="hint cat-asof money-hint" title="The rate is ASSUMPTIONS!B7 on the pub sheet">
+            {seeMoney && <p className="hint cat-asof money-hint" title="The rate is ASSUMPTIONS!B7 on the pub sheet">
               Estimates: streams × the writer's share × {rate ? `$${+rate.toFixed(6)} a stream` : "the sheet's rate"}.
-            </p>
+            </p>}
           </div>
 
           <div className="master-tools">
@@ -764,7 +762,8 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
 // (r11: the ISRCs tab is gone, the owner: "why is there an isrc tab on the pub tab do i need that ?". The finder is
 // To do's "N songs have no ISRC" row now, /dashboard/todo/isrc; the old /dashboard/catalog/isrc opens it there.)
 export function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, onSub, chip = null }) {
-  const [sec, setSec] = useState(sub === "advance" || sub?.startsWith("advance:") ? "advance" : "overview");
+  const seeMoney = canUse(db, "money"), own = !!db.access?.ownOnly; // the Advance calculator is money: the Founders'
+  const [sec, setSec] = useState(seeMoney && (sub === "advance" || sub?.startsWith("advance:")) ? "advance" : "overview");
   const editSong = sub?.startsWith("edit:") ? db.placements.find((p) => p.id === sub.slice(5)) : null;
   // null clientId = the read-only Overview landing page, not "no selection"
   const [clientId, setClientIdOnly] = useState(sub?.startsWith("client:") ? sub.slice(7) : editSong ? editSong.clientId : null);
@@ -835,20 +834,20 @@ export function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, 
   return (
     <div>
       <div className="admin-head">
-        <h2>Publishing</h2>{chip}
+        <h2>Clients</h2>{chip}
       </div>
-      <div className="subnav">
+      {seeMoney && <div className="subnav">
         <button className={sec === "overview" ? "subpill active" : "subpill"} onClick={pick("overview")}>Overview &amp; clients</button>
         <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={pick("advance")}>Advance<span className="pill-long"> calculator</span></button>
-      </div>
-      {sec === "advance" && <AdvanceTab db={db} pick={sub?.startsWith("advance:") ? sub.slice(8) : null} />}
+      </div>}
+      {sec === "advance" && seeMoney && <AdvanceTab db={db} pick={sub?.startsWith("advance:") ? sub.slice(8) : null} />}
       {sec === "overview" && <div className="catalog-wrap">
         <div className="catalog-clients" ref={chips}>
           <button className={clientId === null ? "cc active" : "cc"} onClick={() => setClientId(null)}>
             <span className="cc-overview-ic"><LayoutGrid size={16} /></span>
             <span className="cc-name">Overview</span>
           </button>
-          <button className="cc cc-add" onClick={() => { setNewClientForm({ name: "", role: "Producer" }); setAddingClient(true); }}><Plus size={14} /> Add client</button>
+          {!own && <button className="cc cc-add" onClick={() => { setNewClientForm({ name: "", role: "Producer" }); setAddingClient(true); }}><Plus size={14} /> Add client</button>}
           {deleteWarn && <p className="hint err-text">{deleteWarn}</p>}
           {db.clients.map((c) => (
             <div key={c.id} className="cc-row">

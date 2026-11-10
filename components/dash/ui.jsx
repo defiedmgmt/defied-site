@@ -306,11 +306,9 @@ export function splitsToFix(db) {
 // they're the pub sheet's, whose STREAM DATA tab keeps Luminate's last numbers (lumDay) and isn't updated
 // any more (list B #3), and when the site last pulled the sheet
 // sheet: STREAM DATA's writer (GET /api/songs streamSheet): once it has written, the sheet's streams are its numbers
-export function streamsAsOf({ lumDay, pulledAt, sheet }) {
-  const pulled = pulledAt ? ` · sheet pulled ${new Date(pulledAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "";
-  const short = (d) => new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  if (sheet?.on && sheet.at) return `Pub sheet streams (${sheet.mode === "spotify" ? "Spotify plays" : "Spotify estimate"}, ${short(sheet.at)})${pulled}`;
-  return `Pub sheet streams${lumDay ? ` (Luminate's last numbers, ${short(`${lumDay}T12:00:00`)})` : ""}${pulled}`;
+// (2026-11-10, the owner: "i dont need all that info"): just the day the site last read the pub sheet
+export function streamsAsOf({ pulledAt }) {
+  return pulledAt ? `Updated ${new Date(pulledAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "";
 }
 // the one line staff see about it (Publishing's overview and a client's page): the owner decides what feeds the sheet next
 

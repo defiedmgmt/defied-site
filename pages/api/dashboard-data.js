@@ -80,7 +80,7 @@ const placementRow = (p) => ({
   streams: p.streams || 0, revenue: p.revenue || 0, admin_fee: p.adminFee || 0, splits: p.splits || [],
 });
 const staffRow = (s) => ({ id: s.id, name: s.name || "", role: s.role || "", credit: s.credit || "", bio: s.bio || "", photo: s.photo || "", email: s.email || "", instagram: s.instagram || "" });
-const userRow = (u) => ({ id: u.id, email: u.email.toLowerCase(), password_hash: u.hash, role: u.role, name: u.name || "", client_id: u.clientId || null, staff_role: u.staffRole || null, access: u.access || {} });
+const userRow = (u) => ({ id: u.id, email: u.email.trim().toLowerCase(), password_hash: u.hash, role: u.role, name: u.name || "", client_id: u.clientId || null, staff_role: u.staffRole || null, access: u.access || {} });
 const submissionRow = (s) => ({ id: s.id, name: s.name || "", email: s.email || "", instagram: s.instagram || "", subject: s.subject || "", message: s.message || "", created_at: s.at || new Date().toISOString(), read: !!s.read });
 const notableRow = (n) => ({ id: n.id, song: n.song || "", artist: n.artist || "", client: n.client || "", cover: n.cover || "", release_date: n.releaseDate || "", link: n.link || "" });
 const insertPlacement = (r) => sql`
@@ -162,6 +162,8 @@ export function payloadFor(full, users, a) {
   if (!can("site")) out.submissions = [];
   // the money columns are Publishing's (the fee each song earns)
   if (!can("publishing")) out.placements = full.placements.map(({ luminateId, revenue, adminFee, ...p }) => p);
+  // (2026-11-10) and the money is the Founders' (Money access): a Co-manager gets the songs without it
+  else if (!can("money")) out.placements = full.placements.map(({ revenue, adminFee, ...p }) => p);
   if (a.ownOnly) {
     const mine = new Set(a.clientIds || []);
     out.clients = out.clients.filter((c) => mine.has(c.id));
@@ -296,7 +298,7 @@ async function handlePost(req, res, session) {
     // artist (their songs go with them) needs Publishing
     if (mine && body.clients.some((c) => !mine.has(c.id))) return res.status(403).json({ error: NOT_YOURS });
     const gone = priorClients.filter((c) => (mine ? mine.has(c.id) : true) && !sent.has(c.id));
-    if (gone.length && (mine || !can("publishing"))) return res.status(403).json({ error: "Deleting an artist needs Publishing for every artist, so nothing was saved." });
+    if (gone.length && (mine || !can("publishing"))) return res.status(403).json({ error: "Deleting an artist needs Clients for every artist, so nothing was saved." });
   }
   if ("placements" in body) {
     if (!Array.isArray(body.placements)) return res.status(400).json({ error: "placements[] is required." });
@@ -410,7 +412,13 @@ async function handlePost(req, res, session) {
   }
   if ("placements" in body) {
     queries.push(mine ? sql`DELETE FROM placements WHERE client_id = ANY(${[...mine]})` : sql`DELETE FROM placements`);
-    for (const p of body.placements) queries.push(insertPlacement(placementRow(p)));
+    // an account without Money never got each song's money columns: they keep what's stored (2026-11-10)
+    const kept = can("money") ? null : new Map((await sql`SELECT id, revenue, admin_fee FROM placements`).map((r) => [r.id, r]));
+    for (const p of body.placements) {
+      const row = placementRow(p);
+      if (kept) { const was = kept.get(row.id); row.revenue = was ? Number(was.revenue) : 0; row.admin_fee = was ? Number(was.admin_fee) : 0; }
+      queries.push(insertPlacement(row));
+    }
   }
   if ("staff" in body) {
     queries.push(sql`DELETE FROM staff_bios`);

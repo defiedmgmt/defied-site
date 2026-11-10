@@ -148,6 +148,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   // staff's db has a `clients` array; a client session's db has just their
   // own `client` record (no `clients` array — that's not sent to them).
   const client = db.clients ? db.clients.find((c) => c.id === clientId) : db.client;
+  // (2026-11-10) the money is the Founders' (Money access): a Co-manager sees streams, songs and splits
+  const seeMoney = isStaff && (!db.access || db.access.sections.includes("money"));
   const songs = useMemo(() => db.placements.filter((p) => p.clientId === clientId), [db.placements, clientId]);
   // MASTER-tab-style rollup across this client's whole catalog. Gross
   // streams (and $ figures) come straight off each placement — the sheet's
@@ -369,8 +371,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
             {isStaff ? (
               <>
                 {/* estimates, not cash we hold: clients are paid their publishing directly, our commission is billed through Stripe */}
-                <div className="cat-stat"><span className="cat-stat-label">Their earnings <span className="cat-stat-note">(est., paid to them directly)</span></span><span className="cat-stat-val">{money(summary.revenue)}</span></div>
-                <div className="cat-stat"><span className="cat-stat-label">Our fee so far <span className="cat-stat-note">(est. admin fee)</span></span><span className="cat-stat-val">{money(summary.adminFee)}</span></div>
+                {seeMoney && <div className="cat-stat"><span className="cat-stat-label">Pub earnings <span className="cat-stat-note">(est., paid to them directly)</span></span><span className="cat-stat-val">{money(summary.revenue)}</span></div>}
+                {seeMoney && <div className="cat-stat"><span className="cat-stat-label">Potential admin fee <span className="cat-stat-note">(est.)</span></span><span className="cat-stat-val">{money(summary.adminFee)}</span></div>}
               </>
             ) : (
               <>
@@ -380,9 +382,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
             )}
           </div>
           <p className="hint cat-asof">
-            {isStaff ? streamsAsOf({ lumDay: numbersOn, pulledAt: db.sheetSync.lastSyncedAt, sheet: songInfo?.streamSheet })
+            {isStaff ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt })
               : `Streams as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}
-            {isStaff && weekGain != null && ` · ${signed(weekGain)} Spotify streams this week`}
           </p>
           {/* r10: what Luminate had for this artist (read only) and campaign mode, from the old Numbers tab */}
           {isStaff && <LumHistory k={`a:${clientId}`} campaign />}
@@ -451,13 +452,13 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                     const net = f ? f.net : Math.round((active.streams || 0) * ((Number(ownSplit(active, client)?.percent) || 0) / 100));
                     return <div className="split-list-row" data-song-net={f ? "sheet" : "estimate"}><span className="split-name">Net streams{!f && <em> (estimate)</em>}</span><span className="split-pct">{fmt(net)}</span></div>;
                   })()}
-                  {isStaff && (
+                  {seeMoney && (
                     <>
-                      <div className="split-list-row"><span className="split-name">Their earnings <em>(est., paid to them directly)</em></span><span className="split-pct">{money(active.revenue)}</span></div>
-                      <div className="split-list-row"><span className="split-name">Our fee so far <em>(est. admin fee)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
+                      <div className="split-list-row"><span className="split-name">Pub earnings <em>(est., paid to them directly)</em></span><span className="split-pct">{money(active.revenue)}</span></div>
+                      <div className="split-list-row"><span className="split-name">Potential admin fee <em>(est.)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
                     </>
                   )}
-                  <p className="hint song-asof">{isStaff ? streamsAsOf({ lumDay: numbersOn, pulledAt: db.sheetSync.lastSyncedAt, sheet: songInfo?.streamSheet })
+                  <p className="hint song-asof">{isStaff ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt })
                     : `as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}</p>
                 </div>
               )}
