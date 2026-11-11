@@ -6,7 +6,7 @@ import { MY_LINKS, myLinkHint } from "../../lib/my-links";
 import { PLATFORM_LABEL } from "../../lib/links/parse";
 
 // (2026-11-11, the owner) a client's portal: their Spotify, Instagram, TikTok and YouTube, under Your numbers, each
-// added or swapped here (POST /api/my-links, lib/my-links.js). A Spotify already on file stays (their manager's).
+// added or swapped here (POST /api/my-links, lib/my-links.js).
 // edit / setEdit: the platform being added or changed, shared with the numbers card's "Add your link"
 const shown = (p, v) => (!v ? "" : p === "instagram" || p === "tiktok" ? `@${String(v).replace(/^@/, "").replace(/^https?:\/\/(www\.)?[^/]+\/@?/i, "").replace(/\/.*$/, "")}` : String(v).replace(/^https?:\/\/(www\.)?/i, "").replace(/\?.*$/, ""));
 const hrefOf = (p, v) => (p === "instagram" ? instagramLink(v) : p === "tiktok" ? tiktokLink(v) : /^https?:\/\//i.test(String(v)) ? v : `https://${v}`);
@@ -22,7 +22,6 @@ export function MyLinks({ client, links, edit, setEdit, onSaved }) {
       <ul className="ml-list">
         {MY_LINKS.map((p) => {
           const v = links[p] || "";
-          const locked = p === "spotify" && !!v;
           return (
             <li key={p} className="ml-row" data-my-link={p} data-has={v ? "" : undefined}>
               <span className="ml-ic" aria-hidden="true">{ICONS[p](18)}</span>
@@ -30,16 +29,14 @@ export function MyLinks({ client, links, edit, setEdit, onSaved }) {
                 <span className="ml-name">{PLATFORM_LABEL[p]}</span>
                 {v ? <ExtLink href={hrefOf(p, v)} className="ml-val" label={`${client?.name || "You"} on ${PLATFORM_LABEL[p]}`}>{shown(p, v)}</ExtLink> : <span className="ml-val ml-none">None on file</span>}
               </span>
-              {locked
-                ? <span className="hint ml-lock">Your manager can change this</span>
-                : <button className={`btn sm${v ? " ghost" : ""}`} onClick={() => { setNote(null); setEdit(p); }} data-my-link-edit={p}>{v ? "Change" : "Add"}</button>}
+              <button className={`btn sm${v ? " ghost" : ""}`} onClick={() => { setNote(null); setEdit(p); }} data-my-link-edit={p}>{v ? "Change" : "Add"}</button>
             </li>
           );
         })}
       </ul>
       {note && <p className="hint ok-text" role="status" data-my-link-saved>{note}</p>}
       {edit && <LinkCard platform={edit} was={links[edit] || ""} onClose={() => setEdit(null)}
-        onDone={(out) => { setEdit(null); setNote(out.same ? `That's already your ${PLATFORM_LABEL[out.platform]}.` : `Saved${out.name ? ` (${out.name})` : ""}. ${out.swapped ? `Your ${PLATFORM_LABEL[out.platform]} numbers start over from the new account` : `Your ${PLATFORM_LABEL[out.platform]} numbers start`} with the next daily update.`); onSaved(out); }} />}
+        onDone={(out) => { setEdit(null); setNote(out.same ? `That's already your ${PLATFORM_LABEL[out.platform]}.` : `Saved${out.name ? ` (${out.name})` : ""}. ${out.swapped ? `Your ${PLATFORM_LABEL[out.platform]} ${out.platform === "spotify" ? "numbers and songs start over from the new artist page" : "numbers start over from the new account"}` : `Your ${PLATFORM_LABEL[out.platform]} numbers start`} with the next daily update.`); onSaved(out); }} />}
     </div>
   );
 }
@@ -74,7 +71,7 @@ function LinkCard({ platform, was, onClose, onDone }) {
         <div className="modal-head"><h3>{was ? "Change" : "Add"} your {label}</h3><button onClick={close} aria-label="Close"><X size={18} /></button></div>
         <form onSubmit={(e) => { e.preventDefault(); save(); }}>
           <div className="modal-body ask-body">
-            {was && <p className="hint">Now: {shown(platform, was)}. Your {label} numbers start over from the new account.</p>}
+            {was && <p className="hint">Now: {shown(platform, was)}. {platform === "spotify" ? "Your Spotify numbers, and the songs we find from your artist page, start over from the new one." : `Your ${label} numbers start over from the new account.`}</p>}
             <Field label={`${label} link${platform === "spotify" ? "" : " or handle"}`} value={text} onChange={(e) => setText(e.target.value)} disabled={busy} autoFocus
               autoComplete="off" autoCapitalize="none" spellCheck={false} inputMode={platform === "spotify" ? "url" : undefined} placeholder={platform === "spotify" ? "https://open.spotify.com/artist/…" : platform === "youtube" ? "youtube.com/@yourchannel" : "@yourhandle"} hint={myLinkHint(platform)} />
             {err && <p className="hint err-text" role="alert" data-my-link-error>{err}</p>}

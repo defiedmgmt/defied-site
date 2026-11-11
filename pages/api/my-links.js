@@ -1,7 +1,7 @@
 // POST { platform, value }: a client adds or swaps one of their own links (lib/my-links.js), on their own profile
 // only. The tracked links follow at once (syncEntities), so the first reading comes with the next daily update and a
-// swapped account's numbers start over (lib/data/engine.js linkSince). Not another artist's account; a Spotify link
-// already on file stays (staff change it in Site › Roster).
+// swapped account's numbers start over (lib/data/engine.js linkSince; a new Spotify artist page, its songs too). Not
+// another artist's account.
 import { requireUser, requireSameOrigin } from "../../lib/session";
 import { sql } from "../../lib/db";
 import { myLinkOf, MY_LINKS } from "../../lib/my-links";
@@ -33,7 +33,6 @@ export default async function handler(req, res) {
     if (!me) return res.status(404).json({ error: "Client record not found." });
     const ref = got.ref.toLowerCase();
     if (refOf(platform, me[platform]) === ref) return res.status(200).json({ ok: true, platform, value: me[platform], url: got.url, same: true });
-    if (platform === "spotify" && String(me.spotify || "").trim()) return res.status(200).json({ ok: false, error: "Your Spotify is set by your manager. Ask them to change it." });
     if (clients.some((c) => c.id !== clientId && refOf(platform, c[platform]) === ref)) return res.status(200).json({ ok: false, error: "That account is on another artist's profile. If it's yours, ask your manager." });
     let name = "";
     if (platform === "spotify" && D.spotifyConfigured()) {

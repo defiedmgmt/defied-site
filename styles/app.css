@@ -3419,7 +3419,6 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) a.ml-val{text-decoration:underline;text-underline-offset:2px}
 .app:not(.pub) .ml-none{color:var(--d-ink-4)}
 .app:not(.pub) .ml-row .btn{flex:none;min-height:40px;min-width:76px}
-.app:not(.pub) .ml-lock{flex:none;max-width:9.5em;margin:0;text-align:right;font-size:12px}
 .app:not(.pub) .ml-card [data-my-link-saved]{margin:8px 0 0}
 /* (2026-11-10) Site › Messages: Dropbox's line, a message's music link and files */
 .app:not(.pub) .dropbox-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 14px}
