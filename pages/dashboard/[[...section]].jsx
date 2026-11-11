@@ -9,7 +9,7 @@ import { StaffDashboard } from "../../components/dash/StaffDashboard";
 // for all of them, so the sidebar (StaffDashboard) stays mounted between sections. The old addresses
 // (/dashboard?tab=money&sub=payments) still open the same place and are rewritten to the new ones.
 // r11 fix: each section its own tab title ("To do · Defied"), so several open tabs can be told apart
-const TITLES = { "": "Dashboard", home: "Dashboard", todo: "To do", ar: "A&R", money: "Money", catalog: "Publishing", publishing: "Publishing", site: "Site", numbers: "Site" };
+const TITLES = { "": "Dashboard", home: "Dashboard", todo: "To do", mytodo: "My to-do", ar: "A&R", money: "Money", catalog: "Publishing", publishing: "Publishing", site: "Site", numbers: "Site" };
 const dashTitle = (section) => `${TITLES[String(section || "")] || "Dashboard"} · Defied`;
 export default function DashboardPage() {
   const { session, db, commit, reloadDb, logout, signingOut } = useApp();

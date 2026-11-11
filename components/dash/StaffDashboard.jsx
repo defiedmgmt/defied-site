@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { LogOut, ListMusic, RefreshCw, Handshake, LayoutDashboard, ListChecks, Receipt, MoreHorizontal, Globe, KeyRound } from "lucide-react";
+import { LogOut, ListMusic, RefreshCw, Handshake, LayoutDashboard, ListChecks, Receipt, MoreHorizontal, Globe, KeyRound, ClipboardList } from "lucide-react";
+import { MyTodoPage } from "./my-todo";
 import { ROLES, TAB_SECTION, AREA_SECTION } from "../../lib/roles";
 import { fullSiteSync, isSheetSyncStale } from "./catalog-data";
 import { useArSummary } from "./home-data";
@@ -18,7 +19,7 @@ import { PasswordCard } from "./password";
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
 // r11: the order the owner asked for (Dashboard, To do, A&R, Money, Publishing, Site); "home" is the Dashboard
-const DASH_TABS = ["home", "todo", "ar", "money", "catalog", "site"];
+const DASH_TABS = ["home", "todo", "mytodo", "ar", "money", "catalog", "site"];
 function placeOf(t, s) {
   const sub = typeof s === "string" && s ? s : null;
   if (t === "accounting") return sub === "log" || sub === "check" ? { tab: "todo", sub } : { tab: "money", sub: sub === "payments" ? "payments" : null };
@@ -136,11 +137,13 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   // r11: Home is "Dashboard" again, in the owner's order (the phone bar has the same order)
   const allTabs = [
     ["home", "Dashboard", LayoutDashboard], ["todo", "To do", ListChecks, todoN],
+    // (2026-11-11) My to-do: this login's own ClickUp list, for anyone who has one (components/dash/my-todo.jsx)
+    ["mytodo", "My to-do", ClipboardList, 0, "clickup"],
     ["ar", "A&R", Handshake, 0, "ar"], ["money", "Money", Receipt, 0, "money"],
     ["catalog", "Clients", ListMusic, 0, "roster"], ["site", "Site", Globe, 0, "site"],
   ];
   // the tabs this account may use: Site holds Users too. Any other address opens the first of them.
-  const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : can(TAB_SECTION[id])));
+  const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : id === "mytodo" ? !!db.access?.mgmtList : can(TAB_SECTION[id])));
   const at = tabs.some(([id]) => id === tab) ? tab : tabs[0]?.[0];
   const [pwOpen, setPwOpen] = useState(false); // "Password": each login changes its own (components/dash/password.jsx)
   const roleWord = db.access ? `${ROLES[db.access.role]?.label || "Staff"}${db.access.ownOnly ? " · own artists" : ""}` : "Staff — full edit access";
@@ -168,6 +171,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {!at && <div className="admin-empty" data-no-sections>Your account has nothing turned on yet. Ask a Founder to turn on what you need in Site › Users.</div>}
         {at === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcctN} />}
         {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} />}
+        {at === "mytodo" && <MyTodoPage />}
         {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
         {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("site")} area="site" onGo={go} />} />}
         {at === "catalog" && <CatalogAdmin db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}

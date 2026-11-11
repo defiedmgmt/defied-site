@@ -3408,6 +3408,14 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .as-tile .as-chg[data-dir=up]{color:var(--d-pos,#7ddc9c)}
 .app:not(.pub) .as-tile .as-chg[data-dir=down]{color:var(--d-neg,#ef8f8f)}
 .app:not(.pub) .as-tile .as-chg .inline-link{font:inherit;color:var(--d-ink-2);background:none;border:0;padding:0;cursor:pointer}
+/* (2026-11-11) My to-do: a staff login's own ClickUp list (components/dash/my-todo.jsx) */
+.app:not(.pub) .my-todo .mt-from{margin:-4px 0 12px;font-size:13.5px}
+.app:not(.pub) .my-todo .mt-add{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 12px 12px 16px;border-bottom:1px solid var(--d-line)}
+.app:not(.pub) .my-todo .mt-add input{min-height:40px;padding:0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field);background:var(--d-field);color:var(--d-ink);font:inherit;font-size:14px}
+.app:not(.pub) .my-todo .mt-add input:not([type=date]){flex:1 1 200px;min-width:0}
+.app:not(.pub) .my-todo .mt-add input[type=date]{flex:0 0 auto;color-scheme:dark}
+.app:not(.pub) .my-todo .mt-add .btn{min-height:40px}
+.app:not(.pub) .my-todo .mt-add-err{flex-basis:100%;margin:0}
 /* (2026-11-11) a client's own links under Your numbers (components/dash/my-links.jsx) */
 .app:not(.pub) .ml-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:2px}
 .app:not(.pub) .ml-row{display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 0;border-top:1px solid var(--d-line)}
