@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Disc3 } from "lucide-react";
-import { evenSplit } from "../../lib/splits";
+import { songSplit } from "../../lib/splits";
 import { songGaps } from "../../lib/sheet-facts";
 import { likelyDuplicates, plainTitle } from "../../lib/duplicates";
 import { shareFixesOf, splitsToConfirm } from "./catalog-data";
@@ -166,7 +166,7 @@ export function songsToUpdate(db, songInfo) {
   const out = [];
   for (const p of db.placements) {
     if (held.has(p.id)) continue;
-    const split = splitTotal(p.splits) === 100 ? "ok" : evenSplit(p.splits).status;
+    const split = splitTotal(p.splits) === 100 ? "ok" : songSplit(p, (db.clients || []).find((c) => c.id === p.clientId)).status;
     // a song taken down from streaming (song_tracking.skip) has no date or link to find; its money gaps stay
     const gone = !!songInfo?.tracking?.[p.id]?.skip;
     const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split }).filter((x) => !(x.k === "share" && fillIds.has(p.id)) && !(gone && (x.k === "date" || x.k === "link")));
@@ -202,10 +202,10 @@ function updateWords(list) {
 export function dashTasks(db, songInfo) {
   // both groups of Splits to confirm, in plain words: the even default ready to confirm, and the ones to fix by hand
   const { assumed, look } = splitsToConfirm(db, songInfo);
-  const nSplits = assumed.length + look.length;
+  const nSplits = assumed.length + look.length, nDiffer = assumed.filter((x) => x.r.differ).length, nEven = assumed.length - nDiffer;
   const splits = nSplits && {
     k: "splits", area: "roster", t: `${nSplits} song${nSplits === 1 ? "'s split needs" : "s' splits need"} confirming`,
-    d: [assumed.length && `${assumed.length} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} review`].filter(Boolean).join(" · "),
+    d: [nDiffer && `${nDiffer} ${nDiffer === 1 ? "share differs" : "shares differ"} from the sheet`, nEven && `${nEven} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} review`].filter(Boolean).join(" · "),
     tab: "catalog", sub: "splits", cta: "Review splits",
   };
   // one line for every song missing something on the sheet or the site (Publishing › Songs to update)

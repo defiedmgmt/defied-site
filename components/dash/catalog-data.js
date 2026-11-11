@@ -1,5 +1,5 @@
-import { evenSplit } from "../../lib/splits";
-import { shareFixes } from "../../lib/split-fixes";
+import { songSplit } from "../../lib/splits";
+import { shareFixes, shareDiffers } from "../../lib/split-fixes";
 import { dupeIds } from "./helpers";
 import { splitsToFix, uid } from "./ui";
 
@@ -212,6 +212,7 @@ export async function fullSiteSync(tabDb, commit) {
 // sheet before it. This isn't ours clears out a song that was never ours
 // the two shares with one clear answer (lib/split-fixes.js), from the last sheet pull's facts
 export const shareFixesOf = (db) => shareFixes({ placements: db.placements || [], clients: db.clients || [], facts: db.sheetFacts || {}, makeId: uid });
+export const shareDiffersOf = (db) => shareDiffers({ placements: db.placements || [], clients: db.clients || [], facts: db.sheetFacts || {} });
 export function splitsToConfirm(db, songInfo = null) {
   const assumed = [], look = [];
   // a card in a possible duplicate pair waits for the merge card: confirming the kept one first would
@@ -222,10 +223,12 @@ export function splitsToConfirm(db, songInfo = null) {
   for (const g of splitsToFix(db)) {
     for (const p of g.songs) {
       if (held.has(p.id)) continue;
-      const r = evenSplit(p.splits);
+      const r = songSplit(p, g.client);
       (r.status === "assumed" ? assumed : look).push({ p, client: g.client, r });
     }
   }
+  // (2026-11-10) a split that adds up here, but its client's share isn't the sheet's: the split to Confirm (r.differ)
+  for (const x of shareDiffersOf(db)) if (!held.has(x.p.id)) assumed.push(x);
   // one flat list, biggest streams first across every client (the client is named on each row)
   const byStreams = (a, b) => (b.p.streams || 0) - (a.p.streams || 0) || (a.client?.name || "").localeCompare(b.client?.name || "") || (a.p.song || "").localeCompare(b.p.song || "");
   assumed.sort(byStreams); look.sort(byStreams);

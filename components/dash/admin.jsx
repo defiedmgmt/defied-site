@@ -189,7 +189,7 @@ function PlacementsAdmin({ db, commit }) {
     { key: "notable", label: "Featured", w: "0.8fr", render: (p) => p.notable ? <span className="badge-yes"><Check size={12} /> Notable</span> : <span className="badge-no">—</span> },
   ];
   const save = async (o0) => {
-    const o = { ...o0, splits: filledSplits(o0.splits) }; // what the splits editor shows: the even default filled in
+    const o = { ...o0, splits: filledSplits(o0.splits, { client: db.clients.find((c) => c.id === o0.clientId), artist: o0.artist }) }; // what the splits editor shows: the default filled in
     const placements = o.id ? db.placements.map((p) => p.id === o.id ? o : p) : [...db.placements, { ...o, id: uid() }];
     return commit({ ...db, placements });
   };
@@ -211,7 +211,7 @@ function PlacementsAdmin({ db, commit }) {
           <Field label="Artist (performer)" value={e.artist} onChange={(ev) => set({ ...e, artist: ev.target.value })} />
           <Field label="Release date" type="date" value={e.releaseDate} onChange={(ev) => set({ ...e, releaseDate: ev.target.value })} />
           <Field label="Streaming link (opens on click)" value={e.link} onChange={(ev) => set({ ...e, link: ev.target.value })} />
-          <SplitsEditor splits={e.splits} onChange={(v) => set({ ...e, splits: v })} />
+          <SplitsEditor splits={e.splits} onChange={(v) => set({ ...e, splits: v })} owner={db.clients.find((c) => c.id === e.clientId)} artist={e.artist} />
           <label className="check-row">
             <input type="checkbox" checked={!!e.notable} onChange={(ev) => set({ ...e, notable: ev.target.checked })} />
             <span>Feature as a Notable Release — shows on the artist's profile. Split data stays private.</span>

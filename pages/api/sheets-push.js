@@ -107,6 +107,12 @@ export default async function handler(req, res) {
       if (out.refused) return res.status(409).json({ error: out.refused, refused: true, written: results.length > 0, results });
       if (out.alarm) console.error(`sheets-push: ${out.alarm}`);
       results.push({ name, tab: tab.title, tabCreated: created, updated: out.updated, row: out.row, ...(out.alarm ? { alarm: out.alarm } : {}) });
+      // (2026-11-10) the song's own client's share as just written, so To do and Sync don't call it different from the
+      // sheet until the next pull (the row's Net Streams follow the share; a song with no facts yet gets them then)
+      if (owner?.id === saved.client_id && out.row) {
+        await sql`UPDATE sheet_song_facts SET sheet_share = ${percent}, sheet_row = ${out.row}, net_streams = CASE WHEN sheet_share > 0 THEN net_streams * ${percent} / sheet_share ELSE net_streams END, synced_at = now()
+          WHERE placement_id = ${placementId} AND client_id = ${saved.client_id}`.catch((err) => console.error("sheets-push: facts", err));
+      }
     }
 
     // every split was skipped (blank name or 0%) — nothing was written

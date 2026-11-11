@@ -97,7 +97,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
 // the song's editor right here (SongManager's own editor, nothing else of the client's page)
 // (Merge, the row's button, opens the merge card at once; the sentence or a link shows the line with Review)
 function PubFix({ kind, ctx, viaCta = false }) {
-  const { db, commit, songInfo, reloadSongInfo, onGo } = ctx;
+  const { db, commit, reloadDb, songInfo, reloadSongInfo, onGo } = ctx;
   const dupes = useMemo(() => likelyDupes(db, songInfo), [db, songInfo]);
   const [edit, setEdit] = useState(null);
   const n = useRef(0);
@@ -108,7 +108,7 @@ function PubFix({ kind, ctx, viaCta = false }) {
   const openDupe = () => { setNote(null); setDupeKey(dupes[0]?.key || null); };
   return (
     <>
-      {kind === "splits" && <SplitsToFix db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} onGo={onGo} dupes={dupes} onDupe={openDupe} />}
+      {kind === "splits" && <SplitsToFix db={db} commit={commit} reloadDb={reloadDb} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} onGo={onGo} dupes={dupes} onDupe={openDupe} />}
       {kind === "update" && <SongsToUpdate db={db} songInfo={songInfo} onFix={openFix} dupes={dupes} onDupe={openDupe} />}
       {kind === "dupes" && (dupes.length
         ? <p className="pub-tasks dupe-line" data-dupe-line>{dupeWords(dupes)} · <button className="inline-link" data-dupe-review onClick={openDupe}>Review</button></p>

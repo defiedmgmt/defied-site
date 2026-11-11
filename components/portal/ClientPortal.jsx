@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { X, LogOut, Plus, Disc3, RefreshCw, AlertTriangle, CheckCircle2, Eye, PauseCircle, PlayCircle, KeyRound } from "lucide-react";
 import { PasswordCard } from "../dash/password";
-import { evenSplit, splitWords, filledSplits, orderSplits } from "../../lib/splits";
+import { songSplit, splitWords, filledSplits, orderSplits } from "../../lib/splits";
 import { netStreamsOf } from "../../lib/sheet-facts";
 import { changedFields, goneText } from "../app/saves";
 import { ClientMore, SpotifyFill } from "../dash/clients";
@@ -204,7 +204,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   const editFrom = useRef(null); // the song as it was when Edit was pressed
   const active = songs.find((p) => p.id === openId);
   // the song window shows an even split the rule can fill as it would be confirmed (lib/splits.js); staff only
-  const activeEven = active && isStaff && splitTotal(active.splits) !== 100 && evenSplit(active.splits).status === "assumed" ? evenSplit(active.splits) : null;
+  const activeFill = active && isStaff && splitTotal(active.splits) !== 100 ? songSplit(active, client) : null;
+  const activeEven = activeFill?.status === "assumed" ? activeFill : null;
   const [pushWarn, setPushWarn] = useState(null);
   // a "Fix" from the splits list opens that song's editor at once; after its Save, a strip says how many
   // are left and offers the next one (on any client's page)
@@ -243,7 +244,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
     // the split as the editor shows it: for staff the even default filled in (lib/splits.js), or exactly what was
     // typed. A client's Save never fills it: the assumed default stays for the owner to confirm in Splits to confirm,
     // so a client fixing a link never writes an assumed share to their own sheet tab
-    const form = isStaff ? { ...form0, splits: filledSplits(form0.splits) } : form0;
+    const form = isStaff ? { ...form0, splits: filledSplits(form0.splits, { client, artist: form0.artist }) } : form0;
     // only what was changed in the form goes onto the song as it is now — streams the sync
     // brought in while it was open aren't put back (see Editor)
     const cur = form.id && db.placements.find((p) => p.id === form.id);
@@ -420,7 +421,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                 <span>{p.artist}</span>
                 {/* an even split the rule can fill is the owner's to confirm, not a broken one (Splits to confirm says the same) */}
                 <em>{isStaff && splitTotal(p.splits) !== 100
-                  ? (evenSplit(p.splits).status === "assumed" ? <span className="split-chip split-chip-even">Even split assumed</span> : <span className="split-chip">Splits {splitPct(p.splits)}%</span>)
+                  ? (songSplit(p, client).status === "assumed" ? <span className="split-chip split-chip-even">{songSplit(p, client).rule ? "Default split assumed" : "Even split assumed"}</span> : <span className="split-chip">Splits {splitPct(p.splits)}%</span>)
                   : <>{(p.splits || []).length} {(p.splits || []).length === 1 ? "split" : "splits"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitTotal(p.splits)}%</span></>}</em>
                 {/* its own line: on the splits line it was cut off by the card's width */}
                 {p.notable && <span className="song-public"><Eye size={12} aria-hidden="true" /> On public page</span>}
@@ -538,7 +539,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               <Field label="Artist" value={editing.artist} onChange={(ev) => setEditing({ ...editing, artist: ev.target.value })} />
               <Field label="Release date" type="date" data-field="releaseDate" value={editing.releaseDate} onChange={(ev) => setEditing({ ...editing, releaseDate: ev.target.value })} />
               <Field label="Streaming link" data-field="link" value={editing.link} onChange={(ev) => setEditing({ ...editing, link: ev.target.value })} />
-              <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} focusPct={splitsFirst} assume={!!isStaff} owner={client} />
+              <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} focusPct={splitsFirst} assume={!!isStaff} owner={client} artist={editing.artist} />
               <label className="check-row">
                 <input type="checkbox" checked={!!editing.notable} onChange={(ev) => setEditing({ ...editing, notable: ev.target.checked })} />
                 <span>Feature as a Notable Release on your artist profile.</span>

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { Mail, X, Plus, Trash2, Check, AlertTriangle, CheckCircle2, Eye, EyeOff } from "lucide-react";
-import { evenSplit, splitWords, orderSplits } from "../../lib/splits";
+import { songSplit, splitWords, orderSplits } from "../../lib/splits";
 import { Photo, prefersReducedMotion, thumb } from "../shared/ui";
 import { findByName } from "../site/data";
 
@@ -327,13 +327,14 @@ export function SplitsPie({ splits, size = 220 }) {
   return <div style={{ height: size }}><SplitsPieChart data={data} size={size} colors={PIE_COLORS} /></div>;
 }
 
-export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, owner = null }) {
+export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, owner = null, artist = "" }) {
   const all = splits || [];
   // the even default (lib/splits.js), live: a 25 typed for a producer shows the unnamed producer at 25 and the
   // artist side at once, and Save writes exactly these rows. While the total is off the unnamed people are the
   // rule's own, so only the named ones are typed into. A client's own editor (assume = false) never fills:
   // the even default is the owner's to confirm, so a client saves exactly what they typed
-  const fill = assume ? evenSplit(all) : { status: splitTotal(all) === 100 ? "ok" : "look", splits: all, added: [], reason: "" };
+  // (2026-11-10) with no share typed in, the default from the song's artist line (lib/splits.js songSplit)
+  const fill = assume ? songSplit({ splits: all, artist }, owner) : { status: splitTotal(all) === 100 ? "ok" : "look", splits: all, added: [], reason: "" };
   const rows = !assume || fill.status === "ok" ? all : all.filter((r) => !r.unnamed);
   const shown = fill.status === "assumed" ? fill.splits : rows;
   const filled = (id) => fill.splits.find((x) => x.id === id);
@@ -345,7 +346,8 @@ export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, ow
   const [order] = useState(() => orderSplits(all).map((r) => r.id));
   const at = (r) => { const i = order.indexOf(r.id); return i === -1 ? order.length : i; };
   const named = rows.map((r, i) => [r, i]).sort((a, b) => at(a[0]) - at(b[0]) || a[1] - b[1]).map(([r]) => r);
-  const list = fill.status === "assumed" ? [...named, ...orderSplits(fill.added).map((r, i) => ({ ...r, key: `unnamed-${i}` }))] : named;
+  // the rule's own people (unnamed, or named from the artist line) are shown only: Save keeps them
+  const list = fill.status === "assumed" ? [...named, ...orderSplits(fill.added).map((r, i) => ({ ...r, key: `unnamed-${i}`, shownOnly: true }))] : named;
   const box = useRef(null);
   // a Fix from Splits to confirm (focusPct = its n) opens on this block, the reason it opened, with the first % ready to type.
   // Only the window's own scroll moves, never the page behind it
@@ -364,10 +366,10 @@ export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, ow
     <div className="splits-ed" ref={box}>
       {/* shown to one decimal like everywhere else (1/3 is 33.3%, not 33.333333333333336%); the saved % is unchanged */}
       <div className="splits-ed-head"><span>Splits</span><span className={total === 100 ? "split-ok" : "split-warn"}>{splitPct(shown)}%</span></div>
-      {list.map((r) => r.unnamed ? (
+      {list.map((r) => r.unnamed || r.shownOnly ? (
         <div key={r.key || r.id} className="splits-ed-row split-assumed" data-unnamed>
           {/* one box over the name and role columns: "Producer 2 (unnamed)" already says the role, and is never cut */}
-          <span className="split-unnamed" title={r.label || `${r.role} (unnamed)`}>{r.label || `${r.role} (unnamed)`}</span>
+          <span className="split-unnamed" title={r.unnamed ? r.label || `${r.role} (unnamed)` : `${r.name} (${String(r.role || "").toLowerCase()})`}>{r.unnamed ? r.label || `${r.role} (unnamed)` : `${r.name} (${String(r.role || "").toLowerCase()})`}</span>
           <span className="pct-in pct-assumed">{splitPct([r])}%</span>
           <span aria-hidden="true" />
         </div>
@@ -381,7 +383,7 @@ export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, ow
         </div>
       ))}
       <button type="button" className="btn ghost sm" onClick={add}><Plus size={14} /> Add split</button>
-      {fill.status === "assumed" && <p className="split-hint split-even" data-even>Even split assumed: {splitWords(fill.splits, rows)}. Save keeps this split{mine ? ` and writes ${owner.name}'s ${splitPct([mine])}% to the ${owner.sheetTabName?.trim() || owner.name} tab of the pub sheet` : ""}. Unnamed people stay on the site only.</p>}
+      {fill.status === "assumed" && <p className="split-hint split-even" data-even>{fill.rule ? "Default split" : "Even split"} assumed: {splitWords(fill.splits, rows)}. Save keeps this split{mine ? ` and writes ${owner.name}'s ${splitPct([mine])}% to the ${owner.sheetTabName?.trim() || owner.name} tab of the pub sheet` : ""}. Unnamed people stay on the site only.</p>}
       {fill.status === "look" && rows.length > 0 && <p className="split-hint">Splits should total 100% (currently {splitPct(rows)}%).{fill.reason ? ` ${fill.reason}.` : ""}</p>}
     </div>
   );

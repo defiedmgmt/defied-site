@@ -65,9 +65,9 @@ function SplitBoxes({ splits, typed, onType, check, song, under = null }) {
     </div>
   );
 }
-export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus, onGo, dupes = [], onDupe }) {
+export function SplitsToFix({ db, commit, reloadDb, songInfo, reloadSongInfo, onFix, focus, onGo, dupes = [], onDupe }) {
   const { assumed, look, all: flat } = useMemo(() => splitsToConfirm(db, songInfo), [db, songInfo]);
-  const n = assumed.length + look.length;
+  const n = assumed.length + look.length, nDiffer = assumed.filter((x) => x.r.differ).length;
   const [ask, setAsk] = useState(null);
   const [note, setNote] = useState(null);
   const [all, setAll] = useState(false); // the Confirm all card
@@ -176,6 +176,8 @@ export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus
       if (pl.kind === "new") changed.push(`${saved.song || "Untitled"} added at ${pctOf(pl.will)}`);
     }
     setReads((k) => k + 1);
+    // a share that differed from the sheet is the sheet's now (the push route keeps it): the list follows at once
+    if (wrote.some((x) => x.r.differ)) reloadDb?.();
     const tabNote = tabless.length ? ` Not written to the pub sheet, because the client's sheet tab isn't set: ${tabless.join(", ")}. Set the sheet tab first, then open the song and Save.` : "";
     // a refused write and a formula that changed are said first and loudly, whatever else happened
     const guardNote = [heldNote, refused.length && `Confirmed on the site, but not written to the pub sheet: ${refused.join(" ")}`, ...alarms].filter(Boolean).join(" ");
@@ -216,7 +218,7 @@ export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus
     : `${x.client?.name || "The client"} isn't on this split, so nothing is written to the pub sheet.`;
   const tabs = new Set(allWrites.map((x) => x.client.id)).size;
   const row = (x, acts, mid) => (
-    <div className="fix-row" key={x.p.id} data-song={x.p.id} data-kind={x.r.status === "assumed" ? "assumed" : "look"}>
+    <div className="fix-row" key={x.p.id} data-song={x.p.id} data-kind={x.r.differ ? "differ" : x.r.status === "assumed" ? "assumed" : "look"}>
       <span className="fix-song"><span className="fix-who">{x.client?.name || "A deleted client"} · </span>{x.p.song || "Untitled"}</span>
       {mid}
       <span className="fix-streams">{fmt(x.p.streams || 0)} streams</span>
@@ -235,7 +237,7 @@ export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus
         <div className="fix-group" data-group="all">
           {/* one flat list, biggest streams first: an even split has Confirm, one that needs a look has Fix */}
           <div className="fix-sub">
-            <span className="fix-client" data-split-counts>{[assumed.length && `${assumed.length} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} review`].filter(Boolean).join(" · ")}</span>
+            <span className="fix-client" data-split-counts>{[nDiffer && `${nDiffer} ${nDiffer === 1 ? "share differs" : "shares differ"} from the sheet`, assumed.length - nDiffer && `${assumed.length - nDiffer} assumed as an even split`, look.length && `${look.length} need${look.length === 1 ? "s" : ""} review`].filter(Boolean).join(" · ")}</span>
             {assumed.length > 0 && <button className="btn sm" data-confirm-all disabled={!!busy} onClick={openAll}>Confirm all {assumed.length}</button>}
           </div>
           {flat.map((x) => {
@@ -246,7 +248,8 @@ export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus
             const pl = plan(x), cw = changeWords(pl);
             return row(x,
               <button className="btn sm" data-confirm disabled={!!busy} onClick={() => openOne(x)}>{busy === x.p.id ? "Confirming…" : "Confirm"}</button>,
-              <span className="fix-mid"><span className="fix-words">{splitWords(x.r.splits, x.p.splits)}</span>
+              <span className="fix-mid">{x.r.differ && <span className="fix-sheet" data-differ>{x.client?.name}: {pctOf(x.r.differ.site)} here, {pctOf(x.r.differ.sheet)} on the sheet</span>}
+                <span className="fix-words">{splitWords(x.r.splits, x.r.differ ? null : x.p.splits)}</span>
                 {cw && <span className={`fix-sheet${pl.kind === "tabless" ? " tabless" : ""}`} data-sheet-change={pl.kind}>{cw}</span>}</span>);
           })}
         </div>
@@ -272,7 +275,7 @@ export function SplitsToFix({ db, commit, songInfo, reloadSongInfo, onFix, focus
       {askOne && (() => { const ck = checkOf(askOne), pl = plan(askOne, ck.splits); return (
         <AskCard title={`Confirm "${askOne.p.song || "Untitled"}"?`} goLabel="Confirm" busyLabel="Confirming…" plain goDisabled={!!ck.reason}
           go={async () => { await one(askOne, ck.edited ? ck.splits : null); setAskOne(null); }} onClose={() => setAskOne(null)}>
-          <p className="hint" data-ask-type>The even split to start. Type a share to change it; it has to add up to 100%.</p>
+          <p className="hint" data-ask-type>{askOne.r.differ ? `${askOne.client?.name} has ${pctOf(askOne.r.differ.site)} here and ${pctOf(askOne.r.differ.sheet)} on the sheet. ${askOne.r.rule ? "The default split to start" : "The site's split to start"}` : "The even split to start"}. Type a share to change it; it has to add up to 100%.</p>
           <SplitBoxes splits={askOne.r.splits} typed={typed[askOne.p.id]} onType={typeIn(askOne.p.id)} check={ck} song={askOne.p.song} />
           <p data-ask-change>{sheetWords(askOne, pl)} Unnamed people stay on the site only.</p>
         </AskCard>
