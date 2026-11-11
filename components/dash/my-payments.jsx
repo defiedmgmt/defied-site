@@ -18,7 +18,8 @@ function Totals({ label, t }) {
   );
 }
 
-export function MyPaymentsPage() {
+// (inside Money, title "Money" and the All / Mine switch, for a login that has Money too: StaffDashboard.jsx)
+export function MyPaymentsPage({ title = "My payments", mine = null }) {
   const [d, setD] = useState(null);
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -29,7 +30,7 @@ export function MyPaymentsPage() {
   useEffect(load, []);
   return (
     <div className="my-pay" data-my-payments>
-      <div className="admin-head"><h2>My payments</h2>
+      <div className="admin-head"><h2>{title}</h2>{mine}
         <button type="button" className="btn ghost sm" onClick={load} disabled={busy} data-my-pay-refresh><RefreshCw size={14} className={busy ? "spin" : undefined} /> Refresh</button>
       </div>
       {d?.link && <p className="muted mp-from">Payments through <ExtLink href={d.link.page} className="inline-link">pay.defiedmgmt.com/{d.link.key}</ExtLink>. What you keep is the payment less Defied's cut; Stripe's own fee is paid by Defied.</p>}

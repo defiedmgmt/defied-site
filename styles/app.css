@@ -3531,3 +3531,6 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .sub-file-top{display:flex;align-items:center;gap:8px;min-width:0}
 .app:not(.pub) .sub-file-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--d-ink)}
 .app:not(.pub) .sub-file audio{width:100%;height:36px;color-scheme:dark}
+/* (2026-11-11) a founder's All / Mine switch on To do and Money: right after the title, in the same place on both sides */
+.app:not(.pub) .dash-main .admin-head h2:has(+ .pair-switch){flex:0 1 auto}
+.app:not(.pub) .dash-main .admin-head .pair-switch{margin:0 auto 0 0}

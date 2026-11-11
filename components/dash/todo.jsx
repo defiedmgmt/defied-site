@@ -540,7 +540,7 @@ function CuSection({ cu, list, person, setList, setPerson, onNew }) {
 }
 
 const AREA_CHIPS = [["all", "All"], ["money", "Money"], ["roster", "Clients"], ["ar", "A&R"], ["clickup", "ClickUp"], ["site", "Site"]];
-export function TodoPage({ ctx, todo, sub, onSub, areaN }) {
+export function TodoPage({ ctx, todo, sub, onSub, areaN, mine = null }) {
   const isArea = TODO_AREAS.includes(sub);
   const [area, setArea] = useState(isArea ? sub : "all");
   const [view, setView] = useState(sub === "calendar" ? "calendar" : "list");
@@ -572,7 +572,7 @@ export function TodoPage({ ctx, todo, sub, onSub, areaN }) {
   const allN = todo.length + areaN("clickup");
   return (
     <div className="todo-page">
-      <div className="admin-head"><h2>To do</h2>
+      <div className="admin-head"><h2>To do</h2>{mine}
         <span className="gainer-tabs todo-view" role="tablist" aria-label="View">
           <button role="tab" aria-selected={view === "list"} className={view === "list" ? "active" : ""} data-view="list" onClick={() => { setView("list"); if (sub === "calendar") onSub(null); }}><ListIcon size={14} /> List</button>
           <button role="tab" aria-selected={view === "calendar"} className={view === "calendar" ? "active" : ""} data-view="calendar" onClick={() => { setView("calendar"); onSub("calendar"); }}><CalendarDays size={14} /> Calendar</button>

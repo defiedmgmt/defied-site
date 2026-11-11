@@ -150,6 +150,13 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   // (2026-11-11, the owner: "make clients the first thing the co managers see") a Co-manager opens on Clients
   if (db.access?.role === "comanager") tabs.sort(([a], [b]) => (b === "catalog") - (a === "catalog"));
   const at = tabs.some(([id]) => id === tab) ? tab : tabs[0]?.[0];
+  // (2026-11-11, the owner: "for the founder accounts like hank its a lil too complicated ... total money and like my
+  // money in the same group and like tasks can be all tasks and my tasks grouped together") a login with To do or Money
+  // finds its own list or payments inside it, behind an All / Mine switch, not as a tab of their own
+  const paired = (id) => !!PAIRS[id] && tabs.some(([t]) => t === PAIRS[id]);
+  const side = tabs.filter(([id]) => !paired(id));
+  const home = paired(at) ? PAIRS[at] : at; // the sidebar tab that's lit
+  const pair = (all) => { const mine = MINE_OF[all]; return tabs.some(([t]) => t === mine) && <PairSwitch all={all} mine={mine} at={at} setTab={setTab} />; };
   const [pwOpen, setPwOpen] = useState(false); // "Password": each login changes its own (components/dash/password.jsx)
   // (2026-11-11, the owner: "get rid of the · own artists on each co managers page")
   const roleWord = db.access ? ROLES[db.access.role]?.label || "Staff" : "Staff — full edit access";
@@ -159,13 +166,13 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {/* r10 (H15): the logo stays in the dashboard (the Dashboard page), it doesn't leave for the public site */}
         <div className="dash-brand"><Link href="/dashboard" className="logo-link" aria-label="Dashboard" onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return; e.preventDefault(); go("home"); }}><Wordmark height={26} /></Link></div>
         <nav>
-          {tabs.map(([id, label, Icon, badge, area]) => (
-            <button key={id} className={[at === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={at === id ? "page" : undefined} onClick={() => setTab(id)} onPointerEnter={() => SECTION_CODE[id]?.()} onFocus={() => SECTION_CODE[id]?.()}>
+          {side.map(([id, label, Icon, badge, area]) => (
+            <button key={id} className={[home === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={home === id ? "page" : undefined} onClick={() => setTab(id)} onPointerEnter={() => SECTION_CODE[id]?.()} onFocus={() => SECTION_CODE[id]?.()}>
               <Icon size={17} /> <span className="nav-label">{label}</span>
               {!!badge && <span className="nav-badge">{badge}</span>}
             </button>
           ))}
-          <NavMore tabs={tabs.filter(([id]) => PHONE_MORE.has(id))} tab={at} badge={0} setTab={setTab} />
+          <NavMore tabs={side.filter(([id]) => PHONE_MORE.has(id))} tab={home} badge={0} setTab={setTab} />
         </nav>
         <div className="dash-side-foot">
           <div className="dash-role" data-role={db.access?.role}>{roleWord}</div>
@@ -176,16 +183,28 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
       <main className="dash-main">
         {!at && <div className="admin-empty" data-no-sections>Your account has nothing turned on yet. Ask a Founder to turn on what you need in Site › Users.</div>}
         {at === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcctN} />}
-        {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} />}
-        {at === "mytodo" && <MyTodoPage />}
-        {at === "mypay" && <MyPaymentsPage />}
-        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
+        {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} mine={pair("todo")} />}
+        {at === "mytodo" && (paired("mytodo") ? <MyTodoPage title="To do" mine={pair("todo")} /> : <MyTodoPage />)}
+        {at === "mypay" && (paired("mypay") ? <MyPaymentsPage title="Money" mine={pair("money")} /> : <MyPaymentsPage />)}
+        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} mine={pair("money")} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
         {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("site")} area="site" onGo={go} />} />}
         {at === "catalog" && <CatalogAdmin db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
       </main>
       {pwOpen && <PasswordCard onClose={() => setPwOpen(false)} />}
     </div>
+  );
+}
+
+// the "My" tabs and the tab each one sits inside when the login has that one too, and the switch between them
+const PAIRS = { mytodo: "todo", mypay: "money" };
+const MINE_OF = { todo: "mytodo", money: "mypay" };
+const PAIR_WORDS = { todo: ["All tasks", "My tasks"], money: ["Total money", "My money"] };
+function PairSwitch({ all, mine, at, setTab }) {
+  return (
+    <span className="gainer-tabs pair-switch" role="tablist" aria-label={all === "todo" ? "Whose tasks" : "Whose money"} data-pair={all}>
+      {[all, mine].map((id, i) => <button key={id} role="tab" aria-selected={at === id} className={at === id ? "active" : ""} data-pair-tab={id} onClick={() => at !== id && setTab(id)}>{PAIR_WORDS[all][i]}</button>)}
+    </span>
   );
 }
 

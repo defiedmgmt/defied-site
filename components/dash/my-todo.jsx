@@ -80,7 +80,8 @@ function AddTask({ writes, onAdded }) {
   );
 }
 
-export function MyTodoPage() {
+// (inside To do, title "To do" and the All / Mine switch, for a login that has To do too: StaffDashboard.jsx)
+export function MyTodoPage({ title = "My to-do", mine = null }) {
   const { d, failed, busy, load, setD } = useMyTasks();
   const tasks = d?.tasks || [];
   const writes = !!d?.writes;
@@ -88,7 +89,7 @@ export function MyTodoPage() {
   const add = (t) => t && setD((x) => ({ ...x, tasks: [...(x.tasks || []), t] }));
   return (
     <div className="todo-page my-todo" data-my-todo>
-      <div className="admin-head"><h2>My to-do</h2>
+      <div className="admin-head"><h2>{title}</h2>{mine}
         <button type="button" className="btn ghost sm" onClick={() => load(true)} disabled={busy} data-my-refresh><RefreshCw size={14} className={busy ? "spin" : undefined} /> Refresh</button>
       </div>
       {d?.list && <p className="muted mt-from">Your ClickUp list, <ExtLink href={d.list.url} className="inline-link" title="Open in ClickUp">{d.list.name}{" "}↗</ExtLink>. Add or tick things off here or in ClickUp; both stay the same.</p>}
