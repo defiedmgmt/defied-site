@@ -327,7 +327,8 @@ export function SplitsPie({ splits, size = 220 }) {
   return <div style={{ height: size }}><SplitsPieChart data={data} size={size} colors={PIE_COLORS} /></div>;
 }
 
-export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, owner = null, artist = "" }) {
+// forClient: a client's own Add song (the hint in their words, no sheet tabs)
+export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, owner = null, artist = "", forClient = false }) {
   const all = splits || [];
   // the even default (lib/splits.js), live: a 25 typed for a producer shows the unnamed producer at 25 and the
   // artist side at once, and Save writes exactly these rows. While the total is off the unnamed people are the
@@ -383,7 +384,9 @@ export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, ow
         </div>
       ))}
       <button type="button" className="btn ghost sm" onClick={add}><Plus size={14} /> Add split</button>
-      {fill.status === "assumed" && <p className="split-hint split-even" data-even>{fill.rule ? "Default split" : "Even split"} assumed: {splitWords(fill.splits, rows)}. Save keeps this split{mine ? ` and writes ${owner.name}'s ${splitPct([mine])}% to the ${owner.sheetTabName?.trim() || owner.name} tab of the pub sheet` : ""}. Unnamed people stay on the site only.</p>}
+      {fill.status === "assumed" && (forClient
+        ? <p className="split-hint split-even" data-even>{fill.rule ? "Default split" : "Even split"}: {splitWords(fill.splits, rows)}. Type a different % if yours isn't {mine ? splitPct([mine]) : 50}%, or add the others on the song.</p>
+        : <p className="split-hint split-even" data-even>{fill.rule ? "Default split" : "Even split"} assumed: {splitWords(fill.splits, rows)}. Save keeps this split{mine ? ` and writes ${owner.name}'s ${splitPct([mine])}% to the ${owner.sheetTabName?.trim() || owner.name} tab of the pub sheet` : ""}. Unnamed people stay on the site only.</p>)}
       {fill.status === "look" && rows.length > 0 && <p className="split-hint">Splits should total 100% (currently {splitPct(rows)}%).{fill.reason ? ` ${fill.reason}.` : ""}</p>}
     </div>
   );

@@ -3416,6 +3416,32 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .my-todo .mt-add input[type=date]{flex:0 0 auto;color-scheme:dark}
 .app:not(.pub) .my-todo .mt-add .btn{min-height:40px}
 .app:not(.pub) .my-todo .mt-add-err{flex-basis:100%;margin:0}
+/* (2026-11-11) My payments: a co-manager's payments and what they keep (components/dash/my-payments.jsx) */
+.app:not(.pub) .my-pay .mp-from{margin:-4px 0 12px;font-size:13.5px}
+.app:not(.pub) .my-pay .mp-totals{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:14px}
+.app:not(.pub) .my-pay .mp-keep{color:var(--d-pos)}
+.app:not(.pub) .my-pay .mp-total .cat-stat-val{font-size:26px}
+.app:not(.pub) .my-pay .mp-sub{display:block;margin-top:4px;font-size:12px;color:var(--d-ink-4)}
+.app:not(.pub) .my-pay .mp-row{box-shadow:inset 3px 0 0 var(--d-pos);border-bottom:0;border-top:1px solid var(--d-line)}
+.app:not(.pub) .my-pay .mp-row .attn-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.app:not(.pub) .my-pay .mp-row .attn-main em{font-style:normal;font-size:12.5px;color:var(--d-ink-4)}
+.app:not(.pub) .my-pay .mp-keep-col{flex:none;display:flex;flex-direction:column;align-items:flex-end}
+.app:not(.pub) .my-pay .mp-keep-col .mp-keep{font:600 16px/1.2 var(--d-body)}
+.app:not(.pub) .my-pay .mp-keep-label{font-size:11px;color:var(--d-ink-4)}
+.app:not(.pub) .my-pay .mp-test{font-weight:400;color:var(--d-ink-4)}
+@media (max-width:640px){.app:not(.pub) .my-pay .mp-row{flex-direction:row;align-items:center}}
+/* (2026-11-11) a client's Management Commission card (components/dash/my-commission.jsx) */
+.app:not(.pub) .mc-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:end}
+.app:not(.pub) .mc-made{margin:0}
+.app:not(.pub) .mc-money{display:flex;align-items:center;gap:6px;min-height:48px;padding:0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field);background:var(--d-field);color:var(--d-ink-3);font-size:18px}
+.app:not(.pub) .mc-money:focus-within{border-color:var(--d-ink-3)}
+.app:not(.pub) .mc-money input{flex:1;min-width:0;border:0;background:none;padding:0;color:var(--d-ink);font:inherit;font-size:18px;outline:none}
+.app:not(.pub) .mc-money:has(input[aria-invalid=true]){border-color:var(--d-neg)}
+.app:not(.pub) .mc-owed{display:flex;flex-direction:column;justify-content:flex-end;gap:2px;min-height:48px}
+.app:not(.pub) .mc-owed .cat-stat-val{font-size:24px;line-height:1.2}
+.app:not(.pub) .mc-err{grid-column:1/-1;margin:0}
+.app:not(.pub) .mc-pay{grid-column:1/-1;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:48px;width:100%;text-decoration:none}
+.app:not(.pub) .mc-note{margin:10px 0 0}
 /* (2026-11-11) a client's own links under Your numbers (components/dash/my-links.jsx) */
 .app:not(.pub) .ml-list{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:minmax(0,1fr);gap:2px}
 .app:not(.pub) .ml-row{display:flex;align-items:center;gap:12px;min-height:52px;padding:6px 0;border-top:1px solid var(--d-line)}

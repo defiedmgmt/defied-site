@@ -18,6 +18,7 @@ import { MAX_DATA_BYTES } from "../../lib/image-links";
 import { getState } from "../../lib/app-state";
 import { streamSheetOn, streamSheetMonthly } from "../../lib/stream-sheet";
 import { mgmtListOf } from "../../lib/clickup-tasks";
+import { ownLinkOf } from "../../lib/commission";
 
 // photos uploaded before list B #2 are data: URIs inside the rows (new ones are Blob links,
 // /api/upload-image), so Next's default 1 MB body cap turned every staff save into a 413 once ~5-8 had
@@ -161,7 +162,7 @@ async function growsPastLimit(change, clientIds) {
 // overrides) only with Users. `access` says what the dashboard shows.
 export function payloadFor(full, users, a) {
   const can = (k) => a.sections.includes(k);
-  const out = { ...full, access: { role: a.role, sections: a.sections, ownOnly: a.ownOnly, manager: a.manager || "", mgmtList: a.mgmtList || null } };
+  const out = { ...full, access: { role: a.role, sections: a.sections, ownOnly: a.ownOnly, manager: a.manager || "", mgmtList: a.mgmtList || null, payLink: a.payLink || null } };
   out.clients = full.clients.map((c, i) => ({ ...c, manager: full.managers?.[c.id] || "" }));
   delete out.managers;
   out.users = can("users") ? users : [];
@@ -199,8 +200,9 @@ async function handleGet(req, res, session) {
   if (role === "staff") {
     const [full, extra, managers] = await Promise.all([staffPayload(), req.access.sections.includes("users") ? usersWithRoles() : {}, managersOf()]);
     const users = full.users.map((u) => ({ ...u, staffRole: extra[u.id]?.staff_role || null, access: extra[u.id]?.access || {} }));
-    // mgmtList: this login's own ClickUp list, for My to-do (lib/clickup-tasks.js)
-    return res.status(200).json(payloadFor({ ...full, managers }, users, { ...req.access, mgmtList: mgmtListOf(session.user.name) }));
+    // mgmtList: this login's own ClickUp list, for My to-do (lib/clickup-tasks.js); payLink: its own pay link, for My
+    // payments (lib/commission.js)
+    return res.status(200).json(payloadFor({ ...full, managers }, users, { ...req.access, mgmtList: mgmtListOf(session.user.name), payLink: ownLinkOf(session.user.name)?.key || null }));
   }
 
   // client: own record + own placements only, redacted

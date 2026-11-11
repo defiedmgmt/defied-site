@@ -14,6 +14,7 @@ import { ExtLink, Photo } from "../shared/ui";
 import { LumHistory } from "../dash/lum-history";
 import { ArtistStats, useArtistNumbers, setTracking } from "../dash/artist-stats";
 import { MyLinks } from "../dash/my-links";
+import { MyCommission } from "../dash/my-commission";
 import { ownSplit, personKey } from "../site/data";
 import { AskCard } from "./ask";
 export { AskCard, useDirtyGuard } from "./ask";
@@ -243,9 +244,10 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
 
   const saveSong = async (form0, anyway = false) => {
     // the split as the editor shows it: for staff the even default filled in (lib/splits.js), or exactly what was
-    // typed. A client's Save never fills it: the assumed default stays for the owner to confirm in Splits to confirm,
-    // so a client fixing a link never writes an assumed share to their own sheet tab
-    const form = isStaff ? { ...form0, splits: filledSplits(form0.splits, { client, artist: form0.artist }) } : form0;
+    // typed. A client's Save fills it only on a song they're adding (2026-11-11, the owner: "when a client adds a song
+    // on their page the splits rule should be there"); on a song already there it stays as typed, for the owner to
+    // confirm in Splits to confirm, so a client fixing a link never writes an assumed share to their own sheet tab
+    const form = isStaff || !form0.id ? { ...form0, splits: filledSplits(form0.splits, { client, artist: form0.artist }) } : form0;
     // only what was changed in the form goes onto the song as it is now — streams the sync
     // brought in while it was open aren't put back (see Editor)
     const cur = form.id && db.placements.find((p) => p.id === form.id);
@@ -325,7 +327,9 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   const [linkEdit, setLinkEdit] = useState(null);
   const tracking = nums.artist?.mode !== "off";
   const moreItems = isStaff && nums.artist ? [{ key: "tracking", label: tracking ? "Stop tracking this artist" : "Start tracking again", icon: tracking ? <PauseCircle size={14} /> : <PlayCircle size={14} />, onClick: () => (tracking ? setStopAsk(true) : setTracking(clientId, true).then(nums.reload)) }] : [];
-  const startAdd = () => setEditing({ id: null, clientId, song: "", artist: client?.name || "", releaseDate: "", link: "", cover: "", notable: false, luminateId: "", splits: [{ id: uid(), name: client?.name || "", role: client?.role || "", percent: 0 }] });
+  // (2026-11-11) the artist line starts with the client's name only when they're an artist: a producer types the
+  // song's artist, whose share the default split names
+  const startAdd = () => setEditing({ id: null, clientId, song: "", artist: /artist/i.test(client?.role || "") ? client?.name || "" : "", releaseDate: "", link: "", cover: "", notable: false, luminateId: "", splits: [{ id: uid(), name: client?.name || "", role: client?.role || "", percent: 0 }] });
 
   const summaryBlock = db.sheetSync?.lastSyncedAt && (
         <div className="cat-summary">
@@ -394,6 +398,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
       {!editorOnly && <>
       <ArtistStats nums={nums} title={isStaff ? "Campaign" : "Your numbers"} staff={isStaff} onAddLink={isStaff ? undefined : setLinkEdit} profile={isStaff ? client : myLinks} />
       {!isStaff && <MyLinks client={client} links={myLinks} edit={linkEdit} setEdit={setLinkEdit} onSaved={(out) => { if (!out.same) setMyLinks((l) => ({ ...l, [out.platform]: out.value })); nums.reload(); }} />}
+      {!isStaff && <MyCommission clientId={clientId} />}
       {isStaff && summaryBlock}
       <div className="portal-block-head">
         <div>
@@ -544,7 +549,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               <Field label="Artist" value={editing.artist} onChange={(ev) => setEditing({ ...editing, artist: ev.target.value })} />
               <Field label="Release date" type="date" data-field="releaseDate" value={editing.releaseDate} onChange={(ev) => setEditing({ ...editing, releaseDate: ev.target.value })} />
               <Field label="Streaming link" data-field="link" value={editing.link} onChange={(ev) => setEditing({ ...editing, link: ev.target.value })} />
-              <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} focusPct={splitsFirst} assume={!!isStaff} owner={client} artist={editing.artist} />
+              <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} focusPct={splitsFirst} assume={!!isStaff || !editing.id} forClient={!isStaff} owner={client} artist={editing.artist} />
               <label className="check-row">
                 <input type="checkbox" checked={!!editing.notable} onChange={(ev) => setEditing({ ...editing, notable: ev.target.checked })} />
                 <span>Feature as a Notable Release on your artist profile.</span>
