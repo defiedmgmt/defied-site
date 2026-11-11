@@ -335,25 +335,25 @@ function AcctOverview({ d, onSec }) {
   const nLog = d.counts?.toLog || 0, nCheck = d.counts?.toCheck || 0;
   const partSum = (kind) => (M ? cents2(M.flatMap((m) => m.parts).filter((x) => x.kind === kind).reduce((a, x) => a + x.amount, 0)) : 0);
   const rounding = partSum("rounding");
-  // co-managers' share of Stripe's fees (the Co-Management Cut): Stripe has it, the sheet books it on
-  // its Stripe Fees tab, so it never makes the year look wrong
-  const covered = partSum("covered");
-  const coveredText = covered ? `${money(covered)} is co-managers' share of Stripe's fees (on the Stripe Fees tab)` : "";
+  // co-managers' share of Stripe's fees (the Co-Management Cut): Stripe has it, the sheet books it on its Stripe
+  // Fees tab, so "In the sheet" counts it (2026-11-11) and the months come out exact
+  const covered = M ? cents2(M.reduce((a, m) => a + (m.covered || 0), 0)) : 0;
+  const coveredText = covered ? `the sheet counts ${money(covered)} of co-managers' share of Stripe's fees (Stripe Fees tab)` : "";
   const checkRow = new Set((d.toCheck?.items || []).map((x) => x.row).filter(Boolean)); // rows with an open To check line
   const diffText = (v) => (v ? money(v).replace("$-", "-$") : "—");
-  const clean = yr && !cents2(yr.diff - covered) && !nLog && !nCheck;
+  const clean = yr && !yr.diff && !nLog && !nCheck;
   const fold = foldMonths(M || [], { current: d.month });
   const [unfold, setUnfold] = useState(false); // the matching months' own rows, opened from the fold line
   const monthRow = (m) => (
     <div key={m.month} className="acct-mrow" role="row" data-month={m.month} data-explained={m.explained ? "1" : "0"}>
       <span role="cell" className="acct-mname">{m.label}</span>
       <span role="cell" className="acct-amt" data-col="stripe">{money(m.stripe)}</span>
-      <span role="cell" className="acct-amt" data-col="sheet">{money(m.sheet)}</span>
+      <span role="cell" className="acct-amt" data-col="sheet" title={m.covered ? `${money(cents2(m.sheet - m.covered))} on Income + ${money(m.covered)} co-managers' share of Stripe's fees (Stripe Fees tab)` : undefined}>{money(m.sheet)}</span>
       <span role="cell" className={m.diff ? "acct-amt acct-diff" : "acct-amt"} data-col="diff">{diffText(m.diff)}</span>
       <span role="cell" className="acct-why" data-col="why">
         {!m.diff && !m.parts.length ? <span className="acct-match"><CheckCircle2 size={14} /> Matches</span> : (
           <>{m.parts.map((x, i) => (
-            <React.Fragment key={i}>{i ? " · " : ""}<span className={x.kind === "rounding" || x.kind === "covered" ? "acct-round" : undefined} data-part={x.kind}>{x.text}</span>
+            <React.Fragment key={i}>{i ? " · " : ""}<span className={x.kind === "rounding" ? "acct-round" : undefined} data-part={x.kind}>{x.text}</span>
               {x.kind === "unlogged" && <> (<button className="inline-link" data-part-log onClick={() => onSec("log")}>log them</button>)</>}
               {(x.kind === "share" || x.kind === "extra") && x.url && <> (<ExtLink className="inline-link" href={x.url}>open row ↗</ExtLink>{checkRow.has(x.row) && <>, <button className="inline-link" onClick={() => onSec("check")}>see To check</button></>})</>}
             </React.Fragment>
@@ -381,7 +381,7 @@ function AcctOverview({ d, onSec }) {
       </div>
       <div className="fix-panel acct-panel" data-acct="months">
         <div className="fix-head"><h3>Stripe and the sheet, month by month</h3>
-          <span className="hint">Defied's share: through Stripe, and on the Income tab by each row's date.</span></div>
+          <span className="hint">Defied's share: through Stripe, and in the sheet (the Income tab by each row's date, plus co-managers' share of Stripe's fees from the Stripe Fees tab).</span></div>
         {!M ? <p className="home-muted"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the months can't be compared.</p> : (
           <div className="acct-mtable" role="table" aria-label="Stripe and the sheet by month">
             <div className="acct-mrow acct-mhead" role="row"><span role="columnheader">Month</span><span role="columnheader" className="acct-amt">Through Stripe</span><span role="columnheader" className="acct-amt">In the sheet</span><span role="columnheader" className="acct-amt">Difference</span><span role="columnheader">Why</span></div>
