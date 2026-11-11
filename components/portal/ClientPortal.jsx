@@ -13,6 +13,7 @@ import { ROUTE_TO_PATH } from "../shared/routes";
 import { ExtLink, Photo } from "../shared/ui";
 import { LumHistory } from "../dash/lum-history";
 import { ArtistStats, useArtistNumbers, setTracking } from "../dash/artist-stats";
+import { MyLinks } from "../dash/my-links";
 import { ownSplit, personKey } from "../site/data";
 import { AskCard } from "./ask";
 export { AskCard, useDirtyGuard } from "./ask";
@@ -319,6 +320,9 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   // staff: every artist's numbers (GET /api/data); a client: their own only (GET /api/my-numbers, 2026-11-10)
   const nums = useArtistNumbers(!editorOnly ? clientId : null, isStaff ? "/api/data" : "/api/my-numbers");
   const [stopAsk, setStopAsk] = useState(false);
+  // a client's own links (2026-11-11): what's on their profile, and the one being added or changed
+  const [myLinks, setMyLinks] = useState(() => ({ spotify: client?.spotify || "", instagram: client?.instagram || "", tiktok: client?.tiktok || "", youtube: client?.youtube || "" }));
+  const [linkEdit, setLinkEdit] = useState(null);
   const tracking = nums.artist?.mode !== "off";
   const moreItems = isStaff && nums.artist ? [{ key: "tracking", label: tracking ? "Stop tracking this artist" : "Start tracking again", icon: tracking ? <PauseCircle size={14} /> : <PlayCircle size={14} />, onClick: () => (tracking ? setStopAsk(true) : setTracking(clientId, true).then(nums.reload)) }] : [];
   const startAdd = () => setEditing({ id: null, clientId, song: "", artist: client?.name || "", releaseDate: "", link: "", cover: "", notable: false, luminateId: "", splits: [{ id: uid(), name: client?.name || "", role: client?.role || "", percent: 0 }] });
@@ -388,7 +392,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
         </AskCard>
       )}
       {!editorOnly && <>
-      <ArtistStats nums={nums} title={isStaff ? "Campaign" : "Your numbers"} staff={isStaff} />
+      <ArtistStats nums={nums} title={isStaff ? "Campaign" : "Your numbers"} staff={isStaff} onAddLink={isStaff ? undefined : setLinkEdit} profile={isStaff ? client : myLinks} />
+      {!isStaff && <MyLinks client={client} links={myLinks} edit={linkEdit} setEdit={setLinkEdit} onSaved={(out) => { if (!out.same) setMyLinks((l) => ({ ...l, [out.platform]: out.value })); nums.reload(); }} />}
       {isStaff && summaryBlock}
       <div className="portal-block-head">
         <div>

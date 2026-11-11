@@ -29,7 +29,7 @@ export function useArtistNumbers(clientId, url = "/api/data") {
 }
 export const setTracking = (clientId, on) => dataPost({ action: "mode", entityId: `a:${clientId}`, mode: on ? "auto" : "off", days: null });
 
-function Tile({ k, label, unit, a }) {
+function Tile({ k, label, unit, a, onAddLink, profile }) {
   if (k === "streams") {
     const s = a?.streams;
     const v = s?.thisWeek ?? null;
@@ -42,21 +42,23 @@ function Tile({ k, label, unit, a }) {
     );
   }
   const m = a?.metrics?.[k];
-  const linked = !!a?.links?.[k.split("_")[0]];
+  const linked = !!a?.links?.[k.split("_")[0]] || !!profile?.[k.split("_")[0]]; // (or on their profile, before the daily sync reads it)
   const chg = m?.growthPct != null ? `${pct(m.growthPct)} this week` : m?.daily != null && m.daily !== 0 ? `${m.daily > 0 ? "+" : "−"}${compact(Math.abs(m.daily))} since yesterday` : null;
   return (
     <div className="cat-stat as-tile" data-as={k}>
       <span className="cat-stat-label">{label}</span>
       <span className="cat-stat-val">{m?.latest == null ? "—" : `${m.approx ? "~" : ""}${compact(m.latest)}`}</span>
       <span className="as-chg" data-dir={m?.growthPct > 0 || (m?.growthPct == null && m?.daily > 0) ? "up" : m?.growthPct < 0 || (m?.growthPct == null && m?.daily < 0) ? "down" : undefined}>
-        {m?.latest == null ? (linked ? "First reading soon" : "No link on file") : chg || "No change yet"}
+        {m?.latest == null ? (linked ? "First reading soon" : onAddLink ? <button className="inline-link" onClick={() => onAddLink(k.split("_")[0])} data-add-link={k.split("_")[0]}>Add your link</button> : "No link on file") : chg || "No change yet"}
       </span>
     </div>
   );
 }
 
 // title: "Campaign" for staff; a client's portal says "Your numbers"; staff: the stopped-tracking hint points at More ▾
-export function ArtistStats({ nums, title = "Campaign", staff = true }) {
+// onAddLink(platform): a client's own page, where a count with no link offers to add it (components/dash/my-links.jsx);
+// profile: the links on their profile ({ instagram: "…" }), linked before the daily sync reads them
+export function ArtistStats({ nums, title = "Campaign", staff = true, onAddLink, profile }) {
   const { artist: a, loaded, err, reload } = nums;
   if (err && !loaded) return <p className="hint as-card" data-artist-stats="error">Couldn't load this artist's numbers. <button className="inline-link" onClick={reload}>Try again</button></p>;
   if (!loaded) return null;
@@ -67,7 +69,7 @@ export function ArtistStats({ nums, title = "Campaign", staff = true }) {
         <h3>{title}</h3>
         <span className="hint">{a?.mode === "off" ? (staff ? "Tracking is stopped for this artist (More ▾ to start it again)" : "Not updating right now") : `Updates daily${day ? ` · ${new Date(`${String(day).slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}`}</span>
       </div>
-      <div className="cat-summary-grid as-grid">{TILES.map(([k, label, unit]) => <Tile key={k} k={k} label={label} unit={unit} a={a} />)}</div>
+      <div className="cat-summary-grid as-grid">{TILES.map(([k, label, unit]) => <Tile key={k} k={k} label={label} unit={unit} a={a} onAddLink={onAddLink} profile={profile} />)}</div>
     </div>
   );
 }
