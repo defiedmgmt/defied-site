@@ -890,3 +890,16 @@ SELECT h.entity_id, 'spotify', substring(t.spotify from 'artist/([A-Za-z0-9]{22}
  WHERE h.entity_id LIKE 'l:%' AND t.kind = 'artist' AND t.match = 'confirmed' AND t.removed_at IS NULL
    AND h.spotify_id <> '' AND substring(t.spotify from 'artist/([A-Za-z0-9]{22})') = h.spotify_id
 ON CONFLICT (entity_id, platform) DO NOTHING;
+
+-- 021: one-time set-password links (only each link's SHA-256 is kept) and when a login's password was last set
+CREATE TABLE IF NOT EXISTS password_links (
+  id text PRIMARY KEY,
+  user_id text NOT NULL,
+  token_hash text NOT NULL,
+  created_by text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS password_links_hash_idx ON password_links(token_hash);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at timestamptz;

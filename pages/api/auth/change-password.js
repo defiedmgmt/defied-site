@@ -44,7 +44,7 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: "Current password is incorrect." });
     }
     const hash = await bcrypt.hash(newPassword.trim(), 12);
-    await sql`UPDATE users SET password_hash = ${hash} WHERE id = ${session.user.id}`;
+    await sql`UPDATE users SET password_hash = ${hash}, password_changed_at = now() WHERE id = ${session.user.id}`;
     // every other session on this account ends; this one stays signed in
     await restampSession(session, hash);
     return res.status(200).json({ ok: true });

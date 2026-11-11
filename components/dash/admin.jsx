@@ -274,6 +274,35 @@ function useManagers(reloadDb) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return { ...st, update };
 }
+// (2026-11-10) a one-time link that lets this person choose their own password (lib/password-links.js): shown once, to copy
+function PasswordLink({ userId }) {
+  const [link, setLink] = useState(null), [busy, setBusy] = useState(false), [err, setErr] = useState(null), [copied, setCopied] = useState(false);
+  const make = async () => {
+    setBusy(true); setErr(null); setCopied(false);
+    try {
+      const r = await fetch("/api/auth/password-link", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ userId }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "Couldn't make the link.");
+      setLink(j);
+    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const copy = async () => { try { await navigator.clipboard.writeText(link.url); setCopied(true); } catch { setErr("Couldn't copy: select the link and copy it."); } };
+  return (
+    <div className="fld pw-link" data-pw-link>
+      <span>Set-password link</span>
+      {link ? (
+        <>
+          <span className="pw-link-row"><input readOnly value={link.url} onFocus={(e) => e.target.select()} aria-label="Set-password link" data-pw-link-url /><button type="button" className="btn sm" onClick={copy} data-pw-link-copy>{copied ? <><Check size={13} /> Copied</> : "Copy"}</button></span>
+          <span className="hint">Text it to them. It works once, for 24 hours, and signs them in after they choose a password. A new link ends this one.</span>
+        </>
+      ) : (
+        <span className="pw-link-row"><button type="button" className="btn ghost sm" disabled={busy} onClick={make} data-pw-link-make>{busy ? "Making…" : "Make a set-password link"}</button><span className="hint">They choose their own password: nobody else sees it.</span></span>
+      )}
+      {err && <span className="hint err-text">{err}</span>}
+    </div>
+  );
+}
+const dayOf = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
 export function UsersAdmin({ db, commit, reloadDb }) {
   const founder = db.access?.role === "founder";
   const anyFounder = db.users.some((u) => u.role === "staff" && u.staffRole === "founder");
@@ -289,6 +318,8 @@ export function UsersAdmin({ db, commit, reloadDb }) {
   const cols = [
     { key: "email", label: "Email", render: (u) => <span className="cell-name">{u.email}{u.name ? <span className="muted"> · {u.name}</span> : null}</span> },
     { key: "role", label: "Access", render: (u) => <span data-user-access={u.id}>{who(u)}</span> },
+    // (2026-11-10) who's set up: their last sign-in and when their password was last set
+    { key: "signin", label: "Sign-in", render: (u) => <span className="muted" data-user-signin={u.id}>{u.lastLoginAt ? `Last in ${dayOf(u.lastLoginAt)}` : "Never signed in"}{u.passwordChangedAt ? ` · password set ${dayOf(u.passwordChangedAt)}` : ""}</span> },
   ];
   const save = async (o) => {
     // the server skips a new login with no password, which would leave it on screen but never saved
@@ -320,8 +351,9 @@ export function UsersAdmin({ db, commit, reloadDb }) {
           <Field label="Name" value={e.name || ""} onChange={(ev) => set({ ...e, name: ev.target.value })} />
           <Field
             label="Password" value={e.password} onChange={(ev) => set({ ...e, password: ev.target.value })}
-            hint={e.id ? "Leave blank to keep their current password. At least 8 characters if you're setting a new one." : "At least 8 characters — required to create the account."}
+            hint={e.id ? "Leave blank to keep their current password, or make them a set-password link below. At least 8 characters if you type a new one." : "At least 8 characters — required to create the account. Once it's saved you can make them a set-password link instead."}
           />
+          {e.id && founder && <PasswordLink userId={e.id} />}
           <label className="fld"><span>Role</span>
             <select value={pick} data-role-pick onChange={(ev) => setPick(e, set, ev.target.value)} disabled={!founder && e.role === "staff"}>
               {ROLE_PICK.filter(([k]) => founder || k === "client" || k === pick).map(([k, label]) => <option key={k} value={k}>{label}</option>)}

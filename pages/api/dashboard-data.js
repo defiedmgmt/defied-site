@@ -54,9 +54,10 @@ function toPlacement(row, { redact } = {}) {
 function toStaffBio(row) {
   return { id: row.id, name: row.name, role: row.role, credit: row.credit, bio: row.bio, photo: row.photo, email: row.email, instagram: row.instagram };
 }
-function toUser(row) {
+function toUser(row, lastLogin = null) {
   // never send password_hash to the client, ever — not even to a staff session
-  return { id: row.id, email: row.email, role: row.role, name: row.name, clientId: row.client_id };
+  // (2026-11-10) Site › Users says when each login last signed in and when its password was last set
+  return { id: row.id, email: row.email, role: row.role, name: row.name, clientId: row.client_id, lastLoginAt: lastLogin, passwordChangedAt: row.password_changed_at || null };
 }
 function toSubmission(row) {
   // (2026-11-10) its music link and Dropbox files: shown in Site › Messages, never written back from a save
@@ -82,7 +83,7 @@ const placementRow = (p) => ({
   streams: p.streams || 0, revenue: p.revenue || 0, admin_fee: p.adminFee || 0, splits: p.splits || [],
 });
 const staffRow = (s) => ({ id: s.id, name: s.name || "", role: s.role || "", credit: s.credit || "", bio: s.bio || "", photo: s.photo || "", email: s.email || "", instagram: s.instagram || "" });
-const userRow = (u) => ({ id: u.id, email: u.email.trim().toLowerCase(), password_hash: u.hash, role: u.role, name: u.name || "", client_id: u.clientId || null, staff_role: u.staffRole || null, access: u.access || {} });
+const userRow = (u) => ({ password_changed_at: u.pwAt || null, clickup_user_id: u.cuId || "", id: u.id, email: u.email.trim().toLowerCase(), password_hash: u.hash, role: u.role, name: u.name || "", client_id: u.clientId || null, staff_role: u.staffRole || null, access: u.access || {} });
 const submissionRow = (s) => ({ id: s.id, name: s.name || "", email: s.email || "", instagram: s.instagram || "", subject: s.subject || "", message: s.message || "", created_at: s.at || new Date().toISOString(), read: !!s.read });
 const notableRow = (n) => ({ id: n.id, song: n.song || "", artist: n.artist || "", client: n.client || "", cover: n.cover || "", release_date: n.releaseDate || "", link: n.link || "" });
 const insertPlacement = (r) => sql`
@@ -107,7 +108,7 @@ const streamsOn = async () => {
 const nyYmd = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(d));
 
 async function staffPayload() {
-  const [clients, placements, staff, users, submissions, notableReleases, [settings], notOurs, sheetFacts, lumDay] = await Promise.all([
+  const [clients, placements, staff, users, submissions, notableReleases, [settings], notOurs, sheetFacts, lumDay, logins] = await Promise.all([
     sql`SELECT * FROM clients ORDER BY roster_order`,
     sql`SELECT * FROM placements`,
     sql`SELECT * FROM staff_bios`,
@@ -118,13 +119,15 @@ async function staffPayload() {
     rowsOrNoneIfNoTable(sql`SELECT client_id, song_key, song, luminate_id, removed_at FROM not_ours ORDER BY removed_at`),
     readSheetFacts(),
     streamsOn(),
+    sql`SELECT lower(email) AS email, max(attempted_at) AS at FROM login_attempts WHERE success GROUP BY lower(email)`,
   ]);
+  const lastLogin = new Map(logins.map((r) => [r.email, r.at]));
   return {
     role: "staff",
     clients: clients.map(toClient),
     placements: placements.map((p) => toPlacement(p)),
     staff: staff.map(toStaffBio),
-    users: users.map(toUser),
+    users: users.map((u) => toUser(u, lastLogin.get(String(u.email).toLowerCase()) || null)),
     submissions: submissions.map(toSubmission),
     notableReleases: notableReleases.map(toNotable),
     site: { about: settings.about_text },
@@ -330,7 +333,7 @@ async function handlePost(req, res, session) {
     // brand-new user (no existing hash) requires a password to be created at
     // all; one submitted with no password is silently skipped rather than
     // created with no way to log in.
-    const existing = await sql`SELECT id, email, role, name, client_id, password_hash, staff_role, access FROM users`;
+    const existing = await sql`SELECT id, email, role, name, client_id, password_hash, staff_role, access, password_changed_at, clickup_user_id FROM users`;
     const hashById = Object.fromEntries(existing.map((u) => [u.id, u.password_hash]));
     // Roles (lib/roles.js): only a Founder sets anyone's role or overrides; anyone else's save keeps what's
     // stored (an older tab sending no role keeps it too). A Founder's own login is a Founder's to change.
@@ -349,15 +352,18 @@ async function handlePost(req, res, session) {
     userQueryData = [];
     for (const u of body.users) {
       let hash = hashById[u.id];
-      if (u.password && u.password.trim()) hash = await bcrypt.hash(u.password.trim(), 12);
+      const typed = !!(u.password && u.password.trim());
+      if (typed) hash = await bcrypt.hash(u.password.trim(), 12);
       if (!hash) continue;
       const was = prior[u.id];
+      // (2026-11-10) kept through the save (it rewrites every row): when the password was set, the ClickUp id
+      const pwAt = typed ? new Date().toISOString() : was?.password_changed_at || null, cuId = was?.clickup_user_id || "";
       let staffRole = null, access = {};
       if (u.role === "staff") {
         staffRole = founderSave && "staffRole" in u ? (ROLE_KEYS.includes(u.staffRole) ? u.staffRole : null) : (was?.staff_role ?? null);
         access = founderSave && "access" in u ? cleanAccess(roleOf(staffRole, true), u.access) : (was?.access || {});
       }
-      userQueryData.push({ ...u, hash, staffRole, access });
+      userQueryData.push({ ...u, hash, staffRole, access, pwAt, cuId });
     }
     if (userQueryData.some((u) => u.staffRole === "founder")) {
       // the first Founder set by hand: the Founder saving it (a Founder only because nobody was yet) stays one
@@ -435,8 +441,8 @@ async function handlePost(req, res, session) {
     queries.push(sql`DELETE FROM users`);
     for (const u of userQueryData.map(userRow)) {
       queries.push(sql`
-        INSERT INTO users (id, email, password_hash, role, name, client_id, staff_role, access)
-        VALUES (${u.id}, ${u.email}, ${u.password_hash}, ${u.role}, ${u.name}, ${u.client_id}, ${u.staff_role}, ${JSON.stringify(u.access)})
+        INSERT INTO users (id, email, password_hash, role, name, client_id, staff_role, access, password_changed_at, clickup_user_id)
+        VALUES (${u.id}, ${u.email}, ${u.password_hash}, ${u.role}, ${u.name}, ${u.client_id}, ${u.staff_role}, ${JSON.stringify(u.access)}, ${u.password_changed_at}, ${u.clickup_user_id})
       `);
     }
   }

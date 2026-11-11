@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
-import { Mail, X, Plus, Trash2, Check, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Mail, X, Plus, Trash2, Check, AlertTriangle, CheckCircle2, Eye, EyeOff } from "lucide-react";
 import { evenSplit, splitWords, orderSplits } from "../../lib/splits";
 import { Photo, prefersReducedMotion, thumb } from "../shared/ui";
 import { findByName } from "../site/data";
@@ -31,9 +31,14 @@ export function Wordmark({ height = 34, hero = false }) {
 /* ------------------------------------------------------------------ */
 /*  tiny UI atoms                                                       */
 /* ------------------------------------------------------------------ */
-export const Field = ({ label, hint, ...p }) => (
-  <label className="fld"><span>{label}</span><input {...p} />{hint && <span className="hint">{hint}</span>}</label>
-);
+// a password box (type="password") gets an eye to show what's typed (2026-11-10)
+export function Field({ label, hint, ...p }) {
+  const [show, setShow] = useState(false);
+  const input = p.type === "password"
+    ? <span className="fld-pw"><input {...p} type={show ? "text" : "password"} /><button type="button" className="fld-show" onClick={(e) => { e.preventDefault(); setShow((v) => !v); }} aria-label={show ? "Hide password" : "Show password"} aria-pressed={show}>{show ? <EyeOff size={16} /> : <Eye size={16} />}</button></span>
+    : <input {...p} />;
+  return <label className="fld"><span>{label}</span>{input}{hint && <span className="hint">{hint}</span>}</label>;
+}
 // a share typed in a confirm card (r11 todoedit, the look of "Fill in the sheet's blank share?"): a short box with the
 // % beside it, the number keypad on phones, its text selected on focus so one tap and a number replaces it
 export const PctInput = ({ invalid = false, ...p }) => (

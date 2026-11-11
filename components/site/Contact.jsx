@@ -150,15 +150,19 @@ export function Contact({ publicData }) {
               <label className="ct-fld"><span>Name<Req /></span><input name="name" autoComplete="name" required value={f.name} onChange={set("name")} /></label>
               <label className="ct-fld"><span>Email<Req /></span><input name="email" type="text" inputMode="email" autoComplete="email" autoCapitalize="off" autoCorrect="off" spellCheck={false} required pattern="\s*[^@\s]+@[^@\s]+\.[^@\s]+\s*" title="An email address, like name@example.com" value={f.email} onChange={set("email")} /></label>
             </div>
-            <div className="ct-row">
+            <div className="ct-row ct-row-pair">
               <label className="ct-fld"><span>Instagram</span><input name="instagram" placeholder="@yourhandle" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={f.instagram} onChange={set("instagram")} /></label>
-              <label className="ct-fld"><span>Music link</span><input name="musicLink" inputMode="url" placeholder="SoundCloud, Spotify, Drive…" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={f.musicLink} onChange={set("musicLink")} /></label>
+              <label className="ct-fld"><span>Music link</span><input name="musicLink" inputMode="url" placeholder="Paste a link" autoCapitalize="off" autoCorrect="off" spellCheck={false} value={f.musicLink} onChange={set("musicLink")} /></label>
             </div>
             <div className="ct-fld">
               <span id="ct-subject">Subject<Req /></span>
               <ChipGroup name="subject" label="Subject" options={CONTACT_SUBJECTS.map((s) => ({ value: s, label: s }))} value={f.subject} onChange={(v) => setF((cur) => ({ ...cur, subject: v }))} className="ct-chips" />
+              {/* phones (2026-11-10): one dropdown instead of seven chips, so the form is a screen shorter */}
+              <select className="ct-subject-select" aria-labelledby="ct-subject" value={f.subject} onChange={(e) => setF((cur) => ({ ...cur, subject: e.target.value }))}>
+                {CONTACT_SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
             </div>
-            <label className="ct-fld"><span>Message<Req /></span><textarea name="message" rows={5} required value={f.message} onChange={set("message")} /></label>
+            <label className="ct-fld"><span>Message<Req /></span><textarea name="message" rows={3} required value={f.message} onChange={set("message")} /></label>
             {cfg?.files && (
               <div className="ct-fld ct-files" data-ct-files>
                 <span>Music files <em>up to {cfg.maxFiles} · {cfg.maxMB} MB each</em></span>
