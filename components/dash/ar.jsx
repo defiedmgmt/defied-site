@@ -73,11 +73,12 @@ export function useArAll() {
 
 // r11: A&R is three tabs, each with its own address (/dashboard/ar/...), each loading only its own data (one GET
 // /api/ar-lists?view=…):
-//   Home (/ar) · Watchlist (/ar/watch: everyone's artists, producers, songs and TikTok sounds in one colour-coded
-//   list; /watch/artists|producers|songs|sounds|confirm = one type, /…/by/<userId> = one person's) · My A&R (/ar/mine,
-//   /mine/<type>); a row's drawer: /ar/item/<key>
+//   Home (/ar) · My A&R (/ar/mine, /mine/<type>) · Watchlist (/ar/watch: everyone's artists, producers, songs and
+//   TikTok sounds in one colour-coded list; /watch/artists|producers|songs|sounds|confirm = one type, /…/by/<userId> =
+//   one person's); a row's drawer: /ar/item/<key>
 // Outreach and Sounds are gone (r11, the owner): their old addresses open the Watchlist (sounds: its TikTok sounds).
-const AR_PILLS = [["", "Home"], ["watch", "Watchlist"], ["mine", "My A&R"]];
+// (2026-11-11, the owner: "maybe we can swap these too") your own before everyone's, as Money's My money before All payments
+const AR_PILLS = [["", "Home"], ["mine", "My A&R"], ["watch", "Watchlist"]];
 // the old addresses (Summary, Team, Trackers, Radar, Board, Outreach, Sounds, To do's "watch:open:<key>") open their
 // new place: the shell rewrites them (components/shared/ar-routes.js); read here too, for a sub handed in directly
 export { arSecOf };

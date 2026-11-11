@@ -257,7 +257,8 @@ export function detailsDefaults(p, options) {
 const ACCT_SECS = [["overview", "Overview"], ["payments", "All payments"]];
 // myMoney: the login's own pay link's payments as a third tab, My money (2026-11-11, components/dash/my-payments.jsx)
 export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll = false, chip = null, myMoney = false, onGo }) {
-  const secs = myMoney ? [...ACCT_SECS, ["mine", "My money"]] : ACCT_SECS;
+  // (2026-11-11, the owner: "lets do my money then all payments order")
+  const secs = myMoney ? [ACCT_SECS[0], ["mine", "My money"], ...ACCT_SECS.slice(1)] : ACCT_SECS;
   const sec = part || (secs.some(([k]) => k === sub) ? sub : "overview");
   const [d, setD] = useState(null);
   const [failed, setFailed] = useState(false);
