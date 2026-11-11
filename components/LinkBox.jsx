@@ -75,7 +75,7 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
       let r;
       try { r = await ask({ url: v, context, kinds: take }); } catch (e) { if (my === seq.current) setSt({ state: "error", error: e.message, net: !!e.net, link: l }); return; }
       if (my !== seq.current) return;
-      if (!r.ok) { setSt({ state: "error", error: r.error }); return; }
+      if (!r.ok) { setSt({ state: "error", error: r.error, choices: r.choices, more: r.more }); return; }
       setSt({ state: "card", r });
       if (r.paid?.needed) paidStep(v, my, 0);
     }, 300);
@@ -134,7 +134,18 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
       </div>
       {clipErr && <p className="hint" data-lb-clip-err>{clipErr}</p>}
       {st.state === "looking" && <p className="hint lb-wait" data-lb-looking><RefreshCw size={12} className="spin" /> Looking up the {st.label}…</p>}
-      {st.state === "error" && <p className="hint err-text" role="alert" data-lb-error={st.net ? "net" : ""}>{st.error}</p>}
+      {st.state === "error" && <p className={st.choices?.length ? "hint lb-pick" : "hint err-text"} role={st.choices?.length ? undefined : "alert"} data-lb-error={st.net ? "net" : st.choices?.length ? "pick" : ""}>{st.error}</p>}
+      {/* a release of more songs (lib/links/resolve.js): each one fills the box with its own song link */}
+      {st.state === "error" && st.choices?.length > 0 && (
+        <div className="lb-choices" data-lb-choices>
+          {st.choices.map((x) => (
+            <button key={x.url} type="button" className="btn ghost sm lb-choice" data-lb-choice onClick={() => setText(x.url)}>
+              <span>{x.name}</span>{x.artists?.length > 0 && <em>{x.artists.join(", ")}</em>}
+            </button>
+          ))}
+          {st.more > 0 && <p className="hint">and {st.more} more: open that song in Spotify and copy its link</p>}
+        </div>
+      )}
       {st.state === "error" && st.net && (
         <p className="lb-net" data-lb-net>
           <button type="button" className="btn sm lb-tap" onClick={() => setRetry((n) => n + 1)} data-lb-retry><RefreshCw size={13} /> Try again</button>
@@ -226,6 +237,10 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
 
 const CSS = `
 .lb-net{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 0}
+.lb-pick{margin:8px 0 0}
+.lb-choices{display:flex;flex-direction:column;gap:6px;margin:8px 0 0}
+.lb-choice{justify-content:flex-start;text-align:left;gap:8px;min-height:40px;height:auto;padding:8px 12px;white-space:normal}
+.lb-choice em{font-style:normal;color:var(--text-dim,#8a8a8a);font-size:12px}
 .lb{display:flex;flex-direction:column;gap:8px;min-width:0;max-width:100%}
 .lb-row{display:flex;gap:8px;min-width:0}
 .lb-row input{flex:1;min-width:0}
