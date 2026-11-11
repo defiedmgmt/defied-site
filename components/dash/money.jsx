@@ -9,6 +9,7 @@ import { fmt, money, useEscape } from "./ui";
 import { ExtLink } from "../shared/ui";
 import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 import { typedMoney, checkEdit, sheetSplit, coShare, COMMISSION, GENERAL } from "../../lib/log-fields";
+import { MyPaymentsPage } from "./my-payments";
 
 // "Nov", "Oct": this month and the one before, from the day the page is viewed
 const monthShort = (offset) => { const d = new Date(); d.setDate(15); d.setMonth(d.getMonth() + offset); return d.toLocaleDateString("en-US", { month: "short" }); };
@@ -254,8 +255,10 @@ export function detailsDefaults(p, options) {
 // opens the Log all preview at once) or part="check" (rows worth a look: Open row ↗ and Mark as OK).
 // Nothing in the sheet is ever edited from here: problems are shown with a link to the row.
 const ACCT_SECS = [["overview", "Overview"], ["payments", "All payments"]];
-export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll = false, chip = null, mine = null, onGo }) {
-  const sec = part || (ACCT_SECS.some(([k]) => k === sub) ? sub : "overview");
+// myMoney: the login's own pay link's payments as a third tab, My money (2026-11-11, components/dash/my-payments.jsx)
+export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll = false, chip = null, myMoney = false, onGo }) {
+  const secs = myMoney ? [...ACCT_SECS, ["mine", "My money"]] : ACCT_SECS;
+  const sec = part || (secs.some(([k]) => k === sub) ? sub : "overview");
   const [d, setD] = useState(null);
   const [failed, setFailed] = useState(false);
   const [logIds, setLogIds] = useState(null); // Log it / Log all
@@ -292,7 +295,8 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
     await load(true); setOkBusy(null);
   };
   let body;
-  if (!d) body = failed ? <p className="home-muted"><AlertTriangle size={15} /> <span>Couldn't load the accounting numbers. <button className="inline-link" onClick={() => load()}>Try again</button></span></p>
+  if (sec === "mine") body = <MyPaymentsPage inMoney />;
+  else if (!d) body = failed ? <p className="home-muted"><AlertTriangle size={15} /> <span>Couldn't load the accounting numbers. <button className="inline-link" onClick={() => load()}>Try again</button></span></p>
     : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>;
   else if (!d.connected) body = <p className="home-muted">Accounting sheet: not connected yet. Once it's shared with the dashboard, this section fills in.</p>;
   else if (d.error) body = <p className="home-muted"><AlertTriangle size={15} /> {d.error}</p>;
@@ -310,10 +314,10 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
   if (part) return <div className="acct-part" data-acct-part={part}>{body}{modals}</div>;
   return (
     <div className="acct-page">
-      <div className="admin-head"><h2>Money</h2>{mine}{chip}{d?.readAt && <span className="home-src">Stripe and the {d.year} accounting sheet · read {clock(d.readAt)}</span>}
+      <div className="admin-head"><h2>Money</h2>{chip}{d?.readAt && <span className="home-src">Stripe and the {d.year} accounting sheet · read {clock(d.readAt)}</span>}
         {d?.sheetUrl && <ExtLink className="btn ghost sm acct-sheet-link" href={d.sheetUrl}>Open the sheet ↗</ExtLink>}</div>
       <div className="subnav" role="tablist" aria-label="Money">
-        {ACCT_SECS.map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} data-acct-tab={k} className={sec === k ? "subpill active" : "subpill"} onClick={() => onSub(k === "overview" ? null : k)}>{l}</button>)}
+        {secs.map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} data-acct-tab={k} className={sec === k ? "subpill active" : "subpill"} onClick={() => onSub(k === "overview" ? null : k)}>{l}</button>)}
       </div>
       {body}
       {modals}

@@ -153,11 +153,16 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const setSub = (s) => { setAt((cur) => (cur.tab === at && cur.sub === s ? cur : { tab: at, sub: s })); toUrl(at, s, "replace"); };
   // (2026-11-11, the owner: "for the founder accounts like hank its a lil too complicated ... total money and like my
   // money in the same group and like tasks can be all tasks and my tasks grouped together") a login with To do or Money
-  // finds its own list or payments inside it, behind an All / Mine switch, not as a tab of their own
+  // finds its own list or payments inside it, not as a tab of their own: To do behind an All / Mine switch, Money as a
+  // tab of its own row ("is there a reason this is a seperate page and not just a new tab": Overview · All payments ·
+  // My money, /dashboard/money/mine)
   const paired = (id) => !!PAIRS[id] && tabs.some(([t]) => t === PAIRS[id]);
   const side = tabs.filter(([id]) => !paired(id));
   const home = paired(at) ? PAIRS[at] : at; // the sidebar tab that's lit
   const pair = (all) => { const mine = MINE_OF[all]; return tabs.some(([t]) => t === mine) && <PairSwitch all={all} mine={mine} at={at} setTab={setTab} />; };
+  const myMoney = tabs.some(([t]) => t === "mypay");
+  // My payments' own address opens My money inside Money for a login that has Money
+  useEffect(() => { if (at === "mypay" && paired("mypay")) { setAt({ tab: "money", sub: "mine" }); toUrl("money", "mine", "replace"); } }, [at]); // eslint-disable-line react-hooks/exhaustive-deps
   const [pwOpen, setPwOpen] = useState(false); // "Password": each login changes its own (components/dash/password.jsx)
   // (2026-11-11, the owner: "get rid of the · own artists on each co managers page")
   const roleWord = db.access ? ROLES[db.access.role]?.label || "Staff" : "Staff — full edit access";
@@ -186,8 +191,8 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {at === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcctN} />}
         {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} mine={pair("todo")} />}
         {at === "mytodo" && (paired("mytodo") ? <MyTodoPage title="To do" mine={pair("todo")} /> : <MyTodoPage />)}
-        {at === "mypay" && (paired("mypay") ? <MyPaymentsPage title="Money" mine={pair("money")} /> : <MyPaymentsPage />)}
-        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} mine={pair("money")} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
+        {at === "mypay" && !paired("mypay") && <MyPaymentsPage />}
+        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} myMoney={myMoney} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
         {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("site")} area="site" onGo={go} />} />}
         {at === "catalog" && <CatalogAdmin db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
@@ -197,13 +202,13 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   );
 }
 
-// the "My" tabs and the tab each one sits inside when the login has that one too, and the switch between them
+// the "My" tabs and the tab each one sits inside when the login has that one too, and To do's switch between them
 const PAIRS = { mytodo: "todo", mypay: "money" };
-const MINE_OF = { todo: "mytodo", money: "mypay" };
-const PAIR_WORDS = { todo: ["All tasks", "My tasks"], money: ["Total money", "My money"] };
+const MINE_OF = { todo: "mytodo" };
+const PAIR_WORDS = { todo: ["All tasks", "My tasks"] };
 function PairSwitch({ all, mine, at, setTab }) {
   return (
-    <span className="gainer-tabs pair-switch" role="tablist" aria-label={all === "todo" ? "Whose tasks" : "Whose money"} data-pair={all}>
+    <span className="gainer-tabs pair-switch" role="tablist" aria-label="Whose tasks" data-pair={all}>
       {[all, mine].map((id, i) => <button key={id} role="tab" aria-selected={at === id} className={at === id ? "active" : ""} data-pair-tab={id} onClick={() => at !== id && setTab(id)}>{PAIR_WORDS[all][i]}</button>)}
     </span>
   );
