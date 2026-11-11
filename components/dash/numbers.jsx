@@ -42,7 +42,7 @@ function DigestItem({ k, it }) {
   const main = k === "radar" || song ? `${it.title || it.name}${it.artist ? ` — ${it.artist}` : ""}` : it.name || it.title || "";
   const nums = song ? [<span key="s"><b>{fmt(it.thisWeek)}</b> streams this week{it.pct != null && it.lastWeek > 0 && <> <span className={it.pct >= 0 ? "pos" : "neg"}>{pctSigned(it.pct)}</span></>}</span>]
     : k === "roster"
-    ? [it.streams && <span key="s"><b>{fmt(it.streams.thisWeek)}</b> streams this week <span className={it.streams.pct >= 0 ? "pos" : "neg"}>{pctSigned(it.streams.pct)}</span></span>,
+    ? [it.streams && <span key="s"><b>{fmt(it.streams.thisWeek)}</b> streams this week{it.streams.pct != null && <> <span className={it.streams.pct >= 0 ? "pos" : "neg"}>{pctSigned(it.streams.pct)}</span></>}</span>,
       ...(it.followers || []).map((f) => <span key={f.key}>{f.label} <b>{f.approx ? "about " : ""}{big(f.latest)}</b> <span className={f.pct >= 0 ? "pos" : "neg"}>{pctSigned(f.pct)}</span></span>)]
     : k === "radar" ? [<span key="v"><b>{fmt(it.newVideos)}</b> new videos{it.pct != null && <> <span className={it.pct >= 0 ? "pos" : "neg"}>{pctSigned(Math.round(it.pct * 10) / 10)}</span></>}</span>]
       : k === "expiring" ? [<span key="e">{it.expiresAt || it.expires ? `ends ${String(it.expiresAt || it.expires).slice(0, 10)}` : ""}</span>]
