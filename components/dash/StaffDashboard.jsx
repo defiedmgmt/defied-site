@@ -63,9 +63,6 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   };
   const setTab = (t) => { setAt({ tab: t, sub: null }); toUrl(t, null); };
   const go = (t0, s0 = null) => { const { tab: t, sub: s } = placeOf(t0, s0); setAt({ tab: t, sub: s }); toUrl(t, s); window.scrollTo(0, 0); };
-  // a page's own pickers (Publishing's client, Site's tab) update the address in place: one Back
-  // step per section, not one per chip
-  const setSub = (s) => { setAt((cur) => (cur.sub === s ? cur : { ...cur, sub: s })); toUrl(tab, s, "replace"); };
   // Back / Forward (and a reload): the address says where to be; an old address is rewritten to its new place
   const section = [].concat(router.query.section || []).join("/");
   // r11 fix (phones): a sub-tab row that scrolls sideways shows the active tab, not a clipped one at its edge
@@ -150,6 +147,10 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   // (2026-11-11, the owner: "make clients the first thing the co managers see") a Co-manager opens on Clients
   if (db.access?.role === "comanager") tabs.sort(([a], [b]) => (b === "catalog") - (a === "catalog"));
   const at = tabs.some(([id]) => id === tab) ? tab : tabs[0]?.[0];
+  // a page's own pickers (Publishing's client, Site's tab) update the address in place: one Back
+  // step per section, not one per chip. The tab on screen, not the address's (2026-11-11 fix: a co-manager opens on
+  // Clients at plain /dashboard, and a client they picked went to /dashboard/home/… and was dropped)
+  const setSub = (s) => { setAt((cur) => (cur.tab === at && cur.sub === s ? cur : { tab: at, sub: s })); toUrl(at, s, "replace"); };
   // (2026-11-11, the owner: "for the founder accounts like hank its a lil too complicated ... total money and like my
   // money in the same group and like tasks can be all tasks and my tasks grouped together") a login with To do or Money
   // finds its own list or payments inside it, behind an All / Mine switch, not as a tab of their own
