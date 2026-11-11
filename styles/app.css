@@ -3468,3 +3468,13 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 /* (2026-11-10) Site › Users: the one-time set-password link */
 .app:not(.pub) .pw-link-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .app:not(.pub) .pw-link-row input{flex:1;min-width:200px;font-size:13px}
+/* (2026-11-10) a client's portal header: Password beside Sign out (an icon on a phone) */
+@media (max-width:599px){ .portal-pw-label{display:none} .portal-who > span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap} }
+/* (2026-11-10) the numbers card on a phone: one-line labels, smaller tiles */
+@media (max-width:599px){
+  .app:not(.pub) .as-grid .cat-stat{padding:12px 14px}
+  .app:not(.pub) .as-tile .cat-stat-label{font-size:9px;letter-spacing:.08em;line-height:1.3}
+  .app:not(.pub) .as-tile .cat-stat-note{display:none}
+  .app:not(.pub) .as-tile .cat-stat-val{font-size:20px}
+  .app:not(.pub) .as-tile .as-chg{margin-top:2px;font-size:11.5px;line-height:1.35}
+}

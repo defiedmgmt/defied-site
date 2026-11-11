@@ -6,7 +6,7 @@ import { dataPost } from "./chips";
 // roster artist's Clients page, staff only: Spotify streams this week and each platform's count with its change over
 // the week, from the automated numbers (GET /api/data, lib/data/summary.js; every roster artist updates daily now).
 // A count with no week behind it yet shows its change since the day before; one with no link says so.
-const URL = "/api/data";
+// staff read GET /api/data (every artist they may see); a client GET /api/my-numbers (their own artist only)
 const compact = (n) => (n == null ? "—" : Math.abs(n) >= 1e4 ? new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n) : Math.round(n).toLocaleString("en-US"));
 const pct = (f) => (f == null || !Number.isFinite(f) ? null : `${f >= 0 ? "▲" : "▼"} ${Math.abs(f * 100).toFixed(1)}%`);
 const TILES = [
@@ -19,11 +19,11 @@ const TILES = [
 ];
 
 // the artist's numbers (a:<clientId>) and a reload, shared by the card and the More menu's Stop tracking
-export function useArtistNumbers(clientId) {
-  const [d, setD] = useState(() => (clientId ? peekJson(URL) || null : null));
+export function useArtistNumbers(clientId, url = "/api/data") {
+  const [d, setD] = useState(() => (clientId ? peekJson(url) || null : null));
   const [err, setErr] = useState(false);
-  const load = () => swrJson(URL, (j) => { setD(j); setErr(false); }).catch(() => setErr(true));
-  useEffect(() => { if (clientId) load(); }, [clientId]); // eslint-disable-line react-hooks/exhaustive-deps (none: a client's portal)
+  const load = () => swrJson(url, (j) => { setD(j); setErr(false); }).catch(() => setErr(true));
+  useEffect(() => { if (clientId) load(); }, [clientId]); // eslint-disable-line react-hooks/exhaustive-deps -- no clientId: the editor alone
   const artist = (d?.artists || []).find((a) => a.clientId === clientId) || null;
   return { artist, loaded: !!d, err, reload: load };
 }
@@ -55,7 +55,8 @@ function Tile({ k, label, unit, a }) {
   );
 }
 
-export function ArtistStats({ nums }) {
+// title: "Campaign" for staff; a client's portal says "Your numbers"; staff: the stopped-tracking hint points at More ▾
+export function ArtistStats({ nums, title = "Campaign", staff = true }) {
   const { artist: a, loaded, err, reload } = nums;
   if (err && !loaded) return <p className="hint as-card" data-artist-stats="error">Couldn't load this artist's numbers. <button className="inline-link" onClick={reload}>Try again</button></p>;
   if (!loaded) return null;
@@ -63,8 +64,8 @@ export function ArtistStats({ nums }) {
   return (
     <div className="cat-summary as-card" data-artist-stats>
       <div className="as-head">
-        <h3>Campaign</h3>
-        <span className="hint">{a?.mode === "off" ? "Tracking is stopped for this artist (More ▾ to start it again)" : `Updates daily${day ? ` · ${new Date(`${String(day).slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}`}</span>
+        <h3>{title}</h3>
+        <span className="hint">{a?.mode === "off" ? (staff ? "Tracking is stopped for this artist (More ▾ to start it again)" : "Not updating right now") : `Updates daily${day ? ` · ${new Date(`${String(day).slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}`}</span>
       </div>
       <div className="cat-summary-grid as-grid">{TILES.map(([k, label, unit]) => <Tile key={k} k={k} label={label} unit={unit} a={a} />)}</div>
     </div>
