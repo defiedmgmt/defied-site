@@ -3478,3 +3478,9 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .as-tile .cat-stat-val{font-size:20px}
   .app:not(.pub) .as-tile .as-chg{margin-top:2px;font-size:11.5px;line-height:1.35}
 }
+/* (2026-11-10) Site › Messages: each music file with its own player */
+.app:not(.pub) .sub-files{flex-direction:column;align-items:stretch}
+.app:not(.pub) .sub-file{flex-direction:column;align-items:stretch;gap:8px;padding:10px 12px;border-radius:12px}
+.app:not(.pub) .sub-file-top{display:flex;align-items:center;gap:8px;min-width:0}
+.app:not(.pub) .sub-file-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--d-ink)}
+.app:not(.pub) .sub-file audio{width:100%;height:36px;color-scheme:dark}

@@ -429,6 +429,8 @@ function DropboxLine({ founder }) {
   );
 }
 const fileSize = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round((b || 0) / 1024))} KB`);
+// a Dropbox shared link as something the page can play (raw=1 serves the file itself)
+const playUrl = (u) => { try { const x = new URL(u); x.searchParams.delete("dl"); x.searchParams.set("raw", "1"); return x.toString(); } catch { return u; } };
 export function SubsAdmin({ db, commit }) {
   const unreadCount = db.submissions.filter((s) => !s.read).length;
   const toggleRead = (id) => {
@@ -463,7 +465,13 @@ export function SubsAdmin({ db, commit }) {
               {(s.files?.length > 0 || s.filesStatus === "uploading" || s.filesStatus === "failed") && (
                 <div className="sub-files" data-sub-files={s.filesStatus}>
                   {s.filesStatus === "uploading" ? <span className="hint">Files still uploading…</span>
-                    : s.files?.length ? s.files.map((f) => f.url ? <ExtLink key={f.url} href={f.url} className="sub-file"><Music size={13} /> {f.name} <em>{fileSize(f.size)}</em></ExtLink> : null)
+                    : s.files?.length ? s.files.map((f) => f.url ? (
+                      // (2026-11-10) each file plays right here; its name opens it in Dropbox
+                      <div key={f.url} className="sub-file" data-sub-file>
+                        <span className="sub-file-top"><Music size={13} /><ExtLink href={f.url} className="sub-file-name">{f.name}</ExtLink><em>{fileSize(f.size)}</em></span>
+                        <audio controls preload="none" src={playUrl(f.url)} data-sub-audio />
+                      </div>
+                    ) : null)
                     : <span className="hint">The files didn't arrive.</span>}
                 </div>
               )}
