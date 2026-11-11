@@ -65,10 +65,12 @@ export default function LinkBox({ context = "roster", onAdd, kinds, addLabel = "
     if (!v) { setSt({ state: "idle" }); return undefined; }
     const l = parseLink(v);
     if (!l) { setSt(/^(https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,}\/)/i.test(v) ? { state: "error", error: "Paste a Spotify, TikTok, Instagram or YouTube link." } : { state: "idle" }); return undefined; }
-    const wrong = !l.short && wrongKind(l, take);
+    // a Spotify album link in a song box is looked up: a single's release link is its one song (lib/links/resolve.js)
+    const single = l.platform === "spotify" && l.kind === "album" && take.includes("song");
+    const wrong = !l.short && !single && wrongKind(l, take);
     if (wrong) { setSt({ state: "error", error: wrong }); return undefined; }
     const my = ++seq.current;
-    setSt({ state: "looking", label: l.short ? "Link" : kindLabel(l) });
+    setSt({ state: "looking", label: l.short ? "Link" : single ? "Spotify release" : kindLabel(l) });
     const t = setTimeout(async () => {
       let r;
       try { r = await ask({ url: v, context, kinds: take }); } catch (e) { if (my === seq.current) setSt({ state: "error", error: e.message, net: !!e.net, link: l }); return; }

@@ -27,11 +27,15 @@ export default async function handler(req, res) {
   const client = req.access.role === "client";
   const l = parseLink(url);
   if (!l) return res.status(200).json({ ok: false, error: "Paste a Spotify, TikTok, Instagram or YouTube link." });
-  if (client && !(l.platform === "spotify" && l.kind === "song")) return res.status(200).json({ ok: false, error: "Paste a Spotify song link." });
-  const wrong = !l.short && wrongKind(l, kinds);
+  // (2026-11-10) a client's song box takes a Spotify song, a single's release link (an album of one song) and a
+  // spotify.link short link; whichever it was, it has to come out a Spotify song
+  if (client && !(l.platform === "spotify" && ["song", "album", "short"].includes(l.kind))) return res.status(200).json({ ok: false, error: "Paste a Spotify song link." });
+  const single = l.platform === "spotify" && l.kind === "album" && kinds.includes("song");
+  const wrong = !l.short && !single && wrongKind(l, kinds);
   if (wrong) return res.status(200).json({ ok: false, error: wrong, link: { platform: l.platform, kind: l.kind } });
   try {
     const r = await resolveLink(url, { paid: !client && !!b.paid, me: client ? null : session.user.id });
+    if (r.ok && client && !(r.link.platform === "spotify" && r.link.kind === "song")) return res.status(200).json({ ok: false, error: "Paste a Spotify song link." });
     if (r.ok && kinds.length && !kinds.includes(r.link.kind)) return res.status(200).json({ ok: false, error: wrongKind(r.link, kinds), link: { platform: r.link.platform, kind: r.link.kind } });
     res.setHeader("Cache-Control", "no-store");
     if (client) return res.status(200).json({ ...r, already: [], suggestions: [], paid: { needed: false } });
