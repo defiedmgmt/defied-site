@@ -8,7 +8,7 @@ import { changedFields, goneText } from "../app/saves";
 import { ClientMore, SpotifyFill } from "../dash/clients";
 import { normalizeTitle, splitsToConfirm } from "../dash/catalog-data";
 import { GrowthChip, Sparkline, dayRange, shortDay, signed, songsPost, songsToUpdate, useGrowth } from "../dash/helpers";
-import { Avatar, DropNote, Field, PhotoUpload, SplitsEditor, SplitsPie, Wordmark, fmt, money, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "../dash/ui";
+import { Avatar, DropNote, Field, PhotoUpload, SplitsEditor, SplitsPie, Wordmark, fmt, money, splitColors, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "../dash/ui";
 import { ROUTE_TO_PATH } from "../shared/routes";
 import { ExtLink, Photo } from "../shared/ui";
 import { LumHistory } from "../dash/lum-history";
@@ -173,9 +173,6 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
     }
     return { gross, net, revenue, adminFee };
   }, [songs, client?.name]);
-  // the net streams shown are the sheet's own (MASTER's writer table, from the last pull); the sum above is
-  // only an estimate, used where the sheet has no tab read for this client yet (build G3)
-  const netShown = netStreamsOf(db.sheetFacts?.clients?.[clientId], summary.net);
   const growth = useGrowth();
   // this week = Spotify streams this week (the automated numbers, lib/data/growth.js), the songs whose week
   // ends last, as the Publishing table says
@@ -321,6 +318,20 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   // (2026-11-10) the top of a roster artist's page: its campaign numbers, then the streams and money, then the songs
   // staff: every artist's numbers (GET /api/data); a client: their own only (GET /api/my-numbers, 2026-11-10)
   const nums = useArtistNumbers(!editorOnly ? clientId : null, isStaff ? "/api/data" : "/api/my-numbers");
+  // (2026-11-11, the owner: "can we use the spotify numbers for now until theyre on luminate") a song with no
+  // streams from the sheet yet shows Spotify's: its plays (the daily numbers, all-time), or "under 1,000" when
+  // Spotify was asked and shows no count (it doesn't below 1,000), said so wherever it's shown. null: nothing to add
+  const spotSongs = useMemo(() => new Map((nums.artist?.songs || []).map((x) => [x.id, x])), [nums.artist]);
+  const spotifyOnly = (p) => {
+    if (p.streams > 0) return null;
+    const g = growth?.[p.id]?.latest, x = spotSongs.get(trackKey(p.link));
+    const n = g > 0 ? g : x?.streams?.latest > 0 ? x.streams.latest : null;
+    return n ? { n } : x?.under1k ? { under1k: true } : null;
+  };
+  const spotifyFill = useMemo(() => songs.reduce((a, p) => { const x = spotifyOnly(p); return x?.n ? { n: a.n + 1, plays: a.plays + x.n, net: a.net + x.n * ((Number(ownSplit(p, client)?.percent) || 0) / 100) } : a; }, { n: 0, plays: 0, net: 0 }), [songs, growth, spotSongs, client?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the net streams shown are the sheet's own (MASTER's writer table, from the last pull); without it, the estimate
+  // above plus the Spotify stand-in's share (as each song's window does)
+  const netShown = netStreamsOf(db.sheetFacts?.clients?.[clientId], summary.net + spotifyFill.net);
   const [stopAsk, setStopAsk] = useState(false);
   // a client's own links (2026-11-11): what's on their profile, and the one being added or changed
   const [myLinks, setMyLinks] = useState(() => ({ spotify: client?.spotify || "", instagram: client?.instagram || "", tiktok: client?.tiktok || "", youtube: client?.youtube || "" }));
@@ -335,7 +346,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
         <div className="cat-summary">
           <div className="cat-summary-grid">
 
-            <div className="cat-stat" data-gross="site"><span className="cat-stat-label">Gross Streams{isStaff && <span className="cat-stat-note"> (songs on the site)</span>}</span><span className="cat-stat-val">{fmt(summary.gross)}</span></div>
+            <div className="cat-stat" data-gross="site"><span className="cat-stat-label">Gross Streams{isStaff && <span className="cat-stat-note"> (songs on the site)</span>}</span><span className="cat-stat-val">{fmt(summary.gross + spotifyFill.plays)}</span>
+              {spotifyFill.n > 0 && <span className="cat-stat-note" data-gross-spotify={spotifyFill.n}>incl. Spotify plays for {spotifyFill.n} {spotifyFill.n === 1 ? "song" : "songs"} not on Luminate yet</span>}</div>
             {/* staff see where each comes from, as the two can differ: the net is the pub sheet's own figure once a pull read the tab */}
             <div className="cat-stat" data-net={netShown.fromSheet ? "sheet" : "estimate"}><span className="cat-stat-label">Net Streams{!netShown.fromSheet ? <span className="cat-stat-note"> (estimate)</span> : isStaff && <span className="cat-stat-note"> (from the pub sheet)</span>}</span><span className="cat-stat-val">{fmt(netShown.value)}</span></div>
             {isStaff ? (
@@ -402,7 +414,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
       {isStaff && summaryBlock}
       <div className="portal-block-head">
         <div>
-          <h2>Songs &amp; Splits</h2>
+          <h2>Songs &amp; Publishing Splits</h2>
           <p className="muted">
             {/* the song count already lives in the summary's Songs stat for
                 clients — repeating it here would just be the same number
@@ -432,7 +444,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                 {/* an even split the rule can fill is the owner's to confirm, not a broken one (Splits to confirm says the same) */}
                 <em>{isStaff && splitTotal(p.splits) !== 100
                   ? (songSplit(p, client).status === "assumed" ? <span className="split-chip split-chip-even">{songSplit(p, client).rule ? "Default split assumed" : "Even split assumed"}</span> : <span className="split-chip">Splits {splitPct(p.splits)}%</span>)
-                  : <>{(p.splits || []).length} {(p.splits || []).length === 1 ? "split" : "splits"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitTotal(p.splits)}%</span></>}</em>
+                  : <>Pub split · {(p.splits || []).length} {(p.splits || []).length === 1 ? "person" : "people"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitTotal(p.splits)}%</span></>}</em>
                 {/* its own line: on the splits line it was cut off by the card's width */}
                 {p.notable && <span className="song-public"><Eye size={12} aria-hidden="true" /> On public page</span>}
                 <GrowthChip g={growth?.[p.id]} />
@@ -472,12 +484,20 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               {/* the numbers before the pie (build I3): at 1440x900 Net streams is in view without scrolling, the warning above it too */}
               {db.sheetSync?.lastSyncedAt && (
                 <div className="split-list song-nums">
-                  <div className="split-list-row"><span className="split-name">Streams</span><span className="split-pct">{fmt(active.streams)}</span></div>
-                  {/* the song's row on the sheet gives its net streams (gross × the sheet's writer share); without a row, the site's split estimates it */}
+                  {/* no streams from the sheet yet: Spotify's plays stand in, and the net is estimated from them */}
                   {(() => {
-                    const f = db.sheetFacts?.songs?.[active.id];
-                    const net = f ? f.net : Math.round((active.streams || 0) * ((Number(ownSplit(active, client)?.percent) || 0) / 100));
-                    return <div className="split-list-row" data-song-net={f ? "sheet" : "estimate"}><span className="split-name">Net streams{!f && <em> (estimate)</em>}</span><span className="split-pct">{fmt(net)}</span></div>;
+                    const sp = spotifyOnly(active);
+                    // the song's row on the sheet gives its net streams (gross × the sheet's writer share); without a row, or
+                    // with Spotify standing in, the site's split estimates it
+                    const f = !sp && db.sheetFacts?.songs?.[active.id];
+                    const share = (Number(ownSplit(active, client)?.percent) || 0) / 100;
+                    const net = f ? fmt(f.net) : sp?.under1k ? "—" : fmt(Math.round((sp?.n ?? active.streams ?? 0) * share));
+                    return (
+                      <>
+                        <div className="split-list-row" data-song-streams={sp ? (sp.under1k ? "spotify-under-1k" : "spotify") : "sheet"}><span className="split-name">Streams{sp && <em> (Spotify, until Luminate has it)</em>}</span><span className="split-pct">{sp?.under1k ? "Under 1,000" : fmt(sp?.n ?? active.streams)}</span></div>
+                        <div className="split-list-row" data-song-net={f ? "sheet" : "estimate"}><span className="split-name">Net streams{!f && <em> (estimate)</em>}</span><span className="split-pct">{net}</span></div>
+                      </>
+                    );
                   })()}
                   {seeMoney && (
                     <>
@@ -489,15 +509,17 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                     : `as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}</p>
                 </div>
               )}
+              {/* (2026-11-11, the owner: "make it clear that the splits are pub splits for each song") */}
+              <div className="song-splits-head" data-splits-head><h4>Publishing splits</h4><span className="hint">Who owns this song's publishing, by writer share</span></div>
               <SplitsPie splits={activeEven ? activeEven.splits : active.splits} size={230} />
               <div className="split-list">
-                {orderSplits(activeEven ? activeEven.splits : active.splits || []).map((s, i) => (
+                {(() => { const hue = splitColors(activeEven ? activeEven.splits : active.splits); return orderSplits(activeEven ? activeEven.splits : active.splits || []).map((s, i) => (
                   <div key={s.unnamed ? `u${i}` : s.id} className="split-list-row">
-                    <span className="split-name">{s.name || s.label || "—"}{s.role && !s.unnamed && <em> · {s.role}</em>}{activeEven && (s.unnamed || !(Number((active.splits || []).find((t) => t.id === s.id)?.percent) > 0)) && <em> · assumed</em>}</span>
+                    <span className="split-name">{hue.get(s) && <i className="split-dot" style={{ background: hue.get(s) }} aria-hidden="true" />}{s.name || s.label || "—"}{s.role && !s.unnamed && <em> · {s.role}</em>}{activeEven && (s.unnamed || !(Number((active.splits || []).find((t) => t.id === s.id)?.percent) > 0)) && <em> · assumed</em>}</span>
                     {/* one decimal, as the editor shows it (a third is 16.7%, not 16.666666666666668%); the saved % is unchanged */}
                     <span className="split-pct">{splitPct([s])}%</span>
                   </div>
-                ))}
+                )); })()}
                 <div className="split-list-row split-list-total">
                   <span>Total</span><span className={splitTotal(active.splits) === 100 ? "split-ok" : activeEven ? undefined : "split-warn"}>{activeEven ? `${splitPct(activeEven.splits)}% (assumed)` : `${splitPct(active.splits)}%`}</span>
                 </div>

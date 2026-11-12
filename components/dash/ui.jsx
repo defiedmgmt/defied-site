@@ -294,7 +294,17 @@ export function EmailButton({ email, size = 18, inline = false }) {
 /* ------------------------------------------------------------------ */
 /*  splits: pie chart + editor                                          */
 /* ------------------------------------------------------------------ */
-const PIE_COLORS = ["#f5f5f5", "#8a8a8a", "#c8c8cc", "#5f5f61", "#a3a3a3", "#3a3a3c", "#e2e2e4", "#6e6e70"];
+// (2026-11-11, the owner: "can we add color to this so its better looking") one colour per person, in the split's own
+// order, from a categorical palette checked for colour-blind separation and contrast on the dark panel; a share
+// whose person isn't known yet (unnamed) is gray, and past six people the rest are too (no colour is used twice)
+const SPLIT_HUES = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#9085e9"];
+const SPLIT_GRAY = "#5f5f61";
+export function splitColors(splits) {
+  const out = new Map();
+  let i = 0;
+  for (const s of splits || []) if (Number(s.percent) > 0) out.set(s, s.unnamed || i >= SPLIT_HUES.length ? SPLIT_GRAY : SPLIT_HUES[i++]);
+  return out;
+}
 export const splitTotal = (splits) => (splits || []).reduce((a, s) => a + Number(s.percent || 0), 0);
 export const splitPct = (splits) => Math.round(splitTotal(splits) * 10) / 10;
 // the songs whose splits don't add up to 100%, by client: the clients whose songs have the most streams
@@ -321,10 +331,11 @@ export function streamsAsOf({ pulledAt }) {
 // client portal) — loaded on demand so the public pages never carry it
 const SplitsPieChart = dynamic(() => import("../SplitsPieChart"), { ssr: false });
 export function SplitsPie({ splits, size = 220 }) {
+  const colors = splitColors(splits);
   const data = (splits || []).filter((s) => Number(s.percent) > 0)
-    .map((s) => ({ name: s.name || s.label || s.role || "—", value: Number(s.percent) || 0 }));
+    .map((s) => ({ name: s.name || s.label || s.role || "—", value: Number(s.percent) || 0, color: colors.get(s) }));
   if (data.length === 0) return <p className="muted">No splits entered yet.</p>;
-  return <div style={{ height: size }}><SplitsPieChart data={data} size={size} colors={PIE_COLORS} /></div>;
+  return <div style={{ height: size }}><SplitsPieChart data={data} size={size} /></div>;
 }
 
 // forClient: a client's own Add song (the hint in their words, no sheet tabs)
@@ -366,7 +377,7 @@ export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, ow
   return (
     <div className="splits-ed" ref={box}>
       {/* shown to one decimal like everywhere else (1/3 is 33.3%, not 33.333333333333336%); the saved % is unchanged */}
-      <div className="splits-ed-head"><span>Splits</span><span className={total === 100 ? "split-ok" : "split-warn"}>{splitPct(shown)}%</span></div>
+      <div className="splits-ed-head"><span>Publishing splits</span><span className={total === 100 ? "split-ok" : "split-warn"}>{splitPct(shown)}%</span></div>
       {list.map((r) => r.unnamed || r.shownOnly ? (
         <div key={r.key || r.id} className="splits-ed-row split-assumed" data-unnamed>
           {/* one box over the name and role columns: "Producer 2 (unnamed)" already says the role, and is never cut */}

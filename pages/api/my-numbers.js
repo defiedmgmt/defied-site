@@ -15,7 +15,9 @@ export default async function handler(req, res) {
     const d = await loadSummary({ clientIds: [clientId] });
     const a = (d.artists || []).find((x) => x.clientId === clientId);
     const artist = a ? { clientId, name: a.name, mode: a.mode, links: a.links || {}, streams: a.streams ? { thisWeek: a.streams.thisWeek, lastWeek: a.streams.lastWeek, pct: a.streams.pct, day: a.streams.day } : null,
-      metrics: Object.fromEntries(Object.entries(a.metrics || {}).map(([k, m]) => [k, { latest: m.latest, daily: m.daily, growthPct: m.growthPct, approx: !!m.approx, day: m.day }])) } : null;
+      metrics: Object.fromEntries(Object.entries(a.metrics || {}).map(([k, m]) => [k, { latest: m.latest, daily: m.daily, growthPct: m.growthPct, approx: !!m.approx, day: m.day }])),
+      // (2026-11-11) their own songs' Spotify all-time and "under 1,000", for a song Luminate doesn't have yet (the portal)
+      songs: (a.songs || []).map((s) => ({ id: s.id, under1k: !!s.under1k, streams: s.streams ? { latest: s.streams.latest } : null })) } : null;
     return res.status(200).json({ artists: artist ? [artist] : [] });
   } catch (err) {
     console.error("my-numbers failed:", err);
