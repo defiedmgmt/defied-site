@@ -17,6 +17,7 @@ import { MyLinks } from "../dash/my-links";
 import { MyCommission } from "../dash/my-commission";
 import { ownSplit, personKey } from "../site/data";
 import { AskCard } from "./ask";
+import { InstallApp } from "../shared/install-app";
 export { AskCard, useDirtyGuard } from "./ask";
 
 /* ------------------------------------------------------------------ */
@@ -620,6 +621,7 @@ export function ClientPortal({ db, commit, session, logout, signingOut }) {
         </div>
       </header>
       <main className="portal-main">
+        <InstallApp />
         <h1 className="portal-title">{client?.name || session.name}</h1>
         <div className="portal-block">
           <SongManager db={db} commit={commit} clientId={session.clientId} />

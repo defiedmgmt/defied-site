@@ -47,6 +47,13 @@ export default function PageShell({ title, description, path = "/", image = DEFA
       <link rel="icon" href="/favicon.ico" sizes="any" />
       <link rel="icon" type="image/png" href="/icon-512.png" sizes="512x512" />
       <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+      {/* (2026-11-11) the site as an app on a phone's home screen: "Defied", full screen, opening on the sign-in page
+          (which goes straight on to the portal or dashboard when signed in). public/manifest.webmanifest */}
+      <link rel="manifest" href="/manifest.webmanifest" />
+      <meta name="apple-mobile-web-app-title" content="Defied" />
+      <meta name="apple-mobile-web-app-capable" content="yes" />
+      <meta name="mobile-web-app-capable" content="yes" />
+      <meta name="apple-mobile-web-app-status-bar-style" content="black" />
 
       {/* Open Graph — link previews on iMessage, Slack, Discord, Facebook, etc. */}
       <meta property="og:type" content="website" />

@@ -16,6 +16,7 @@ import { canUse } from "./access";
 export { canUse, TODO_AREAS } from "./access";
 import { arSecOf } from "../shared/ar-routes";
 import { PasswordCard } from "./password";
+import { InstallApp } from "../shared/install-app";
 
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
@@ -187,6 +188,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         </div>
       </aside>
       <main className="dash-main">
+        <InstallApp />
         {!at && <div className="admin-empty" data-no-sections>Your account has nothing turned on yet. Ask a Founder to turn on what you need in Site › Users.</div>}
         {at === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcctN} />}
         {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} mine={pair("todo")} />}
