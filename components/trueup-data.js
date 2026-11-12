@@ -35,10 +35,14 @@ export function trueUpTodoItems(d) {
     d: saved ? `Luminate's ${shortDay(last.export_on)} numbers, ${plural(last.counts?.songs || 0, "song")}` : last ? `Last one: the ${shortDay(last.export_on)} file` : `All ${fmt(d.total)} roster songs go in the report first`,
     cta: "Open", panel: "trueup", rank: { kind: "other" } });
   const n = d.notInReport?.length || 0;
-  // (round 10) a song can be missing because Luminate leaves out songs with no plays, or because it isn't in the report
-  // r10 fix: the owner's words, and what the count is out of
-  if (n) out.push({ k: "trueup-new", area: "roster", t: `${fmt(n)} roster song${n === 1 ? "" : "s"}: no plays this month, or not added`,
-    d: `${d.total ? `${fmt(n)} of the ${fmt(d.total)} roster songs · ` : ""}${d.baseline?.kind === "trueup" ? `compared with the ${shortDay(d.baseline.on)} update` : `compared with the ${shortDay(d.baseline?.on) || "last"} portfolio exports`}`, cta: "Copy", panel: "trueup-new", rank: { kind: "other" } });
+  // (2026-11-12, the owner: "a list of the songs that arent on the report so i can add them before i export") every
+  // update counted, so what's left is what the report doesn't have yet; the next export ticks them off
+  if (n) out.push({ k: "trueup-new", area: "roster", t: `${fmt(n)} song${n === 1 ? "" : "s"} to add to the Luminate report`,
+    d: `${d.total ? `${fmt(n)} of the ${fmt(d.total)} roster songs · ` : ""}not in ${d.baseline?.kind === "trueup" ? `any Luminate file yet (${plural(d.baseline.runs || 1, "update")} so far)` : `the ${shortDay(d.baseline?.on) || "last"} portfolio exports`} · add them before you export`, cta: "Open", panel: "trueup-new", rank: { kind: "other" } });
+  // what the last update's setup on the pub sheet left (Google's read limit, its time): this carries on
+  const su = d.setupLeft?.n || 0;
+  if (su) out.push({ k: "trueup-setup", area: "roster", t: `${fmt(su)} song${su === 1 ? "" : "s"} to set up on the pub sheet`,
+    d: `The last update's setup stopped partway: ${su === 1 ? "its" : "their"} Luminate ID and STREAM DATA row aren't on the sheet yet`, cta: "Open", panel: "trueup-setup", rank: { kind: "other" } });
   if (d.schedule?.remind) out.push({ k: "trueup-schedule", area: "roster", t: `Luminate's schedule ends on ${shortDay(d.schedule.ends)}: copy the report to keep it running`,
     cta: "Open", panel: "trueup-schedule", rank: { kind: "other" } });
   return out;

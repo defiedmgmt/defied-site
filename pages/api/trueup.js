@@ -4,12 +4,14 @@
 //   POST { action: "preview", files }     what Apply would do (files: [{ name, text }]); nothing is written
 //   POST { action: "apply", files }       saves it as one run (trueup_runs + trueup_points), nothing else
 //   POST { action: "undo", runId }        the newest run only, and everything it wrote
+//   POST { action: "setup", runId }       carries on setting the newest update's songs up on the pub sheet (lib/lum-setup.js)
 //   POST { action: "schedule", ends | copied }   a Founder moves the day Luminate's schedule ends
 // Nothing here writes the sheet: the STREAM DATA writer does, behind STREAM_SHEET_WRITES (default off).
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
 import { trueUpState, previewTrueUp, applyTrueUp, undoTrueUp, setSchedule } from "../../lib/trueup";
 import { streamSheetMonthly } from "../../lib/stream-sheet";
+import { setupNewSongs } from "../../lib/lum-setup";
 
 // two reports of 500 songs fit easily (the full-roster Trend Report, 305 songs a day for a week, is ~210 KB)
 export const config = { api: { bodyParser: { sizeLimit: "4mb" } }, maxDuration: 60 };
@@ -21,9 +23,12 @@ const short = (p) => p && {
   ar: p.ar, unknown: p.unknown, older: p.older, artists: p.artists, exportOn: p.exportOn,
   // round 10 (the Trend Report): the jump from the numbers we had, songs found by title, the roster songs it doesn't have
   jump: p.jump, jumpPrev: p.jumpPrev, byTitle: p.byTitle, versions: p.versions, notIn: p.notIn,
+  // (2026-11-12) To do's songs to add, ticked off by these files
+  checklist: p.checklist,
 };
 
 export default async function handler(req, res) {
+  const startedAt = Date.now(); // Apply's and "setup"'s sheet work stops in time for maxDuration
   const session = await requireAccess(req, res, "publishing", { whole: true });
   if (!session) return;
   const founder = req.access?.role === "founder";
@@ -37,8 +42,12 @@ export default async function handler(req, res) {
       return res.status(200).json({ errors: out.errors, files: out.files, plan: short(out.plan), blocked: out.blocked || null, sheetMonthly: streamSheetMonthly() });
     }
     if (body.action === "apply") {
-      const out = await applyTrueUp(files(body.files), { by });
+      const out = await applyTrueUp(files(body.files), { by, startedAt });
       return res.status(out.error ? 400 : 200).json(out);
+    }
+    if (body.action === "setup") {
+      const out = await setupNewSongs({ runId: typeof body.runId === "string" ? body.runId : null, deadline: startedAt + 45000 });
+      return res.status(200).json(out);
     }
     if (body.action === "undo") {
       const out = await undoTrueUp(typeof body.runId === "string" ? body.runId : "");

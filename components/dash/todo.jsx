@@ -85,7 +85,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "seeds": return <SeedList area={it.seedArea} ctx={ctx} />;
     case "arConfirm": return <div className="todo-sublist"><p className="hint">Their Luminate numbers stay as history. Once you tap the right Spotify profile, its numbers start with the next update.</p><button type="button" className="btn sm" onClick={() => ctx.onGo("ar", "watch/confirm")} data-go-confirm>Open the Watchlist's confirm list</button></div>;
     case "arEnding": return <ArEnding it={it} ctx={ctx} />;
-    case "trueup": case "trueup-new": case "trueup-schedule": return <TrueUpPanel kind={it.panel} ctx={ctx} />; // TRUEUP-HOOK
+    case "trueup": case "trueup-new": case "trueup-setup": case "trueup-schedule": return <TrueUpPanel kind={it.panel} ctx={ctx} />; // TRUEUP-HOOK
     case "isrc": return <IsrcFinder db={db} songInfo={ctx.songInfo} reloadSongInfo={ctx.reloadSongInfo} />;
     case "messages": return <SubsAdmin db={db} commit={commit} />;
     case "syncfix": return <SyncFix check={it.check} ctx={ctx} />;

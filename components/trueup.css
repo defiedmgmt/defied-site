@@ -37,7 +37,21 @@
 .app:not(.pub) .tu-date { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--d-ink-3); }
 .app:not(.pub) .tu-date input { height: var(--d-ctl-sm); padding: 0 8px; border: 1px solid var(--d-line-2); border-radius: var(--d-r-sm); background: var(--d-field); color: var(--d-ink); font: inherit; font-size: 13px; }
 .app:not(.pub) .tu-last { margin: 8px 0 0; }
+/* (2026-11-12) the drop's checklist (To do's songs to add, ticked off by the file) and the pub sheet setup */
+.app:not(.pub) .tu-check { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--d-line-2); border-radius: var(--d-r-sm); background: var(--d-s2); min-width: 0; }
+.app:not(.pub) .tu-setup { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; min-width: 0; }
+.app:not(.pub) .tu-check .hint, .app:not(.pub) .tu-setup .hint { margin: 0; }
+.app:not(.pub) .tu-check .tu-line b { display: inline-flex; align-items: center; gap: 6px; }
+.app:not(.pub) .tu-ticks li { flex-wrap: nowrap; align-items: center; justify-content: flex-start; }
+.app:not(.pub) .tu-ticks .tu-meta { margin-left: auto; }
+.app:not(.pub) .tu-tick { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; }
+.app:not(.pub) .tu-ticks.ok .tu-tick { color: var(--d-pos); background: var(--d-pos-bg); }
+.app:not(.pub) .tu-ticks.miss .tu-tick { color: var(--d-neg); background: var(--d-neg-bg); }
+.app:not(.pub) .tu-head .tu-acts { gap: 6px; }
+.app:not(.pub) .tu-sub { font-size: 13px; font-weight: 600; color: var(--d-ink); }
 @media (max-width: 599px) {
   .app:not(.pub) .tu-toggle, .app:not(.pub) .tu-date input { min-height: 44px; }
   .app:not(.pub) .tu-meta { flex-basis: 100%; }
+  .app:not(.pub) .tu-ticks li { flex-wrap: wrap; }
+  .app:not(.pub) .tu-ticks .tu-meta { flex-basis: auto; margin-left: 28px; }
 }

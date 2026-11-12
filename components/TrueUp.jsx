@@ -3,12 +3,16 @@
 //   trueup           "Monthly Luminate update: drop this month's report": the drop box (dry run, Apply, one Undo),
 //                    the songs to put in the Luminate report (Copy all, N of 500, Report 1/2 past 500, the songs with
 //                    no ISRC and the ISRC finder) and the schedule's end day
-//   trueup-new       "N new roster songs aren't in the Luminate report yet": the list and Copy
+//   trueup-new       "N songs to add to the Luminate report": the ones no Luminate file has had yet (every update
+//                    counted), Copy all (title, artist, ISRC, Spotify) and Copy ISRCs, the ISRC finder for the rest,
+//                    and the drop box: the next export ticks them off (the drop's checklist), any day of the month
+//   trueup-setup     "N songs to set up on the pub sheet": Luminate has their numbers, the sheet can't show them yet
+//                    (lib/lum-setup.js); Apply does this itself, this carries on when it was cut short
 //   trueup-schedule  "Luminate's schedule ends on <day>": I copied it / another day (a Founder)
 // The dashboard imports these (TRUEUP-HOOK lines): useTrueUp and trueUpTodoItems in StaffDashboard (from
 // trueup-data.js, the shell's small part, so the shell never loads this file), TrueUpPanel in To do's TodoPanel.
-import React, { useEffect, useState } from "react";
-import { UploadCloud, RefreshCw, CheckCircle2, AlertTriangle, Copy, Disc3 } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { UploadCloud, RefreshCw, CheckCircle2, AlertTriangle, Copy, Disc3, Check, X } from "lucide-react";
 import { store, emit, useTrueUp, reloadTrueUp, shortDay, plural, fmt } from "./trueup-data";
 export { reloadTrueUp, useTrueUp, trueUpTodoItems } from "./trueup-data";
 
@@ -40,6 +44,7 @@ export function TrueUpPanel({ kind, ctx }) {
   if (!d) return <p className="todo-line"><RefreshCw size={14} className="spin" /> Loading…</p>;
   const founder = !!d.canSchedule;
   if (kind === "trueup-new") return <NotInReport d={d} flash={ctx?.flash} />;
+  if (kind === "trueup-setup") return <SetupNow d={d} />;
   if (kind === "trueup-schedule") return <Schedule d={d} founder={founder} full />;
   return (
     <div className="todo-sublist tu" data-trueup>
@@ -58,10 +63,11 @@ function TrueUpDrop({ d }) {
   const [out, setOut] = useState(null);
   const [all, setAll] = useState(false);
   const [done, setDone] = useState(null);
+  const [setup, runSetup, stopSetup] = useSetup();
   const last = d.runs?.[0];
   const take = async (list) => {
     const read = await Promise.all([...list].filter((f) => /\.csv$/i.test(f.name) || f.type === "text/csv").slice(0, 12).map(async (f) => ({ name: f.name, text: await f.text() })));
-    setDone(null); setAll(false);
+    setDone(null); setAll(false); stopSetup();
     if (!read.length) { setOut({ fatal: `Those weren't CSV files. ${d.note}` }); return; }
     setFiles(read); setBusy("checking");
     try { setOut(await post("/api/trueup", { action: "preview", files: read })); }
@@ -75,13 +81,15 @@ function TrueUpDrop({ d }) {
       setDone({ run: r.run, on: out.plan.exportOn, sheet: r.sheet || null }); setOut(null); setFiles(null);
       setRecent({ id: r.run.id });
       await reloadTrueUp();
+      if (r.setup) runSetup(r.setup, r.run.id);
     } catch (e) { setOut({ ...out, fatal: e.message }); }
     finally { setBusy(null); }
   };
   const undo = async (runId) => {
     setBusy("undoing");
     // reloaded before "recent" is cleared, so the row (and this message) never drops out in between
-    try { await post("/api/trueup", { action: "undo", runId }); setDone({ undone: true }); await reloadTrueUp(); setRecent(null); }
+    stopSetup();
+    try { const r = await post("/api/trueup", { action: "undo", runId }); setDone({ undone: true, sheet: r.sheet || null }); await reloadTrueUp(); setRecent(null); }
     catch (e) { setDone({ error: e.message }); }
     finally { setBusy(null); }
   };
@@ -120,9 +128,10 @@ function TrueUpDrop({ d }) {
             {p.ar.length > 0 && <p className="tu-line hint">{plural(p.ar.length, "A&R row")} left as {p.ar.length === 1 ? "it is" : "they are"}: A&R uses the automated numbers.</p>}
             {p.artists > 0 && <p className="tu-line hint">{plural(p.artists, "artist row")} skipped: only songs are updated.</p>}
             {p.unknown.length > 0 && <p className="tu-line hint" data-unknown={p.unknown.length}>{plural(p.unknown.length, p.unknown.every((u) => u.kind === "release") ? "release" : "song")} in the files {p.unknown.length === 1 ? "isn't" : "aren't"} linked to a roster song here, so {p.unknown.length === 1 ? "it's" : "they're"} left out: {p.unknown.slice(0, 5).map((u) => u.name).join(", ")}{p.unknown.length > 5 ? ` and ${fmt(p.unknown.length - 5)} more` : ""}.</p>}
-            {p.notIn?.n > 0 && <p className="tu-line hint" data-not-in-file={p.notIn.n}>{plural(p.notIn.n, "roster song")} {p.notIn.n === 1 ? "isn't" : "aren't"} in the files ({d.notInWords || "no plays this month, or not added"}): {p.notIn.n === 1 ? "it keeps its" : "they keep their"} last number.</p>}
+            {p.notIn?.n > 0 && <p className="tu-line hint" data-not-in-file={p.notIn.n}>{plural(p.notIn.n, "roster song")} {p.notIn.n === 1 ? "isn't" : "aren't"} in the files (no plays in these days, or not on the report): {p.notIn.n === 1 ? "it keeps its" : "they keep their"} last number.</p>}
             {p.older.length > 0 && <p className="tu-line hint">{plural(p.older.length, "song")} left out: this file is older than the update they already have.</p>}
-            {out.sheetMonthly && p.songs > 0 && !out.blocked && <p className="tu-line" data-trueup-sheet>Apply also puts these Luminate totals into the pub sheet's STREAM DATA (column D), so the sheet's earnings follow them.</p>}
+            {p.checklist?.n > 0 && <Checklist c={p.checklist} />}
+            {out.sheetMonthly && p.songs > 0 && !out.blocked && <p className="tu-line" data-trueup-sheet>Apply also puts these Luminate totals into the pub sheet's STREAM DATA (column D), so the sheet's earnings follow them.<span data-trueup-setup> It also sets up the songs it found that the pub sheet can't show yet: each one's Luminate ID goes into column M of its rows and it gets a STREAM DATA row, so its streams show there. You'll see which songs once it's done.</span></p>}
             <div className="lm-result-acts">
               {p.songs > 0 && !out.blocked && <button className="btn sm" data-trueup-apply disabled={!!busy} onClick={apply}>{busy === "applying" ? "Applying…" : `Apply ${plural(p.songs, "song")}`}</button>}
               <button className="btn ghost sm" disabled={!!busy} onClick={() => { setOut(null); setFiles(null); }}>Cancel</button>
@@ -131,7 +140,8 @@ function TrueUpDrop({ d }) {
         </div>
       )}
       {done?.run && <p className="hint del-note" role="status" data-trueup-done><CheckCircle2 size={14} /> <span>Saved Luminate's {shortDay(done.on)} numbers for {plural(done.run.counts.songs, "song")}. {done.sheet?.error ? <span className="err-text" data-trueup-sheet-err>The pub sheet didn't update ({done.sheet.error}). </span> : done.sheet?.written != null ? `The pub sheet's STREAM DATA has them now (${plural(done.sheet.written, "row")} changed). ` : "The sheet's streams take them on their next update, while Sheet streams are on. "}<button className="inline-link" data-trueup-undo disabled={!!busy} onClick={() => undo(done.run.id)}>Undo</button></span></p>}
-      {done?.undone && <p className="hint del-note" role="status" data-trueup-undone><CheckCircle2 size={14} /> <span>Undone: nothing from that update is left.</span></p>}
+      {done?.run && setup && <SetupResult s={setup} />}
+      {done?.undone && <p className="hint del-note" role="status" data-trueup-undone><CheckCircle2 size={14} /> <span>Undone on the site.{done.sheet?.cleared || done.sheet?.rows ? ` On the pub sheet, what it set up is cleared: ${plural(done.sheet.cleared || 0, "Luminate ID")} in column M, ${plural(done.sheet.rows || 0, "STREAM DATA row")}.` : ""}{done.sheet?.kept ? ` ${plural(done.sheet.kept, "row")} changed since ${done.sheet.kept === 1 ? "was" : "were"} left as ${done.sheet.kept === 1 ? "it is" : "they are"}.` : ""}{d.sheetMonthly ? " The STREAM DATA numbers it wrote for songs already there stay until the next update." : ""}</span></p>}
       {done?.error && <p className="hint err-text">{done.error}</p>}
       {!done && !out && last && <p className="hint tu-last" data-trueup-last>Last update: the {shortDay(last.export_on)} file, {plural(last.counts?.songs || 0, "song")}, saved {shortDay(last.applied_at)}{last.applied_by ? ` by ${last.applied_by}` : ""}. <button className="inline-link" data-trueup-undo disabled={!!busy} onClick={() => undo(last.id)}>Undo</button></p>}
     </div>
@@ -229,15 +239,121 @@ function NoIsrc({ songs }) {
   );
 }
 
-// ---- the roster songs that aren't in the newest file(s)
+// ---- the songs to add to the Luminate report: the ones no Luminate file has had yet, every update counted
+function CopyIsrcs({ songs }) {
+  const [ok, setOk] = useState(false);
+  const isrcs = songs.map((s) => s.isrc).filter(Boolean);
+  if (!isrcs.length) return null;
+  return <button type="button" className="btn ghost sm" data-copy-isrcs onClick={async () => { await copy(isrcs.join("\n")); setOk(true); setTimeout(() => setOk(false), 2500); }}><Copy size={14} /> {ok ? `Copied ${fmt(isrcs.length)}` : `Copy ${plural(isrcs.length, "ISRC")}`}</button>;
+}
 function NotInReport({ d }) {
   const list = d.notInReport || [];
   if (!list.length) return <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every roster song is in the report.</p>;
+  const noIsrc = list.filter((s) => !s.isrc);
   return (
     <div className="todo-sublist tu" data-not-in-report={list.length}>
-      <div className="tu-head"><b>{plural(list.length, "song")} to add</b><CopyButton songs={list} label="Copy" attr={{ "data-copy-new": "" }} /></div>
-      <p className="hint" data-not-in-words>{d.notInWords || "No plays this month, or not added"}: {d.baseline?.kind === "trueup" ? `they weren't in the ${shortDay(d.baseline.on)} update's files` : `they weren't in the ${shortDay(d.baseline?.on)} portfolio exports`}, so they keep their last number. If one is missing from the Luminate report, add it (Copy pastes title, artist, ISRC and Spotify link as columns). This clears once a file with them is dropped in.</p>
+      <div className="tu-head"><b>{plural(list.length, "song")} to add</b><span className="tu-acts"><CopyButton songs={list} label="Copy all" attr={{ "data-copy-new": "" }} /><CopyIsrcs songs={list} /></span></div>
+      <p className="hint" data-not-in-words>{d.notInWords || "Not in any Luminate file yet"}{d.baseline?.kind === "trueup" ? ` (${plural(d.baseline.runs || 1, "update")} so far)` : `: they weren't in the ${shortDay(d.baseline?.on)} portfolio exports`}. Add each one to your Luminate Trend Report (search it by its ISRC), then export the report and drop it in the monthly update: every song the file has gets checked off. Copy all pastes title, artist, ISRC and Spotify link as columns.</p>
+      <p className="hint" data-no-plays-note>Luminate leaves a song with no plays in the report's days out of the file, so a song like that can stay here until it has some.</p>
       <SongList songs={list} max={12} attr={{ "data-new-list": "" }} />
+      {noIsrc.length > 0 && <NoIsrc songs={noIsrc} />}
+      <div className="tu-part" data-recheck>
+        <b className="tu-sub">Added them? Drop the new export here to check them off</b>
+        <TrueUpDrop d={d} />
+      </div>
+    </div>
+  );
+}
+
+// ---- the drop's checklist: To do's songs to add, each ticked off when the dropped files have it
+function TickList({ songs, ok, attr }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? songs : songs.slice(0, 12);
+  return (
+    <>
+      <ul className={`tu-songs tu-ticks ${ok ? "ok" : "miss"}`} {...attr}>{shown.map((s) => (
+        <li key={s.key} data-song={s.key}>
+          <span className="tu-tick" aria-label={ok ? "In this report" : "Not in this report"}>{ok ? <Check size={14} /> : <X size={14} />}</span>
+          <span className="tu-name"><b>{s.title || "Untitled"}</b><em>{s.artist}</em></span>
+          <span className="tu-meta"><code>{s.isrc || "no ISRC"}</code></span>
+        </li>
+      ))}</ul>
+      {songs.length > shown.length && <button type="button" className="inline-link tu-more" onClick={() => setAll(true)}>Show all {fmt(songs.length)}</button>}
+    </>
+  );
+}
+function Checklist({ c }) {
+  const [open, setOpen] = useState(false);
+  const miss = c.missing.length;
+  return (
+    <div className="tu-check" data-checklist={c.n} data-found={c.found.length} data-missing={miss}>
+      <p className="tu-line"><b>{miss ? `${fmt(c.found.length)} of the ${plural(c.n, "song")} to add ${c.found.length === 1 ? "is" : "are"} in this report` : <><CheckCircle2 size={14} /> All {plural(c.n, "song")} to add {c.n === 1 ? "is" : "are"} in this report</>}</b></p>
+      {miss > 0 && <>
+        <p className="hint">Still not in it: add {miss === 1 ? "it" : "them"} in Luminate and export again. (A song with no plays in these days isn't in the file either.)</p>
+        <TickList songs={c.missing} attr={{ "data-check-missing": "" }} />
+        <div className="tu-acts"><CopyButton songs={c.missing} label={`Copy the ${fmt(miss)} missing`} attr={{ "data-copy-missing": "" }} /><CopyIsrcs songs={c.missing} /></div>
+      </>}
+      {c.found.length > 0 && <button type="button" className="inline-link" data-show-found onClick={() => setOpen(!open)}>{open ? "Hide" : "Show"} the {fmt(c.found.length)} checked off</button>}
+      {open && <TickList songs={c.found} ok attr={{ "data-check-found": "" }} />}
+    </div>
+  );
+}
+
+// ---- setting the found songs up on the pub sheet (lib/lum-setup.js): Apply starts it; cut short by Google's
+// per-minute read limit (a minute's wait) or by its time, it carries on here, for that update only. It stops when the
+// panel closes, on Undo and on a new drop.
+const sumSetup = (a, b) => ({ ...b, stamped: (a?.stamped || 0) + (b?.stamped || 0), added: (a?.added || 0) + (b?.added || 0), saved: (a?.saved || 0) + (b?.saved || 0),
+  names: [...new Set([...(a?.names || []), ...(b?.names || [])])], songs: Math.max(a?.songs || 0, b?.songs || 0),
+  // each run works the whole plan out again: its own lists are the whole story
+  others: b?.others || [], refused: b?.refused || [], alarms: [...(a?.alarms || []), ...(b?.alarms || [])] });
+const goOn = (r) => !r || (!r.error && !r.alarms?.length && (r.quota || r.more));
+function useSetup() {
+  const [s, setS] = useState(null);
+  const gen = useRef(0);
+  useEffect(() => () => { gen.current++; }, []);
+  const stop = () => { gen.current++; setS(null); };
+  const run = async (first = null, runId = null) => {
+    const me = ++gen.current, live = () => gen.current === me;
+    let acc = first;
+    setS({ res: acc, busy: goOn(acc) });
+    for (let i = 0; i < 8 && goOn(acc) && live(); i++) {
+      if (acc?.quota) { setS({ res: acc, busy: true, waiting: true }); await new Promise((r) => setTimeout(r, 65000)); if (!live()) return; }
+      setS({ res: acc, busy: true });
+      try { acc = sumSetup(acc, await post("/api/trueup", { action: "setup", runId })); }
+      catch (e) { acc = { ...(acc || {}), error: e.message }; }
+    }
+    if (!live()) return;
+    setS({ res: acc, busy: false });
+    await reloadTrueUp();
+  };
+  return [s, run, stop];
+}
+const WHY = { another: "already has another Luminate ID", twice: "is on its tab twice (its streams would count twice)" };
+function SetupResult({ s }) {
+  const r = s.res || {};
+  if (r.skipped) return null;
+  const others = r.others || [];
+  return (
+    <div className="tu-setup" role="status" data-setup-result={s.busy ? "busy" : r.error || r.alarms?.length ? "problem" : "done"}>
+      {s.busy ? <p className="hint"><RefreshCw size={13} className="spin" /> {s.waiting ? "Google limits how often the sheet can be read: waiting a minute, then setting up the rest." : "Setting the new songs up on the pub sheet…"}</p>
+        : (r.stamped || r.added) ? <p className="hint del-note" data-setup-done><CheckCircle2 size={14} /> <span>Set up on the pub sheet: {r.names?.length ? `${r.names.join(", ")}${r.songs > r.names.length ? ` and ${fmt(r.songs - r.names.length)} more` : ""}. ` : ""}{plural(r.stamped || 0, "row")} got {r.stamped === 1 ? "its" : "their"} Luminate ID in column M, {plural(r.added || 0, "song")} got a STREAM DATA row.</span></p>
+          : !r.error && !r.alarms?.length && !r.left ? <p className="hint" data-setup-none>Nothing new to set up on the pub sheet.</p> : null}
+      {others.length > 0 && <p className="hint" data-setup-others>Left as {others.length === 1 ? "it is" : "they are"}, to check by hand: {others.slice(0, 4).map((o) => `${o.song}${o.tab ? ` (${o.tab})` : ""} ${WHY[o.why] || WHY.another}`).join("; ")}{others.length > 4 ? `; ${fmt(others.length - 4)} more` : ""}.</p>}
+      {(r.refused || []).map((x) => <p key={`${x.tab}:${x.row}`} className="hint warn-text"><AlertTriangle size={13} /> {x.reason}</p>)}
+      {(r.alarms || []).map((a) => <p key={a} className="hint err-text" data-setup-alarm><AlertTriangle size={13} /> {a}</p>)}
+      {r.error && <p className="hint err-text"><AlertTriangle size={13} /> The pub sheet setup stopped: {r.error}</p>}
+      {!s.busy && r.left > 0 && <p className="hint" data-setup-left>{plural(r.left, "song")} still to set up: "songs to set up on the pub sheet" in To do carries on.</p>}
+    </div>
+  );
+}
+function SetupNow({ d }) {
+  const [setup, runSetup] = useSetup();
+  const left = d.setupLeft || { n: 0, names: [] };
+  return (
+    <div className="todo-sublist tu" data-setup-now={left.n}>
+      <p className="tu-line">{left.n ? <>The last update's setup on the pub sheet stopped partway: {plural(left.n, "song")} still to set up{left.names?.length ? ` (${left.names.join(", ")}${left.n > left.names.length ? "…" : ""})` : ""}. Setting {left.n === 1 ? "it" : "them"} up puts each one's Luminate ID into column M of its rows and gives it a STREAM DATA row.</> : "Every song the last update found is set up on the pub sheet."}</p>
+      {left.n > 0 && <div className="tu-acts"><button type="button" className="btn sm" data-setup-go disabled={!!setup?.busy} onClick={() => runSetup(null, d.newestRun)}>{setup?.busy ? "Setting up…" : "Carry on"}</button></div>}
+      {setup && <SetupResult s={setup} />}
     </div>
   );
 }
