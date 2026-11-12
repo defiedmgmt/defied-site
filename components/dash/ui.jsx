@@ -369,6 +369,15 @@ export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, ow
     if (body) body.scrollTop += el.getBoundingClientRect().top - body.getBoundingClientRect().top - 12;
     el.querySelector(".pct-in input")?.focus({ preventScroll: true });
   }, [focusPct]);
+  // (2026-11-11, the owner: "glitch it wont let me edit this") an unnamed share (saved, or the rule's) opens into a
+  // row of its own, its role and share filled in, the name ready to type: the same as an Add split row from then on
+  const [focusRow, setFocusRow] = useState(null);
+  useEffect(() => { if (focusRow) box.current?.querySelector(`[data-row="${focusRow}"] input`)?.focus(); }, [focusRow]);
+  const claim = (r) => {
+    const row = { id: r.shownOnly ? uid() : r.id, name: r.unnamed ? "" : r.name || "", role: r.role || "", percent: Number(r.percent) || 0 };
+    onChange(r.shownOnly ? [...rows, row] : rows.map((x) => (x.id === r.id ? row : x)));
+    setFocusRow(row.id);
+  };
   const update = (id, key, val) => onChange(rows.map((r) => r.id === id ? { ...r, [key]: val } : r));
   const add = () => onChange([...rows, { id: uid(), name: "", role: "", percent: 50 }]);
   const remove = (id) => onChange(rows.filter((r) => r.id !== id));
@@ -381,12 +390,14 @@ export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, ow
       {list.map((r) => r.unnamed || r.shownOnly ? (
         <div key={r.key || r.id} className="splits-ed-row split-assumed" data-unnamed>
           {/* one box over the name and role columns: "Producer 2 (unnamed)" already says the role, and is never cut */}
-          <span className="split-unnamed" title={r.unnamed ? r.label || `${r.role} (unnamed)` : `${r.name} (${String(r.role || "").toLowerCase()})`}>{r.unnamed ? r.label || `${r.role} (unnamed)` : `${r.name} (${String(r.role || "").toLowerCase()})`}</span>
+          <button type="button" className="split-unnamed" data-claim onClick={() => claim(r)} title="Name this person or change their share">
+            <span>{r.unnamed ? r.label || `${r.role} (unnamed)` : `${r.name} (${String(r.role || "").toLowerCase()})`}</span><em className="split-claim">Edit</em>
+          </button>
           <span className="pct-in pct-assumed">{splitPct([r])}%</span>
           <span aria-hidden="true" />
         </div>
       ) : (
-        <div key={r.id} className="splits-ed-row">
+        <div key={r.id} className="splits-ed-row" data-row={r.id}>
           <input placeholder="Name" value={r.name} onChange={(e) => update(r.id, "name", e.target.value)} />
           <input placeholder="Role" value={r.role} onChange={(e) => update(r.id, "role", e.target.value)} />
           {/* a listed person with no share shows the even share they'll get, as a placeholder only */}
