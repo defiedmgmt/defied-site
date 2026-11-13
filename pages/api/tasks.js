@@ -2,8 +2,8 @@
 // lists (Internal, Pub, A&R and the five MGMT lists), the people to filter by and assign, and whether
 // writes are on. The tasks the dashboard keeps itself ("Log new payments", the area tasks) are left
 // out (To do lists their to-dos already; the open ones come back as own, for its "Done for you" line).
-// ?fresh=1 (To do's Check again, after sharing a list in ClickUp) skips the 90-second shared copy and reads again each
-// hidden list's access and the people; Try again doesn't (2026-11-13: it emptied every cache, about 18 more ClickUp calls
+// ?fresh=1 (To do's Check again, after sharing a list in ClickUp) skips the 90-second shared copy and reads again every
+// list's access and the people; Try again doesn't (2026-11-13: it emptied every cache, about 18 more ClickUp calls
 // while ClickUp was already saying wait). stale + at: ClickUp said to wait (429) and these are its last answer, from at.
 // A list the Defied Bot can't see comes back as { error: "Defied Bot can't see …", noAccess: true } (r10, C2).
 // POST {action:"done", id} sets a task to its list's closed status; {action:"create", name, list, due,
