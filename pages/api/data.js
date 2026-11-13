@@ -10,7 +10,7 @@ import { loadSummary } from "../../lib/data/summary";
 import { setMode, addSound, removeSound, saveSetting, loadSettings, dataSql as sql } from "../../lib/data/engine";
 import { SOURCES, sourceSettings, soundId } from "../../lib/data/sources";
 import { loadSeeds, seedTodo, decideSeed, countsOf } from "../../lib/data/seeds";
-import { syncEntities, loadState, modeFor } from "../../lib/data/engine";
+import { syncEntities, loadState, modeFor, loadSameSongIds, withSameSongIds } from "../../lib/data/engine";
 import { lumSeries, lumWeek } from "../../lib/data/lum";
 
 // r10: the cost lines (Site › Sync, Home's spikes card) are for Founders only, so they're left out here
@@ -37,7 +37,9 @@ export default async function handler(req, res) {
     try {
       res.setHeader("Cache-Control", "no-store");
       if (req.query.lum) return lum(req, res, String(req.query.lum));
-      const d = await loadSummary({ clientIds: limited(req) ? [...ownSet(req)] : null, home });
+      const [d, same] = await Promise.all([loadSummary({ clientIds: limited(req) ? [...ownSet(req)] : null, home }), home ? null : loadSameSongIds()]);
+      // (2026-11-13) each song's other Spotify ids: a client's page finds a copy that links another id of the song
+      if (same) for (const a of d.artists || []) a.songs = withSameSongIds(a.songs, same);
       return res.status(200).json(isFounder(req) ? d : withoutCost(d));
     } catch (err) {
       console.error("data summary failed:", err);

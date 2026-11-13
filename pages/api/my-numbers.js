@@ -3,6 +3,7 @@
 // platform with their change — for their own artist only, nothing else (no other artists, no costs, no money).
 import { requireUser } from "../../lib/session";
 import { loadSummary } from "../../lib/data/summary";
+import { loadSameSongIds, withSameSongIds } from "../../lib/data/engine";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
@@ -12,12 +13,13 @@ export default async function handler(req, res) {
   if (role !== "client" || !clientId) return res.status(403).json({ error: "This is a client's own page." });
   res.setHeader("Cache-Control", "no-store");
   try {
-    const d = await loadSummary({ clientIds: [clientId] });
+    const [d, same] = await Promise.all([loadSummary({ clientIds: [clientId] }), loadSameSongIds()]);
     const a = (d.artists || []).find((x) => x.clientId === clientId);
     const artist = a ? { clientId, name: a.name, mode: a.mode, links: a.links || {}, streams: a.streams ? { thisWeek: a.streams.thisWeek, lastWeek: a.streams.lastWeek, pct: a.streams.pct, day: a.streams.day } : null,
       metrics: Object.fromEntries(Object.entries(a.metrics || {}).map(([k, m]) => [k, { latest: m.latest, daily: m.daily, growthPct: m.growthPct, approx: !!m.approx, day: m.day }])),
-      // (2026-11-11) their own songs' Spotify all-time and "under 1,000", for a song Luminate doesn't have yet (the portal)
-      songs: (a.songs || []).map((s) => ({ id: s.id, under1k: !!s.under1k, streams: s.streams ? { latest: s.streams.latest } : null })) } : null;
+      // (2026-11-11) their own songs' Spotify all-time and "under 1,000", for a song Luminate doesn't have yet (the portal);
+      // (2026-11-13) with the song's other Spotify ids, for a copy that links one of those
+      songs: withSameSongIds(a.songs, same).map((s) => ({ id: s.id, ...(s.ids ? { ids: s.ids } : {}), under1k: !!s.under1k, streams: s.streams ? { latest: s.streams.latest } : null })) } : null;
     return res.status(200).json({ artists: artist ? [artist] : [] });
   } catch (err) {
     console.error("my-numbers failed:", err);
