@@ -34,7 +34,9 @@ export const releaseDay = (s) => {
 // Delete and "This isn't ours": the song off the site, then its row off its client's pub sheet tab.
 // Resolves what happened on the sheet, once both are done; null when the site save failed. (r11 todofix: the route
 // guards the clear: a cell holding a formula is never cleared ("refused", its reason), and a formula that changed
-// with the clear comes back as `alarm`, said loudly)
+// with the clear comes back as `alarm`, said loudly). (2026-11-13) It also sends the song's Luminate ID, title and the
+// row the sheet sync last read it from (its sheet fact): 119 rows didn't carry their song's Site Sync ID, so the route
+// found nothing to clear and the next sync brought the song back. The route finds the row by those instead
 async function dropSong(db, commit, target, client) {
   if (!(await commit({ ...db, placements: db.placements.filter((p) => p.id !== target.id) }))) return null;
   const tab = client?.sheetTabName?.trim() || client?.name || "";
@@ -43,7 +45,10 @@ async function dropSong(db, commit, target, client) {
     const res = await fetch("/api/sheets-delete", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-      body: JSON.stringify({ placementId: target.id, splits: [{ name: client?.sheetTabName || client?.name }] }),
+      body: JSON.stringify({
+        placementId: target.id, splits: [{ name: client?.sheetTabName || client?.name }],
+        luminateId: target.luminateId || "", song: target.song || "", row: db.sheetFacts?.songs?.[target.id]?.row ?? null,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (res.status === 409 && data.refused) return { sheet: "refused", tab: (data.results || [])[0]?.tab || tab, error: data.error };
