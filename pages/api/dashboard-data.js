@@ -10,7 +10,7 @@
 import bcrypt from "bcryptjs";
 import { sql, rowsOrNoneIfNoTable } from "../../lib/db";
 import { requireSameOrigin, restampSession } from "../../lib/session";
-import { requireAccess, limited, ownSet } from "../../lib/access";
+import { requireAccess, limited, ownSet, refreshManagers } from "../../lib/access";
 import { roleOf, cleanAccess, ROLE_KEYS, sectionLabel } from "../../lib/roles";
 import { readSheetFacts } from "../../lib/sheet-facts-store";
 import { afterAction } from "../../lib/area-tasks";
@@ -513,6 +513,11 @@ async function handlePost(req, res, session) {
   // signed in here; their other sessions end (see getCurrentSession)
   const own = userQueryData?.find((u) => u.id === session.user.id && u.password && u.password.trim());
   if (own) await restampSession(session, own.hash);
+  // (2026-11-13, live: bucketboy1021 added after the 8 AM cron had no manager, so Magnus's own-artists view missed it) a
+  // staff save that adds a client copies every client's manager from INFO now, one sheet read, not at the next cron
+  if (role === "staff" && "clients" in body && body.clients.some((c) => !priorById.has(c.id))) {
+    try { const m = await refreshManagers(); if (m.connected && m.error) console.error("managers after a new client:", m.error); } catch (err) { console.error("managers after a new client:", err); }
+  }
   // a staff save that changed songs or clients: the Publishing ClickUp task follows (CLICKUP_TASK_WRITES only)
   if (role === "staff" && (body.placements || body.clients)) await afterAction(["publishing"]);
 

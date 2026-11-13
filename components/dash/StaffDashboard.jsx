@@ -104,12 +104,15 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   // action (Publishing's "Refresh numbers") — this silently keeps every
   // other view current in the background instead, whenever Home, To do or
   // Publishing opens on a stale copy. One run at a time: a quick hop from
-  // one to the other doesn't start a second.
-  const syncing = useRef(false);
+  // one to the other doesn't start a second. (2026-11-13) Nor does a reload, or another
+  // browser: the server skips it when a pull started in the last 30 minutes (background),
+  // and this page then doesn't ask again on every tab for 5 minutes.
+  const syncing = useRef(false), skippedAt = useRef(0);
   useEffect(() => {
-    if ((tab !== "home" && tab !== "catalog" && tab !== "todo") || syncing.current || !can("publishing") || !isSheetSyncStale(db)) return;
+    if ((tab !== "home" && tab !== "catalog" && tab !== "todo") || syncing.current || !can("publishing") || !isSheetSyncStale(db) || Date.now() - skippedAt.current < 5 * 60 * 1000) return;
     syncing.current = true;
-    fullSiteSync(db, commit).catch((err) => console.error("Background sync failed:", err)).finally(() => { syncing.current = false; });
+    fullSiteSync(db, commit, { background: true }).then((r) => { if (r?.skipped) skippedAt.current = Date.now(); })
+      .catch((err) => console.error("Background sync failed:", err)).finally(() => { syncing.current = false; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
   // A&R's counts (follow-ups due), Money's (payments to

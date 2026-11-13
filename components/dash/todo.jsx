@@ -7,7 +7,7 @@ import { TODO_AREAS } from "./access";
 import { fullSiteSync, shareFixesOf } from "./catalog-data";
 import { IsrcPicks, RowMenu, dupeWords, findTabClient, isrcPicksOf, likelyDupes, noTabNames, shortDay, useMedia } from "./helpers";
 import { useHome } from "./home-data";
-import { dataPost } from "./chips";
+import { clock, dataPost } from "./chips";
 import { DropNote, Field, PctInput, fmt, money } from "./ui";
 import { AskCard } from "../portal/ask";
 import { ExtLink } from "../shared/ui";
@@ -310,6 +310,15 @@ function SheetTabFix({ ctx }) {
   );
 }
 
+// what to do about INFO, for what the check found (2026-11-13: it always said "add the missing names", for an extra
+// name on INFO too). An older answer without counts gets the names advice, as before.
+function infoAdvice(check) {
+  const f = check.found || { siteOnly: 1 };
+  return [f.siteOnly && "Add the missing names on INFO (or fix their spelling) so payments find their client.",
+    f.infoOnly && (f.infoOnly === 1 ? "Remove the name from INFO, or add that client on the site, if it isn't a past client." : "Remove the names from INFO, or add those clients on the site, if they aren't past clients."),
+    f.managers && "Fix the Assigned Manager on INFO if it's wrong, then press Update from the sheet in Site › Users.",
+    f.noLogin && "Fix the manager's spelling on INFO, or the login's name in Site › Users, so their own artists show for them."].filter(Boolean).join(" ");
+}
 // a sync check's fix, in place: pull the sheet, rebuild STREAM DATA, or what to do about INFO
 function SyncFix({ check, ctx }) {
   const [busy, setBusy] = useState(false);
@@ -318,7 +327,7 @@ function SyncFix({ check, ctx }) {
   return (
     <div className="todo-sublist">
       <p className="hint">{check.text}{check.detail ? ` ${check.detail}` : ""}</p>
-      {check.fix?.kind === "url" ? <p className="hint">Add the missing names on INFO (or fix their spelling) so payments find their client. <ExtLink className="inline-link" href={check.fix.url}>Open the sheet ↗</ExtLink></p>
+      {check.fix?.kind === "url" ? <p className="hint">{check.id === "info" && <>{infoAdvice(check)} </>}<ExtLink className="inline-link" href={check.fix.url}>Open the sheet ↗</ExtLink></p>
         : check.fix && <button className="btn sm" data-sync-fix={check.id} disabled={busy} onClick={run}>{busy ? "Working…" : check.fix.label}</button>}
       <DropNote note={note} />
     </div>
@@ -521,7 +530,9 @@ function CuSection({ cu, list, person, setList, setPerson, onNew }) {
         </span>
       </div>
       {!d && !cu.failed && <p className="todo-line"><RefreshCw size={14} className="spin" /> Loading ClickUp…</p>}
-      {cu.failed && !d && <p className="todo-line"><AlertTriangle size={14} /> Couldn't reach ClickUp. <button className="inline-link" onClick={() => cu.load(true)}>Try again</button></p>}
+      {/* (2026-11-13) Try again reads the tasks again, never every cache (that cost ~18 ClickUp calls while it said wait) */}
+      {cu.failed && !d && <p className="todo-line"><AlertTriangle size={14} /> Couldn't reach ClickUp. <button className="inline-link" onClick={() => cu.load()}>Try again</button></p>}
+      {d?.stale && <p className="todo-line" data-cu-stale><AlertTriangle size={14} /> ClickUp is busy right now, so these are the tasks it showed at {clock(d.at)}.</p>}
       {d && CU_BUCKETS.map(([b, label]) => {
         const xs = tasks.filter((t) => dueBucket(t.due) === b).sort((x, y) => (x.due ? Date.parse(x.due) : Infinity) - (y.due ? Date.parse(y.due) : Infinity));
         if (!xs.length) return null;
@@ -534,7 +545,7 @@ function CuSection({ cu, list, person, setList, setPerson, onNew }) {
       })}
       {d && !tasks.length && down.length < d.lists.length && <p className="todo-line">Nothing open{list !== "all" || person !== "all" ? " for this filter" : ""}{down.length ? " on the lists that could be read" : ""}.</p>}
       {hiddenL.length > 0 && <p className="todo-line cu-noaccess" data-cu-noaccess={hiddenL.length}><AlertTriangle size={14} /> <span>{hiddenL.length === 1 ? hiddenL[0].error : `Defied Bot can't see ${names(hiddenL)}. Share them with Defied Bot in ClickUp.`} <button className="inline-link" onClick={() => cu.load(true)}>Check again</button></span></p>}
-      {otherDown.length > 0 && <p className="todo-line"><AlertTriangle size={14} /> {down.length === d.lists.length && !hiddenL.length ? "Couldn't reach ClickUp." : `Couldn't read ${otherDown.map((l) => l.name).join(", ")}.`} <button className="inline-link" onClick={() => cu.load(true)}>Try again</button></p>}
+      {otherDown.length > 0 && <p className="todo-line"><AlertTriangle size={14} /> {down.length === d.lists.length && !hiddenL.length ? "Couldn't reach ClickUp." : `Couldn't read ${otherDown.map((l) => l.name).join(", ")}.`} <button className="inline-link" onClick={() => cu.load()}>Try again</button></p>}
     </div>
   );
 }

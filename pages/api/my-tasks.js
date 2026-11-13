@@ -17,7 +17,7 @@ export default async function handler(req, res) {
   try {
     if (req.method === "GET") {
       res.setHeader("Cache-Control", "no-store");
-      if (req.query.fresh) clearTaskCache();
+      if (req.query.fresh) await clearTaskCache();
       const r = await listTasks(L.id);
       const list = { key, name: L.name, url: listUrl(L.id) };
       if (r.error) return res.status(200).json({ list, error: r.error, noAccess: !!r.noAccess, writes: writesOn() });

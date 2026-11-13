@@ -98,7 +98,9 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   for (const c of sync?.checks || []) {
     if (c.ok !== false || !SYNC_ROWS[c.id]) continue;
     const [area, cta] = SYNC_ROWS[c.id];
-    out.push({ k: `sync:${c.id}`, area, tap: c.fix?.kind === "pull", t: c.text.replace(/\.$/, ""), cta, panel: "syncfix", check: c, rank: { kind: "sync" } });
+    // (2026-11-13) a pub sheet line with no Pull (a client with songs here and none on MASTER) says Review: its panel
+    // has no button, so "Pull from the sheet" would open onto nothing to press
+    out.push({ k: `sync:${c.id}`, area, tap: c.fix?.kind === "pull", t: c.text.replace(/\.$/, ""), cta: c.fix ? cta : "Review", panel: "syncfix", check: c, rank: { kind: "sync" } });
   }
   return out;
 }

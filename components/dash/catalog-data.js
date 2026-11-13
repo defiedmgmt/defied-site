@@ -20,7 +20,10 @@ export const normalizeTitle = (s) => (s || "").toLowerCase().replace(/[^a-z0-9]+
 // indefinitely with no way to notice. Both silent background auto-syncs
 // (CatalogAdmin, ClientPortal) re-check against this instead of a one-time
 // gate, so nobody has to remember to press a button for routine staleness.
-const SYNC_STALE_MS = 5 * 60 * 1000;
+// (2026-11-13) 30 minutes, not 5: each pull reads every client's tab (18 of Google's 60 reads a minute, shared with
+// the rest of the dashboard), the daily cron pulls too, and Refresh numbers always pulls. pages/api/sheets-pull.js
+// skips a background pull when one started in the last 30 minutes, here or in another browser.
+const SYNC_STALE_MS = 30 * 60 * 1000;
 export const isSheetSyncStale = (db) => {
   const at = db.sheetSync?.lastSyncedAt;
   return !at || Date.now() - new Date(at).getTime() > SYNC_STALE_MS;
@@ -36,14 +39,15 @@ export const isSheetSyncStale = (db) => {
 // card's share to one decimal (33.3, as the tab shows 1/3), the same as lib/site-sync.js
 const toCents = (n) => Math.round((Number(n) || 0) * 100 + (n >= 0 ? 1e-9 : -1e-9)) / 100;
 const toShare1 = (n) => Math.round((Number(n) || 0) * 10 + 1e-9) / 10;
-async function pullAndMergeSheetData(db, clients) {
+async function pullAndMergeSheetData(db, clients, { background = false } = {}) {
   const res = await fetch("/api/sheets-pull", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-    body: JSON.stringify({ clients: clients.map((c) => ({ id: c.id, name: c.name, sheetTabName: c.sheetTabName })) }),
+    body: JSON.stringify({ clients: clients.map((c) => ({ id: c.id, name: c.name, sheetTabName: c.sheetTabName })), ...(background ? { background: true } : {}) }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Sync failed");
+  if (data.skipped) return { skipped: true };
 
   const totalsByClient = {};
   const rowsByClient = {};
@@ -119,10 +123,13 @@ const sheetSongId = (clientId, title) => {
 // matched to its sheet row instead of coming in again as a stripped duplicate.
 // Saved as the base, that copy makes the save carry only the sync's own
 // changes, so an edit made during the pull stays.
-export async function fullSiteSync(tabDb, commit) {
+// background (the Dashboard's own pull on a stale copy): the server may skip it, a pull having started lately ({ skipped })
+export async function fullSiteSync(tabDb, commit, { background = false } = {}) {
   const latest = await fetch("/api/dashboard-data", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   const db = latest?.role === "staff" ? latest : tabDb;
-  const { data, totalsByClient, rowsByClient, claimedRows, placements } = await pullAndMergeSheetData(db, db.clients);
+  const pulled = await pullAndMergeSheetData(db, db.clients, { background });
+  if (pulled.skipped) return { missing: [], skipped: true };
+  const { data, totalsByClient, rowsByClient, claimedRows, placements } = pulled;
 
   // a client's tab can hold more than one row for the same title (an old
   // duplicate row from before this feature existed, a re-typed entry,
