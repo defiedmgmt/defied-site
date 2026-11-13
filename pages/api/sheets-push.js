@@ -15,6 +15,11 @@
 // the tab again and answers with a loud `alarm` if any formula changed.
 // A refusal is a 409 { error, refused, written }; a 502 says whether its
 // write was read back (checked, alarm).
+// (2026-11-13) The one formula write: a formula column of the row being
+// written that's blank (Sauceproducedit's C15 lost its streams lookup by hand,
+// and it's the next row a song lands on) gets its standard formula back in the
+// same guarded write, so the song's streams count; each result says which
+// (`restored`), and the log too. A typed value there is never touched.
 import {
   getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers, claimTabForNewCollaborator,
 } from "../../lib/sheets";
@@ -106,7 +111,8 @@ export default async function handler(req, res) {
       const out = await guardedPush(sheets, spreadsheetId, tab.title, { song, artist: artist || "", percent, syncId, luminateId, liveIds, rules });
       if (out.refused) return res.status(409).json({ error: out.refused, refused: true, written: results.length > 0, results });
       if (out.alarm) console.error(`sheets-push: ${out.alarm}`);
-      results.push({ name, tab: tab.title, tabCreated: created, updated: out.updated, row: out.row, ...(out.alarm ? { alarm: out.alarm } : {}) });
+      if (out.restored) console.error(`sheets-push: put the standard formula back in ${out.restored.join(", ")} on the ${tab.title} tab (it was blank)`);
+      results.push({ name, tab: tab.title, tabCreated: created, updated: out.updated, row: out.row, ...(out.restored ? { restored: out.restored } : {}), ...(out.alarm ? { alarm: out.alarm } : {}) });
       // (2026-11-10) the song's own client's share as just written, so To do and Sync don't call it different from the
       // sheet until the next pull (the row's Net Streams follow the share; a song with no facts yet gets them then)
       if (owner?.id === saved.client_id && out.row) {
