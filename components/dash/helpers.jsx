@@ -150,8 +150,10 @@ export function GrowthChip({ g }) {
 // alone shows, until then. Every task has an area for its colour: roster | money | ar | clickup | site.
 // the sheet-tab To do's names: tabs the last sync didn't find, only clients with songs (a brand-new
 // client with no tab yet has no numbers to miss). Website › Roster marks the same clients.
+// (2026-11-13, live: "Reyaan's numbers can't sync" with an empty panel, Reyaan deleted that day) a name no client has
+// any more is dropped: there's nobody to type a tab for
 export const findTabClient = (db, n) => db.clients.find((x) => x.name === n || (x.sheetTabName || "").trim() === n);
-export const noTabNames = (db, songInfo) => (songInfo?.missingTabs || []).filter((n) => { const c = findTabClient(db, n); return !c || db.placements.some((p) => p.clientId === c.id); });
+export const noTabNames = (db, songInfo) => (songInfo?.missingTabs || []).filter((n) => { const c = findTabClient(db, n); return !!c && db.placements.some((p) => p.clientId === c.id); });
 // Songs to update (build G2): every song the pub sheet or the site is missing something for, from what the
 // last sheet pull read (db.sheetFacts, lib/sheet-facts.js). A split alone doesn't list a song (Splits to
 // confirm has those); on a listed song its split shows as one more chip. Biggest streams first.

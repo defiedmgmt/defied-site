@@ -5,12 +5,19 @@
 // merges the returned rows onto its own placements and saves them
 // (/api/dashboard-data) — this route only reads the sheet (and keeps what it
 // read per song, lib/sheet-facts-store.js).
+// (2026-11-13, live: 2-3 quick reloads, or one during a pull, each started another pull of every tab: 18 of Google's
+// 60 reads a minute each) A staff pull of every client marks its start (app_state sheetPull); the Dashboard's
+// background one (background: true) runs only when no such pull started in the last 30 minutes, else { skipped: true }.
+// It also keeps the tabs it couldn't find (app_state missingTabs, as the daily cron does), so To do follows this pull.
 import { getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers, readTabRows } from "../../lib/sheets";
 import { ownerOf } from "../../lib/names";
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess, limited, mayUseClient } from "../../lib/access";
 import { sql } from "../../lib/db";
 import { sheetFactQueries, saveSheetFacts } from "../../lib/sheet-facts-store";
+import { claimState, setState } from "../../lib/app-state";
+
+const BACKGROUND_MIN = 30; // components/dash/catalog-data.js SYNC_STALE_MS says the same
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
@@ -34,8 +41,10 @@ export default async function handler(req, res) {
   try {
     const sheets = getSheetsClient();
     const spreadsheetId = getSheetId();
-    const tabs = await listTabs(sheets, spreadsheetId);
     const known = await loadClientTabNames();
+    const whole = isStaff && !limited(req) && known.length > 0 && known.every((k) => clients.some((c) => c.id === k.id));
+    if (whole && !(await claimState("sheetPull", req.body?.background ? BACKGROUND_MIN : 0))) return res.status(200).json({ skipped: true, clients: [] });
+    const tabs = await listTabs(sheets, spreadsheetId);
 
     const out = [], facts = [];
     // staff pulls also keep what the sheet says per song (lib/sheet-facts.js), matched to the songs as saved
@@ -64,6 +73,8 @@ export default async function handler(req, res) {
     }
 
     await saveSheetFacts(facts);
+    // (2026-11-13, live: To do still said "Set Reyaan's sheet tab" for a client deleted that day: only the 8 AM cron wrote it)
+    if (whole) await setState("missingTabs", known.filter((k) => out.some((o) => o.clientId === k.id && !o.tabFound)).map((k) => k.name)).catch((err) => console.error("missing tabs not kept:", err));
     return res.status(200).json({ syncedAt: new Date().toISOString(), clients: out });
   } catch (err) {
     return res.status(502).json({ error: err.message || "Sheet pull failed." });

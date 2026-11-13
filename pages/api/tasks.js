@@ -2,26 +2,28 @@
 // lists (Internal, Pub, A&R and the five MGMT lists), the people to filter by and assign, and whether
 // writes are on. The tasks the dashboard keeps itself ("Log new payments", the area tasks) are left
 // out (To do lists their to-dos already; the open ones come back as own, for its "Done for you" line).
-// ?fresh=1 skips the two-minute cache (and reads each list's access again: a list just shared in ClickUp).
+// ?fresh=1 (To do's Check again, after sharing a list in ClickUp) skips the 90-second shared copy and reads again each
+// hidden list's access and the people; Try again doesn't (2026-11-13: it emptied every cache, about 18 more ClickUp calls
+// while ClickUp was already saying wait). stale + at: ClickUp said to wait (429) and these are its last answer, from at.
 // A list the Defied Bot can't see comes back as { error: "Defied Bot can't see …", noAccess: true } (r10, C2).
 // POST {action:"done", id} sets a task to its list's closed status; {action:"create", name, list, due,
 // assignee} adds one. Both only with CLICKUP_TASK_WRITES=on (else a plain line, nothing sent).
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
-import { allTasks, members, markTaskDone, createUserTask, clearTaskCache, clearAccessCache, ownTasks, writesOn } from "../../lib/clickup-tasks";
+import { allTasks, members, markTaskDone, createUserTask, ownTasks, writesOn } from "../../lib/clickup-tasks";
 
 export default async function handler(req, res) {
   const session = await requireAccess(req, res, ["todo", "home"]);
   if (!session) return;
   try {
     if (req.method === "GET") {
-      if (req.query.fresh) { clearTaskCache(); clearAccessCache(); }
-      const [{ lists, tasks }, people, own] = await Promise.all([allTasks(), members(), ownTasks()]);
+      const fresh = !!req.query.fresh;
+      const [{ lists, tasks, at, stale }, people, own] = await Promise.all([allTasks({ fresh }), members({ fresh }), ownTasks()]);
       const mine = new Set(own.map((t) => t.taskId));
       // own: only a task that's really there (open in its list) and kept current (writes on), so "Done for
       // you" never names one that doesn't exist
       const there = new Set(tasks.map((t) => t.id));
-      return res.status(200).json({ lists, tasks: tasks.filter((t) => !mine.has(t.id)), people, writes: writesOn(), own: writesOn() ? own.filter((t) => t.open && there.has(t.taskId)) : [] });
+      return res.status(200).json({ lists, tasks: tasks.filter((t) => !mine.has(t.id)), people, writes: writesOn(), own: writesOn() ? own.filter((t) => t.open && there.has(t.taskId)) : [], ...(stale ? { stale: true, at } : {}) });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
