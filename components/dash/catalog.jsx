@@ -42,6 +42,8 @@ async function guardPost(body) {
 // read its own write back): the tab is read again against the pre-check's (g) formulas. null, or the loud line
 const readAgain = async (r, placementId, g) => {
   if (!g || r.written === false || r.checked) return null;
+  // (2026-11-13) a full tab the push was giving more rows: they move every row, so there's nothing to compare against
+  if (g.how === "extend") return `Rows were being added to the ${g.tab} tab for this song and the answer didn't come back. Check the end of the ${g.tab} tab on the sheet.`;
   const a = await guardPost({ action: "guardAfter", placementId, row: g.row, sig: g.sig, cells: g.cells });
   return a.ok ? null : a.alarm || `Row ${g.row} of the ${g.tab} tab couldn't be read back after the write. Check it on the sheet.`;
 };

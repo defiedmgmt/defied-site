@@ -25,6 +25,7 @@ export default async function handler(req, res) {
   if (!secret) return res.status(503).json({ error: "CRON_SECRET is not configured." });
   if (req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: "Not authorized." });
   const report = { at: new Date().toISOString() };
+  const t0 = Date.now(); // (2026-11-13) the ISRC loop stops by 45 s in, whatever ran before it (maxDuration 60)
 
   // (2026-11-13) a client's tab under 20 empty song rows gets 50 more, behind PUB_SHARE_WRITES (lib/sheet-rows.js); what
   // went wrong goes to ClickUp's Dashboard Alerts like a failed sync. Before the pull: rows added move the tab's last song
@@ -63,7 +64,7 @@ export default async function handler(req, res) {
     report.isrc = { looked: 0, found: 0, offered: 0 };
     const start = Date.now();
     for (const g of [...groups.values()].slice(0, 60)) {
-      if (Date.now() - start > 25000) break; // the rest tomorrow
+      if (Date.now() - start > 25000 || Date.now() - t0 > 45000) break; // the rest tomorrow
       const r = await lookupIsrc({ song: g[0].song, artist: g[0].artist, link: g[0].link || g.find((x) => x.link)?.link || "" }).catch(() => ({ failed: true }));
       if (r.failed || r.retry) break; // the services are down (or Spotify didn't answer): tomorrow
       report.isrc.looked++;
