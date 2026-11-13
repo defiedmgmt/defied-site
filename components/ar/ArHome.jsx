@@ -118,15 +118,20 @@ function DayCard({ day, onOpen }) {
 
 // Week on week, one metric at a time. Readings 7 days apart first; until then Streams is each row's last real Luminate
 // week, each pair of weeks ranked on its own (weekSections in fmt.js). A metric with nothing yet is greyed in the
-// switch ("from Nov 11"; Sounds: "add a sound first"), and the card keeps its height whichever is picked.
+// switch with its own start ("from Nov 18"; once that's past, "needs readings 14 days apart"; Sounds: "add a sound
+// first"), and the card keeps its height whichever is picked.
 function WeekCard({ movers, onOpen, sounds }) {
   const tabs = movers?.tabs || [];
   const [tab, setTab] = useState("streams");
   const has = (id) => { const w = movers?.week?.[id]; return !!w && ((w.up || []).length + (w.down || []).length + (w.groups || []).reduce((a, g) => a + g.up.length + g.down.length, 0)) > 0; };
-  const later = (id) => (id === "videos" && !sounds ? "add a sound first" : movers?.weekFrom ? `from ${movers.weekFrom}` : "needs a week of readings");
+  // each tab's own start and the readings it needs (the server's: 14 days apart for a running total like streams, 7
+  // for a level like followers; 2026-11-13: one date for every tab said Streams "starts Nov 11", already past)
+  const from = (id) => movers?.weekFrom?.[id] || null;
+  const apart = (id) => `readings ${tabs.find(([k]) => k === id)?.[2] || 7} days apart`;
+  const later = (id) => (id === "videos" && !sounds ? "add a sound first" : from(id) ? `from ${from(id)}` : `needs ${apart(id)}`);
   const secs = weekSections(movers?.week?.[tab] || { up: [], down: [] });
   const lumOnly = secs.length > 0 && secs.every((x) => x.lum);
-  const grey = !secs.length ? "" : lumOnly ? `Luminate weeks, all platforms.${movers?.weekFrom ? ` Spotify week on week starts ${movers.weekFrom}.` : ""}`
+  const grey = !secs.length ? "" : lumOnly ? `Luminate weeks, all platforms.${from(tab) ? ` Spotify week on week starts ${from(tab)}.` : ""}`
     : `${SHORT_TAB[tab]} · readings 7 days apart${secs.some((x) => x.lum) ? " · then Luminate weeks where there's no Spotify yet" : ""}`;
   const row = (x, i) => (
     <MoverRow key={`${x.key}|${x.metric}`} x={x} i={i} onOpen={onOpen} attr={{ "data-week-mover": x.key, ...(x.lum ? { "data-lum": x.weeks } : {}) }}
@@ -134,7 +139,7 @@ function WeekCard({ movers, onOpen, sounds }) {
       title={x.lum ? `${x.name} · Luminate streams, all platforms · ${x.weeks}: ${n0(x.lastWeek)} → ${n0(x.thisWeek)}` : null} />
   );
   const none = tab === "videos" && !sounds ? "Add a TikTok sound to the Watchlist first: its video count is tracked from then on."
-    : `${SHORT_TAB[tab] || "This"} week on week needs readings 7 days apart${movers?.weekFrom ? `: it starts ${movers.weekFrom}` : ""}.`;
+    : `${SHORT_TAB[tab] || "This"} week on week needs ${apart(tab)}${from(tab) ? `: it starts ${from(tab)}` : ""}.`;
   return (
     <div className="gainers home-card arh-card" data-week-section>
       <div className="attn-head"><CalendarRange size={15} /> Week on week
