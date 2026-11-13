@@ -322,7 +322,9 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   // (2026-11-11, the owner: "can we use the spotify numbers for now until theyre on luminate") a song with no
   // streams from the sheet yet shows Spotify's: its plays (the daily numbers, all-time), or "under 1,000" when
   // Spotify was asked and shows no count (it doesn't below 1,000), said so wherever it's shown. null: nothing to add
-  const spotSongs = useMemo(() => new Map((nums.artist?.songs || []).map((x) => [x.id, x])), [nums.artist]);
+  // (2026-11-13) a song is listed once, under one Spotify id: a copy here that links another id of the same song is
+  // found by that one too (ids, lib/data/engine.js sameSongIds); a song's own id comes first
+  const spotSongs = useMemo(() => { const list = nums.artist?.songs || []; return new Map([...list.flatMap((x) => (x.ids || []).map((k) => [k, x])), ...list.map((x) => [x.id, x])]); }, [nums.artist]);
   const spotifyOnly = (p) => {
     if (p.streams > 0) return null;
     const g = growth?.[p.id]?.latest, x = spotSongs.get(trackKey(p.link));
@@ -331,8 +333,11 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   };
   const spotifyFill = useMemo(() => songs.reduce((a, p) => { const x = spotifyOnly(p); return x?.n ? { n: a.n + 1, plays: a.plays + x.n, net: a.net + x.n * ((Number(ownSplit(p, client)?.percent) || 0) / 100) } : a; }, { n: 0, plays: 0, net: 0 }), [songs, growth, spotSongs, client?.name]); // eslint-disable-line react-hooks/exhaustive-deps
   // the net streams shown are the sheet's own (MASTER's writer table, from the last pull); without it, the estimate
-  // above plus the Spotify stand-in's share (as each song's window does)
-  const netShown = netStreamsOf(db.sheetFacts?.clients?.[clientId], summary.net + spotifyFill.net);
+  // above. Either way plus the Spotify stand-in's share (as each song's window does): (2026-11-13) GloryTonio's Gross
+  // counted 14,936 Spotify plays and his Net said 0. Those songs have no streams on the sheet, so its net has none of theirs
+  const sheetNet = netStreamsOf(db.sheetFacts?.clients?.[clientId], summary.net + spotifyFill.net);
+  const netShown = sheetNet.fromSheet ? { ...sheetNet, value: Math.round(sheetNet.value + spotifyFill.net) } : sheetNet;
+  const notOnLuminate = `${spotifyFill.n} ${spotifyFill.n === 1 ? "song" : "songs"} not on Luminate yet`;
   const [stopAsk, setStopAsk] = useState(false);
   // a client's own links (2026-11-11): what's on their profile, and the one being added or changed
   const [myLinks, setMyLinks] = useState(() => ({ spotify: client?.spotify || "", instagram: client?.instagram || "", tiktok: client?.tiktok || "", youtube: client?.youtube || "" }));
@@ -350,12 +355,16 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
             <div className="cat-stat" data-gross="site"><span className="cat-stat-label">Gross Streams{isStaff && <span className="cat-stat-note"> (songs on the site)</span>}</span><span className="cat-stat-val">{fmt(summary.gross + spotifyFill.plays)}</span>
               {spotifyFill.n > 0 && <span className="cat-stat-note" data-gross-spotify={spotifyFill.n}>incl. Spotify plays for {spotifyFill.n} {spotifyFill.n === 1 ? "song" : "songs"} not on Luminate yet</span>}</div>
             {/* staff see where each comes from, as the two can differ: the net is the pub sheet's own figure once a pull read the tab */}
-            <div className="cat-stat" data-net={netShown.fromSheet ? "sheet" : "estimate"}><span className="cat-stat-label">Net Streams{!netShown.fromSheet ? <span className="cat-stat-note"> (estimate)</span> : isStaff && <span className="cat-stat-note"> (from the pub sheet)</span>}</span><span className="cat-stat-val">{fmt(netShown.value)}</span></div>
+            <div className="cat-stat" data-net={netShown.fromSheet ? "sheet" : "estimate"}><span className="cat-stat-label">Net Streams{!netShown.fromSheet ? <span className="cat-stat-note"> (estimate)</span> : isStaff && <span className="cat-stat-note"> ({spotifyFill.n > 0 ? "pub sheet + Spotify estimate" : "from the pub sheet"})</span>}</span><span className="cat-stat-val">{fmt(netShown.value)}</span>
+              {netShown.fromSheet && spotifyFill.n > 0 && <span className="cat-stat-note" data-net-spotify={spotifyFill.n}>incl. an estimate from Spotify plays for {notOnLuminate}</span>}</div>
             {isStaff ? (
               <>
                 {/* estimates, not cash we hold: clients are paid their publishing directly, our commission is billed through Stripe */}
-                {seeMoney && <div className="cat-stat"><span className="cat-stat-label">Pub earnings <span className="cat-stat-note">(est., paid to them directly)</span></span><span className="cat-stat-val">{money(summary.revenue)}</span></div>}
-                {seeMoney && <div className="cat-stat"><span className="cat-stat-label">Potential admin fee <span className="cat-stat-note">(est.)</span></span><span className="cat-stat-val">{money(summary.adminFee)}</span></div>}
+                {/* (2026-11-13) the money is the pub sheet's songs only: the ones Spotify stands in for earn nothing there yet */}
+                {seeMoney && <div className="cat-stat"><span className="cat-stat-label">Pub earnings <span className="cat-stat-note">(est., paid to them directly)</span></span><span className="cat-stat-val">{money(summary.revenue)}</span>
+                  {spotifyFill.n > 0 && <span className="cat-stat-note" data-money-sheet-only>leaves out the {notOnLuminate}</span>}</div>}
+                {seeMoney && <div className="cat-stat"><span className="cat-stat-label">Potential admin fee <span className="cat-stat-note">(est.)</span></span><span className="cat-stat-val">{money(summary.adminFee)}</span>
+                  {spotifyFill.n > 0 && <span className="cat-stat-note" data-money-sheet-only>leaves out the {notOnLuminate}</span>}</div>}
               </>
             ) : (
               <>

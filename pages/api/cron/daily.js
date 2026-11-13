@@ -30,15 +30,18 @@ export default async function handler(req, res) {
     if (String(process.env.CLICKUP_ALERTS ?? "").trim().toLowerCase() === "on") await notifyClickUp(`**Nightly sync failed**: ${err.message}\nThe site's numbers weren't refreshed tonight. [Open dashboard](https://www.defiedmgmt.com/dashboard)`);
   }
 
-  // up to 10 songs a night that have no ISRC yet and weren't looked up in the last 2 weeks: a sure hit
+  // up to 60 songs a night that have no ISRC yet and weren't looked up in the last 2 weeks: a sure hit
   // is saved with its source, else the finder's candidates wait for one tap on the song (the ISRC is how
-  // one song with several Spotify ids is counted once, and how a song without a link is found on Spotify)
+  // one song with several Spotify ids is counted once, and how a song without a link is found on Spotify).
+  // (2026-11-13: 10 a night left a 178-song Spotify import for 17 nights. A song with a Spotify link is one free
+  // Spotify call now, lib/isrc.js, spaced like the rest: the 25 s below still decides, and what doesn't fit waits for
+  // tomorrow. The whole cron took 14 s with 10 of its 60)
   try {
     const rows = await sql`
       SELECT p.id, p.song, p.artist, p.link FROM placements p LEFT JOIN song_tracking t ON t.placement_id = p.id
       WHERE COALESCE(t.isrc, '') = '' AND NOT COALESCE(t.skip, false)
         AND (t.isrc_checked_at IS NULL OR t.isrc_checked_at < now() - interval '14 days')
-      LIMIT 40
+      LIMIT 240
     `;
     const groups = new Map();
     for (const r of rows) {
@@ -47,7 +50,7 @@ export default async function handler(req, res) {
     }
     report.isrc = { looked: 0, found: 0, offered: 0 };
     const start = Date.now();
-    for (const g of [...groups.values()].slice(0, 10)) {
+    for (const g of [...groups.values()].slice(0, 60)) {
       if (Date.now() - start > 25000) break; // the rest tomorrow
       const r = await lookupIsrc({ song: g[0].song, artist: g[0].artist, link: g[0].link || g.find((x) => x.link)?.link || "" }).catch(() => ({ failed: true }));
       if (r.failed || r.retry) break; // the services are down (or Spotify didn't answer): tomorrow

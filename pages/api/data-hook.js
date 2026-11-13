@@ -5,6 +5,10 @@
 import crypto from "node:crypto";
 import { collectApifyRun } from "../../lib/data/engine";
 
+// (2026-11-13) a big run's items can take a minute to read (lib/data/direct.js apifyItems waits 60 s): one cut off part-way
+// is collected again later (lib/data/engine.js collectRuns), but it shouldn't be cut off
+export const config = { maxDuration: 120 };
+
 const same = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
 
 export default async function handler(req, res) {
