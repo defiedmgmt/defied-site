@@ -1,5 +1,6 @@
 // Runs once a day (vercel.json "crons"): pulls the sheet onto the site so a
 // change typed straight into the sheet shows up without anyone signed in,
+// gives a writer tab that's running out of song rows more of them (lib/sheet-rows.js),
 // looks up a few missing ISRCs (and the A&R artists' Deezer pages), keeps the ClickUp tasks the dashboard
 // owns ("Log new payments", one per area) up to date, and reads each client's manager off the
 // accounting sheet's INFO tab (roles: a Co-manager limited to their own artists). Vercel sends
@@ -14,6 +15,7 @@ import { normalizeTitle } from "../../../lib/sheets";
 import { notifyClickUp } from "../../../lib/clickup";
 import { checkClickUpTasks } from "../../../lib/money";
 import { refreshManagers } from "../../../lib/access";
+import { keepRoom } from "../../../lib/sheet-rows";
 
 // the sheet pull plus the Stripe read behind the ClickUp tasks (see pages/api/home.js)
 export const config = { maxDuration: 60 };
@@ -23,6 +25,16 @@ export default async function handler(req, res) {
   if (!secret) return res.status(503).json({ error: "CRON_SECRET is not configured." });
   if (req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: "Not authorized." });
   const report = { at: new Date().toISOString() };
+
+  // (2026-11-13) a client's tab under 20 empty song rows gets 50 more, behind PUB_SHARE_WRITES (lib/sheet-rows.js); what
+  // went wrong goes to ClickUp's Dashboard Alerts like a failed sync. Before the pull: rows added move the tab's last song
+  // row down, and the pull then saves every song's row as it is now
+  try {
+    const r = await keepRoom({ budgetMs: 15000 });
+    report.rows = { extended: r.extended, refused: r.refused, failed: r.failed, later: r.later, fewest: [...r.room].filter((x) => x.free != null).sort((a, b) => a.free - b.free)[0] || null };
+    const trouble = [...r.refused.map((x) => x.reason), ...r.failed.map((x) => `${x.tab}: ${x.error}`), ...r.extended.filter((x) => x.alarm).map((x) => x.alarm)];
+    if (trouble.length && String(process.env.CLICKUP_ALERTS ?? "").trim().toLowerCase() === "on") await notifyClickUp(`**Pub sheet rows**: ${trouble.join(" ")}\n[Open dashboard](https://www.defiedmgmt.com/dashboard/site/sync)`);
+  } catch (err) { report.rowsError = err.message; }
 
   try { report.sync = await syncSiteFromSheet(); } catch (err) {
     report.syncError = err.message;

@@ -112,7 +112,7 @@ export default async function handler(req, res) {
       if (out.refused) return res.status(409).json({ error: out.refused, refused: true, written: results.length > 0, results });
       if (out.alarm) console.error(`sheets-push: ${out.alarm}`);
       if (out.restored) console.error(`sheets-push: put the standard formula back in ${out.restored.join(", ")} on the ${tab.title} tab (it was blank)`);
-      results.push({ name, tab: tab.title, tabCreated: created, updated: out.updated, row: out.row, ...(out.restored ? { restored: out.restored } : {}), ...(out.alarm ? { alarm: out.alarm } : {}) });
+      results.push({ name, tab: tab.title, tabCreated: created, updated: out.updated, row: out.row, ...(out.restored ? { restored: out.restored } : {}), ...(out.extended ? { extended: out.extended } : {}), ...(out.alarm ? { alarm: out.alarm } : {}) });
       // (2026-11-10) the song's own client's share as just written, so To do and Sync don't call it different from the
       // sheet until the next pull (the row's Net Streams follow the share; a song with no facts yet gets them then)
       if (owner?.id === saved.client_id && out.row) {
