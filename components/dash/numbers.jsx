@@ -134,7 +134,16 @@ export function costPicture(d, now = new Date()) {
   const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const over = limit != null && est > limit;
   const stopDay = over ? `${now.toLocaleDateString("en-US", { month: "short" })} ${Math.max(1, Math.min(days, Math.floor((limit / est) * days)))}` : null;
-  return { month: now.toLocaleDateString("en-US", { month: "long" }), est, spent, limit, limitWhy, over, stopDay, budgets, total, budgetsOver: total != null && budgets > total + 0.001 };
+  // (2026-11-13, review: the source rows came to $2.89 of the $2.97 spent, and Apify's $2.13 was put down only to runs
+  // after its read) other: what's spent with no source row (links looked up in the paste box), so the rows add up;
+  // cycle: Apify's own month (it ends on acct.cycleEnd, its plan's day), not the calendar month the site counts
+  const other = Number(c.lookupsUsd) || 0;
+  const end = acct?.cycleEnd ? new Date(acct.cycleEnd) : null;
+  const start = end && !Number.isNaN(end.getTime()) ? new Date(end.getTime() + 1) : null;
+  if (start) start.setUTCMonth(start.getUTCMonth() - 1);
+  const utcDay = (x) => x.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  const cycle = start ? `${utcDay(start)} – ${utcDay(end)}` : null;
+  return { month: now.toLocaleDateString("en-US", { month: "long" }), est, spent, limit, limitWhy, over, stopDay, budgets, total, budgetsOver: total != null && budgets > total + 0.001, other, cycle };
 }
 // a run where more than a tenth of what's tracked came back with no number is a warning, not small print
 export const missRate = (s) => { const m = /(\d+) had no number/.exec(s?.last?.error || ""); return m && s.tracked && !UNDER_1000.has(s.key) ? Number(m[1]) / s.tracked : 0; };
@@ -162,7 +171,8 @@ export function SourceNums({ d, founder, canEdit, onSaved }) {
       {founder && d.cost && (
         <div className="nums-month" data-cost-month>
           <p className="nums-costline" data-costline>{pic.month}: about <b>{usd2(pic.est)}</b> at this schedule · <b>{usd2(pic.spent)}</b> spent so far (the site's count of its own runs)</p>
-          {pic.limit != null && <p className="hint" data-cost-cap>Runs stop at <b>{usd2(pic.limit)}</b> a month: {pic.limitWhy}.{acct ? ` Apify's own count: ${usd2(acct.usageUsd)} of ${usd2(acct.limitUsd)}${acct.at ? ` as of ${shortDay(acct.at)}, ${clock(acct.at)}` : ""}, so runs after that aren't in it yet.` : ""}</p>}
+          {pic.other >= 0.01 && <p className="hint" data-cost-other>That includes {usd2(pic.other)} for links looked up in the paste box, which have no row below.</p>}
+          {pic.limit != null && <p className="hint" data-cost-cap>Runs stop at <b>{usd2(pic.limit)}</b> a month: {pic.limitWhy}.{acct ? ` Apify's own count: ${usd2(acct.usageUsd)} of ${usd2(acct.limitUsd)}${acct.at ? ` as of ${shortDay(acct.at)}, ${clock(acct.at)}` : ""}${pic.cycle ? `, for its billing month (${pic.cycle}). The site counts from the 1st, and runs after that read aren't in Apify's count yet.` : ", so runs after that aren't in it yet."}` : ""}</p>}
           {/* r11 fix: a preview's plan is the copy it was given (it never asks Apify); the live site reads the plan
               (GET /users/me/limits) at the start of every run, so its line and warning follow the plan really on */}
           {PREVIEW && acct && <p className="hint" data-cost-preview>In this preview Apify's plan is the copy read {acct.at ? shortDay(acct.at) : "earlier"}. The live site reads the plan from Apify on every run.</p>}
