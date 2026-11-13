@@ -659,9 +659,14 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   const siteSongs = (client, r) => (client ? db.placements.filter((p) => p.clientId === client.id).length : r.songs);
   const spotRows = (state.data?.rows || []).map((r) => { const client = findClient(r); return { r, client, wk: weekOf(client), songs: siteSongs(client, r) }; });
   const lumWeek = !spotRows.some((x) => x.wk) && lumTop?.source === "luminate" ? lumTop : null;
-  const lumOf = (client) => { const a = client && lumWeek?.artists?.find((x) => x.clientId === client.id); return a ? { thisWeek: a.thisWeek, wowPct: a.ranked ? a.wowPct : null, weekOf: a.weekOf || null, lum: true } : null; };
+  // every writer's Luminate week, falls included (allArtists; 2026-11-13: the top 5 risers only, so prodbylandn,
+  // Sauceproducedit and 6 more showed "—"); under 1,000 streams, streams alone, as for the Spotify weeks above
+  const lumOf = (client) => {
+    const a = client && lumWeek?.allArtists?.find((x) => x.clientId === client.id);
+    return a ? { thisWeek: a.thisWeek, wowPct: a.wowPct != null && a.thisWeek >= WEEK_PCT_MIN ? a.wowPct : null, weekOf: a.weekOf || null, lum: true } : null;
+  };
   const rows = lumWeek ? spotRows.map((x) => ({ ...x, wk: lumOf(x.client) })) : spotRows;
-  const lumLabel = lumWeek ? String(lumWeek.artistsLabel || "").replace(/^Luminate · /, "") : "";
+  const lumLabel = lumWeek ? String(lumWeek.allArtistsLabel || "").replace(/^Luminate · /, "") : "";
   const name = (x) => (x.client ? x.client.name : x.r.writer).toLowerCase();
   const noWeeks = !rows.some((x) => x.wk);
   const by = sort.auto && sort.col === "week" && noWeeks ? { col: "gross", dir: -1 } : sort; // the column the rows follow

@@ -118,12 +118,18 @@ export function TopGainers({ db, onGo, arTop, arLoaded }) {
   const span = isAR ? null : top && (kind === "artists" ? top.artistsWeekOf : top.songsWeekOf);
   // r10 (H9): fewer than 8 days of Spotify numbers, so the songs and artists are Luminate's newest real week
   const lum = !isAR && top?.source === "luminate" ? (kind === "artists" ? top.artistsLabel : top.songsLabel) : null;
+  // (an artist is their songs that have both weeks: two weeks of numbers, not one)
   const empty = isAR ? (!rows ? (ar.failed ? "Couldn't load the A&R numbers." : "Loading…") : !rows.length && "No A&R moves yet: they need readings on two days in a row.")
     : !top ? (failed ? "Couldn't load this week's numbers." : "Loading…")
-    : !rows.length && "Shows up once there's a week of daily Spotify numbers.";
-  const firstOff = rows && !isAR ? rows.findIndex((r) => !(r.ranked && r.wowPct != null)) : -1;
-  // the rows without a % sit under one caption, after the ranked ones
-  const split = (i) => i === firstOff && <div key="split" className="gainer-split">{isAR ? "Not enough history for a % yet" : "Not enough streams for a % yet"}</div>;
+    : !rows.length && (kind === "artists" ? "Shows up once there are two weeks of daily Spotify numbers." : "Shows up once there's a week of daily Spotify numbers.");
+  // the rows without a % sit after the ranked ones, under a caption saying why (the server's why, lib/weekly.js
+  // rankTop): no week before yet, or under 1,000 streams; one caption per reason (2026-11-13: big songs with no week
+  // before sat under "Not enough streams for a % yet")
+  const off = (r) => !(r.ranked && r.wowPct != null);
+  const split = (i) => off(rows[i]) && (i === 0 || !off(rows[i - 1]) || rows[i - 1].why !== rows[i].why)
+    && <div key={`split-${rows[i].why}`} className="gainer-split">{rows[i].why === "streams" ? "Under 1,000 streams" : "No week before yet"}</div>;
+  // "vs the week before" only when a row shown has one
+  const vs = rows?.some((r) => r.lastWeek != null) ? " · vs the week before" : "";
   // only a rise gets a rank number; a fall (ranked after every rise) shows its pill, unnumbered and muted
   const rose = (r) => r.ranked && r.wowPct != null && r.wowPct > 0;
   const rank = (r, i) => <span className="gainer-n">{rose(r) ? i + 1 : "·"}</span>;
@@ -141,7 +147,7 @@ export function TopGainers({ db, onGo, arTop, arLoaded }) {
       <div className="home-scroll" ref={body}>
         {isAR && rows?.length ? <p className="gainer-sub" data-ar-movers={ar.day ? "day" : "week"}>{ar.sub}</p>
           : lum ? <p className="gainer-sub" data-lum-week>{lum} · all platforms</p>
-          : span && <p className="gainer-sub">{dayRange(span.from, span.to)} · vs the week before · {isAR ? "Spotify monthly listeners" : "Spotify streams, global"}</p>}
+          : span && <p className="gainer-sub">{dayRange(span.from, span.to)}{vs} · {isAR ? "Spotify monthly listeners" : "Spotify streams, global"}</p>}
         {empty ? (
           <p className="gainers-empty">{empty}{!isAR && !top && failed && <> <button className="btn ghost sm" onClick={retry}>Try again</button></>}</p>
         ) : isAR ? rows.map((r, i) => (
