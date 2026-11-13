@@ -36,7 +36,8 @@ export const releaseDay = (s) => {
 // guards the clear: a cell holding a formula is never cleared ("refused", its reason), and a formula that changed
 // with the clear comes back as `alarm`, said loudly). (2026-11-13) It also sends the song's Luminate ID, title and the
 // row the sheet sync last read it from (its sheet fact): 119 rows didn't carry their song's Site Sync ID, so the route
-// found nothing to clear and the next sync brought the song back. The route finds the row by those instead
+// found nothing to clear and the next sync brought the song back. The route finds the row by those instead. A row
+// another song on the page still uses (the same title or Luminate ID: a duplicate card) is left: "shared", its title
 async function dropSong(db, commit, target, client) {
   if (!(await commit({ ...db, placements: db.placements.filter((p) => p.id !== target.id) }))) return null;
   const tab = client?.sheetTabName?.trim() || client?.name || "";
@@ -54,7 +55,7 @@ async function dropSong(db, commit, target, client) {
     if (res.status === 409 && data.refused) return { sheet: "refused", tab: (data.results || [])[0]?.tab || tab, error: data.error };
     if (!res.ok) throw Object.assign(new Error(data.error || `Sheet delete failed (${res.status})`), { alarm: data.alarm });
     const r = (data.results || [])[0] || {};
-    return { sheet: r.cleared ? "cleared" : r.found === false ? "noTab" : "notFound", tab: r.tab || tab, alarm: data.alarm || r.alarm || null };
+    return { sheet: r.cleared ? "cleared" : r.shared ? "shared" : r.found === false ? "noTab" : "notFound", tab: r.tab || tab, twin: r.shared || null, alarm: data.alarm || r.alarm || null };
   } catch (err) {
     console.error("Sheet delete failed:", err);
     return { sheet: "failed", tab, error: err.message, alarm: err.alarm || null };
@@ -69,6 +70,7 @@ const dropNote = (o) => {
     cleared: { text: `Deleted. Its row on the ${o.tab} tab is cleared.` },
     notFound: { warn: true, text: `Deleted here, but its row on the ${o.tab} tab wasn't found. Delete that row in the pub sheet by hand, or the next numbers sync brings the song back.` },
     noTab: { text: `Deleted. The pub sheet has no ${o.tab} tab, so there was no row to clear.` },
+    shared: { warn: true, text: `Deleted here. Its row on the ${o.tab} tab was left as it is: "${o.twin}" on this page has the same title or Luminate id and may use that row. Check it in the pub sheet.` },
     refused: { warn: true, text: `Deleted here, but its row on the ${o.tab} tab was left as it is: ${o.error} Check that row in the pub sheet.` },
     failed: { warn: true, text: `Deleted here, but the pub sheet couldn't be updated (${o.error || "no answer"}). Delete its row on the ${o.tab} tab by hand.` },
   }[o.sheet] || { text: "Deleted. It had no row on the pub sheet." };
@@ -88,10 +90,11 @@ export function NotOursAsk({ db, commit, songInfo, target, client, onDone, onClo
     if (!out) return onClose(); // the save's own error banner says why
     let noted = null;
     try { await songsPost({ action: "notOurs", clientId: target.clientId, song: target.song, artist: target.artist, luminateId: target.luminateId || "", placementId: target.id }); } catch (e) { noted = e.message; }
-    const sheetBad = out.sheet === "notFound" || out.sheet === "failed" || out.sheet === "refused";
+    const sheetBad = out.sheet === "notFound" || out.sheet === "failed" || out.sheet === "refused" || out.sheet === "shared";
     const text = [
       out.sheet === "cleared" ? "Removed from the catalog and the pub sheet."
         : out.sheet === "refused" ? `Removed from the catalog, but its row on the ${out.tab} tab was left as it is: ${out.error} Check that row in the pub sheet.`
+        : out.sheet === "shared" ? `Removed from the catalog. Its row on the ${out.tab} tab was left as it is: "${out.twin}" on this page has the same title or Luminate id and may use that row. Check it in the pub sheet.`
         : sheetBad ? `Removed from the catalog, but its row on the ${out.tab} tab ${out.sheet === "failed" ? "couldn't be cleared" : "wasn't found"}. Delete that row in the pub sheet by hand.` : "Removed from the catalog.",
       noted && `It couldn't be recorded as removed (${noted}), so a numbers sync may bring it back.`,
       out.alarm,
