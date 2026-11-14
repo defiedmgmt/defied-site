@@ -2330,6 +2330,13 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .acct-page .acct-tiles{margin:0 0 18px}
 .app:not(.pub) .acct-page .acct-tiles .cat-stat{justify-content:flex-start}   /* every value on one line; a note sits under its own */
 .app:not(.pub) .acct-page .acct-tiles .cat-stat[data-empty] .cat-stat-val{color:var(--d-ink-4)}   /* nothing logged this month yet */
+/* a client's page (components/portal/ClientPortal.jsx): when a card carries a note under its value ("incl. Spotify plays for 1
+   song not on Luminate yet"), label and value sit at the top of every card, so the values line up across the row; space-between
+   dropped the value of each card without a note to its foot. Where no card has a note space-between stays: it lines the values
+   up at the foot, even when one label wraps to two lines and its neighbour's doesn't. A staff view's labels carry a note of their
+   own ("(songs on the site)"): a label without one gets a blank line of the same size, so its value lines up too */
+.app:not(.pub) .portal-tiles:has(> .cat-stat > .cat-stat-note) .cat-stat{justify-content:flex-start}
+.app:not(.pub) .portal-tiles:has(> .cat-stat > .cat-stat-note):has(.cat-stat-label > .cat-stat-note) .cat-stat-label:not(:has(> .cat-stat-note))::after{content:"\00a0";display:block;margin-top:2px;font:400 11px/1.35 var(--d-body)}
 .app:not(.pub) .acct-latest{margin-top:18px}
 .app:not(.pub) .acct-latest .fix-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 .app:not(.pub) .acct-all{font-size:13px;white-space:nowrap}

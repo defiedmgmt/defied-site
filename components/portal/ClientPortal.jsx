@@ -350,7 +350,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
 
   const summaryBlock = db.sheetSync?.lastSyncedAt && (
         <div className="cat-summary">
-          <div className="cat-summary-grid">
+          <div className="cat-summary-grid portal-tiles">
 
             <div className="cat-stat" data-gross="site"><span className="cat-stat-label">Gross Streams{isStaff && <span className="cat-stat-note"> (songs on the site)</span>}</span><span className="cat-stat-val">{fmt(streamsNow.gross)}</span>
               {spotifyFill.n > 0 && <span className="cat-stat-note" data-gross-spotify={spotifyFill.n}>incl. Spotify plays for {spotifyFill.n} {spotifyFill.n === 1 ? "song" : "songs"} not on Luminate yet</span>}</div>

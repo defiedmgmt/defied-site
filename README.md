@@ -77,7 +77,9 @@ before `next build`. If a migration fails, the build stops and the live site sta
   (`lib/portal-streams.js`). Nothing about net streams, splits or money is on it.
 - A client gets only their own card. Staff need Clients access, and a Co-manager limited to their own artists gets
   only theirs. An artist with no streams yet gets "No streams to share yet." instead of a card.
-- A long song title gets smaller, then goes onto two lines; only past that does it end in "…".
+- A long song title gets smaller, then goes onto two lines; only past that does it end in "…". All the titles on a card
+  are one size, the biggest at which each of them fits (the smallest any one needs): one line where it fits, two where
+  it must.
 - The card's fonts cover Latin letters (accents included). A name in other letters (Japanese, Korean, Cyrillic, Greek…)
   gets "Your name uses letters the card can't draw yet." instead of a card with no name. A top song whose title is in
   such letters is left off the list (the total still counts it), and the window says how many were.
