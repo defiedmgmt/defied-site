@@ -1,0 +1,27 @@
+/* The share card (components/portal/share.jsx, 2026-11-13): its button on a client's streams "as of" line, and its
+   window (the dashboard's own dialog, .modal / .modal-card, with the card's preview in it). Loaded after app.css. */
+.app:not(.pub) .cat-asof-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;margin:8px 2px 0}
+.app:not(.pub) .cat-asof-row .cat-asof{margin:0;min-width:0}
+.app:not(.pub) .share-open{flex:none}
+
+.app:not(.pub) .modal-card.share-card{max-width:440px}
+.app:not(.pub) .share-body{align-items:center;gap:14px}
+/* Story / Post: the dashboard's pill toggle (the Dashboard's week tabs) */
+.app:not(.pub) .share-formats{display:inline-flex;flex:none;gap:2px;padding:2px;border:1px solid var(--d-line-2);border-radius:100px}
+.app:not(.pub) .share-formats button{min-width:84px;height:32px;padding:0 14px;border:0;border-radius:100px;background:none;color:var(--d-ink-4);
+  font:500 13px/1 var(--d-body);white-space:nowrap;cursor:pointer;transition:background-color var(--d-t-fast) ease,color var(--d-t-fast) ease}
+@media (hover:hover){ .app:not(.pub) .share-formats button:hover{color:var(--d-ink)} }
+.app:not(.pub) .share-formats button.active{background:var(--d-active);color:var(--d-ink)}
+.app:not(.pub) .share-formats button:focus-visible{outline:2px solid var(--d-ink-3);outline-offset:1px}
+@media (pointer:coarse){ .app:not(.pub) .share-formats button{height:40px} }
+
+/* the preview keeps the card's own shape while it loads, so nothing moves when it arrives */
+.app:not(.pub) .share-frame{display:flex;flex:none;align-items:center;justify-content:center;max-width:100%;overflow:hidden;
+  border:1px solid var(--d-line-2);border-radius:var(--d-r-md);background:var(--d-s2)}
+.app:not(.pub) .share-frame-story{height:min(52vh,460px);height:min(52dvh,460px);aspect-ratio:9/16}
+.app:not(.pub) .share-frame-post{height:min(44vh,400px);height:min(44dvh,400px);aspect-ratio:4/5}
+.app:not(.pub) .share-frame img{display:block;width:100%;height:100%;object-fit:contain}
+.app:not(.pub) .share-state{display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px;text-align:center;font-size:13px;line-height:1.45;color:var(--d-ink-3)}
+.app:not(.pub) .share-state p{margin:0}
+.app:not(.pub) .share-frame[data-share-state="error"] .share-state > svg{color:var(--d-warn)}
+.app:not(.pub) .share-note{margin:0;text-align:center}

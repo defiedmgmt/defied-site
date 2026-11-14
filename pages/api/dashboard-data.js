@@ -15,8 +15,7 @@ import { roleOf, cleanAccess, ROLE_KEYS, sectionLabel } from "../../lib/roles";
 import { readSheetFacts } from "../../lib/sheet-facts-store";
 import { afterAction } from "../../lib/area-tasks";
 import { MAX_DATA_BYTES } from "../../lib/image-links";
-import { getState } from "../../lib/app-state";
-import { streamSheetOn, streamSheetMonthly } from "../../lib/stream-sheet";
+import { streamsOn } from "../../lib/streams-on";
 import { mgmtListOf } from "../../lib/clickup-tasks";
 import { ownLinkOf } from "../../lib/commission";
 
@@ -94,20 +93,7 @@ const insertPlacement = (r) => sql`
 `;
 
 // Everything a staff session's GET returns — and what the size guard weighs.
-// the day of Luminate's last numbers for the clients' songs: what the pub sheet's streams still are (its
-// STREAM DATA tab isn't updated since list B #3), so a page says "streams as of" that day, not the pull's
-// the day the pub sheet's streams are from: STREAM DATA's writer's last update when it's on (lib/stream-sheet.js),
-// else Luminate's last numbers
-const streamsOn = async () => {
-  if (streamSheetOn()) { const st = await getState("streamSheet").catch(() => null); if (st?.at) return nyYmd(st.at); }
-  // monthly (2026-11-10): the newest applied Luminate report's day, once the sheet has been given one
-  if (streamSheetMonthly() && (await getState("streamSheet").catch(() => null))?.at) {
-    const [r] = await rowsOrNoneIfNoTable(sql`SELECT max(total_on)::text AS day FROM trueup_points`);
-    if (r?.day) return String(r.day).slice(0, 10);
-  }
-  return rowsOrNoneIfNoTable(sql`SELECT max(atd_on)::text AS day FROM lum_history WHERE area = 'roster'`).then((r) => (r[0]?.day ? String(r[0].day).slice(0, 10) : null));
-};
-const nyYmd = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(d));
+// the day the pub sheet's streams are from (streamsOn) is lib/streams-on.js's, shared with the share card
 
 async function staffPayload() {
   const [clients, placements, staff, users, submissions, notableReleases, [settings], notOurs, sheetFacts, lumDay, logins] = await Promise.all([

@@ -5,6 +5,7 @@ import { splitWords, orderSplits } from "../../lib/splits";
 import { typedSplit, pctText } from "../../lib/split-fixes";
 import LinkBox from "../LinkBox";
 import { SONG_GAPS } from "../../lib/sheet-facts";
+import { seesNetStreams } from "../../lib/roles";
 import { mergedCard, mergedTitle } from "../../lib/duplicates";
 import { PhoneSort } from "../ui/responsive";
 import { NAME_TAKEN, clientDeleteAsk, deleteClientCascade, nameTaken } from "./clients";
@@ -561,6 +562,13 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
   );
 }
 
+// The Overview table's columns, [id, label], in order: what every account sees, then behind "More columns" the Founder's
+// Net streams (2026-11-13) and, with Money access, the money columns
+export const overviewCols = ({ more = false, seeNet = false, seeMoney = false } = {}) => [
+  ["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"], ...(more && seeNet ? [["net", "Net streams"]] : []),
+  ...(seeMoney ? [...(more ? [["earn", "Pub earnings"]] : []), ["fee", "Potential admin fee"], ...(more ? [["share", "% of roster fee"]] : [])] : []),
+];
+
 // (Splits to confirm, Songs to update and the merge card are To do's now, r7: PubFix there shows them)
 function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient }) {
   const [state, setState] = useState({ loading: true, error: null, data: null });
@@ -652,8 +660,11 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   const MORE_COLS = ["net", "earn", "share"];
   // (2026-11-10) the money columns are the Founders' (Money access); a Co-manager sees streams only
   const seeMoney = canUse(db, "money");
-  const cols = [["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"], ...(more ? [["net", "Net streams"]] : []),
-    ...(seeMoney ? [...(more ? [["earn", "Pub earnings"]] : []), ["fee", "Potential admin fee"], ...(more ? [["share", "% of roster fee"]] : [])] : [])];
+  // (2026-11-13) and Net streams is a Founder's column (lib/roles.js seesNetStreams); with neither, "More columns" has
+  // nothing to add, so it isn't offered
+  const seeNet = seesNetStreams(db.access?.role);
+  const hasMore = overviewCols({ more: true, seeNet, seeMoney }).length > overviewCols({ more: false, seeNet, seeMoney }).length;
+  const cols = overviewCols({ more, seeNet, seeMoney });
   const val = { songs: (x) => x.songs, gross: (x) => x.r.grossStreams, net: (x) => x.r.netStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, share: (x) => Number(x.r.pctOfRoster) };
   const cell = { writer: null, songs: (r) => r.songs, gross: (r) => fmt(r.grossStreams), net: (r) => fmt(r.netStreams), earn: (r) => money(r.grossRevenue), fee: (r) => money(r.adminFee), share: (r) => `${r.pctOfRoster}%` };
   // Songs = the songs on the site for that writer (the client list's count beside it); the sheet's own
@@ -720,9 +731,9 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
             </p>}
           </div>
 
-          <div className="master-tools">
+          {hasMore && <div className="master-tools">
             <button className="btn ghost sm" data-more-cols aria-pressed={more} onClick={() => { setMore((f) => !f); if (more && MORE_COLS.includes(sort.col)) setSort({ col: "week", dir: -1, auto: true }); }}>{more ? "Fewer columns" : "More columns"}</button>
-          </div>
+          </div>}
           {/* phones: the table is a stack of cards (components/ui), so its sort is a picker */}
           <PhoneSort cols={cols.map(([id, label]) => ({ id, label }))} sort={by} onSort={(id) => setSort(() => ({ col: id, dir: by.col === id ? -by.dir : id === "writer" ? 1 : -1 }))} />
           <div className="master-table-wrap m-cards-wrap">

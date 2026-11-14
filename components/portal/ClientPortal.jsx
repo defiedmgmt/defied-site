@@ -4,6 +4,9 @@ import { X, LogOut, Plus, Disc3, RefreshCw, AlertTriangle, CheckCircle2, Eye, Pa
 import { PasswordCard } from "../dash/password";
 import { songSplit, splitWords, filledSplits, orderSplits } from "../../lib/splits";
 import { netStreamsOf } from "../../lib/sheet-facts";
+import { portalStreams, spotSongsOf, spotifyStandIn, trackKey } from "../../lib/portal-streams";
+import { seesNetStreams } from "../../lib/roles";
+import { ShareStats } from "./share";
 import { changedFields, goneText } from "../app/saves";
 import { ClientMore, SpotifyFill } from "../dash/clients";
 import { normalizeTitle, splitsToConfirm } from "../dash/catalog-data";
@@ -154,33 +157,34 @@ export async function pushOwnShare(saved, client, liveIds, keepPercent = null) {
 export const sheetShareToKeep = (fact, mine) =>
   fact?.share != null && mine && Math.abs(Number(fact.share) - Number(mine.percent)) <= 0.5 ? Number(fact.share) : null;
 
+// (a placement's Spotify track as the numbers' entity key, trackKey, is lib/portal-streams.js's: the share card's too)
+
 // editorOnly (To do's Fix / Update): only the song's editor and the strip after its Save, none of the client's page
-// a placement's Spotify track as the numbers' entity key (t:<id>), or null
-const trackKey = (link) => { const m = /open\.spotify\.com\/(?:intl-[a-z-]+\/)?track\/([A-Za-z0-9]{22})/.exec(String(link || "")); return m ? `t:${m[1]}` : null; };
 export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSongInfo, fix, onFix, onFixList, onGo, onDeleteClient, editorOnly = false }) {
   // staff's db has a `clients` array; a client session's db has just their
   // own `client` record (no `clients` array — that's not sent to them).
   const client = db.clients ? db.clients.find((c) => c.id === clientId) : db.client;
   // (2026-11-10) the money is the Founders' (Money access): a Co-manager sees streams, songs and splits
   const seeMoney = isStaff && (!db.access || db.access.sections.includes("money"));
+  // (2026-11-13) and net streams are a Founder's (lib/roles.js seesNetStreams): a client, a Co-manager and an Intern see
+  // the streams, never the net
+  const seeNet = isStaff && seesNetStreams(db.access?.role);
   const songs = useMemo(() => db.placements.filter((p) => p.clientId === clientId), [db.placements, clientId]);
-  // MASTER-tab-style rollup across this client's whole catalog. Gross
-  // streams (and $ figures) come straight off each placement — the sheet's
-  // own Gross Revenue/Admin Fee columns are already this person's share,
-  // not the whole song's, since they cascade from Net Streams (Gross ×
-  // their own Writer Share %). Net streams isn't stored anywhere, so it's
-  // recomputed here the same way the sheet computes it per row.
+  // MASTER-tab-style rollup across this client's whole catalog. The $ figures
+  // come straight off each placement — the sheet's own Gross Revenue/Admin Fee
+  // columns are already this person's share, not the whole song's, since they
+  // cascade from Net Streams (Gross × their own Writer Share %). Net streams
+  // isn't stored anywhere, so it's recomputed here the same way the sheet
+  // computes it per row. (Gross streams are lib/portal-streams.js's, below.)
   const summary = useMemo(() => {
-    let gross = 0, net = 0, revenue = 0, adminFee = 0;
+    let net = 0, revenue = 0, adminFee = 0;
     for (const p of songs) {
-      const streams = p.streams || 0;
-      gross += streams;
       const mine = ownSplit(p, client);
-      net += streams * ((Number(mine?.percent) || 0) / 100);
+      net += (p.streams || 0) * ((Number(mine?.percent) || 0) / 100);
       revenue += p.revenue || 0;
       adminFee += p.adminFee || 0;
     }
-    return { gross, net, revenue, adminFee };
+    return { net, revenue, adminFee };
   }, [songs, client?.name]);
   const growth = useGrowth();
   // this week = Spotify streams this week (the automated numbers, lib/data/growth.js), the songs whose week
@@ -332,14 +336,12 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   // Spotify was asked and shows no count (it doesn't below 1,000), said so wherever it's shown. null: nothing to add
   // (2026-11-13) a song is listed once, under one Spotify id: a copy here that links another id of the same song is
   // found by that one too (ids, lib/data/engine.js sameSongIds); a song's own id comes first
-  const spotSongs = useMemo(() => { const list = nums.artist?.songs || []; return new Map([...list.flatMap((x) => (x.ids || []).map((k) => [k, x])), ...list.map((x) => [x.id, x])]); }, [nums.artist]);
-  const spotifyOnly = (p) => {
-    if (p.streams > 0) return null;
-    const g = growth?.[p.id]?.latest, x = spotSongs.get(trackKey(p.link));
-    const n = g > 0 ? g : x?.streams?.latest > 0 ? x.streams.latest : null;
-    return n ? { n } : x?.under1k ? { under1k: true } : null;
-  };
-  const spotifyFill = useMemo(() => songs.reduce((a, p) => { const x = spotifyOnly(p); return x?.n ? { n: a.n + 1, plays: a.plays + x.n, net: a.net + x.n * ((Number(ownSplit(p, client)?.percent) || 0) / 100) } : a; }, { n: 0, plays: 0, net: 0 }), [songs, growth, spotSongs, client?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (2026-11-13) the reckoning is lib/portal-streams.js's, shared with the share card (lib/share-card.js), so the two
+  // can't disagree: Gross Streams = the sheet's streams + Spotify's for the songs it stands in for
+  const spotSongs = useMemo(() => spotSongsOf(nums.artist?.songs), [nums.artist]);
+  const spotifyOnly = (p) => spotifyStandIn(p, growth, spotSongs);
+  const streamsNow = useMemo(() => portalStreams(songs, { growth, spotSongs, shareOf: (p) => ownSplit(p, client)?.percent }), [songs, growth, spotSongs, client?.name]); // eslint-disable-line react-hooks/exhaustive-deps
+  const spotifyFill = streamsNow.spotifyFill;
   // the net streams shown are the sheet's own (MASTER's writer table, from the last pull); without it, the estimate
   // above. Either way plus the Spotify stand-in's share (as each song's window does): (2026-11-13) GloryTonio's Gross
   // counted 14,936 Spotify plays and his Net said 0. Those songs have no streams on the sheet, so its net has none of theirs
@@ -360,11 +362,11 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
         <div className="cat-summary">
           <div className="cat-summary-grid">
 
-            <div className="cat-stat" data-gross="site"><span className="cat-stat-label">Gross Streams{isStaff && <span className="cat-stat-note"> (songs on the site)</span>}</span><span className="cat-stat-val">{fmt(summary.gross + spotifyFill.plays)}</span>
+            <div className="cat-stat" data-gross="site"><span className="cat-stat-label">Gross Streams{isStaff && <span className="cat-stat-note"> (songs on the site)</span>}</span><span className="cat-stat-val">{fmt(streamsNow.gross)}</span>
               {spotifyFill.n > 0 && <span className="cat-stat-note" data-gross-spotify={spotifyFill.n}>incl. Spotify plays for {spotifyFill.n} {spotifyFill.n === 1 ? "song" : "songs"} not on Luminate yet</span>}</div>
-            {/* staff see where each comes from, as the two can differ: the net is the pub sheet's own figure once a pull read the tab */}
-            <div className="cat-stat" data-net={netShown.fromSheet ? "sheet" : "estimate"}><span className="cat-stat-label">Net Streams{!netShown.fromSheet ? <span className="cat-stat-note"> (estimate)</span> : isStaff && <span className="cat-stat-note"> ({spotifyFill.n > 0 ? "pub sheet + Spotify estimate" : "from the pub sheet"})</span>}</span><span className="cat-stat-val">{fmt(netShown.value)}</span>
-              {netShown.fromSheet && spotifyFill.n > 0 && <span className="cat-stat-note" data-net-spotify={spotifyFill.n}>incl. an estimate from Spotify plays for {notOnLuminate}</span>}</div>
+            {/* a Founder sees where each comes from, as the two can differ: the net is the pub sheet's own figure once a pull read the tab */}
+            {seeNet && <div className="cat-stat" data-net={netShown.fromSheet ? "sheet" : "estimate"}><span className="cat-stat-label">Net Streams{!netShown.fromSheet ? <span className="cat-stat-note"> (estimate)</span> : isStaff && <span className="cat-stat-note"> ({spotifyFill.n > 0 ? "pub sheet + Spotify estimate" : "from the pub sheet"})</span>}</span><span className="cat-stat-val">{fmt(netShown.value)}</span>
+              {netShown.fromSheet && spotifyFill.n > 0 && <span className="cat-stat-note" data-net-spotify={spotifyFill.n}>incl. an estimate from Spotify plays for {notOnLuminate}</span>}</div>}
             {isStaff ? (
               <>
                 {/* estimates, not cash we hold: clients are paid their publishing directly, our commission is billed through Stripe */}
@@ -381,10 +383,15 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               </>
             )}
           </div>
-          <p className="hint cat-asof">
-            {isStaff ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt })
-              : `Streams as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}
-          </p>
+          {/* (2026-11-13) the share card sits on the streams' own line: their total and top songs as an image
+              (components/portal/share.jsx); nothing to share before there are streams */}
+          <div className="cat-asof-row">
+            <p className="hint cat-asof">
+              {isStaff ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt })
+                : `Streams as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}
+            </p>
+            {streamsNow.gross > 0 && <ShareStats clientId={clientId} name={client?.name} isStaff={!!isStaff} />}
+          </div>
         </div>
   );
   return (
@@ -502,18 +509,18 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               {/* the numbers before the pie (build I3): at 1440x900 Net streams is in view without scrolling, the warning above it too */}
               {db.sheetSync?.lastSyncedAt && (
                 <div className="split-list song-nums">
-                  {/* no streams from the sheet yet: Spotify's plays stand in, and the net is estimated from them */}
+                  {/* no streams from the sheet yet: Spotify's plays stand in, and (a Founder's) net is estimated from them */}
                   {(() => {
                     const sp = spotifyOnly(active);
                     // the song's row on the sheet gives its net streams (gross × the sheet's writer share); without a row, or
-                    // with Spotify standing in, the site's split estimates it
+                    // with Spotify standing in, the site's split estimates it. A Founder's figure only (seeNet)
                     const f = !sp && db.sheetFacts?.songs?.[active.id];
                     const share = (Number(ownSplit(active, client)?.percent) || 0) / 100;
                     const net = f ? fmt(f.net) : sp?.under1k ? "—" : fmt(Math.round((sp?.n ?? active.streams ?? 0) * share));
                     return (
                       <>
                         <div className="split-list-row" data-song-streams={sp ? (sp.under1k ? "spotify-under-1k" : "spotify") : "sheet"}><span className="split-name">Streams{sp && <em> (Spotify, until Luminate has it)</em>}</span><span className="split-pct">{sp?.under1k ? "Under 1,000" : fmt(sp?.n ?? active.streams)}</span></div>
-                        <div className="split-list-row" data-song-net={f ? "sheet" : "estimate"}><span className="split-name">Net streams{!f && <em> (estimate)</em>}</span><span className="split-pct">{net}</span></div>
+                        {seeNet && <div className="split-list-row" data-song-net={f ? "sheet" : "estimate"}><span className="split-name">Net streams{!f && <em> (estimate)</em>}</span><span className="split-pct">{net}</span></div>}
                       </>
                     );
                   })()}
