@@ -3,8 +3,9 @@
 //   GET  -> { info: { roster, managers, problem } | null, annualCovered, freeTabs, noTab, writes: { accounting, pub },
 //           off: { accounting, pub } }. INFO's data needs Money; the pub sheet's free tabs and the clients with no tab
 //           need Publishing. Reads only (one accounting read, two pub sheet reads).
-//   POST { action: "client", clientId, rate, manager, cut, newManager? }  Money: the client's row on INFO. rate and cut
-//           are percents (20, 67), as the form shows them
+//   POST { action: "client", clientId, mode, row?, was?, rate, manager, cut, newManager? }  Money: the client's row on
+//           INFO. rate and cut are percents (20, 67), as the form shows them; null leaves that cell as it is. mode "add"
+//           or "update" with row and was (its D, E, F as the form read them): a row changed since is refused (stale)
 //   POST { action: "manager", name }  Money: one more name on INFO's managers list
 //   POST { action: "tab", clientId }  Publishing: a free WRITER tab on the pub sheet for the client
 // 503 with the gate's sentence when that sheet's writes are off, 409 with the sentence when it was refused (nothing
@@ -44,14 +45,15 @@ async function get(req, res) {
   return res.status(200).json(out);
 }
 
-// a result from lib/people-sync.js as the answer
+// a result from lib/people-sync.js as the answer (stale: INFO changed since the form was filled; addedManager: a new
+// manager went on INFO's list before the client's row was refused, so the form can pick them)
 function answer(res, r) {
-  if (r.refused) return res.status(r.off ? 503 : 409).json({ error: r.refused, ...(r.busy ? { busy: true } : {}) });
+  if (r.refused) return res.status(r.off ? 503 : 409).json({ error: r.refused, ...(r.busy ? { busy: true } : {}), ...(r.stale ? { stale: true } : {}), ...(r.addedManager ? { addedManager: r.addedManager } : {}) });
   return res.status(200).json(r);
 }
 function googleError(res, err, sheet) {
   console.error("people sync failed:", err);
-  if (err?.sentence) return res.status(502).json({ error: err.message });
+  if (err?.sentence) return res.status(502).json({ error: err.message, ...(err.addedManager ? { addedManager: err.addedManager } : {}) });
   if (googleDenied(err)) return res.status(502).json({ error: noEditText(sheet) });
   return res.status(502).json({ error: `Couldn't write to ${sheet} just now, so nothing was changed. Try again in a minute.` });
 }
@@ -70,7 +72,9 @@ export default async function handler(req, res) {
   const sheet = need === "money" ? "the accounting sheet" : "the pub sheet";
   try {
     if (b.action === "client") {
-      return answer(res, await saveClientToInfo({ clientId: String(b.clientId || ""), rate: pctIn(b.rate), cut: pctIn(b.cut), manager: String(b.manager ?? "").slice(0, 80), newManager: String(b.newManager ?? "").slice(0, 80) }, { by: by(session) }));
+      const was = b.was && typeof b.was === "object" ? { D: b.was.D ?? "", E: b.was.E ?? "", F: b.was.F ?? "" } : null;
+      return answer(res, await saveClientToInfo({ clientId: String(b.clientId || ""), mode: b.mode === "add" || b.mode === "update" ? b.mode : null, row: b.row == null ? null : Number(b.row), was,
+        rate: pctIn(b.rate), cut: pctIn(b.cut), manager: String(b.manager ?? "").slice(0, 80), newManager: String(b.newManager ?? "").slice(0, 80) }, { by: by(session) }));
     }
     if (b.action === "manager") return answer(res, await addManagerToInfo(String(b.name ?? "").slice(0, 80), { by: by(session) }));
     return answer(res, await createClientTab(String(b.clientId || ""), { by: by(session) }));

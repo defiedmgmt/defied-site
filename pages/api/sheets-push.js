@@ -29,6 +29,7 @@ import { requireSameOrigin } from "../../lib/session";
 import { requireAccess, limited, mayUseClient } from "../../lib/access";
 import { sql } from "../../lib/db";
 import { ownerOf, findByName } from "../../lib/names";
+import { withTabLock, TAB_BUSY } from "../../lib/people-sync";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
@@ -87,9 +88,20 @@ export default async function handler(req, res) {
         // a new tab has no share of its own to keep: the share's rules first, before a tab is claimed for it
         const bad = pushShareProblem({ ...rules, percent });
         if (bad) return res.status(409).json({ error: `${bad} Nothing was written to the pub sheet.`, refused: true, written: results.length > 0, results });
-        tab = await claimTabForNewCollaborator(sheets, spreadsheetId, name, tabs);
+        // (2026-11-13 review) one tab claimed at a time, with the Roster form's "Give them a pub sheet tab"
+        // (lib/people-sync.js withTabLock): both rename the lowest free WRITER tab. The tab list is read again inside
+        // the lock, so a tab just made for this name is used, not claimed twice; a WRITER tab a client goes by (their
+        // Sheet tab name) is never claimed.
+        const skip = tabsOfOthers(known, owner);
+        const got = await withTabLock(session.user?.name || session.user?.email || "song push", async () => {
+          const now = await listTabs(sheets, spreadsheetId);
+          const there = findTab(now, name, skip);
+          return there ? { tab: there, made: false } : { tab: await claimTabForNewCollaborator(sheets, spreadsheetId, name, now, skip), made: true };
+        }, { waits: 2 });
+        if (got.busy) return res.status(409).json({ error: `${TAB_BUSY} ${results.length ? `${name}'s share wasn't written yet.` : "Nothing was written to the pub sheet."}`, refused: true, written: results.length > 0, results });
+        tab = got.value.tab;
+        created = got.value.made;
         tabs = await listTabs(sheets, spreadsheetId); // refresh — a tab was renamed/created
-        created = true;
       }
 
       const syncId = `${placementId}:${name.toLowerCase()}`;

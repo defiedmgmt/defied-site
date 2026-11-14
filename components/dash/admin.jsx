@@ -212,7 +212,9 @@ async function peoplePost(body) {
   const r = await fetch("/api/people-sync", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify(body) }).catch(() => null);
   if (!r) return { error: "Couldn't reach the site. Try again." };
   const j = await r.json().catch(() => ({}));
-  return r.ok ? j : { error: j.error || "That didn't go through. Try again in a minute." };
+  // a refusal keeps what the form needs: stale (INFO changed since it was filled), addedManager (a new manager went on
+  // INFO's list before the client's row was refused)
+  return r.ok ? j : { error: j.error || "That didn't go through. Try again in a minute.", ...(j.stale ? { stale: true } : {}), ...(j.addedManager ? { addedManager: j.addedManager } : {}) };
 }
 const pctText = (x) => (x == null ? "" : String(Math.round(Number(x) * 10000) / 100));
 const pctOk = (v) => String(v ?? "").trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100;
@@ -244,29 +246,40 @@ function AccountingPart({ client, unsaved, ps, reloadDb }) {
   const names = (info?.managers || []).map((m) => m.name);
   const [f, setF] = useState(null);
   const [busy, setBusy] = useState(false), [res, setRes] = useState(null);
+  // (2026-11-13 review) filled from INFO as read, never a made-up figure: a blank Commission stays blank. base: the row
+  // it was filled from, sent with the save (a row changed on INFO since is refused, never typed over), and each field's
+  // text then, so only what was changed is sent (a cut of 66.6667% isn't rewritten as 66.67 by a commission change)
   useEffect(() => {
     if (!info || info.problem || f) return;
-    setF({ rate: row?.rate != null ? pctText(row.rate) : "20", manager: !row ? PICK_MANAGER : !row.manager ? "" : names.includes(row.manager) ? row.manager : PICK_MANAGER,
-      cut: row?.manager && row.cut != null ? pctText(row.cut) : "", newName: "" });
-  }, [info]); // eslint-disable-line react-hooks/exhaustive-deps
+    const rate = row?.rate != null ? pctText(row.rate) : "", cut = row?.manager && row.cut != null ? pctText(row.cut) : "";
+    const manager = !row ? PICK_MANAGER : !row.manager ? "" : names.includes(row.manager) ? row.manager : PICK_MANAGER;
+    setF({ rate, manager, cut, newName: "", base: row ? { row: row.row, raw: row.raw || {}, rate, manager, cut } : null });
+  }, [info, f == null]); // eslint-disable-line react-hooks/exhaustive-deps
   const offList = row?.manager && !names.includes(row.manager);
   const hasManager = f && f.manager !== "" && f.manager !== PICK_MANAGER;
+  const b = f?.base;
+  const rateSent = !!f && (!b || f.rate.trim() !== b.rate);
+  const cutSent = !!hasManager && (!b || f.cut.trim() !== b.cut || b.cut === "");
+  const changed = !b || rateSent || cutSent || f.manager !== b.manager;
   const why = !d ? (ps.failed ? "Couldn't read the accounting sheet just now." : "Reading the accounting sheet…") : info?.problem ? null : unsaved
     || (!d.writes?.accounting ? d.off?.accounting : null)
     || (!f ? "Reading the accounting sheet…" : null)
-    || (!row && info?.nextClientRow == null ? "INFO's client list is full (rows 4 to 43)." : null)
-    || (!pctOk(f.rate) ? "Type the commission as a number from 0 to 100." : null)
+    || (!b && info?.nextClientRow == null ? "INFO's client list is full (rows 4 to 43)." : null)
+    || (rateSent && !pctOk(f.rate) ? "Type the commission as a number from 0 to 100." : null)
     || (f.manager === PICK_MANAGER ? "Pick a manager first." : null)
     || (f.manager === NEW_MANAGER && !f.newName.trim() ? "Type the new manager's name." : null)
-    || (hasManager && !pctOk(f.cut) ? "Type the manager's cut as a number from 0 to 100." : null);
+    || (cutSent && !pctOk(f.cut) ? "Type the manager's cut as a number from 0 to 100." : null)
+    || (!changed ? "Change something first." : null);
   const save = async () => {
     setBusy(true); setRes(null);
-    const r = await peoplePost({ action: "client", clientId: client.id, rate: Number(f.rate), manager: f.manager === NEW_MANAGER ? "" : f.manager, cut: hasManager ? Number(f.cut) : null, newManager: f.manager === NEW_MANAGER ? f.newName.trim() : "" });
+    const r = await peoplePost({ action: "client", clientId: client.id, mode: b ? "update" : "add", row: b?.row ?? null, was: b ? b.raw : null,
+      rate: rateSent ? Number(f.rate) : null, manager: f.manager === NEW_MANAGER ? "" : f.manager, cut: cutSent ? Number(f.cut) : null, newManager: f.manager === NEW_MANAGER ? f.newName.trim() : "" });
+    // INFO as it reads now, whatever the answer (a new manager may have gone on its list before a refusal)
+    await ps.load(true);
     setBusy(false); setRes(r);
-    if (r.ok || r.alarm) {
-      if (r.addedManager) setF((x) => ({ ...x, manager: r.addedManager, newName: "" }));
-      ps.load(true); reloadDb?.();
-    }
+    if (r.ok || r.alarm || r.stale) setF(null); // filled again from INFO as it reads now
+    else if (r.addedManager) setF((x) => ({ ...x, manager: r.addedManager, newName: "" }));
+    if (r.ok || r.alarm) reloadDb?.();
   };
   return (
     <fieldset className="fld sheet-part" data-acct-part>
@@ -276,7 +289,8 @@ function AccountingPart({ client, unsaved, ps, reloadDb }) {
       {f && !info?.problem && (
         <>
           <label className="fld"><span>Commission %</span>
-            <input inputMode="decimal" autoComplete="off" value={f.rate} aria-invalid={!pctOk(f.rate)} onChange={(ev) => setF({ ...f, rate: ev.target.value })} data-acct-rate /></label>
+            <input inputMode="decimal" autoComplete="off" value={f.rate} aria-invalid={rateSent && !pctOk(f.rate)} onChange={(ev) => setF({ ...f, rate: ev.target.value })} data-acct-rate />
+            {b && b.rate === "" && !f.rate.trim() && <span className="hint">Blank on INFO. It stays blank unless you type one.</span>}</label>
           <label className="fld"><span>Manager</span>
             <select value={f.manager} onChange={(ev) => setF({ ...f, manager: ev.target.value })} data-acct-manager>
               {f.manager === PICK_MANAGER && <option value={PICK_MANAGER} disabled>Pick one</option>}
@@ -290,7 +304,7 @@ function AccountingPart({ client, unsaved, ps, reloadDb }) {
           {hasManager && (
             <div className="fld"><span>Manager's cut %</span>
               <span className="sheet-cut">
-                <input inputMode="decimal" autoComplete="off" value={f.cut} aria-invalid={!pctOk(f.cut)} aria-label="Manager's cut %" onChange={(ev) => setF({ ...f, cut: ev.target.value })} data-acct-cut />
+                <input inputMode="decimal" autoComplete="off" value={f.cut} aria-invalid={cutSent && !pctOk(f.cut)} aria-label="Manager's cut %" onChange={(ev) => setF({ ...f, cut: ev.target.value })} data-acct-cut />
                 {["50", "67"].map((v) => <button key={v} type="button" className={`btn ghost sm${f.cut === v ? " on" : ""}`} onClick={() => setF({ ...f, cut: v })}>{v}%</button>)}
               </span>
               <span className="hint">Defied keeps the rest.</span>
@@ -299,7 +313,7 @@ function AccountingPart({ client, unsaved, ps, reloadDb }) {
         </>
       )}
       <div className="sheet-go">
-        <button type="button" className="btn sm" disabled={!!why || busy || !!info?.problem} onClick={save} data-acct-save>{busy ? "Saving…" : row ? "Update the accounting sheet" : "Add to the accounting sheet"}</button>
+        <button type="button" className="btn sm" disabled={!!why || busy || !!info?.problem} onClick={save} data-acct-save>{busy ? "Saving…" : f?.base || (!f && row) ? "Update the accounting sheet" : "Add to the accounting sheet"}</button>
         {why && d && !info?.problem && <span className="hint">{why}</span>}
       </div>
       <Said res={res} />
