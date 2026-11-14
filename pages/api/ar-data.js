@@ -1,11 +1,14 @@
 // Staff-only A&R data: the OUTREACH / ADVANCE CALCULATOR / ASSUMPTIONS tabs read as one unformatted
 // snapshot, each row matched to the dashboard's permanent prospect id (lib/ar.js reconcile: it also
 // takes in prospects typed into the sheet by hand and notices rows sorted, renamed or cleared there,
-// and writes nothing to the sheet), plus every signed client's Net Streams for the Advance
-// calculator. When the sheet can't be read, the prospects come from what it last said (stale) and
-// saving pauses. ?check=1 is the read-only Sheet check. Writes go through /api/ar-write.
+// and writes nothing to the sheet), plus the signed clients' Net Streams for the Advance
+// calculator (only to an account with Money access, which is who can open it, and to one limited to
+// its own artists only theirs: signedClientsFor). When the sheet can't be read, the prospects come
+// from what it last said (stale) and saving pauses. ?check=1 is the read-only Sheet check. Writes go
+// through /api/ar-write.
 import { sql } from "../../lib/db";
 import { requireAccess } from "../../lib/access";
+import { seesNetStreams } from "../../lib/roles";
 import { findByName } from "../../lib/names";
 import { readArSheet, readChecks, sheetCheck, sheetProspect, seenProspect, settlePending } from "../../lib/ar-sheet";
 import { reconcile, OUTREACH_STATUSES, OUTREACH_TAB, ADVANCE_TAB } from "../../lib/ar";
@@ -38,6 +41,17 @@ async function readSignedClientsWithNetStreams() {
   });
 }
 
+// Which signed clients this account gets, with their gross and net streams: the Advance calculator's (Clients ›
+// Advance calculator, Money access only). Net streams go with the money (lib/roles.js seesNetStreams, 2026-11-13), so
+// an account without Money gets none, and an account limited to its own artists gets only theirs ("no other artist's
+// number reaches it", as /api/sheets-master). access: requireAccess's req.access
+export function signedClientsFor(access, list) {
+  if (!seesNetStreams(access)) return [];
+  if (!access.ownOnly) return list;
+  const mine = new Set(access.clientIds || []);
+  return list.filter((c) => mine.has(c.id));
+}
+
 async function offBoard() {
   const rows = await sql`SELECT id, name, removed_at, removed_by FROM ar_prospects WHERE removed_at IS NOT NULL AND merged_into IS NULL ORDER BY removed_at DESC`;
   return rows.map((r) => ({ id: r.id, name: r.name, removedAt: r.removed_at, why: r.removed_by === "sheet" ? "gone from the sheet" : "removed" }));
@@ -65,7 +79,8 @@ export default async function handler(req, res) {
       // Google's own wording ("Internal error encountered.") means nothing on the A&R tab: logged here
       console.error("ar-data sheet read failed:", err);
     }
-    const signedClients = await readSignedClientsWithNetStreams();
+    // (read only for an account that may have them)
+    const signedClients = seesNetStreams(req.access) ? signedClientsFor(req.access, await readSignedClientsWithNetStreams()) : [];
     // the one-time "found N prospects" card, until [Got it]
     const firstRun = async () => { const f = await getState("arFirstRun"); return f && !f.dismissed ? { found: f.found } : null; };
 

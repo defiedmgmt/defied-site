@@ -35,10 +35,11 @@ export default async function handler(req, res) {
     // the money; without it the line just says "the sheet's blended rate"
     const a = await readAssumptions(sheets, spreadsheetId).catch(() => ({}));
     // runRate (B9) and decayRate (B8): the forecast tile says Year 1 = the fee so far × B9 × (1 − B8)
-    // (2026-11-10) the money is the Founders' (Money access): streams and song counts only for anyone else
+    // (2026-11-10) the money is the Founders' (Money access): streams and song counts only for anyone else. (2026-11-13)
+    // and net streams go with the money (lib/roles.js seesNetStreams, the same rule): the gross streams only
     if (!(req.access?.sections || []).includes("money")) {
-      const keep = ({ writer, sheetTab, songs, grossStreams, netStreams }) => ({ writer, sheetTab, songs, grossStreams, netStreams });
-      const totals = Object.fromEntries(Object.entries(rollup.totals || {}).filter(([k]) => /streams|songs/i.test(k)));
+      const keep = ({ writer, sheetTab, songs, grossStreams }) => ({ writer, sheetTab, songs, grossStreams });
+      const totals = Object.fromEntries(Object.entries(rollup.totals || {}).filter(([k]) => /streams|songs/i.test(k) && !/net/i.test(k)));
       // (and no links into the pub sheet's Drive: its folder is the Founders')
       return res.status(200).json({ totals, rows: rollup.rows.map(keep), rosterTotal: rollup.rosterTotal ? keep(rollup.rosterTotal) : null, links: {}, rate: null, runRate: null, decayRate: null });
     }

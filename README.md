@@ -77,6 +77,10 @@ before `next build`. If a migration fails, the build stops and the live site sta
   (`lib/portal-streams.js`). Nothing about net streams, splits or money is on it.
 - A client gets only their own card. Staff need Clients access, and a Co-manager limited to their own artists gets
   only theirs. An artist with no streams yet gets "No streams to share yet." instead of a card.
+- A long song title gets smaller, then goes onto two lines; only past that does it end in "…".
+- The card's fonts cover Latin letters (accents included). A name in other letters (Japanese, Korean, Cyrillic, Greek…)
+  gets "Your name uses letters the card can't draw yet." instead of a card with no name. A top song whose title is in
+  such letters is left off the list (the total still counts it), and the window says how many were.
 - The card's fonts and logo are read from `public/` when it's drawn. `next.config.js` traces those files (and
   next/og's own) into that one function on Vercel.
 - `node scripts/render-share-card.mjs stats.json story out.png` draws a card from a stats file, for checking the
@@ -93,7 +97,10 @@ Every staff login has a role. Founders set roles in **Site › Users** (`lib/rol
 | Intern | Site only (website content, messages). |
 | Client | Their own portal. Unchanged. |
 
-Net streams are a Founder's figure only (2026-11-13): clients, Co-managers and Interns see the streams, not the net.
+Net streams go with the money (2026-11-13): only an account with **Money** access sees them, which is a Founder unless a
+Founder turns Money on for someone else. That holds on an artist's page, the Overview, the Advance calculator and the
+APIs behind them (`lib/roles.js` `seesNetStreams`). Clients, and Co-managers and Interns without Money, see the streams,
+not the net.
 
 - A Founder can turn any section on or off for one person, on top of their role.
 - "Only their own artists" limits a Co-manager to the clients whose **Assigned Manager** on the accounting sheet's

@@ -562,8 +562,8 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
   );
 }
 
-// The Overview table's columns, [id, label], in order: what every account sees, then behind "More columns" the Founder's
-// Net streams (2026-11-13) and, with Money access, the money columns
+// The Overview table's columns, [id, label], in order: what every account sees, then behind "More columns" Net streams
+// (seeNet, 2026-11-13) and, with Money access, the money columns
 export const overviewCols = ({ more = false, seeNet = false, seeMoney = false } = {}) => [
   ["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"], ...(more && seeNet ? [["net", "Net streams"]] : []),
   ...(seeMoney ? [...(more ? [["earn", "Pub earnings"]] : []), ["fee", "Potential admin fee"], ...(more ? [["share", "% of roster fee"]] : [])] : []),
@@ -660,9 +660,9 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   const MORE_COLS = ["net", "earn", "share"];
   // (2026-11-10) the money columns are the Founders' (Money access); a Co-manager sees streams only
   const seeMoney = canUse(db, "money");
-  // (2026-11-13) and Net streams is a Founder's column (lib/roles.js seesNetStreams); with neither, "More columns" has
+  // (2026-11-13) and Net streams go with the money (lib/roles.js seesNetStreams); without them, "More columns" has
   // nothing to add, so it isn't offered
-  const seeNet = seesNetStreams(db.access?.role);
+  const seeNet = !db.access || seesNetStreams(db.access);
   const hasMore = overviewCols({ more: true, seeNet, seeMoney }).length > overviewCols({ more: false, seeNet, seeMoney }).length;
   const cols = overviewCols({ more, seeNet, seeMoney });
   const val = { songs: (x) => x.songs, gross: (x) => x.r.grossStreams, net: (x) => x.r.netStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, share: (x) => Number(x.r.pctOfRoster) };
@@ -784,7 +784,9 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
 // (r11: the ISRCs tab is gone, the owner: "why is there an isrc tab on the pub tab do i need that ?". The finder is
 // To do's "N songs have no ISRC" row now, /dashboard/todo/isrc; the old /dashboard/catalog/isrc opens it there.)
 export function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, onSub, chip = null }) {
-  const seeMoney = canUse(db, "money"), own = !!db.access?.ownOnly; // the Advance calculator is money: the Founders'
+  // the Advance calculator is money: the Founders' (Money access). It runs on net streams, which go with the money
+  // (lib/roles.js seesNetStreams), and /api/ar-data sends its clients' net streams only to an account with Money
+  const seeMoney = canUse(db, "money"), own = !!db.access?.ownOnly;
   const [sec, setSec] = useState(seeMoney && (sub === "advance" || sub?.startsWith("advance:")) ? "advance" : "overview");
   const editSong = sub?.startsWith("edit:") ? db.placements.find((p) => p.id === sub.slice(5)) : null;
   // null clientId = the read-only Overview landing page, not "no selection"

@@ -28,7 +28,7 @@ function failWords(status, said) {
   const line = String(said || "").trim();
   const own = line && line.length <= 140 && !/^</.test(line) ? line : "";
   if (status === 401) return "Your sign-in has ended. Sign in again, then try again.";
-  if (status === 403 || status === 404 || status === 409) return own || "This card can't be made.";
+  if (status === 403 || status === 404 || status === 409 || status === 422) return own || "This card can't be made.";
   return "Couldn't make the card just now. Try again in a minute.";
 }
 async function getCard(clientId, format, isStaff) {
@@ -44,12 +44,15 @@ async function getCard(clientId, format, isStaff) {
     const text = await res.text().catch(() => "");
     let said = text;
     try { said = JSON.parse(text).error || ""; } catch { /* plain text */ }
-    throw Object.assign(new Error(failWords(res.status, said)), { final: res.status === 409 || res.status === 403 || res.status === 404 });
+    throw Object.assign(new Error(failWords(res.status, said)), { final: [403, 404, 409, 422].includes(res.status) });
   }
   const blob = await res.blob();
   if (!blob.size) throw new Error("Couldn't make the card just now. Try again in a minute.");
-  return blob;
+  // top songs whose titles use letters the card can't draw are left off its list (GET /api/share-card says how many)
+  return { blob, leftOff: Number(res.headers.get("X-Share-Left-Off")) || 0 };
 }
+// "1 song is left off the list: its title uses letters the card can't draw yet."
+export const leftOffWords = (n) => (n > 0 ? `${n === 1 ? "1 song is" : `${n} songs are`} left off the list: ${n === 1 ? "its title uses" : "their titles use"} letters the card can't draw yet.` : "");
 // the preview is a data: URL (the site's CSP lets images come from data:, not blob:, as the photo upload's preview does)
 const dataUrlOf = (blob) => new Promise((resolve, reject) => {
   const r = new FileReader();
@@ -64,7 +67,7 @@ const shareable = (file) => {
 
 export function ShareDialog({ clientId, name, isStaff, onClose }) {
   const [format, setFormat] = useState("story");
-  // per format: { loading } | { src (the preview), url (Save image's download link), file, canShare } | { error, final }
+  // per format: { loading } | { src (the preview), url (Save image's download link), file, canShare, leftOff } | { error, final }
   const [cards, setCards] = useState({});
   const [shareMsg, setShareMsg] = useState(null);
   const alive = useRef(true);
@@ -78,13 +81,13 @@ export function ShareDialog({ clientId, name, isStaff, onClose }) {
   }, []);
   const load = (f) => {
     setCards((c) => ({ ...c, [f]: { loading: true } }));
-    getCard(clientId, f, isStaff).then(async (blob) => {
+    getCard(clientId, f, isStaff).then(async ({ blob, leftOff }) => {
       const src = await dataUrlOf(blob);
       if (!alive.current) return;
       const url = URL.createObjectURL(blob);
       urls.current.push(url);
       const file = typeof File !== "undefined" ? new File([blob], fileName, { type: "image/png" }) : null;
-      setCards((c) => ({ ...c, [f]: { src, url, file, canShare: !!file && shareable(file) } }));
+      setCards((c) => ({ ...c, [f]: { src, url, file, canShare: !!file && shareable(file), leftOff } }));
     }).catch((e) => { if (alive.current) setCards((c) => ({ ...c, [f]: { error: e.message, final: !!e.final } })); });
   };
   useEffect(() => { if (!cards[format]) load(format); setShareMsg(null); }, [format]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -130,6 +133,7 @@ export function ShareDialog({ clientId, name, isStaff, onClose }) {
               )}
           </div>
           <p className="hint share-note">{format === "story" ? "Story size, 1080 × 1920." : "Post size, 1080 × 1350."} Streams and top songs only.</p>
+          {card.src && card.leftOff > 0 && <p className="hint share-note" data-share-left-off={card.leftOff}>{leftOffWords(card.leftOff)}</p>}
           {shareMsg && <p className="hint err-text share-note" role="alert">{shareMsg}</p>}
         </div>
         <div className="modal-foot">

@@ -166,9 +166,12 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   const client = db.clients ? db.clients.find((c) => c.id === clientId) : db.client;
   // (2026-11-10) the money is the Founders' (Money access): a Co-manager sees streams, songs and splits
   const seeMoney = isStaff && (!db.access || db.access.sections.includes("money"));
-  // (2026-11-13) and net streams are a Founder's (lib/roles.js seesNetStreams): a client, a Co-manager and an Intern see
+  // (2026-11-13) and net streams go with the money (lib/roles.js seesNetStreams): a client, and staff without Money, see
   // the streams, never the net
-  const seeNet = isStaff && seesNetStreams(db.access?.role);
+  const seeNet = isStaff && (!db.access || seesNetStreams(db.access));
+  // the stat row's Songs tile: a client's, and staff's when there's no money to show, so Gross Streams never stands alone
+  // stretched across the row (2026-11-13); where it shows, the song list's heading leaves its own count out
+  const songsTile = !isStaff || !seeMoney;
   const songs = useMemo(() => db.placements.filter((p) => p.clientId === clientId), [db.placements, clientId]);
   // MASTER-tab-style rollup across this client's whole catalog. The $ figures
   // come straight off each placement — the sheet's own Gross Revenue/Admin Fee
@@ -364,21 +367,23 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
 
             <div className="cat-stat" data-gross="site"><span className="cat-stat-label">Gross Streams{isStaff && <span className="cat-stat-note"> (songs on the site)</span>}</span><span className="cat-stat-val">{fmt(streamsNow.gross)}</span>
               {spotifyFill.n > 0 && <span className="cat-stat-note" data-gross-spotify={spotifyFill.n}>incl. Spotify plays for {spotifyFill.n} {spotifyFill.n === 1 ? "song" : "songs"} not on Luminate yet</span>}</div>
-            {/* a Founder sees where each comes from, as the two can differ: the net is the pub sheet's own figure once a pull read the tab */}
+            {/* staff with Money see where each comes from, as the two can differ: the net is the pub sheet's own figure once a pull read the tab */}
             {seeNet && <div className="cat-stat" data-net={netShown.fromSheet ? "sheet" : "estimate"}><span className="cat-stat-label">Net Streams{!netShown.fromSheet ? <span className="cat-stat-note"> (estimate)</span> : isStaff && <span className="cat-stat-note"> ({spotifyFill.n > 0 ? "pub sheet + Spotify estimate" : "from the pub sheet"})</span>}</span><span className="cat-stat-val">{fmt(netShown.value)}</span>
               {netShown.fromSheet && spotifyFill.n > 0 && <span className="cat-stat-note" data-net-spotify={spotifyFill.n}>incl. an estimate from Spotify plays for {notOnLuminate}</span>}</div>}
-            {isStaff ? (
+            {isStaff ? (seeMoney ? (
               <>
                 {/* estimates, not cash we hold: clients are paid their publishing directly, our commission is billed through Stripe */}
                 {/* (2026-11-13) the money is the pub sheet's songs only: the ones Spotify stands in for earn nothing there yet */}
-                {seeMoney && <div className="cat-stat"><span className="cat-stat-label">Pub earnings <span className="cat-stat-note">(est., paid to them directly)</span></span><span className="cat-stat-val">{money(summary.revenue)}</span>
-                  {spotifyFill.n > 0 && <span className="cat-stat-note" data-money-sheet-only>leaves out the {notOnLuminate}</span>}</div>}
-                {seeMoney && <div className="cat-stat"><span className="cat-stat-label">Potential admin fee <span className="cat-stat-note">(est.)</span></span><span className="cat-stat-val">{money(summary.adminFee)}</span>
-                  {spotifyFill.n > 0 && <span className="cat-stat-note" data-money-sheet-only>leaves out the {notOnLuminate}</span>}</div>}
+                <div className="cat-stat"><span className="cat-stat-label">Pub earnings <span className="cat-stat-note">(est., paid to them directly)</span></span><span className="cat-stat-val">{money(summary.revenue)}</span>
+                  {spotifyFill.n > 0 && <span className="cat-stat-note" data-money-sheet-only>leaves out the {notOnLuminate}</span>}</div>
+                <div className="cat-stat"><span className="cat-stat-label">Potential admin fee <span className="cat-stat-note">(est.)</span></span><span className="cat-stat-val">{money(summary.adminFee)}</span>
+                  {spotifyFill.n > 0 && <span className="cat-stat-note" data-money-sheet-only>leaves out the {notOnLuminate}</span>}</div>
               </>
             ) : (
+              <div className="cat-stat" data-songs-tile><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
+            )) : (
               <>
-                <div className="cat-stat"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
+                <div className="cat-stat" data-songs-tile><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
                 {weekGain != null && <div className="cat-stat"><span className="cat-stat-label">This Week</span><span className="cat-stat-val grow-val">{signed(weekGain)}</span></div>}
               </>
             )}
@@ -442,9 +447,10 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
           <h2>Songs &amp; Publishing Splits</h2>
           <p className="muted">
             {/* the song count already lives in the summary's Songs stat for
-                clients — repeating it here would just be the same number
-                twice. Staff never see a Songs stat there, so keep it here. */}
-            {(isStaff || !db.sheetSync?.lastSyncedAt) && `${songs.length} Song${songs.length === 1 ? "" : "s"} · `}
+                clients, and for staff who see no money (songsTile) — repeating
+                it here would just be the same number twice. Staff with the
+                money columns see no Songs stat there, so keep it here. */}
+            {(!songsTile || !db.sheetSync?.lastSyncedAt) && `${songs.length} Song${songs.length === 1 ? "" : "s"} · `}
             Click any to see the breakdown.
           </p>
           {isStaff && pushWarn && <p className="hint err-text">{pushWarn}</p>}
@@ -509,11 +515,11 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               {/* the numbers before the pie (build I3): at 1440x900 Net streams is in view without scrolling, the warning above it too */}
               {db.sheetSync?.lastSyncedAt && (
                 <div className="split-list song-nums">
-                  {/* no streams from the sheet yet: Spotify's plays stand in, and (a Founder's) net is estimated from them */}
+                  {/* no streams from the sheet yet: Spotify's plays stand in, and (with Money access) the net is estimated from them */}
                   {(() => {
                     const sp = spotifyOnly(active);
                     // the song's row on the sheet gives its net streams (gross × the sheet's writer share); without a row, or
-                    // with Spotify standing in, the site's split estimates it. A Founder's figure only (seeNet)
+                    // with Spotify standing in, the site's split estimates it. Only with Money access (seeNet)
                     const f = !sp && db.sheetFacts?.songs?.[active.id];
                     const share = (Number(ownSplit(active, client)?.percent) || 0) / 100;
                     const net = f ? fmt(f.net) : sp?.under1k ? "—" : fmt(Math.round((sp?.n ?? active.streams ?? 0) * share));

@@ -26,7 +26,7 @@ if (!["story", "post"].includes(formatArg)) {
 const tried = [];
 globalThis.fetch = async (url) => { tried.push(String(url)); throw new Error("render-share-card: no network"); };
 
-const { renderCardPng, formatOf } = await import(path.join(ROOT, "lib/share-card-render.js"));
+const { renderCardPng, formatOf, cardText, loadAssets } = await import(path.join(ROOT, "lib/share-card-render.js"));
 const stats = JSON.parse(fs.readFileSync(statsPath, "utf8"));
 const format = formatOf(formatArg);
 const out = outArg || statsPath.replace(/\.json$/i, "") + `-${format}.png`;
@@ -34,6 +34,10 @@ const png = await renderCardPng(stats, format, { root: ROOT });
 fs.mkdirSync(path.dirname(path.resolve(out)), { recursive: true });
 fs.writeFileSync(out, png);
 console.log(`${out} (${format}, ${png.length.toLocaleString("en-US")} bytes)`);
+// what the site would do differently from this drawing (GET /api/share-card)
+const said = cardText(stats, loadAssets(ROOT));
+if (said.nameIssue) console.log(`  The site sends no card for this one: the name ${said.nameIssue === "blank" ? "is blank" : "uses letters the card can't draw"} (it answers 422).`);
+if (said.leftOff) console.log(`  ${said.leftOff} top song(s) left off the list: the title uses letters the card can't draw.`);
 if (tried.length) {
   console.error(`It tried to fetch ${tried.length} thing(s) for characters the fonts lack: ${tried.join(", ")}`);
   process.exit(1);
