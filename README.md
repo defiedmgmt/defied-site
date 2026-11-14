@@ -97,10 +97,11 @@ Every staff login has a role. Founders set roles in **Site › Users** (`lib/rol
 | Intern | Site only (website content, messages). |
 | Client | Their own portal. Unchanged. |
 
-Net streams go with the money (2026-11-13): only an account with **Money** access sees them, which is a Founder unless a
-Founder turns Money on for someone else. That holds on an artist's page, the Overview, the Advance calculator and the
-APIs behind them (`lib/roles.js` `seesNetStreams`). Clients, and Co-managers and Interns without Money, see the streams,
-not the net.
+Net streams are for the spreadsheet (2026-11-13): an artist's page (the Net Streams card and a song's Net streams row)
+and the Overview (the Net streams column) show them to no one, Founders included. The Advance calculator is the one place
+that still uses them, as the input of its estimate, so it and the data behind it (`/api/ar-data`'s signed clients, and the
+net columns of `/api/sheets-master`) are for an account with **Money** access, which is a Founder unless a Founder turns
+Money on for someone else (`lib/roles.js` `seesNetStreams`).
 
 - A Founder can turn any section on or off for one person, on top of their role.
 - "Only their own artists" limits a Co-manager to the clients whose **Assigned Manager** on the accounting sheet's

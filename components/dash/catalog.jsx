@@ -5,7 +5,6 @@ import { splitWords, orderSplits } from "../../lib/splits";
 import { typedSplit, pctText } from "../../lib/split-fixes";
 import LinkBox from "../LinkBox";
 import { SONG_GAPS } from "../../lib/sheet-facts";
-import { seesNetStreams } from "../../lib/roles";
 import { mergedCard, mergedTitle } from "../../lib/duplicates";
 import { PhoneSort } from "../ui/responsive";
 import { NAME_TAKEN, clientDeleteAsk, deleteClientCascade, nameTaken } from "./clients";
@@ -562,10 +561,11 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
   );
 }
 
-// The Overview table's columns, [id, label], in order: what every account sees, then behind "More columns" Net streams
-// (seeNet, 2026-11-13) and, with Money access, the money columns
-export const overviewCols = ({ more = false, seeNet = false, seeMoney = false } = {}) => [
-  ["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"], ...(more && seeNet ? [["net", "Net streams"]] : []),
+// The Overview table's columns, [id, label], in order: what every account sees, then with Money access the money columns
+// (some behind "More columns"). (2026-11-13, the owner: "u can hide net streams for founders too") No Net streams column,
+// for anyone
+export const overviewCols = ({ more = false, seeMoney = false } = {}) => [
+  ["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"],
   ...(seeMoney ? [...(more ? [["earn", "Pub earnings"]] : []), ["fee", "Potential admin fee"], ...(more ? [["share", "% of roster fee"]] : [])] : []),
 ];
 
@@ -629,7 +629,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   const rate = state.data?.rate;
   // the writers' table: This week first (each writer's songs that have both weeks, added up, as
   // lib/weekly.js sumWeeks), biggest % first; any column head re-sorts. Writer, Songs, This week, Streams and
-  // Our fee show; Net streams, Their earnings and the share of the roster's fee wait behind "More columns"
+  // Our fee show; Their earnings and the share of the roster's fee wait behind "More columns"
   // (r7: the 3-year forecast lives on the Advance calculator)
   const { growth } = useGrowthState();
   // r11 fix: until there's a week of daily Spotify numbers, This week is Luminate's newest week, the same one the
@@ -657,16 +657,14 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
     // under 1,000 streams this week a % says little (1 → 2 is "▲ 100%"): streams only, as on the Dashboard
     return { thisWeek: t, wowPct: l > 0 && t >= WEEK_PCT_MIN ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null };
   };
-  const MORE_COLS = ["net", "earn", "share"];
+  const MORE_COLS = ["earn", "share"];
   // (2026-11-10) the money columns are the Founders' (Money access); a Co-manager sees streams only
   const seeMoney = canUse(db, "money");
-  // (2026-11-13) and Net streams go with the money (lib/roles.js seesNetStreams); without them, "More columns" has
-  // nothing to add, so it isn't offered
-  const seeNet = !db.access || seesNetStreams(db.access);
-  const hasMore = overviewCols({ more: true, seeNet, seeMoney }).length > overviewCols({ more: false, seeNet, seeMoney }).length;
-  const cols = overviewCols({ more, seeNet, seeMoney });
-  const val = { songs: (x) => x.songs, gross: (x) => x.r.grossStreams, net: (x) => x.r.netStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, share: (x) => Number(x.r.pctOfRoster) };
-  const cell = { writer: null, songs: (r) => r.songs, gross: (r) => fmt(r.grossStreams), net: (r) => fmt(r.netStreams), earn: (r) => money(r.grossRevenue), fee: (r) => money(r.adminFee), share: (r) => `${r.pctOfRoster}%` };
+  // without Money "More columns" has nothing to add (2026-11-13), so it isn't offered
+  const hasMore = overviewCols({ more: true, seeMoney }).length > overviewCols({ more: false, seeMoney }).length;
+  const cols = overviewCols({ more, seeMoney });
+  const val = { songs: (x) => x.songs, gross: (x) => x.r.grossStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, share: (x) => Number(x.r.pctOfRoster) };
+  const cell = { writer: null, songs: (r) => r.songs, gross: (r) => fmt(r.grossStreams), earn: (r) => money(r.grossRevenue), fee: (r) => money(r.adminFee), share: (r) => `${r.pctOfRoster}%` };
   // Songs = the songs on the site for that writer (the client list's count beside it); the sheet's own
   // count, when it differs, is said under it (a song the site has that isn't on the writer's tab yet)
   const siteSongs = (client, r) => (client ? db.placements.filter((p) => p.clientId === client.id).length : r.songs);
