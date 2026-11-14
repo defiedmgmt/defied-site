@@ -13,7 +13,7 @@ export { ClientMore, clientDeleteAsk, deleteClientCascade, NAME_TAKEN, nameTaken
 
 
 /* generic editable list ------------------------------------------------ */
-export function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete, openId = null, noAdd = false }) {
+export function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete, openId = null, noAdd = false, openNew = null }) {
   const [editing, setEditing] = useState(null); // object or null
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState(null);
@@ -30,6 +30,9 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
   const start = (obj) => { from.current = obj; setFormErr(null); setEditing(obj ? { ...obj } : { id: null, ...blank }); };
   // a link to one row (To do's "Set X's sheet tab") opens its form
   useEffect(() => { const it = openId && items.find((x) => x.id === openId); if (it) start(it); }, [openId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (2026-11-13) a new row's form opened already filled in ({ key, values }: Site › Users' "Add login" for a manager
+  // on the accounting sheet); nothing is saved until Save
+  useEffect(() => { if (openNew) { from.current = null; setFormErr(null); setEditing({ id: null, ...blank, ...openNew.values }); } }, [openNew?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   // only what was changed in the form goes onto the row as it is now, so a change that landed while
   // it was open (another tab's save, the Clients-tab sync) isn't put back. A failed save stays open:
   // onSave gives false (the banner says why) or a message for the form.
@@ -106,7 +109,9 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
   );
 }
 
-export function ClientsAdmin({ db, commit, openId = null, songInfo = null }) {
+// focus "accounting" (Site › Sync's "Add X to the sheet"): the form opens on its accounting sheet part, not the sheet tab
+export function ClientsAdmin({ db, commit, openId = null, songInfo = null, reloadDb = null, focus = null }) {
+  const tabFocus = !!openId && focus !== "accounting";
   // the clients the "numbers can't sync" To do names: each row says so, and its form says why
   const noTab = noTabNames(db, songInfo).map((n) => findTabClient(db, n)).filter(Boolean);
   const noTabIds = new Set(noTab.map((c) => c.id));
@@ -169,13 +174,225 @@ export function ClientsAdmin({ db, commit, openId = null, songInfo = null }) {
           <Field label="TikTok handle" value={e.tiktok} onChange={(ev) => set({ ...e, tiktok: ev.target.value })} />
           <Field label="SoundCloud URL" value={e.soundcloud} onChange={(ev) => set({ ...e, soundcloud: ev.target.value })} />
           {/* opened from To do's "Set X's sheet tab": this field has the focus and says what's wrong */}
-          <Field label="Sheet tab name" value={e.sheetTabName} onChange={(ev) => set({ ...e, sheetTabName: ev.target.value })} autoFocus={!!openId && e.id === openId} data-sheet-tab=""
-            hint={`${(openId && e.id === openId) || noTabIds.has(e.id) ? `The pub sheet has no tab called ${db.clients.find((c) => c.id === e.id)?.sheetTabName?.trim() || db.clients.find((c) => c.id === e.id)?.name}. ` : ""}Only needed if their tab on the pub sheet goes by a different name. Case, accents, punctuation and a “!” used as an i don't count — Stack!e already finds a tab named Stackie.`} />
+          <Field label="Sheet tab name" value={e.sheetTabName} onChange={(ev) => set({ ...e, sheetTabName: ev.target.value })} autoFocus={tabFocus && e.id === openId} data-sheet-tab=""
+            hint={`${(tabFocus && e.id === openId) || noTabIds.has(e.id) ? `The pub sheet has no tab called ${db.clients.find((c) => c.id === e.id)?.sheetTabName?.trim() || db.clients.find((c) => c.id === e.id)?.name}. ` : ""}Only needed if their tab on the pub sheet goes by a different name. Case, accents, punctuation and a “!” used as an i don't count — Stack!e already finds a tab named Stackie.`} />
           {taken(e, "sheetTabName") && <p className="hint err-text">{NAME_TAKEN}</p>}
+          <SheetsPart e={e} set={set} db={db} reloadDb={reloadDb} focus={focus === "accounting" && e.id === openId} />
         </>
       )}
     />
     </div>
+  );
+}
+
+/* (2026-11-13) people sync: the sheets from the site (lib/people-sync.js, /api/people-sync). The owner: "i just want an
+   easier way to add the managers and clients and stuff on the site and have it all sync to the sheets". A client's form
+   gets its row on the accounting sheet's INFO tab (Money) and a tab on the pub sheet (Clients); Site › Users gets INFO's
+   managers list. Every write is the server's, checked against the sheet first and read back after. */
+// GET /api/people-sync, kept a minute for every form that opens (it costs three Google reads)
+const peopleCache = { at: 0, d: null, p: null };
+function usePeopleSync(on) {
+  const fresh = () => (peopleCache.d && Date.now() - peopleCache.at < 60000 ? peopleCache.d : null);
+  const [data, setData] = useState(fresh);
+  const [failed, setFailed] = useState(false);
+  const load = (force = false) => {
+    if (!on) return Promise.resolve(null);
+    if (!force && fresh()) { setData(fresh()); return Promise.resolve(fresh()); }
+    if (!force && peopleCache.p) return peopleCache.p.then((d) => { if (d) setData(d); else setFailed(true); return d; });
+    setFailed(false);
+    const p = fetch("/api/people-sync", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+      .then((d) => { if (peopleCache.p === p) peopleCache.p = null; if (d) { peopleCache.d = d; peopleCache.at = Date.now(); setData(d); } else setFailed(true); return d; });
+    peopleCache.p = p;
+    return p;
+  };
+  useEffect(() => { load(); }, [on]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { data, failed, load };
+}
+async function peoplePost(body) {
+  const r = await fetch("/api/people-sync", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify(body) }).catch(() => null);
+  if (!r) return { error: "Couldn't reach the site. Try again." };
+  const j = await r.json().catch(() => ({}));
+  return r.ok ? j : { error: j.error || "That didn't go through. Try again in a minute." };
+}
+const pctText = (x) => (x == null ? "" : String(Math.round(Number(x) * 10000) / 100));
+const pctOk = (v) => String(v ?? "").trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100;
+const NEW_MANAGER = "__new", PICK_MANAGER = "__pick";
+// a save's answer as one line: what was done, or the alarm (red), or why not
+const Said = ({ res }) => (!res ? null : <p className={`hint ${res.ok && !res.alarm ? "ok-text" : "err-text"}`} role="status" data-sheet-said>{[res.text, res.alarm, res.error].filter(Boolean).join(" ")}</p>);
+
+function SheetsPart({ e, set, db, reloadDb, focus }) {
+  const money = canUse(db, "money"), pub = canUse(db, "publishing");
+  const ps = usePeopleSync(money || pub);
+  const box = useRef(null);
+  useEffect(() => { if (focus) box.current?.scrollIntoView?.({ block: "center" }); }, [focus]);
+  if (!money && !pub) return null;
+  const saved = e.id && db.clients.find((c) => c.id === e.id);
+  // the server writes the client as saved: an unsaved name (or sheet tab name) would go to the sheet as it was
+  const unsaved = !saved ? "Save the client first." : (saved.name || "").trim() !== (e.name || "").trim() ? "Save the name change first." : null;
+  return (
+    <div ref={box} className="sheet-parts">
+      {money && <AccountingPart client={saved || e} unsaved={unsaved} ps={ps} reloadDb={reloadDb} />}
+      {pub && <TabPart client={saved || e} unsaved={unsaved || (saved && (saved.sheetTabName || "").trim() !== (e.sheetTabName || "").trim() ? "Save the sheet tab name first." : null)} ps={ps} reloadDb={reloadDb} onTab={(tab) => set({ ...e, sheetTabName: tab })} />}
+    </div>
+  );
+}
+
+// The client's row on INFO: Commission (D), Manager (E, from INFO's own list), Manager's cut (F)
+function AccountingPart({ client, unsaved, ps, reloadDb }) {
+  const d = ps.data, info = d?.info;
+  const row = (info?.roster || []).find((r) => client.id && r.clientId === client.id) || null;
+  const names = (info?.managers || []).map((m) => m.name);
+  const [f, setF] = useState(null);
+  const [busy, setBusy] = useState(false), [res, setRes] = useState(null);
+  useEffect(() => {
+    if (!info || info.problem || f) return;
+    setF({ rate: row?.rate != null ? pctText(row.rate) : "20", manager: !row ? PICK_MANAGER : !row.manager ? "" : names.includes(row.manager) ? row.manager : PICK_MANAGER,
+      cut: row?.manager && row.cut != null ? pctText(row.cut) : "", newName: "" });
+  }, [info]); // eslint-disable-line react-hooks/exhaustive-deps
+  const offList = row?.manager && !names.includes(row.manager);
+  const hasManager = f && f.manager !== "" && f.manager !== PICK_MANAGER;
+  const why = !d ? (ps.failed ? "Couldn't read the accounting sheet just now." : "Reading the accounting sheet…") : info?.problem ? null : unsaved
+    || (!d.writes?.accounting ? d.off?.accounting : null)
+    || (!f ? "Reading the accounting sheet…" : null)
+    || (!row && info?.nextClientRow == null ? "INFO's client list is full (rows 4 to 43)." : null)
+    || (!pctOk(f.rate) ? "Type the commission as a number from 0 to 100." : null)
+    || (f.manager === PICK_MANAGER ? "Pick a manager first." : null)
+    || (f.manager === NEW_MANAGER && !f.newName.trim() ? "Type the new manager's name." : null)
+    || (hasManager && !pctOk(f.cut) ? "Type the manager's cut as a number from 0 to 100." : null);
+  const save = async () => {
+    setBusy(true); setRes(null);
+    const r = await peoplePost({ action: "client", clientId: client.id, rate: Number(f.rate), manager: f.manager === NEW_MANAGER ? "" : f.manager, cut: hasManager ? Number(f.cut) : null, newManager: f.manager === NEW_MANAGER ? f.newName.trim() : "" });
+    setBusy(false); setRes(r);
+    if (r.ok || r.alarm) {
+      if (r.addedManager) setF((x) => ({ ...x, manager: r.addedManager, newName: "" }));
+      ps.load(true); reloadDb?.();
+    }
+  };
+  return (
+    <fieldset className="fld sheet-part" data-acct-part>
+      <legend>Accounting sheet</legend>
+      <p className="hint" data-acct-status>{!d ? (ps.failed ? "Couldn't read the accounting sheet just now." : "Reading the accounting sheet…") : info?.problem ? <span className="err-text">{info.problem}</span>
+        : row ? `On the accounting sheet, row ${row.row}.` : "Not on the accounting sheet yet."}</p>
+      {f && !info?.problem && (
+        <>
+          <label className="fld"><span>Commission %</span>
+            <input inputMode="decimal" autoComplete="off" value={f.rate} aria-invalid={!pctOk(f.rate)} onChange={(ev) => setF({ ...f, rate: ev.target.value })} data-acct-rate /></label>
+          <label className="fld"><span>Manager</span>
+            <select value={f.manager} onChange={(ev) => setF({ ...f, manager: ev.target.value })} data-acct-manager>
+              {f.manager === PICK_MANAGER && <option value={PICK_MANAGER} disabled>Pick one</option>}
+              {names.map((n) => <option key={n} value={n}>{n}</option>)}
+              <option value="">No manager (Defied keeps 100%)</option>
+              <option value={NEW_MANAGER}>New manager…</option>
+            </select>
+            {offList && <span className="hint">INFO says {row.manager}, which isn't on its manager list.</span>}
+          </label>
+          {f.manager === NEW_MANAGER && <Field label="New manager's name" value={f.newName} onChange={(ev) => setF({ ...f, newName: ev.target.value })} hint="Spelled as the sheet should have it. It goes on INFO's manager list first." data-acct-new-manager="" />}
+          {hasManager && (
+            <div className="fld"><span>Manager's cut %</span>
+              <span className="sheet-cut">
+                <input inputMode="decimal" autoComplete="off" value={f.cut} aria-invalid={!pctOk(f.cut)} aria-label="Manager's cut %" onChange={(ev) => setF({ ...f, cut: ev.target.value })} data-acct-cut />
+                {["50", "67"].map((v) => <button key={v} type="button" className={`btn ghost sm${f.cut === v ? " on" : ""}`} onClick={() => setF({ ...f, cut: v })}>{v}%</button>)}
+              </span>
+              <span className="hint">Defied keeps the rest.</span>
+            </div>
+          )}
+        </>
+      )}
+      <div className="sheet-go">
+        <button type="button" className="btn sm" disabled={!!why || busy || !!info?.problem} onClick={save} data-acct-save>{busy ? "Saving…" : row ? "Update the accounting sheet" : "Add to the accounting sheet"}</button>
+        {why && d && !info?.problem && <span className="hint">{why}</span>}
+      </div>
+      <Said res={res} />
+    </fieldset>
+  );
+}
+
+// A client with no tab on the pub sheet: a free WRITER tab, renamed for them (its MASTER row comes with it)
+function TabPart({ client, unsaved, ps, reloadDb, onTab }) {
+  const d = ps.data;
+  const [busy, setBusy] = useState(false), [res, setRes] = useState(null);
+  if (!d || d.noTab == null) return null;
+  if (client.id && !d.noTab.includes(client.id) && !res) return null; // they have one
+  const title = (client.sheetTabName || "").trim() || (client.name || "").trim();
+  const why = unsaved || (!d.writes?.pub ? d.off?.pub : null) || (d.freeTabs === 0 ? "No free WRITER tab left on the pub sheet." : null);
+  const go = async () => {
+    setBusy(true); setRes(null);
+    const r = await peoplePost({ action: "tab", clientId: client.id });
+    setBusy(false); setRes(r);
+    if (r.ok) { if (r.tab) onTab?.(r.tab); ps.load(true); reloadDb?.(); }
+  };
+  return (
+    <div className="sheet-part sheet-tab-part" data-tab-part>
+      {!res?.ok && <p className="hint">No tab on the pub sheet yet, so their numbers can't sync.</p>}
+      {!res?.ok && (
+        <div className="sheet-go">
+          <button type="button" className="btn ghost sm" disabled={!!why || busy} onClick={go} data-tab-make>{busy ? "Making the tab…" : "Give them a pub sheet tab"}</button>
+          <span className="hint">{why || `A free WRITER tab is renamed ${title}. Its MASTER row comes with it.`}</span>
+        </div>
+      )}
+      <Said res={res} />
+    </div>
+  );
+}
+
+// Site › Users: INFO's managers list, each with their login (lib/roles.js sameManager, the own-artists rule: Caden is
+// not Cayden). A manager with no login is fine; "Add login" only opens the new-user form, filled in.
+function SheetManagers({ db, roleOf, onAddLogin }) {
+  const money = canUse(db, "money");
+  const ps = usePeopleSync(money);
+  const [name, setName] = useState(""), [busy, setBusy] = useState(null), [res, setRes] = useState(null);
+  if (!money) return null;
+  const d = ps.data, info = d?.info, managers = info?.managers || [];
+  const staff = db.users.filter((u) => u.role === "staff");
+  const loginOf = (n) => staff.find((u) => sameManager(n, u.name));
+  const unlisted = staff.filter((u) => roleOf(u) === "comanager" && (u.name || "").trim() && !managers.some((m) => sameManager(m.name, u.name)));
+  const off = d && !d.writes?.accounting ? d.off?.accounting : null;
+  const full = !!d && !info?.problem && info?.nextManagerRow == null;
+  const add = async (n) => {
+    setBusy(n); setRes(null);
+    const r = await peoplePost({ action: "manager", name: n });
+    setBusy(null); setRes(r);
+    if (r.ok) { setName(""); ps.load(true); }
+  };
+  return (
+    <section className="sheet-managers" data-sheet-managers>
+      <h3>Managers on the accounting sheet</h3>
+      <p className="hint">INFO's manager list: the names a client's Assigned Manager is picked from.</p>
+      {!d ? <p className="hint">{ps.failed ? "Couldn't read the accounting sheet just now." : "Reading the accounting sheet…"}</p>
+        : info?.problem ? <p className="hint err-text">{info.problem}</p> : (
+        <ul className="sheet-mgr-list">
+          {managers.map((m) => {
+            const u = loginOf(m.name);
+            return (
+              <li key={m.row} data-sheet-manager={m.name}>
+                <b>{m.name}</b>
+                {u ? <span className="muted"> · login {u.email}</span>
+                  : <><span className="muted"> · No login (that's fine)</span> <button type="button" className="inline-link" onClick={() => onAddLogin(m.name)} data-add-login>Add login</button></>}
+              </li>
+            );
+          })}
+          {!managers.length && <li className="muted">No names on the list yet.</li>}
+        </ul>
+      )}
+      {d && !info?.problem && unlisted.length > 0 && (
+        <>
+          <p className="hint">Co-manager logins not on INFO's list:</p>
+          <ul className="sheet-mgr-list">
+            {unlisted.map((u) => (
+              <li key={u.id} data-unlisted={u.name.trim()}><b>{u.name.trim()}</b> <button type="button" className="inline-link" disabled={!!off || !!busy || full} onClick={() => add(u.name.trim())} data-add-to-sheet>{busy === u.name.trim() ? "Adding…" : "Add to the sheet"}</button></li>
+            ))}
+          </ul>
+        </>
+      )}
+      {d && !info?.problem && (
+        <div className="sheet-mgr-add">
+          <label className="fld"><span>Add a manager (no login)</span><input value={name} autoComplete="off" onChange={(ev) => setName(ev.target.value)} data-add-manager-name /></label>
+          <button type="button" className="btn sm" disabled={!name.trim() || !!off || !!busy || full} onClick={() => add(name.trim())} data-add-manager>{busy && busy === name.trim() ? "Adding…" : "Add"}</button>
+        </div>
+      )}
+      {(off || full) && <p className="hint">{off || "INFO's manager list is full (L4 to L13)."}</p>}
+      <Said res={res} />
+    </section>
   );
 }
 
@@ -338,11 +555,14 @@ export function UsersAdmin({ db, commit, reloadDb }) {
   const setPick = (e, set, v) => set({ ...e, role: v === "client" ? "client" : "staff", staffRole: v === "client" ? null : v,
     access: v === "comanager" && e.access?.ownOnly === false ? { ownOnly: false } : {} });
   const setSection = (e, set, k, on) => set({ ...e, access: cleanAccess(pickOf(e), { ...e.access, sections: { ...(e.access?.sections || {}), [k]: on } }) });
+  // (2026-11-13) "Add login" for a manager on the accounting sheet: the new-user form, their name and Co-manager filled in
+  const [newUser, setNewUser] = useState(null);
+  const addLogin = (name) => setNewUser({ key: Date.now(), values: { name, role: "staff", staffRole: "comanager", access: {} } });
   return (
     <>
     <Editor title="Users" items={db.users} columns={cols}
       blank={{ email: "", password: "", role: "staff", staffRole: "comanager", access: {}, name: "", clientId: null }}
-      onSave={save} onDelete={del}
+      onSave={save} onDelete={del} openNew={newUser}
       extra={(e, set) => {
         const pick = pickOf(e), a = e.role === "staff" ? accessOf(e) : null, mine = a?.ownOnly ? artistsOf(e.name) : [];
         return (
@@ -399,6 +619,7 @@ export function UsersAdmin({ db, commit, reloadDb }) {
       }}
     />
     {founder && <p className="hint users-managers" data-managers-at>Each artist's manager comes from the accounting sheet's INFO tab{managers.at ? `, read ${shortDay(managers.at)}` : ""}. <button type="button" className="inline-link" onClick={managers.update} disabled={managers.busy}>{managers.busy ? "Reading the sheet…" : "Update from the sheet"}</button>{managers.err && <span className="err-text"> {managers.err}</span>}</p>}
+    <SheetManagers db={db} roleOf={pickOf} onAddLogin={addLogin} />
     </>
   );
 }

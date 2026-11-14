@@ -270,9 +270,12 @@ export function SyncView({ ctx }) {
             <div key={c.id} className="attn-row sync-row" data-check={c.id} data-ok={c.ok === true ? "ok" : c.ok === false ? "warn" : "unknown"}>
               <i className="sync-dot" aria-hidden="true" />
               <span className="attn-main"><b>{c.text}</b>{c.detail && <em>{c.detail}</em>}</span>
-              {c.ok === false && c.fix && (c.fix.kind === "url"
+              {/* (2026-11-13) a "go" fix only opens a page, so it shows on a green line too (INFO's "Caden has no site login":
+                  Site › Users); "also" is a second link beside the fix (INFO's "Open the sheet ↗") */}
+              {(c.ok === false || c.fix?.kind === "go") && c.fix && (c.fix.kind === "url"
                 ? <ExtLink className="btn ghost sm" href={c.fix.url}>{c.fix.label}</ExtLink>
                 : <button type="button" className="btn ghost sm" data-sync-fix={c.id} disabled={!!busy} onClick={() => syncFix(c, ctx, (b) => setBusy(b ? c.id : null), setNote)}>{busy === c.id ? "Working…" : c.fix.label}</button>)}
+              {c.ok === false && c.also?.kind === "url" && <ExtLink className="btn ghost sm" href={c.also.url}>{c.also.label}</ExtLink>}
             </div>
           ))}
         </div>

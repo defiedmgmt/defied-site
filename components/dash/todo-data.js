@@ -150,6 +150,8 @@ export function useAutoConfirm({ db, commit, songInfo, fixes }) {
 export async function syncFix(check, ctx, setBusy, setNote) {
   const { db, commit, reloadSongInfo, sync, onGo } = ctx;
   if (check.fix?.kind === "todo") return onGo("todo", check.fix.area);
+  // (2026-11-13, people sync) a page to open: INFO's "Add prodzo to the sheet" (their form), "Site › Users"
+  if (check.fix?.kind === "go") return onGo(check.fix.tab, check.fix.sub || null);
   setBusy(true); setNote(null);
   try {
     const { missing } = await fullSiteSync(db, commit);

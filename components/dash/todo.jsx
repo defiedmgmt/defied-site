@@ -312,12 +312,13 @@ function SheetTabFix({ ctx }) {
 
 // what to do about INFO, for what the check found (2026-11-13: it always said "add the missing names", for an extra
 // name on INFO too). An older answer without counts gets the names advice, as before.
+// (2026-11-13, people sync) a client on the site only is added from their own form now; INFO's managers are copied by
+// the site itself; a manager with no login is fine (Caden has none on purpose), so it gets no advice
 function infoAdvice(check) {
   const f = check.found || { siteOnly: 1 };
-  return [f.siteOnly && "Add the missing names on INFO (or fix their spelling) so payments find their client.",
+  return [f.siteOnly && (check.fix?.kind === "go" ? "Add them from their form (Website › Roster, the accounting sheet part), or fix their spelling on INFO, so payments find their client." : "Add the missing names on INFO (or fix their spelling) so payments find their client."),
     f.infoOnly && (f.infoOnly === 1 ? "Remove the name from INFO, or add that client on the site, if it isn't a past client." : "Remove the names from INFO, or add those clients on the site, if they aren't past clients."),
-    f.managers && "Fix the Assigned Manager on INFO if it's wrong, then press Update from the sheet in Site › Users.",
-    f.noLogin && "Fix the manager's spelling on INFO, or the login's name in Site › Users, so their own artists show for them."].filter(Boolean).join(" ");
+    f.managers && "The site copies INFO's managers by itself. If this stays, fix the Assigned Manager on INFO if it's wrong, or press Update from the sheet in Site › Users."].filter(Boolean).join(" ");
 }
 // a sync check's fix, in place: pull the sheet, rebuild STREAM DATA, or what to do about INFO
 function SyncFix({ check, ctx }) {
@@ -328,7 +329,8 @@ function SyncFix({ check, ctx }) {
     <div className="todo-sublist">
       <p className="hint">{check.text}{check.detail ? ` ${check.detail}` : ""}</p>
       {check.fix?.kind === "url" ? <p className="hint">{check.id === "info" && <>{infoAdvice(check)} </>}<ExtLink className="inline-link" href={check.fix.url}>Open the sheet ↗</ExtLink></p>
-        : check.fix && <button className="btn sm" data-sync-fix={check.id} disabled={busy} onClick={run}>{busy ? "Working…" : check.fix.label}</button>}
+        : check.fix && <>{check.id === "info" && <p className="hint">{infoAdvice(check)}{check.also?.url && <> <ExtLink className="inline-link" href={check.also.url}>Open the sheet ↗</ExtLink></>}</p>}
+          <button className="btn sm" data-sync-fix={check.id} disabled={busy} onClick={run}>{busy ? "Working…" : check.fix.label}</button></>}
       <DropNote note={note} />
     </div>
   );
