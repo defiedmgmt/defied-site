@@ -54,7 +54,20 @@ const nextConfig = {
   poweredByHeader: false,
   // Back/Forward land where the visitor left each page (Next keeps the offset per history
   // entry and restores it after rendering) instead of at the top of it
-  experimental: { scrollRestoration: true },
+  experimental: {
+    scrollRestoration: true,
+    // the share card (pages/api/share-card.js, lib/share-card-render.js) reads its fonts and logo from disk at
+    // process.cwd(): public/ isn't part of a function on Vercel, so these files are traced into that one function,
+    // with next/og's own engine and font (it loads them with a dynamic import, which the tracer may not follow)
+    outputFileTracingIncludes: {
+      "/api/share-card": [
+        "./public/fonts/suntage.otf",
+        "./public/brand/wordmark.png",
+        "./public/brand/d.png",
+        "./node_modules/next/dist/compiled/@vercel/og/**/*",
+      ],
+    },
+  },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },

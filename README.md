@@ -68,6 +68,26 @@ before `next build`. If a migration fails, the build stops and the live site sta
     every old value first (`--backup <file>` to choose where). Running it again does nothing.
   - `--restore <file>` puts the old values from a backup back.
 
+## Share card
+
+- A client's portal has **Share my stats** on the line under their streams; staff see **Share card** in the same
+  place on an artist's page. It opens the card: a PNG from `/api/share-card` (Story 1080 × 1920 or Post 1080 × 1350)
+  with the Defied wordmark, the artist's total streams and their top 5 songs, and Save image (plus Share on a phone).
+- The numbers are the ones the portal shows as Gross Streams and per song, worked out by the same code
+  (`lib/portal-streams.js`). Nothing about net streams, splits or money is on it.
+- A client gets only their own card. Staff need Clients access, and a Co-manager limited to their own artists gets
+  only theirs. An artist with no streams yet gets "No streams to share yet." instead of a card.
+- A long song title gets smaller, then goes onto two lines; only past that does it end in "…". All the titles on a card
+  are one size, the biggest at which each of them fits (the smallest any one needs): one line where it fits, two where
+  it must.
+- The card's fonts cover Latin letters (accents included). A name in other letters (Japanese, Korean, Cyrillic, Greek…)
+  gets "Your name uses letters the card can't draw yet." instead of a card with no name. A top song whose title is in
+  such letters is left off the list (the total still counts it), and the window says how many were.
+- The card's fonts and logo are read from `public/` when it's drawn. `next.config.js` traces those files (and
+  next/og's own) into that one function on Vercel.
+- `node scripts/render-share-card.mjs stats.json story out.png` draws a card from a stats file, for checking the
+  layout. It reads no database.
+
 ## Roles and permissions
 
 Every staff login has a role. Founders set roles in **Site › Users** (`lib/roles.js`).
@@ -78,6 +98,12 @@ Every staff login has a role. Founders set roles in **Site › Users** (`lib/rol
 | Co-manager | Everything except Money and Users. Can optionally be limited to their own artists. |
 | Intern | Site only (website content, messages). |
 | Client | Their own portal. Unchanged. |
+
+Net streams are for the spreadsheet (2026-11-13): an artist's page (the Net Streams card and a song's Net streams row)
+and the Overview (the Net streams column) show them to no one, Founders included. The Advance calculator is the one place
+that still uses them, as the input of its estimate, so it and the data behind it (`/api/ar-data`'s signed clients, and the
+net columns of `/api/sheets-master`) are for an account with **Money** access, which is a Founder unless a Founder turns
+Money on for someone else (`lib/roles.js` `seesNetStreams`).
 
 - A Founder can turn any section on or off for one person, on top of their role.
 - "Only their own artists" limits a Co-manager to the clients whose **Assigned Manager** on the accounting sheet's
