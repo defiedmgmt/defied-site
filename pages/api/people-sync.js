@@ -9,7 +9,11 @@
 //   POST { action: "manager", name }  Money: one more name on INFO's managers list
 //   POST { action: "tab", clientId }  Publishing: a free WRITER tab on the pub sheet for the client
 //   (2026-11-14, lib/people-link.js; Money and Users, a Founder's by default)
-//   POST { action: "link" }  "Sync people now": the logins, the roster, the team page and INFO, anyone new added hidden
+//   POST { action: "link", dryRun? }  "Sync people now": dryRun first (the preview: who'd be added, linked, flagged, by
+//           name), then without it ("Add them"): the logins, the roster, the team page and INFO, anyone new added hidden.
+//           The first run ever is only this (the automatic runs wait for it)
+//   POST { action: "apply", staffId, field }  Users (a Founder for a Founder's login): a team entry's name or email put
+//           on its login ("Use it for the login")
 //   POST { action: "distinct", a, b }  a near miss answered "Two different people"
 //   POST { action: "pair", link }  a near miss answered "Same person": the two linked
 //   POST { action: "dismiss", key }  a flag left as it is ("Leave it")
@@ -24,7 +28,7 @@ import { shareWritesOn } from "../../lib/split-fixes-store";
 import { loadClientTabNames } from "../../lib/sheets";
 import { withInfoNames } from "../../lib/info-links";
 import { readPeople, readTabs, saveClientToInfo, addManagerToInfo, createClientTab, googleDenied, noEditText, ACCOUNTING_OFF, PUB_OFF } from "../../lib/people-sync";
-import { runPeopleLink, rememberAnswer, linkPair, autolinkOn } from "../../lib/people-link";
+import { runPeopleLink, rememberAnswer, linkPair, applyTeamValue, autolinkOn } from "../../lib/people-link";
 
 const has = (req, k) => req.access?.sections?.includes(k);
 const pctIn = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Number(v) / 100);
@@ -72,7 +76,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
   if (!requireSameOrigin(req, res)) return;
   const b = req.body || {};
-  if (["link", "distinct", "pair", "dismiss"].includes(b.action)) return people(req, res, session, b);
+  if (["link", "distinct", "pair", "dismiss", "apply"].includes(b.action)) return people(req, res, session, b);
   const need = b.action === "tab" ? "publishing" : "money";
   if (!["client", "manager", "tab"].includes(b.action)) return res.status(400).json({ error: "Unknown action." });
   if (!has(req, need)) return res.status(403).json({ error: need === "money" ? "Your account can't use Money, so it can't change the accounting sheet." : "Your account can't use Clients, so it can't change the pub sheet." });
@@ -91,23 +95,34 @@ export default async function handler(req, res) {
 
 // the people link's actions: an account with Money and Users (it makes logins and writes INFO)
 async function people(req, res, session, b) {
+  const founder = req.access?.role === "founder";
+  if (b.action === "apply") {
+    if (!has(req, "users")) return res.status(403).json({ error: "Changing a login needs Users access." });
+    try {
+      const r = await applyTeamValue({ staffId: b.staffId, field: b.field }, { users: true, founder });
+      return res.status(r.refused ? 409 : 200).json(r.refused ? { error: r.refused } : r);
+    } catch (err) { console.error("people link: apply", err); return res.status(502).json({ error: "Couldn't change the login just now. Try again in a minute." }); }
+  }
   if (!has(req, "money") || !has(req, "users")) return res.status(403).json({ error: "Linking people needs Money and Users (a Founder's)." });
   try {
     if (b.action === "link") {
       if (!autolinkOn()) return res.status(503).json({ error: "Linking people is off (PEOPLE_AUTOLINK)." });
-      const r = await runPeopleLink({ actor: { users: true, founder: req.access?.role === "founder", staffIds: [] }, by: by(session) });
+      if (b.dryRun) { const d = await runPeopleLink({ dryRun: true, by: by(session) }); return res.status(200).json({ preview: d.preview, first: d.first, infoError: d.infoError || null }); }
+      const r = await runPeopleLink({ actor: { users: true, founder, staffChanges: {} }, by: by(session), waits: 2 });
       if (r.busy) return res.status(409).json({ error: "The people are being linked right now. Try again in a minute.", busy: true });
       return res.status(200).json(r);
     }
     if (b.action === "distinct") {
       const a = String(b.a ?? "").slice(0, 120), c = String(b.b ?? "").slice(0, 120);
       if (!a.trim() || !c.trim()) return res.status(400).json({ error: "Two names are needed." });
-      return res.status(200).json(await rememberAnswer({ distinct: [a, c] }));
+      const r = await rememberAnswer({ distinct: [a, c] });
+      return res.status(r.refused ? 409 : 200).json(r.refused ? { error: r.refused } : r);
     }
     if (b.action === "pair") { const r = await linkPair(b.link || {}); return res.status(r.refused ? 409 : 200).json(r.refused ? { error: r.refused } : r); }
     const key = String(b.key ?? "").slice(0, 200);
     if (!key) return res.status(400).json({ error: "Which one?" });
-    return res.status(200).json(await rememberAnswer({ dismiss: key }));
+    const r = await rememberAnswer({ dismiss: key });
+    return res.status(r.refused ? 409 : 200).json(r.refused ? { error: r.refused } : r);
   } catch (err) {
     console.error("people link failed:", err);
     return res.status(502).json({ error: "Couldn't do that just now. Try again in a minute." });

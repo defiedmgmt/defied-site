@@ -1,5 +1,7 @@
-// Staff-only Sync view (lib/sync-checks.js): every check at once, read only. Home's sync pill reads
-// outOfSync from the same answer. GET only; nothing here writes.
+// Staff-only Sync view (lib/sync-checks.js): every check at once. Home's sync pill reads outOfSync from the same
+// answer. GET only, but not read only: with Money, the INFO check copies INFO's managers onto the clients when they
+// differ, and the people link runs (lib/people-link.js: users, clients and team rows added hidden, INFO writes behind
+// ACCOUNTING_SHEET_WRITES), each at most every 2 minutes and the people link only after its first run was confirmed.
 import { requireAccess } from "../../lib/access";
 import { syncChecks } from "../../lib/sync-checks";
 

@@ -93,8 +93,8 @@ export default async function handler(req, res) {
   // (2026-11-14) one person, same info everywhere (lib/people-link.js): the logins, the roster, the team page and INFO,
   // anyone new on one side added hidden on the others (PEOPLE_AUTOLINK=off stops it; INFO also needs ACCOUNTING_SHEET_WRITES)
   try {
-    const r = await runPeopleLink({ by: "the nightly sync" });
-    report.people = r.off ? { off: true } : r.busy ? { busy: true } : { created: r.created, sheet: r.sheet, flags: (r.flags || []).length, ...(r.error ? { error: r.error } : {}) };
+    const r = await runPeopleLink({ by: "the nightly sync", auto: true });
+    report.people = r.off ? { off: true } : r.busy ? { busy: true } : r.waiting ? { waiting: "the first Sync people now" } : { created: r.created, sheet: r.sheet, flags: (r.flags || []).length, ...(r.error ? { error: r.error } : {}) };
   } catch (err) { report.peopleError = err.message; }
   // "Log new payments" and the Publishing, A&R and Money tasks (one stored task each), written only with
   // CLICKUP_TASK_WRITES=on

@@ -222,11 +222,11 @@ async function handleGet(req, res, session) {
 }
 
 // (2026-11-14) What a staff save changes about who's who: lib/people-link.js runs after it when anything did (a row
-// added or removed, a name, email, role or client link changed, a client put on or off the roster). staffIds: the team
-// entries whose name or email it changes (a login may follow those, with Users).
+// added or removed, a name, email, role or client link changed, a client put on or off the roster). staffChanges: each
+// team entry's fields this save changes ({ id: ["name", "email"] }): a login's name may follow only those, with Users.
 async function peopleChanges(body, { priorClients, priorUsers, userQueryData, mine }) {
   let touched = false;
-  const staffIds = [];
+  const staffChanges = {};
   if (priorClients && Array.isArray(body.clients)) {
     const base = mine ? priorClients.filter((c) => mine.has(c.id)) : priorClients, was = new Map(base.map((c) => [c.id, c]));
     if (body.clients.length !== base.length || body.clients.some((c) => { const w = was.get(c.id); return !w || (c.name || "") !== (w.name || "") || !!c.onRoster !== !!w.on_roster; })) touched = true;
@@ -237,10 +237,13 @@ async function peopleChanges(body, { priorClients, priorUsers, userQueryData, mi
   }
   if (Array.isArray(body.staff)) {
     const prior = await sql`SELECT id, name, email FROM staff_bios`, was = new Map(prior.map((x) => [x.id, x]));
-    for (const x of body.staff) { const w = was.get(x.id); if (!w || (x.name || "") !== (w.name || "") || (x.email || "") !== (w.email || "")) staffIds.push(x.id); }
-    if (staffIds.length || body.staff.length !== prior.length) touched = true;
+    for (const x of body.staff) {
+      const w = was.get(x.id), f = !w ? ["name", "email"] : ["name", "email"].filter((k) => (x[k] || "") !== (w[k] || ""));
+      if (f.length) staffChanges[x.id] = f;
+    }
+    if (Object.keys(staffChanges).length || body.staff.length !== prior.length) touched = true;
   }
-  return { touched, staffIds };
+  return { touched, staffChanges };
 }
 
 // Mirrors the old commit({...db, someKey: newValue}) shape: the body may
@@ -318,12 +321,26 @@ async function handlePost(req, res, session) {
   const NOT_YOURS = "That isn't one of your artists, so nothing was saved.";
   // (2026-11-14, people link) the copy this save was built on (the GET's asOf, AppRoot's commit sends it back). The
   // server adds rows by itself now (lib/people-link.js): a users, clients or team row missing from this save is deleted
-  // only when it's older than that copy, so a row added since is never wiped. No asOf (a tab from before): nothing
-  // missing is deleted. The DELETEs below say the same in SQL (never later than the database's own now), 2 seconds back
+  // only when it's older than that copy, so a row added since is never wiped. No asOf (a tab from before): refused
+  // when it leaves a row out (below). The DELETEs below say the same in SQL (never later than the database's own now), 2 seconds back
   // so a row whose insert was still landing as the copy was read isn't taken for one the tab saw.
   const asOf = typeof body.asOf === "string" && Number.isFinite(Date.parse(body.asOf)) ? new Date(body.asOf).toISOString() : null;
   const deletable = (row) => !!asOf && new Date(row.created_at).getTime() < Date.parse(asOf) - 2000;
-  const keptNote = (table, n) => { if (n) console.warn(`dashboard-data: a save with no asOf (a tab from before) left ${n} ${table} row(s) it didn't send`); };
+  // (2026-11-14 review) a save with no asOf (a tab from before) that leaves out a login, client or team row that exists
+  // meant a delete under the old rule: refused, nothing written, so the page is reloaded first. One that leaves nothing
+  // out goes through (it deletes nothing).
+  if (!asOf) {
+    const sentIds = (rows) => new Set(rows.map((r) => r?.id));
+    const leftOut = (rows, list, scope = null) => { const sent = sentIds(list); return rows.some((r) => (!scope || scope.has(r.id)) && !sent.has(r.id)); };
+    const checks = [];
+    if (Array.isArray(body.users)) checks.push(sql`SELECT id FROM users`.then((r) => leftOut(r, body.users)));
+    if (Array.isArray(body.clients)) checks.push(sql`SELECT id FROM clients`.then((r) => leftOut(r, body.clients, mine)));
+    if (Array.isArray(body.staff)) checks.push(sql`SELECT id FROM staff_bios`.then((r) => leftOut(r, body.staff)));
+    if ((await Promise.all(checks)).some(Boolean)) {
+      console.warn("dashboard-data: a save with no asOf (a tab from before) left out rows that exist: refused");
+      return res.status(409).json({ error: "This page is out of date. Reload it and try again." });
+    }
+  }
   let priorClients = null;
   if ("clients" in body) {
     if (!Array.isArray(body.clients)) return res.status(400).json({ error: "clients[] is required." });
@@ -368,7 +385,8 @@ async function handlePost(req, res, session) {
     // if the incoming list has nobody left who can sign in as staff (a staff login with a password), nobody could ever
     // sign in to fix that again short of a direct database edit. Covers deleting the last staff account, demoting it to
     // client, and (2026-11-14) staff with no password yet, who don't count.
-    if (!body.users.some((u) => u.role === "staff" && (hashById[u.id] || (u.password && u.password.trim())))) {
+    // (2026-11-14 review) …and an email to sign in with
+    if (!body.users.some((u) => u.role === "staff" && (hashById[u.id] || (u.password && u.password.trim())) && normEmail(u.email))) {
       return res.status(400).json({ error: "At least one staff account must exist — can't delete or demote the last one." });
     }
     // Roles (lib/roles.js): only a Founder sets anyone's role or overrides; anyone else's save keeps what's
@@ -440,7 +458,6 @@ async function handlePost(req, res, session) {
   if ("clients" in body) {
     const ids = body.clients.map((c) => c.id);
     if (!mine && asOf) queries.push(ids.length ? sql`DELETE FROM clients WHERE id != ALL(${ids}) AND created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'` : sql`DELETE FROM clients WHERE created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'`);
-    else if (!mine) keptNote("clients", priorClients.filter((c) => !ids.includes(c.id)).length);
     for (let i = 0; i < body.clients.length; i++) {
       const c = rowFor(body.clients[i], i);
       queries.push(sql`
@@ -472,7 +489,6 @@ async function handlePost(req, res, session) {
     if (!Array.isArray(body.staff)) return res.status(400).json({ error: "staff[] is required." });
     const rows = body.staff.map(staffRow), ids = rows.map((s) => s.id);
     if (asOf) queries.push(ids.length ? sql`DELETE FROM staff_bios WHERE id != ALL(${ids}) AND created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'` : sql`DELETE FROM staff_bios WHERE created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'`);
-    else keptNote("staff_bios", Math.max(0, Number((await sql`SELECT count(*)::int AS n FROM staff_bios`)[0]?.n || 0) - ids.length));
     rows.forEach((s, i) => {
       queries.push(sql`
         INSERT INTO staff_bios (id, name, role, credit, bio, photo, email, instagram, visible, sort_order)
@@ -486,7 +502,6 @@ async function handlePost(req, res, session) {
   if (userQueryData) {
     const ids = userQueryData.map((u) => u.id);
     if (asOf) queries.push(sql`DELETE FROM users WHERE id != ALL(${ids}) AND created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'`);
-    else keptNote("users", priorUsers.filter((u) => !ids.includes(u.id)).length);
     // a password only where one was typed: a blank keeps the stored one (also one set by a set-password link meanwhile)
     for (const u of userQueryData) {
       const r = userRow(u);
@@ -575,7 +590,7 @@ async function handlePost(req, res, session) {
   // (a login, a client, a team entry) puts them in the other places now, hidden and with no login. Its sheet writes
   // wait for the next Sync check or the nightly run; a team entry this account changed may change its login only with
   // Users (a Founder for a Founder's).
-  if (role === "staff" && people.touched) await linkAfterSave({ users: can("users"), founder: a.role === "founder", staffIds: people.staffIds }, { sheet: false });
+  if (role === "staff" && people.touched) await linkAfterSave({ users: can("users"), founder: a.role === "founder", staffChanges: people.staffChanges }, { sheet: false });
 
   return res.status(200).json({ ok: true });
 }
