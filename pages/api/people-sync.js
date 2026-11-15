@@ -7,6 +7,12 @@
 //           INFO. rate and cut are percents (20, 67), as the form shows them; null leaves that cell as it is. mode "add"
 //           or "update" with row and was (its D, E, F as the form read them): a row changed since is refused (stale)
 //   POST { action: "manager", name }  Money: one more name on INFO's managers list
+//   POST { action: "manager-artists", manager, rows: [{ row, was, on, cut }] }  Money, never an account limited to its own
+//           artists (it works on every artist at once): one manager's artists ticked in Site › Users, E and F of every row
+//           changed written in one go. manager is exactly a name on INFO's list. rows are the checklist's changed rows: row
+//           (INFO's), was ({ C, D, E, F } as GET read them: any row changed since refuses the whole save, stale), on (ticked:
+//           E = manager and F = cut; unticked: E and F cleared, no manager), cut (a percent, 67; null leaves F as it is, only
+//           for an artist the manager already has)
 //   POST { action: "tab", clientId }  Publishing: a free WRITER tab on the pub sheet for the client
 // 503 with the gate's sentence when that sheet's writes are off, 409 with the sentence when it was refused (nothing
 // written), 502 when Google said no (403: the sheet isn't shared with the dashboard's account as Editor). A save that
@@ -17,7 +23,7 @@ import { accountingSheetId } from "../../lib/accounting";
 import { logWritesOn } from "../../lib/accounting-log";
 import { shareWritesOn } from "../../lib/split-fixes-store";
 import { loadClientTabNames } from "../../lib/sheets";
-import { readPeople, readTabs, saveClientToInfo, addManagerToInfo, createClientTab, googleDenied, noEditText, ACCOUNTING_OFF, PUB_OFF } from "../../lib/people-sync";
+import { readPeople, readTabs, saveClientToInfo, addManagerToInfo, saveManagerArtists, createClientTab, googleDenied, noEditText, ACCOUNTING_OFF, PUB_OFF } from "../../lib/people-sync";
 
 const has = (req, k) => req.access?.sections?.includes(k);
 const pctIn = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Number(v) / 100);
@@ -66,9 +72,10 @@ export default async function handler(req, res) {
   if (!requireSameOrigin(req, res)) return;
   const b = req.body || {};
   const need = b.action === "tab" ? "publishing" : "money";
-  if (!["client", "manager", "tab"].includes(b.action)) return res.status(400).json({ error: "Unknown action." });
+  if (!["client", "manager", "manager-artists", "tab"].includes(b.action)) return res.status(400).json({ error: "Unknown action." });
   if (!has(req, need)) return res.status(403).json({ error: need === "money" ? "Your account can't use Money, so it can't change the accounting sheet." : "Your account can't use Clients, so it can't change the pub sheet." });
   if (b.clientId != null && !mayUseClient(req, String(b.clientId))) return res.status(403).json({ error: "That client isn't one of your artists." });
+  if (b.action === "manager-artists" && limited(req)) return res.status(403).json({ error: "This works on every artist at once, and your account sees only your own artists." });
   const sheet = need === "money" ? "the accounting sheet" : "the pub sheet";
   try {
     if (b.action === "client") {
@@ -77,6 +84,15 @@ export default async function handler(req, res) {
         rate: pctIn(b.rate), cut: pctIn(b.cut), manager: String(b.manager ?? "").slice(0, 80), newManager: String(b.newManager ?? "").slice(0, 80) }, { by: by(session) }));
     }
     if (b.action === "manager") return answer(res, await addManagerToInfo(String(b.name ?? "").slice(0, 80), { by: by(session) }));
+    if (b.action === "manager-artists") {
+      const asked = Array.isArray(b.rows) ? b.rows : [];
+      if (!asked.length || asked.length > 60 || asked.some((x) => !x || typeof x !== "object" || !Number.isInteger(x.row) || typeof x.on !== "boolean")) {
+        return res.status(400).json({ error: "Send the manager and the artists' rows, each with its INFO row and whether it is ticked." });
+      }
+      // a row's was is what the checklist read (C, D, E, F); a blank cut leaves F as it is
+      const rows = asked.map((x) => ({ row: x.row, was: x.was && typeof x.was === "object" ? { C: x.was.C ?? "", D: x.was.D ?? "", E: x.was.E ?? "", F: x.was.F ?? "" } : null, on: x.on, cut: pctIn(x.cut) }));
+      return answer(res, await saveManagerArtists({ manager: String(b.manager ?? "").slice(0, 80), rows }, { by: by(session) }));
+    }
     return answer(res, await createClientTab(String(b.clientId || ""), { by: by(session) }));
   } catch (err) { return googleError(res, err, sheet); }
 }
