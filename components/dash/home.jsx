@@ -14,6 +14,7 @@ import { DropNote, fmt, money, useEscape } from "./ui";
 import { ExtLink } from "../shared/ui";
 import { Marquee } from "../site/motion";
 import { useHome, HomeWait, monthName } from "./home-data";
+import { PeopleBlock } from "./people-link";
 export { useHome, monthName, useArSummary, HomeWait } from "./home-data";
 
 // Home: the head (with the money as one compact line and the sync pill), the spikes and new releases as a
@@ -269,7 +270,7 @@ export function SyncView({ ctx }) {
           {d.checks.map((c) => (
             <div key={c.id} className="attn-row sync-row" data-check={c.id} data-ok={c.ok === true ? "ok" : c.ok === false ? "warn" : "unknown"}>
               <i className="sync-dot" aria-hidden="true" />
-              <span className="attn-main"><b>{c.text}</b>{c.detail && <em>{c.detail}</em>}</span>
+              <span className="attn-main"><b>{c.text}</b>{c.detail && <em>{c.detail}</em>}{c.id === "people" && <PeopleBlock check={c} ctx={ctx} />}</span>
               {/* (2026-11-13) a "go" fix only opens a page, so it shows on a green line too (INFO's "Caden has no site login":
                   Site › Users); "also" is a second link beside the fix (INFO's "Open the sheet ↗") */}
               {(c.ok === false || c.fix?.kind === "go") && c.fix && (c.fix.kind === "url"

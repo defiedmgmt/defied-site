@@ -69,9 +69,12 @@ export function splitSql(text) {
   push();
   return out;
 }
-// The first keyword that would take something away, or null
+// The first keyword that would take something away, or null. (2026-11-14, 022-people-link.sql) One form is allowed:
+// ALTER COLUMN <name> DROP NOT NULL only relaxes a rule (a column may be empty from then on) and removes no data.
+// Every other DROP still stops everything.
+const RELAX = /\bALTER\s+COLUMN\s+(?:\w+|\s)\s*DROP\s+NOT\s+NULL\b/gi;
 export function forbidden(text) {
-  const m = /\b(DROP|TRUNCATE|DELETE)\b/i.exec(stripNoise(text));
+  const m = /\b(DROP|TRUNCATE|DELETE)\b/i.exec(stripNoise(text).replace(RELAX, " "));
   return m ? m[1].toUpperCase() : null;
 }
 

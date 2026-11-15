@@ -13,7 +13,7 @@ export { ClientMore, clientDeleteAsk, deleteClientCascade, NAME_TAKEN, nameTaken
 
 
 /* generic editable list ------------------------------------------------ */
-export function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete, openId = null, noAdd = false, openNew = null }) {
+export function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete, openId = null, noAdd = false, openNew = null, groupOf = null }) {
   const [editing, setEditing] = useState(null); // object or null
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState(null);
@@ -53,6 +53,8 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
   // reorder rows carry 4 action buttons (up/down/edit/delete) instead of 2,
   // so they need their own, wider mobile column — see .admin-row-reorder.
   const rowCls = "admin-row" + (onReorder ? " admin-row-reorder" : "");
+  // (2026-11-14) a heading over each group of rows (Users: "No login yet"), when groupOf gives one
+  const groupHead = (it, i) => { const g = groupOf?.(it) || null; return g && (i === 0 || groupOf(items[i - 1]) !== g) ? <div className="admin-group" key={`group:${g}`} data-group={g}>{g}</div> : null; };
   return (
     <div>
       <div className="admin-head">
@@ -72,7 +74,7 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
           <span className="admin-act">Actions</span>
         </div>
         {items.length === 0 && <div className="admin-empty">Nothing here yet. Click “Add”.</div>}
-        {items.map((it, i) => (
+        {items.map((it, i) => [groupHead(it, i), (
           <div className={rowCls} key={it.id} style={gridCols}>
             {columns.map((c) => <span key={c.key} className="cell">{c.render ? c.render(it) : (it[c.key] || "—")}</span>)}
             <span className="admin-act">
@@ -86,7 +88,7 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
               {onDelete && <button onClick={() => remove(it)} aria-label={`Delete ${it.name || it.song || it.email || "entry"}`}><Trash2 size={14} /></button>}
             </span>
           </div>
-        ))}
+        )])}
       </div>
 
       {editing && (
@@ -380,7 +382,7 @@ function SheetManagers({ db, roleOf, onAddLogin }) {
             return (
               <li key={m.row} data-sheet-manager={m.name}>
                 <b>{m.name}</b>
-                {u ? <span className="muted"> · login {u.email}</span>
+                {u ? <span className="muted"> · {u.noLogin ? "account ready, no password yet" : `login ${u.email}`}</span>
                   : <><span className="muted"> · No login (that's fine)</span> <button type="button" className="inline-link" onClick={() => onAddLogin(m.name)} data-add-login>Add login</button></>}
               </li>
             );
@@ -453,10 +455,12 @@ function PlacementsAdmin({ db, commit }) {
   );
 }
 
-export function TeamAdmin({ db, commit }) {
+export function TeamAdmin({ db, commit, openId = null }) {
   const cols = [
     { key: "name", label: "Name", render: (s) => <span className="cell-name"><Avatar src={s.photo} name={s.name} size={30} />{s.name}</span> },
     { key: "role", label: "Role" }, { key: "email", label: "Email" },
+    // (2026-11-14, people link) like the roster's: an entry the site made for a new person stays hidden until it's shown
+    { key: "visible", label: "Public", render: (s) => s.visible !== false ? <span className="badge-yes"><Check size={12} /> Live</span> : <span className="badge-no" data-team-hidden>Hidden</span> },
   ];
   const save = async (o) => {
     const staff = o.id ? db.staff.map((s) => s.id === o.id ? o : s) : [...db.staff, { ...o, id: uid() }];
@@ -464,11 +468,15 @@ export function TeamAdmin({ db, commit }) {
   };
   const del = async (id) => commit({ ...db, staff: db.staff.filter((s) => s.id !== id) });
   return (
-    <Editor title="Team" items={db.staff} columns={cols}
-      blank={{ name: "", role: "", email: "", instagram: "", bio: "", photo: "" }}
+    <Editor title="Team" items={db.staff} columns={cols} openId={openId}
+      blank={{ name: "", role: "", email: "", instagram: "", bio: "", photo: "", visible: true }}
       onSave={save} onDelete={del}
       extra={(e, set) => (
         <>
+          <label className="check-row" data-team-visible>
+            <input type="checkbox" checked={e.visible !== false} onChange={(ev) => set({ ...e, visible: ev.target.checked })} />
+            <span>Show on the team page.{e.email ? " Their email shows there too." : ""}</span>
+          </label>
           <Field label="Name" value={e.name} onChange={(ev) => set({ ...e, name: ev.target.value })} />
           <Field label="Role" value={e.role} onChange={(ev) => set({ ...e, role: ev.target.value })} />
           <Field label="Email" value={e.email} onChange={(ev) => set({ ...e, email: ev.target.value })} />
@@ -534,7 +542,7 @@ function PasswordLink({ userId }) {
   );
 }
 const dayOf = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
-export function UsersAdmin({ db, commit, reloadDb }) {
+export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
   const founder = db.access?.role === "founder";
   const anyFounder = db.users.some((u) => u.role === "staff" && u.staffRole === "founder");
   const pickOf = (u) => (u.role === "client" ? "client" : ROLES[u.staffRole] ? u.staffRole : anyFounder ? "comanager" : "founder");
@@ -547,22 +555,27 @@ export function UsersAdmin({ db, commit, reloadDb }) {
     return `${ROLES[a.role].label}${a.ownOnly ? ` · own artists (${artistsOf(u.name).length})` : ""}`;
   };
   const cols = [
-    { key: "email", label: "Email", render: (u) => <span className="cell-name">{u.email}{u.name ? <span className="muted"> · {u.name}</span> : null}</span> },
+    { key: "email", label: "Email", render: (u) => <span className="cell-name">{u.email || u.name || "No name"}{u.email && u.name ? <span className="muted"> · {u.name}</span> : null}</span> },
     { key: "role", label: "Access", render: (u) => <span data-user-access={u.id}>{who(u)}</span> },
     // (2026-11-10) who's set up: their last sign-in and when their password was last set
-    { key: "signin", label: "Sign-in", render: (u) => <span className="muted" data-user-signin={u.id}>{u.lastLoginAt ? `Last in ${dayOf(u.lastLoginAt)}` : "Never signed in"}{u.passwordChangedAt ? ` · password set ${dayOf(u.passwordChangedAt)}` : ""}</span> },
+    { key: "signin", label: "Sign-in", render: (u) => <span className="muted" data-user-signin={u.id}>{u.noLogin ? (u.email ? "No password yet" : "No email yet") : u.lastLoginAt ? `Last in ${dayOf(u.lastLoginAt)}` : "Never signed in"}{u.passwordChangedAt ? ` · password set ${dayOf(u.passwordChangedAt)}` : ""}</span> },
   ];
+  // (2026-11-14, people link) the people with no login yet (no email or no password) come last, under their own heading
+  const usersShown = [...db.users.filter((u) => !u.noLogin), ...db.users.filter((u) => u.noLogin)];
   const save = async (o) => {
-    // the server skips a new login with no password, which would leave it on screen but never saved
-    if (!o.id && !(o.password || "").trim()) return "Enter a password to create this account.";
-    const users = o.id ? db.users.map((u) => u.id === o.id ? o : u) : [...db.users, { ...o, id: uid() }];
-    if (!users.some((u) => u.role === "staff")) return "There has to be at least one staff account.";
+    // (2026-11-14) no password is a person with no login yet (a set-password link later); a password needs an email
+    if ((o.password || "").trim() && !(o.email || "").trim()) return "Add their email first: a password needs an email to sign in with.";
+    // (what the list shows until the next load: noLogin isn't saved, the server works it out)
+    const typedIn = (o.password || "").trim() && (o.email || "").trim(), noEmail = !(o.email || "").trim();
+    const shown = { ...o, noLogin: o.id ? (typedIn ? false : noEmail ? true : !!o.noLogin) : !typedIn };
+    const users = o.id ? db.users.map((u) => u.id === o.id ? shown : u) : [...db.users, { ...shown, id: uid() }];
+    if (!users.some((u) => u.role === "staff" && (!u.noLogin || (u.password || "").trim()))) return "There has to be at least one staff account.";
     if (anyFounder && !users.some((u) => u.role === "staff" && u.staffRole === "founder")) return "There has to be at least one Founder.";
     return saveRow(commit, { ...db, users }, "users", o.id, "user");
   };
   const del = async (id) => {
     const users = db.users.filter((u) => u.id !== id);
-    if (!users.some((u) => u.role === "staff")) return "There has to be at least one staff account.";
+    if (!users.some((u) => u.role === "staff" && !u.noLogin)) return "There has to be at least one staff account.";
     if (anyFounder && !users.some((u) => u.role === "staff" && u.staffRole === "founder")) return "There has to be at least one Founder.";
     await commit({ ...db, users });
   };
@@ -574,20 +587,20 @@ export function UsersAdmin({ db, commit, reloadDb }) {
   const addLogin = (name) => setNewUser({ key: Date.now(), values: { name, role: "staff", staffRole: "comanager", access: {} } });
   return (
     <>
-    <Editor title="Users" items={db.users} columns={cols}
+    <Editor title="Users" items={usersShown} columns={cols} groupOf={(u) => (u.noLogin ? "No login yet" : null)} openId={openId}
       blank={{ email: "", password: "", role: "staff", staffRole: "comanager", access: {}, name: "", clientId: null }}
       onSave={save} onDelete={del} openNew={newUser}
       extra={(e, set) => {
         const pick = pickOf(e), a = e.role === "staff" ? accessOf(e) : null, mine = a?.ownOnly ? artistsOf(e.name) : [];
         return (
         <>
-          <Field label="Email" value={e.email} onChange={(ev) => set({ ...e, email: ev.target.value })} />
+          <Field label="Email" value={e.email || ""} onChange={(ev) => set({ ...e, email: ev.target.value })} />
           <Field label="Name" value={e.name || ""} onChange={(ev) => set({ ...e, name: ev.target.value })} />
           <Field
             label="Password" value={e.password} onChange={(ev) => set({ ...e, password: ev.target.value })}
-            hint={e.id ? "Leave blank to keep their current password, or make them a set-password link below. At least 8 characters if you type a new one." : "At least 8 characters — required to create the account. Once it's saved you can make them a set-password link instead."}
+            hint={e.id ? "Leave blank to keep their current password, or make them a set-password link below. At least 8 characters if you type a new one." : "Leave it blank for no login yet: send a set-password link later (they need an email first). Or type one: at least 8 characters."}
           />
-          {e.id && founder && <PasswordLink userId={e.id} />}
+          {e.id && founder && (db.users.find((u) => u.id === e.id)?.email ? <PasswordLink userId={e.id} /> : <p className="hint" data-pw-link-noemail>No login yet: add their email and save, then make them a set-password link.</p>)}
           <label className="fld"><span>Role</span>
             <select value={pick} data-role-pick onChange={(ev) => setPick(e, set, ev.target.value)} disabled={!founder && e.role === "staff"}>
               {ROLE_PICK.filter(([k]) => founder || k === "client" || k === pick).map(([k, label]) => <option key={k} value={k}>{label}</option>)}

@@ -30,7 +30,7 @@ export default async function handler(req, res) {
       personal: { ...personal, text: personal.sections.length ? messageOf(personal) : "" },
     };
     if (founder) {
-      const users = await sql`SELECT id, email, name FROM users WHERE role = 'staff' ORDER BY name`;
+      const users = await sql`SELECT id, email, name FROM users WHERE role = 'staff' AND email IS NOT NULL AND password_hash IS NOT NULL ORDER BY name`;
       const getting = new Set(personalPeople(users).map((u) => u.id));
       let runs = [];
       try { runs = await sql`SELECT id, kind, user_id, status, error, created_at FROM digest_runs WHERE week = ${out.week}`; } catch (err) { if (err?.code !== "42P01") throw err; }

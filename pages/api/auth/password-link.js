@@ -12,8 +12,10 @@ export default async function handler(req, res) {
   if (!requireSameOrigin(req, res)) return;
   const userId = String(req.body?.userId || "");
   try {
-    const [u] = await sql`SELECT id, role, staff_role FROM users WHERE id = ${userId}`;
+    const [u] = await sql`SELECT id, role, staff_role, email FROM users WHERE id = ${userId}`;
     if (!u) return res.status(404).json({ error: "That login isn't here any more. Reload the page." });
+    // (2026-11-14) a person with no login yet signs in with their email: it comes first
+    if (!String(u.email || "").trim()) return res.status(400).json({ error: "Add their email first, save, then make the link." });
     // a Founder's login is a Founder's to change (as in the Users save)
     if (u.role === "staff" && u.staff_role === "founder" && req.access?.role !== "founder") return res.status(403).json({ error: "Only a Founder can do that for a Founder." });
     return res.status(200).json(await makeLink(u.id, session.user.name || session.user.email || ""));

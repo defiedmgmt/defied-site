@@ -14,7 +14,9 @@ export function SiteAdmin({ ctx, sub, onSub, chip }) {
   const { db, commit, songInfo } = ctx;
   // Users is user management; the rest is Site's. Sync reads every artist at once.
   const secs = SITE_SECS.filter(([id]) => (id === "users" ? ctx.can("users") : ctx.can("site") && !(id === "sync" && db.access?.ownOnly)));
-  const want = ["users", "messages", "sync"].includes(sub) ? sub : "website";
+  // users:<id> (2026-11-14, Site › Sync's people line) opens that login's form
+  const [, userOpen = null] = /^users:(.+)$/.exec(sub || "") || [];
+  const want = userOpen ? "users" : ["users", "messages", "sync"].includes(sub) ? sub : "website";
   const sec = secs.some(([id]) => id === want) ? want : secs[0]?.[0];
   return (
     <div className="site-page">
@@ -23,7 +25,7 @@ export function SiteAdmin({ ctx, sub, onSub, chip }) {
         {secs.map(([id, label]) => <button key={id} role="tab" aria-selected={sec === id} data-site-tab={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { onSub(id === "website" ? null : id); revealChip(e.currentTarget); }}>{label}</button>)}
       </div>
       {sec === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={onSub} songInfo={songInfo} reloadDb={ctx.reloadDb} embedded />}
-      {sec === "users" && <UsersAdmin db={db} commit={commit} reloadDb={ctx.reloadDb} />}
+      {sec === "users" && <UsersAdmin db={db} commit={commit} reloadDb={ctx.reloadDb} openId={userOpen} />}
       {sec === "messages" && <SubsAdmin db={db} commit={commit} />}
       {sec === "sync" && <SyncView ctx={ctx} />}
     </div>
@@ -39,8 +41,11 @@ function WebsiteAdmin({ db, commit, sub, onSub, songInfo = null, reloadDb = null
   // a Dashboard task's sub wins, then the last tab used in this browser tab, then Roster (the weekly work)
   // roster:<id> is To do's "Set X's sheet tab"; roster:<id>/accounting (2026-11-13) Site › Sync's "Add X to the sheet"
   const [, openId = null, focus = null] = /^roster:([^/]+)(?:\/(accounting))?$/.exec(sub || "") || [];
+  // staff:<id> (2026-11-14, Site › Sync's people line) opens that team entry
+  const [, staffOpen = null] = /^staff:(.+)$/.exec(sub || "") || [];
   const [sec, setSecOnly] = useState(() => {
     if (openId) return "roster";
+    if (staffOpen) return "staff";
     if (secs.some(([id]) => id === sub)) return sub;
     try { const v = sessionStorage.getItem(WEB_SEC_KEY); if (secs.some(([id]) => id === v)) return v; } catch { /* storage blocked */ }
     return "roster";
@@ -56,7 +61,7 @@ function WebsiteAdmin({ db, commit, sub, onSub, songInfo = null, reloadDb = null
       </div>
       {sec === "about" && <AboutEditor db={db} commit={commit} />}
       {sec === "roster" && <ClientsAdmin db={db} commit={commit} openId={openId} songInfo={songInfo} reloadDb={reloadDb} focus={focus} />}
-      {sec === "staff" && <TeamAdmin db={db} commit={commit} />}
+      {sec === "staff" && <TeamAdmin db={db} commit={commit} openId={staffOpen} />}
       {sec === "notable" && <NotableAdmin db={db} commit={commit} />}
     </div>
   );

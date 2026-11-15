@@ -16,6 +16,7 @@ import { notifyClickUp } from "../../../lib/clickup";
 import { checkClickUpTasks } from "../../../lib/money";
 import { refreshManagers } from "../../../lib/access";
 import { keepRoom } from "../../../lib/sheet-rows";
+import { runPeopleLink } from "../../../lib/people-link";
 
 // the sheet pull plus the Stripe read behind the ClickUp tasks (see pages/api/home.js)
 export const config = { maxDuration: 60 };
@@ -89,6 +90,12 @@ export default async function handler(req, res) {
 
   // each client's manager from the accounting sheet's INFO tab (Site › Users; reads the sheet only)
   try { const m = await refreshManagers(); report.managers = m.error ? { error: m.error } : { matched: m.matched }; } catch (err) { report.managersError = err.message; }
+  // (2026-11-14) one person, same info everywhere (lib/people-link.js): the logins, the roster, the team page and INFO,
+  // anyone new on one side added hidden on the others (PEOPLE_AUTOLINK=off stops it; INFO also needs ACCOUNTING_SHEET_WRITES)
+  try {
+    const r = await runPeopleLink({ by: "the nightly sync" });
+    report.people = r.off ? { off: true } : r.busy ? { busy: true } : { created: r.created, sheet: r.sheet, flags: (r.flags || []).length, ...(r.error ? { error: r.error } : {}) };
+  } catch (err) { report.peopleError = err.message; }
   // "Log new payments" and the Publishing, A&R and Money tasks (one stored task each), written only with
   // CLICKUP_TASK_WRITES=on
   try { report.clickupTasks = await checkClickUpTasks({ force: true }); } catch (err) { report.clickupTasksError = err.message; }

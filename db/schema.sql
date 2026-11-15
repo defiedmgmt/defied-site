@@ -903,3 +903,15 @@ CREATE TABLE IF NOT EXISTS password_links (
 );
 CREATE INDEX IF NOT EXISTS password_links_hash_idx ON password_links(token_hash);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at timestamptz;
+
+-- 022: people link (users with no login yet, created_at for the save path, INFO and team links, team visibility)
+ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS info_name text NOT NULL DEFAULT '';
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE staff_bios ADD COLUMN IF NOT EXISTS user_id text NOT NULL DEFAULT '';
+ALTER TABLE staff_bios ADD COLUMN IF NOT EXISTS visible boolean NOT NULL DEFAULT true;
+ALTER TABLE staff_bios ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
+ALTER TABLE staff_bios ADD COLUMN IF NOT EXISTS sort_order integer;
+UPDATE staff_bios s SET sort_order = o.n FROM (SELECT id, (row_number() OVER (ORDER BY ctid))::int - 1 AS n FROM staff_bios) o WHERE s.id = o.id AND s.sort_order IS NULL;

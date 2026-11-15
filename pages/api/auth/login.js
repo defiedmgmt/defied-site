@@ -33,7 +33,9 @@ export default async function handler(req, res) {
 
     const rows = await sql`SELECT id, email, password_hash, role, name, client_id FROM users WHERE email = ${normEmail}`;
     const user = rows[0];
-    const valid = user && (await bcrypt.compare(password, user.password_hash));
+    // (2026-11-14) a person with no login yet (no password: lib/people-link.js makes them) gets the same answer as a
+    // wrong password, and bcrypt is never asked about an empty hash
+    const valid = !!user && typeof user.password_hash === "string" && user.password_hash.length > 0 && (await bcrypt.compare(String(password), user.password_hash));
 
     await sql`INSERT INTO login_attempts (email, ip, success) VALUES (${normEmail}, ${ip}, ${!!valid})`;
 

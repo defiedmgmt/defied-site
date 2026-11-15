@@ -198,6 +198,7 @@ never values.
 | `DATA_REFRESH` | Not a write, but it spends money: the daily data crons start Apify runs and read YouTube/Spotify. Off, nothing is fetched (Site › Sync shows what's there). |
 | `DIGEST_WRITES` | The Monday digests: the team post to `DIGEST_CHANNEL_ID` and the personal messages. Off, a Monday run still builds each digest and logs it (`digest_runs`, status "off"), so the preview shows what would have gone out. |
 | `RADAR_SCANS` | Not a write, but it spends money: the TikTok radar's keyword scans and its risers' daily boost. Off, sounds added by link are still tracked one at a time. |
+| `PEOPLE_AUTOLINK` | On unless set to `off` (2026-11-14, `lib/people-link.js`): one person, same info everywhere. Someone new in the logins, the roster, the team page or INFO is added to the others, hidden and with no login: after a dashboard save that changes the people, from the Sync check at most every 2 minutes, nightly, and from Site › Sync's "Sync people now". Nothing is ever deleted or renamed by it. Its INFO writes (a client's name, a manager's name) also need `ACCOUNTING_SHEET_WRITES`, and it never grows Annual Summary. |
 
 **Build and platform**
 

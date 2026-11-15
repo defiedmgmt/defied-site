@@ -205,7 +205,8 @@ export default function AppRoot({ Component, pageProps }) {
         const res = await fetch("/api/dashboard-data", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
-          body: JSON.stringify(Object.fromEntries(saveKeys(patch, fresh, merged).map((k) => [k, merged[k]]))),
+          // (2026-11-14) asOf: the copy this save is built on, so the server deletes only rows older than it
+          body: JSON.stringify({ ...Object.fromEntries(saveKeys(patch, fresh, merged).map((k) => [k, merged[k]])), ...(fresh.asOf ? { asOf: fresh.asOf } : {}) }),
         }).catch(() => null);
         if (!res?.ok) throw new Error(saveFailure(res, res && await res.json().catch(() => null), "Save failed.", fresh.role));
         s.server = saved = withoutPasswords(merged);

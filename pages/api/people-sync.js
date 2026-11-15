@@ -8,6 +8,11 @@
 //           or "update" with row and was (its D, E, F as the form read them): a row changed since is refused (stale)
 //   POST { action: "manager", name }  Money: one more name on INFO's managers list
 //   POST { action: "tab", clientId }  Publishing: a free WRITER tab on the pub sheet for the client
+//   (2026-11-14, lib/people-link.js; Money and Users, a Founder's by default)
+//   POST { action: "link" }  "Sync people now": the logins, the roster, the team page and INFO, anyone new added hidden
+//   POST { action: "distinct", a, b }  a near miss answered "Two different people"
+//   POST { action: "pair", link }  a near miss answered "Same person": the two linked
+//   POST { action: "dismiss", key }  a flag left as it is ("Leave it")
 // 503 with the gate's sentence when that sheet's writes are off, 409 with the sentence when it was refused (nothing
 // written), 502 when Google said no (403: the sheet isn't shared with the dashboard's account as Editor). A save that
 // landed but read back differently answers 200 with `alarm`.
@@ -17,7 +22,9 @@ import { accountingSheetId } from "../../lib/accounting";
 import { logWritesOn } from "../../lib/accounting-log";
 import { shareWritesOn } from "../../lib/split-fixes-store";
 import { loadClientTabNames } from "../../lib/sheets";
+import { withInfoNames } from "../../lib/info-links";
 import { readPeople, readTabs, saveClientToInfo, addManagerToInfo, createClientTab, googleDenied, noEditText, ACCOUNTING_OFF, PUB_OFF } from "../../lib/people-sync";
+import { runPeopleLink, rememberAnswer, linkPair, autolinkOn } from "../../lib/people-link";
 
 const has = (req, k) => req.access?.sections?.includes(k);
 const pctIn = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Number(v) / 100);
@@ -31,7 +38,7 @@ async function get(req, res) {
     jobs.push((async () => {
       if (!accountingSheetId()) { out.info = { problem: "The accounting sheet isn't connected yet.", roster: [], managers: [] }; return; }
       try {
-        const p = await readPeople({ clients });
+        const p = await readPeople({ clients: await withInfoNames(clients) });
         // an account limited to its own artists sees only their rows
         if (limited(req)) { const own = ownSet(req); p.info.roster = p.info.roster.filter((r) => r.clientId && own.has(r.clientId)); }
         Object.assign(out, p);
@@ -65,6 +72,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
   if (!requireSameOrigin(req, res)) return;
   const b = req.body || {};
+  if (["link", "distinct", "pair", "dismiss"].includes(b.action)) return people(req, res, session, b);
   const need = b.action === "tab" ? "publishing" : "money";
   if (!["client", "manager", "tab"].includes(b.action)) return res.status(400).json({ error: "Unknown action." });
   if (!has(req, need)) return res.status(403).json({ error: need === "money" ? "Your account can't use Money, so it can't change the accounting sheet." : "Your account can't use Clients, so it can't change the pub sheet." });
@@ -79,4 +87,29 @@ export default async function handler(req, res) {
     if (b.action === "manager") return answer(res, await addManagerToInfo(String(b.name ?? "").slice(0, 80), { by: by(session) }));
     return answer(res, await createClientTab(String(b.clientId || ""), { by: by(session) }));
   } catch (err) { return googleError(res, err, sheet); }
+}
+
+// the people link's actions: an account with Money and Users (it makes logins and writes INFO)
+async function people(req, res, session, b) {
+  if (!has(req, "money") || !has(req, "users")) return res.status(403).json({ error: "Linking people needs Money and Users (a Founder's)." });
+  try {
+    if (b.action === "link") {
+      if (!autolinkOn()) return res.status(503).json({ error: "Linking people is off (PEOPLE_AUTOLINK)." });
+      const r = await runPeopleLink({ actor: { users: true, founder: req.access?.role === "founder", staffIds: [] }, by: by(session) });
+      if (r.busy) return res.status(409).json({ error: "The people are being linked right now. Try again in a minute.", busy: true });
+      return res.status(200).json(r);
+    }
+    if (b.action === "distinct") {
+      const a = String(b.a ?? "").slice(0, 120), c = String(b.b ?? "").slice(0, 120);
+      if (!a.trim() || !c.trim()) return res.status(400).json({ error: "Two names are needed." });
+      return res.status(200).json(await rememberAnswer({ distinct: [a, c] }));
+    }
+    if (b.action === "pair") { const r = await linkPair(b.link || {}); return res.status(r.refused ? 409 : 200).json(r.refused ? { error: r.refused } : r); }
+    const key = String(b.key ?? "").slice(0, 200);
+    if (!key) return res.status(400).json({ error: "Which one?" });
+    return res.status(200).json(await rememberAnswer({ dismiss: key }));
+  } catch (err) {
+    console.error("people link failed:", err);
+    return res.status(502).json({ error: "Couldn't do that just now. Try again in a minute." });
+  }
 }

@@ -3577,3 +3577,12 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .sheet-mgr-list li{overflow-wrap:anywhere}
 .app:not(.pub) .sheet-mgr-add{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin:4px 0 8px}
 .app:not(.pub) .sheet-mgr-add .fld{flex:1 1 220px;margin:0}
+
+/* (2026-11-14) people link: Site › Users' "No login yet" heading, Site › Sync's people line */
+.app:not(.pub) .admin-group{padding:14px 16px 6px;border-bottom:1px solid var(--d-line);font:600 11.5px/1 var(--d-body);letter-spacing:.06em;text-transform:uppercase;color:var(--d-ink-4)}
+.app:not(.pub) .people-flags{display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.app:not(.pub) .people-flag{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.app:not(.pub) .people-flag-text{flex:1 1 260px;min-width:0;font-size:12.5px;line-height:1.4;color:var(--d-ink-3);white-space:normal}
+.app:not(.pub) .people-flag-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+.app:not(.pub) .sync-list .people-flag-acts .btn{margin-left:0}
+@media (max-width:699px){ .app:not(.pub) .people-flag-text{flex-basis:100%} .app:not(.pub) .people-flag-acts{justify-content:flex-start} .app:not(.pub) .admin-group{padding:12px 14px 6px} }

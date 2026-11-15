@@ -18,6 +18,7 @@ import { MAX_DATA_BYTES } from "../../lib/image-links";
 import { streamsOn } from "../../lib/streams-on";
 import { mgmtListOf } from "../../lib/clickup-tasks";
 import { ownLinkOf } from "../../lib/commission";
+import { linkAfterSave } from "../../lib/people-link";
 
 // photos uploaded before list B #2 are data: URIs inside the rows (new ones are Blob links,
 // /api/upload-image), so Next's default 1 MB body cap turned every staff save into a 413 once ~5-8 had
@@ -53,12 +54,14 @@ function toPlacement(row, { redact } = {}) {
   return { ...base, luminateId: row.luminate_id, revenue: Number(row.revenue), adminFee: Number(row.admin_fee) };
 }
 function toStaffBio(row) {
-  return { id: row.id, name: row.name, role: row.role, credit: row.credit, bio: row.bio, photo: row.photo, email: row.email, instagram: row.instagram };
+  // (2026-11-14, people link) visible: on the public team page; userId: the login it belongs to (read only here)
+  return { id: row.id, name: row.name, role: row.role, credit: row.credit, bio: row.bio, photo: row.photo, email: row.email, instagram: row.instagram, visible: row.visible !== false, userId: row.user_id || "" };
 }
 function toUser(row, lastLogin = null) {
   // never send password_hash to the client, ever — not even to a staff session
   // (2026-11-10) Site › Users says when each login last signed in and when its password was last set
-  return { id: row.id, email: row.email, role: row.role, name: row.name, clientId: row.client_id, lastLoginAt: lastLogin, passwordChangedAt: row.password_changed_at || null };
+  // (2026-11-14) noLogin: no email or no password yet (a person the site knows who can't sign in)
+  return { id: row.id, email: row.email || null, role: row.role, name: row.name, clientId: row.client_id, lastLoginAt: lastLogin, passwordChangedAt: row.password_changed_at || null, noLogin: !row.email || !row.password_hash };
 }
 function toSubmission(row) {
   // (2026-11-10) its music link and Dropbox files: shown in Site › Messages, never written back from a save
@@ -83,8 +86,11 @@ const placementRow = (p) => ({
   link: p.link || "", cover: p.cover || "", notable: !!p.notable, luminate_id: p.luminateId || "",
   streams: p.streams || 0, revenue: p.revenue || 0, admin_fee: p.adminFee || 0, splits: p.splits || [],
 });
-const staffRow = (s) => ({ id: s.id, name: s.name || "", role: s.role || "", credit: s.credit || "", bio: s.bio || "", photo: s.photo || "", email: s.email || "", instagram: s.instagram || "" });
-const userRow = (u) => ({ password_changed_at: u.pwAt || null, clickup_user_id: u.cuId || "", id: u.id, email: u.email.trim().toLowerCase(), password_hash: u.hash, role: u.role, name: u.name || "", client_id: u.clientId || null, staff_role: u.staffRole || null, access: u.access || {} });
+// visible: null when the row didn't say (a tab from before it existed): the stored value stays
+const staffRow = (s) => ({ id: s.id, name: s.name || "", role: s.role || "", credit: s.credit || "", bio: s.bio || "", photo: s.photo || "", email: s.email || "", instagram: s.instagram || "", visible: s && "visible" in s ? !!s.visible : null });
+// (2026-11-14) no email is NULL (a person with no login yet), never "": UNIQUE allows any number of NULLs
+const normEmail = (e) => String(e ?? "").trim().toLowerCase() || null;
+const userRow = (u) => ({ password_changed_at: u.pwAt || null, clickup_user_id: u.cuId || "", id: u.id, email: normEmail(u.email), password_hash: u.hash || null, role: u.role, name: u.name || "", client_id: u.clientId || null, staff_role: u.staffRole || null, access: u.access || {} });
 const submissionRow = (s) => ({ id: s.id, name: s.name || "", email: s.email || "", instagram: s.instagram || "", subject: s.subject || "", message: s.message || "", created_at: s.at || new Date().toISOString(), read: !!s.read });
 const notableRow = (n) => ({ id: n.id, song: n.song || "", artist: n.artist || "", client: n.client || "", cover: n.cover || "", release_date: n.releaseDate || "", link: n.link || "" });
 const insertPlacement = (r) => sql`
@@ -96,10 +102,13 @@ const insertPlacement = (r) => sql`
 // the day the pub sheet's streams are from (streamsOn) is lib/streams-on.js's, shared with the share card
 
 async function staffPayload() {
+  // (2026-11-14) asOf: the database's time before anything is read. A save sends it back, and a row missing from that
+  // save is deleted only when it's older than this copy (a row the server added since is never wiped)
+  const [{ t: asOf }] = await sql`SELECT now() AS t`;
   const [clients, placements, staff, users, submissions, notableReleases, [settings], notOurs, sheetFacts, lumDay, logins] = await Promise.all([
     sql`SELECT * FROM clients ORDER BY roster_order`,
     sql`SELECT * FROM placements`,
-    sql`SELECT * FROM staff_bios`,
+    sql`SELECT * FROM staff_bios ORDER BY sort_order NULLS LAST, created_at, id`,
     sql`SELECT * FROM users`,
     sql`SELECT * FROM submissions ORDER BY created_at DESC`,
     sql`SELECT * FROM notable_releases`,
@@ -112,10 +121,11 @@ async function staffPayload() {
   const lastLogin = new Map(logins.map((r) => [r.email, r.at]));
   return {
     role: "staff",
+    asOf: asOf instanceof Date ? asOf.toISOString() : String(asOf),
     clients: clients.map(toClient),
     placements: placements.map((p) => toPlacement(p)),
     staff: staff.map(toStaffBio),
-    users: users.map((u) => toUser(u, lastLogin.get(String(u.email).toLowerCase()) || null)),
+    users: users.map((u) => toUser(u, (u.email && lastLogin.get(String(u.email).toLowerCase())) || null)),
     submissions: submissions.map(toSubmission),
     notableReleases: notableReleases.map(toNotable),
     site: { about: settings.about_text },
@@ -211,6 +221,28 @@ async function handleGet(req, res, session) {
   });
 }
 
+// (2026-11-14) What a staff save changes about who's who: lib/people-link.js runs after it when anything did (a row
+// added or removed, a name, email, role or client link changed, a client put on or off the roster). staffIds: the team
+// entries whose name or email it changes (a login may follow those, with Users).
+async function peopleChanges(body, { priorClients, priorUsers, userQueryData, mine }) {
+  let touched = false;
+  const staffIds = [];
+  if (priorClients && Array.isArray(body.clients)) {
+    const base = mine ? priorClients.filter((c) => mine.has(c.id)) : priorClients, was = new Map(base.map((c) => [c.id, c]));
+    if (body.clients.length !== base.length || body.clients.some((c) => { const w = was.get(c.id); return !w || (c.name || "") !== (w.name || "") || !!c.onRoster !== !!w.on_roster; })) touched = true;
+  }
+  if (userQueryData && priorUsers) {
+    const was = new Map(priorUsers.map((u) => [u.id, u]));
+    if (userQueryData.length !== priorUsers.length || userQueryData.some((u) => { const w = was.get(u.id); return !w || (u.name || "") !== (w.name || "") || normEmail(u.email) !== (w.email || null) || u.role !== w.role || (u.clientId || null) !== (w.client_id || null) || (u.staffRole || null) !== (w.staff_role || null); })) touched = true;
+  }
+  if (Array.isArray(body.staff)) {
+    const prior = await sql`SELECT id, name, email FROM staff_bios`, was = new Map(prior.map((x) => [x.id, x]));
+    for (const x of body.staff) { const w = was.get(x.id); if (!w || (x.name || "") !== (w.name || "") || (x.email || "") !== (w.email || "")) staffIds.push(x.id); }
+    if (staffIds.length || body.staff.length !== prior.length) touched = true;
+  }
+  return { touched, staffIds };
+}
+
 // Mirrors the old commit({...db, someKey: newValue}) shape: the body may
 // contain any subset of these keys, each fully replacing that table (or,
 // for a client session, just their own slice of placements). Low write
@@ -284,15 +316,23 @@ async function handlePost(req, res, session) {
   // an account limited to its own artists marks only its own pull, not the whole site's
   if (mine) delete body.sheetSync;
   const NOT_YOURS = "That isn't one of your artists, so nothing was saved.";
+  // (2026-11-14, people link) the copy this save was built on (the GET's asOf, AppRoot's commit sends it back). The
+  // server adds rows by itself now (lib/people-link.js): a users, clients or team row missing from this save is deleted
+  // only when it's older than that copy, so a row added since is never wiped. No asOf (a tab from before): nothing
+  // missing is deleted. The DELETEs below say the same in SQL (never later than the database's own now), 2 seconds back
+  // so a row whose insert was still landing as the copy was read isn't taken for one the tab saw.
+  const asOf = typeof body.asOf === "string" && Number.isFinite(Date.parse(body.asOf)) ? new Date(body.asOf).toISOString() : null;
+  const deletable = (row) => !!asOf && new Date(row.created_at).getTime() < Date.parse(asOf) - 2000;
+  const keptNote = (table, n) => { if (n) console.warn(`dashboard-data: a save with no asOf (a tab from before) left ${n} ${table} row(s) it didn't send`); };
   let priorClients = null;
   if ("clients" in body) {
     if (!Array.isArray(body.clients)) return res.status(400).json({ error: "clients[] is required." });
-    priorClients = await sql`SELECT id, sheet_tab_name, total_streams, roster_order FROM clients`;
+    priorClients = await sql`SELECT id, name, on_roster, sheet_tab_name, total_streams, roster_order, created_at FROM clients`;
     const sent = new Set(body.clients.map((c) => c.id));
     // limited: their own artists only, none added or deleted; Site without Publishing: deleting an
     // artist (their songs go with them) needs Publishing
     if (mine && body.clients.some((c) => !mine.has(c.id))) return res.status(403).json({ error: NOT_YOURS });
-    const gone = priorClients.filter((c) => (mine ? mine.has(c.id) : true) && !sent.has(c.id));
+    const gone = priorClients.filter((c) => (mine ? mine.has(c.id) : true) && !sent.has(c.id) && deletable(c));
     if (gone.length && (mine || !can("publishing"))) return res.status(403).json({ error: "Deleting an artist needs Clients for every artist, so nothing was saved." });
   }
   if ("placements" in body) {
@@ -303,28 +343,34 @@ async function handlePost(req, res, session) {
   // password hashing (bcrypt) is CPU-bound JS work, not a DB call, so it has
   // to happen before the query array is built below — sql.transaction()
   // takes only query objects, nothing that awaits in between.
-  let userQueryData = null;
+  let userQueryData = null, priorUsers = null;
   if ("users" in body) {
+    if (!Array.isArray(body.users)) return res.status(400).json({ error: "users[] is required." });
     const MIN_PASSWORD_LENGTH = 8;
     const weakPassword = body.users.find((u) => u.password && u.password.trim() && u.password.trim().length < MIN_PASSWORD_LENGTH);
     if (weakPassword) {
       return res.status(400).json({ error: `Password for ${weakPassword.email || "that user"} must be at least ${MIN_PASSWORD_LENGTH} characters.` });
     }
-    // this write always replaces the whole users table (see below) — if the
-    // incoming list has nobody left with role "staff", nobody could ever
-    // sign in to fix that again short of a direct database edit. Covers
-    // both deleting the last staff account and demoting it to client.
-    if (!body.users.some((u) => u.role === "staff")) {
-      return res.status(400).json({ error: "At least one staff account must exist — can't delete or demote the last one." });
-    }
+    // (2026-11-14) a password needs an email to sign in with, and two logins can't share one
+    const noEmail = body.users.find((u) => u.password && u.password.trim() && !normEmail(u.email));
+    if (noEmail) return res.status(400).json({ error: `Add ${noEmail.name ? `${noEmail.name}'s` : "their"} email first: a password needs an email to sign in with.` });
+    const emails = body.users.map((u) => normEmail(u.email)).filter(Boolean);
+    const twice = emails.find((e, i) => emails.indexOf(e) !== i);
+    if (twice) return res.status(400).json({ error: `Two logins have the email ${twice}. An email can be on one login only.` });
     // password_hash is never sent to the client (see toUser), so UsersAdmin's
     // edit form only ever carries a plaintext `password` field when someone
-    // actually typed a new one — blank means "keep the existing hash". A
-    // brand-new user (no existing hash) requires a password to be created at
-    // all; one submitted with no password is silently skipped rather than
-    // created with no way to log in.
-    const existing = await sql`SELECT id, email, role, name, client_id, password_hash, staff_role, access, password_changed_at, clickup_user_id FROM users`;
+    // actually typed a new one — blank means "keep the existing hash".
+    // (2026-11-14) A user with no password (new, or made by lib/people-link.js) is a person with no login yet: kept,
+    // never skipped. They get a set-password link once they have an email.
+    const existing = await sql`SELECT id, email, role, name, client_id, password_hash, staff_role, access, password_changed_at, clickup_user_id, created_at FROM users`;
+    priorUsers = existing;
     const hashById = Object.fromEntries(existing.map((u) => [u.id, u.password_hash]));
+    // if the incoming list has nobody left who can sign in as staff (a staff login with a password), nobody could ever
+    // sign in to fix that again short of a direct database edit. Covers deleting the last staff account, demoting it to
+    // client, and (2026-11-14) staff with no password yet, who don't count.
+    if (!body.users.some((u) => u.role === "staff" && (hashById[u.id] || (u.password && u.password.trim())))) {
+      return res.status(400).json({ error: "At least one staff account must exist — can't delete or demote the last one." });
+    }
     // Roles (lib/roles.js): only a Founder sets anyone's role or overrides; anyone else's save keeps what's
     // stored (an older tab sending no role keeps it too). A Founder's own login is a Founder's to change.
     const prior = Object.fromEntries(existing.map((u) => [u.id, u]));
@@ -335,16 +381,15 @@ async function handlePost(req, res, session) {
       const sent = new Map(body.users.map((u) => [u.id, u]));
       const touched = existing.filter(isFounderRow).some((f) => {
         const u = sent.get(f.id);
-        return !u || u.role !== f.role || String(u.email || "").toLowerCase() !== f.email || (u.name || "") !== (f.name || "") || (u.password && u.password.trim());
+        return !u || u.role !== f.role || (normEmail(u.email) || "") !== (f.email || "") || (u.name || "") !== (f.name || "") || (u.password && u.password.trim());
       });
       if (touched) return res.status(403).json({ error: "Only a Founder can change or delete a Founder's login, so nothing was saved." });
     }
     userQueryData = [];
     for (const u of body.users) {
-      let hash = hashById[u.id];
+      let hash = hashById[u.id] || null;
       const typed = !!(u.password && u.password.trim());
       if (typed) hash = await bcrypt.hash(u.password.trim(), 12);
-      if (!hash) continue;
       const was = prior[u.id];
       // (2026-11-10) kept through the save (it rewrites every row): when the password was set, the ClickUp id
       const pwAt = typed ? new Date().toISOString() : was?.password_changed_at || null, cuId = was?.clickup_user_id || "";
@@ -353,7 +398,7 @@ async function handlePost(req, res, session) {
         staffRole = founderSave && "staffRole" in u ? (ROLE_KEYS.includes(u.staffRole) ? u.staffRole : null) : (was?.staff_role ?? null);
         access = founderSave && "access" in u ? cleanAccess(roleOf(staffRole, true), u.access) : (was?.access || {});
       }
-      userQueryData.push({ ...u, hash, staffRole, access, pwAt, cuId });
+      userQueryData.push({ ...u, hash, typed, staffRole, access, pwAt, cuId });
     }
     if (userQueryData.some((u) => u.staffRole === "founder")) {
       // the first Founder set by hand: the Founder saving it (a Founder only because nobody was yet) stays one
@@ -364,6 +409,7 @@ async function handlePost(req, res, session) {
     }
   }
 
+  const people = await peopleChanges(body, { priorClients, priorUsers, userQueryData, mine });
   const queries = [];
 
   // "clients" MUST be handled before "placements" (a placement's client_id
@@ -393,7 +439,8 @@ async function handlePost(req, res, session) {
   };
   if ("clients" in body) {
     const ids = body.clients.map((c) => c.id);
-    if (!mine) queries.push(ids.length ? sql`DELETE FROM clients WHERE id != ALL(${ids})` : sql`DELETE FROM clients`);
+    if (!mine && asOf) queries.push(ids.length ? sql`DELETE FROM clients WHERE id != ALL(${ids}) AND created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'` : sql`DELETE FROM clients WHERE created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'`);
+    else if (!mine) keptNote("clients", priorClients.filter((c) => !ids.includes(c.id)).length);
     for (let i = 0; i < body.clients.length; i++) {
       const c = rowFor(body.clients[i], i);
       queries.push(sql`
@@ -418,21 +465,38 @@ async function handlePost(req, res, session) {
       queries.push(insertPlacement(row));
     }
   }
+  // (2026-11-14) the team page and the logins: an upsert, and a row missing from the save deleted only when older than
+  // the copy it was built on (asOf, above), never "delete all and insert again" (that wiped rows the server had added).
+  // The team page keeps the order it was sent in (sort_order); a team row's login link (user_id) is the server's.
   if ("staff" in body) {
-    queries.push(sql`DELETE FROM staff_bios`);
-    for (const s of body.staff.map(staffRow)) {
+    if (!Array.isArray(body.staff)) return res.status(400).json({ error: "staff[] is required." });
+    const rows = body.staff.map(staffRow), ids = rows.map((s) => s.id);
+    if (asOf) queries.push(ids.length ? sql`DELETE FROM staff_bios WHERE id != ALL(${ids}) AND created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'` : sql`DELETE FROM staff_bios WHERE created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'`);
+    else keptNote("staff_bios", Math.max(0, Number((await sql`SELECT count(*)::int AS n FROM staff_bios`)[0]?.n || 0) - ids.length));
+    rows.forEach((s, i) => {
       queries.push(sql`
-        INSERT INTO staff_bios (id, name, role, credit, bio, photo, email, instagram)
-        VALUES (${s.id}, ${s.name}, ${s.role}, ${s.credit}, ${s.bio}, ${s.photo}, ${s.email}, ${s.instagram})
+        INSERT INTO staff_bios (id, name, role, credit, bio, photo, email, instagram, visible, sort_order)
+        VALUES (${s.id}, ${s.name}, ${s.role}, ${s.credit}, ${s.bio}, ${s.photo}, ${s.email}, ${s.instagram}, COALESCE(${s.visible}::boolean, true), ${i})
+        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, role = EXCLUDED.role, credit = EXCLUDED.credit, bio = EXCLUDED.bio,
+          photo = EXCLUDED.photo, email = EXCLUDED.email, instagram = EXCLUDED.instagram, sort_order = EXCLUDED.sort_order,
+          visible = CASE WHEN ${s.visible}::boolean IS NULL THEN staff_bios.visible ELSE EXCLUDED.visible END
       `);
-    }
+    });
   }
   if (userQueryData) {
-    queries.push(sql`DELETE FROM users`);
-    for (const u of userQueryData.map(userRow)) {
+    const ids = userQueryData.map((u) => u.id);
+    if (asOf) queries.push(sql`DELETE FROM users WHERE id != ALL(${ids}) AND created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'`);
+    else keptNote("users", priorUsers.filter((u) => !ids.includes(u.id)).length);
+    // a password only where one was typed: a blank keeps the stored one (also one set by a set-password link meanwhile)
+    for (const u of userQueryData) {
+      const r = userRow(u);
       queries.push(sql`
         INSERT INTO users (id, email, password_hash, role, name, client_id, staff_role, access, password_changed_at, clickup_user_id)
-        VALUES (${u.id}, ${u.email}, ${u.password_hash}, ${u.role}, ${u.name}, ${u.client_id}, ${u.staff_role}, ${JSON.stringify(u.access)}, ${u.password_changed_at}, ${u.clickup_user_id})
+        VALUES (${r.id}, ${r.email}, ${r.password_hash}, ${r.role}, ${r.name}, ${r.client_id}, ${r.staff_role}, ${JSON.stringify(r.access)}, ${r.password_changed_at}, ${r.clickup_user_id})
+        ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, role = EXCLUDED.role, name = EXCLUDED.name, client_id = EXCLUDED.client_id,
+          staff_role = EXCLUDED.staff_role, access = EXCLUDED.access,
+          password_hash = CASE WHEN ${u.typed} THEN EXCLUDED.password_hash ELSE users.password_hash END,
+          password_changed_at = CASE WHEN ${u.typed} THEN EXCLUDED.password_changed_at ELSE users.password_changed_at END
       `);
     }
   }
@@ -485,7 +549,8 @@ async function handlePost(req, res, session) {
       ...(body.sheetSync && { sheetSync: { lastSyncedAt: at(body.sheetSync.lastSyncedAt) } }),
     });
     try {
-      if (await growsPastLimit(change, "clients" in body && !mine ? new Set(body.clients.map((c) => c.id)) : null)) {
+      // (the clients this save leaves: what it sent, and any it can't delete: added since its copy)
+      if (await growsPastLimit(change, "clients" in body && !mine ? new Set([...body.clients.map((c) => c.id), ...priorClients.filter((c) => !deletable(c)).map((c) => c.id)]) : null)) {
         return res.status(413).json({ error: TOO_BIG });
       }
       await sql.transaction(queries);
@@ -506,6 +571,11 @@ async function handlePost(req, res, session) {
   }
   // a staff save that changed songs or clients: the Publishing ClickUp task follows (CLICKUP_TASK_WRITES only)
   if (role === "staff" && (body.placements || body.clients)) await afterAction(["publishing"]);
+  // (2026-11-14) one person, same info everywhere (lib/people-link.js): a save that added, removed or renamed someone
+  // (a login, a client, a team entry) puts them in the other places now, hidden and with no login. Its sheet writes
+  // wait for the next Sync check or the nightly run; a team entry this account changed may change its login only with
+  // Users (a Founder for a Founder's).
+  if (role === "staff" && people.touched) await linkAfterSave({ users: can("users"), founder: a.role === "founder", staffIds: people.staffIds }, { sheet: false });
 
   return res.status(200).json({ ok: true });
 }
