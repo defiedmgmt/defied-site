@@ -108,6 +108,13 @@ Money on for someone else (`lib/roles.js` `seesNetStreams`).
 - A Founder can turn any section on or off for one person, on top of their role.
 - "Only their own artists" limits a Co-manager to the clients whose **Assigned Manager** on the accounting sheet's
   INFO tab is that person's name. The daily cron reads INFO, and so does "Update from the sheet" in Site › Users.
+- A manager's artists are picked in one place: a Co-manager's form in Site › Users (where "Their artists" was) and **Artists**
+  on its "Managers on the accounting sheet" list (for a manager with no login) show a checklist of INFO's client rows. Ticked
+  = Assigned Manager is exactly that name (never a near match: Caden is not Cayden). Save artists writes Assigned Manager and
+  Manager Gets % of each row changed in one write (`manager-artists` in `/api/people-sync`, `saveManagerArtists` in
+  `lib/people-sync.js`); an untick clears both cells (Defied keeps 100%). Money access, never an account limited to its own
+  artists. A row changed on INFO since the checklist loaded refuses the whole save, and the site's managers follow the sheet
+  right after (a save that the site's manager copy would refuse is refused before anything is written).
 - The server enforces all of it. Every dashboard API route starts with the same check, `requireAccess` in
   `lib/access.js`, and the dashboard just hides what an account can't use.
 - The sign-in and the session are unchanged: `users.role` is still `staff` or `client`. The role is

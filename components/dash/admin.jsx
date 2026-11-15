@@ -9,6 +9,7 @@ import { findTabClient, noTabNames, shortDay } from "./helpers";
 import { Area, Avatar, EmailButton, Field, PhotoUpload, SplitsEditor, splitTotal, uid } from "./ui";
 import { AskCard } from "../portal/ask";
 import { nameTaken, deleteClientCascade, clientDeleteAsk, NAME_TAKEN, SpotifyFill } from "./clients";
+import { pctText, pctOk, fillChecklist, checklistChanges, checklistRows, checklistWhy, rowNote, changeWords } from "./manager-artists";
 export { ClientMore, clientDeleteAsk, deleteClientCascade, NAME_TAKEN, nameTaken, SpotifyFill } from "./clients";
 
 
@@ -218,8 +219,6 @@ async function peoplePost(body) {
   // INFO's list before the client's row was refused)
   return r.ok ? j : { error: j.error || "That didn't go through. Try again in a minute.", ...(j.stale ? { stale: true } : {}), ...(j.addedManager ? { addedManager: j.addedManager } : {}) };
 }
-const pctText = (x) => (x == null ? "" : String(Math.round(Number(x) * 10000) / 100));
-const pctOk = (v) => String(v ?? "").trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100;
 const NEW_MANAGER = "__new", PICK_MANAGER = "__pick";
 // a save's answer as one line: what was done, or the alarm (red), or why not
 const Said = ({ res }) => (!res ? null : <p className={`hint ${res.ok && !res.alarm ? "ok-text" : "err-text"}`} role="status" data-sheet-said>{[res.text, res.alarm, res.error].filter(Boolean).join(" ")}</p>);
@@ -351,12 +350,190 @@ function TabPart({ client, unsaved, ps, reloadDb, onTab }) {
   );
 }
 
+/* (2026-11-14) A manager's artists, ticked in one place (the owner: "can we just have like a select box for his artists and
+   have that sync to the accounting sheet"). Site › Users' form for a Co-manager shows it where the read-only "Their
+   artists" line was, and "Artists" on Managers on the accounting sheet opens it in a window for a manager with no login.
+   Ticked = INFO's Assigned Manager is exactly this name. Save artists writes E and F of the rows changed in one go
+   (lib/people-sync.js saveManagerArtists), and the site's managers follow the sheet. Its own button, apart from the
+   form's Save, the way the Roster form's Accounting sheet part is: it writes the accounting sheet (its own lock, stale
+   check and read-back), the form's Save writes the site. The logic is components/dash/manager-artists.js. */
+function useArtistsChecklist({ manager, ps, reloadDb, onDirty, nudge = 0 }) {
+  const d = ps.data, info = d?.info;
+  const [f, setF] = useState(null);
+  const [busy, setBusy] = useState(false), [res, setRes] = useState(null), [held, setHeld] = useState(false);
+  const goRef = useRef(null), nudged = useRef(nudge); // a nudge from before this checklist opened isn't this form's
+  // filled from INFO as read; a row changed on INFO since is refused by the server, never typed over; filled again after a save
+  useEffect(() => {
+    if (!info || info.problem || f) return;
+    setF(fillChecklist(info.roster, manager));
+  }, [info, f == null]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changes = checklistChanges(f);
+  // the form holds its own Save while ticks are unsaved (see UsersAdmin), so a tick is never lost to the wrong button: it
+  // sends a nudge, and the way to Save artists is shown here (gone as soon as nothing is unsaved)
+  useEffect(() => { onDirty?.(changes.length > 0); if (!changes.length) setHeld(false); }, [changes.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => onDirty?.(false), []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (nudge !== nudged.current) { nudged.current = nudge; setHeld(true); goRef.current?.scrollIntoView?.({ block: "center" }); } }, [nudge]);
+  const why = !d ? (ps.failed ? "Couldn't read the accounting sheet just now." : "Reading the accounting sheet…") : info?.problem ? null
+    : !d.writes?.accounting ? d.off?.accounting : checklistWhy(f, changes, manager);
+  const save = async () => {
+    setBusy(true); setRes(null);
+    const r = await peoplePost({ action: "manager-artists", manager, rows: checklistRows(f, changes) });
+    // INFO as it reads now, whatever the answer
+    await ps.load(true);
+    setBusy(false); setRes(r);
+    if (r.ok || r.alarm || r.stale) setF(null); // filled again from INFO as it reads now
+    if (r.ok || r.alarm) reloadDb?.();
+  };
+  return { d, info, f, setF, changes, why, busy, res, held, save, goRef };
+}
+// Save artists
+function ArtistsSave({ c }) {
+  const { info, why, busy, save, goRef } = c;
+  return <button ref={goRef} type="button" className="btn sm" disabled={!!why || busy || !!info?.problem} onClick={save} data-mgr-save>{busy ? "Saving…" : "Save artists"}</button>;
+}
+// what is unsaved, and why it can't be saved yet: hints beside the button in the form, a line in the window's foot
+function ArtistsNotes({ c, inFoot = false }) {
+  const { d, info, changes, why, held } = c;
+  const quiet = why === "Change something first.", count = `${changes.length === 1 ? "1 change" : `${changes.length} changes`} not saved yet: ${changeWords(changes)}.`;
+  if (inFoot) return (changes.length > 0 || (why && !quiet)) ? <span className="hint mgr-foot-note" data-mgr-changes={changes.length > 0 ? "" : undefined}>{why && !quiet ? why : count}</span> : null;
+  return (
+    <>
+      {changes.length > 0 && <span className="hint" data-mgr-changes>{count}</span>}
+      {held && changes.length > 0 && <span className="hint err-text" role="alert" data-mgr-held>The form's Save is held until these are saved. Press Save artists, or untick them back.</span>}
+      {why && d && !info?.problem && <span className="hint">{why}</span>}
+    </>
+  );
+}
+// what a save answered: the line, then what changed for each artist
+function ArtistsResult({ c }) {
+  const { res } = c;
+  return (
+    <>
+      <Said res={res} />
+      {res?.changes?.length > 0 && <ul className="mgr-arts-done" data-mgr-done>{res.changes.map((x) => <li key={x.row}>{x.text}</li>)}</ul>}
+    </>
+  );
+}
+// c: useArtistsChecklist. actions: the Save row and the answer go under the list (the form); the window keeps them in its foot
+function ManagerArtists({ manager, c, bounded = false, actions = true }) {
+  const { d, info, f, setF, changes } = c;
+  return (
+    <fieldset className="sheet-part mgr-arts" data-mgr-artists={manager}>
+      <legend>Artists on the accounting sheet</legend>
+      <p className="hint">Tick the artists {manager} manages. Saving sets INFO's Assigned Manager and Manager Gets % for the ones you changed.</p>
+      {!d ? <p className="hint">{c.why}</p>
+        : info?.problem ? <p className="hint err-text">{info.problem}</p>
+        : !f ? <p className="hint">Reading the accounting sheet…</p>
+        : !f.rows.length ? <p className="hint">INFO has no artists yet.</p>
+        : (
+        <>
+          <div className="mgr-arts-head" aria-hidden="true"><span>Artist</span><span>Manager Gets %</span></div>
+          <ul className={`mgr-arts-list${bounded ? " bounded" : ""}`}>
+            {f.rows.map((r) => {
+              const on = !!f.on[r.row], note = rowNote(f, r.row), ch = changes.find((x) => x.row === r.row), invalid = !!ch?.send && !pctOk(f.cut[r.row]);
+              return (
+                <li key={r.row} className={`mgr-art${ch ? " changed" : ""}`} data-mgr-artist={r.row}>
+                  <label className="mgr-art-main">
+                    <input type="checkbox" checked={on} onChange={(ev) => setF({ ...f, on: { ...f.on, [r.row]: ev.target.checked } })} data-mgr-tick />
+                    <span className="mgr-art-text">
+                      <span className="mgr-art-name">{r.name}</span>
+                      {note && <span className="mgr-art-note" data-mgr-note>{note}</span>}
+                    </span>
+                  </label>
+                  {on && (
+                    <span className="fld mgr-art-cut">
+                      <input inputMode="decimal" autoComplete="off" value={f.cut[r.row]} aria-invalid={invalid} aria-label={`${r.name}: ${manager}'s cut %`}
+                        onChange={(ev) => setF({ ...f, cut: { ...f.cut, [r.row]: ev.target.value } })} data-mgr-cut />
+                      <span aria-hidden="true">%</span>
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+      {actions && <div className="sheet-go"><ArtistsSave c={c} /><ArtistsNotes c={c} /></div>}
+      {actions && <ArtistsResult c={c} />}
+    </fieldset>
+  );
+}
+
+// The Users form's part for a Co-manager (where "Their artists" was): their checklist when their name is exactly a name on
+// INFO's manager list, else one plain line with the list's own Add to the sheet. Never a near match: "Cayden" is not on a
+// list that has "Caden"; "Magnus Hale" isn't "Magnus" there, so it says what the list has and offers no second entry.
+function ManagerArtistsPart({ name, ps, reloadDb, onDirty, nudge }) {
+  const [busy, setBusy] = useState(false), [res, setRes] = useState(null);
+  const d = ps.data, info = d?.info, managers = info?.managers || [];
+  const near = managers.find((m) => m.name !== name && sameManager(m.name, name)); // the site's own-artists rule reads it as theirs
+  const off = d && !d.writes?.accounting ? d.off?.accounting : null, full = !!d && !info?.problem && info?.nextManagerRow == null;
+  const add = async () => {
+    setBusy(true); setRes(null);
+    const r = await peoplePost({ action: "manager", name });
+    setBusy(false); setRes(r);
+    if (r.ok) ps.load(true);
+  };
+  return (
+    <>
+      {!name ? <p className="hint" data-manager-artists-hint>Type their name above, exactly as INFO's manager list spells it, to pick their artists here.</p>
+        : !d ? <p className="hint">{ps.failed ? "Couldn't read the accounting sheet just now." : "Reading the accounting sheet…"}</p>
+        : info?.problem ? <p className="hint err-text">{info.problem}</p>
+        : managers.some((m) => m.name === name) ? <FormArtists key={name} manager={name} ps={ps} reloadDb={reloadDb} onDirty={onDirty} nudge={nudge} />
+        : (
+          <p className="hint" data-manager-unlisted>{name} isn't on the accounting sheet's Managers list{near ? ` (it has ${near.name}).` : "."}
+            {!near && <>{" "}<button type="button" className="inline-link" disabled={!!off || busy || full} onClick={add} data-form-add-to-sheet>{busy ? "Adding…" : "Add to the sheet"}</button></>}
+            {!near && (off || full) && <span> {off || "INFO's manager list is full (L4 to L13)."}</span>}
+          </p>
+        )}
+      <Said res={res} />
+    </>
+  );
+}
+// the form's checklist: its own Save artists under the list, a bounded box on a mouse
+function FormArtists({ manager, ps, reloadDb, onDirty, nudge }) {
+  const c = useArtistsChecklist({ manager, ps, reloadDb, onDirty, nudge });
+  return <ManagerArtists manager={manager} c={c} bounded />;
+}
+
+// "Artists" on Managers on the accounting sheet: the same checklist in its own window, for a manager with no login. Like the
+// other windows it closes only with its X or Close (no Esc, no click outside), and the page behind doesn't scroll. Save
+// artists is in the foot, so it is in reach however long the list is; the answer comes to the top of the window.
+function ArtistsDialog({ manager, ps, reloadDb, onClose }) {
+  const c = useArtistsChecklist({ manager, ps, reloadDb });
+  const body = useRef(null);
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+  useEffect(() => { if (c.res) body.current?.scrollTo?.({ top: 0 }); }, [c.res]);
+  return (
+    <div className="modal" data-artists-dialog>
+      <div className="modal-card" role="dialog" aria-modal="true" aria-label={`${manager}'s artists`}>
+        <div className="modal-head">
+          <h3>{manager}'s artists</h3>
+          <button type="button" onClick={onClose} aria-label="Close"><X size={18} /></button>
+        </div>
+        <div className="modal-body" ref={body}>
+          <ArtistsResult c={c} />
+          <ManagerArtists manager={manager} c={c} actions={false} />
+        </div>
+        <div className="modal-foot">
+          <ArtistsNotes c={c} inFoot />
+          <button type="button" className="btn ghost sm" onClick={onClose}>Close</button>
+          <ArtistsSave c={c} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Site › Users: INFO's managers list, each with their login (lib/roles.js sameManager, the own-artists rule: Caden is
-// not Cayden). A manager with no login is fine; "Add login" only opens the new-user form, filled in.
-function SheetManagers({ db, roleOf, onAddLogin }) {
+// not Cayden). A manager with no login is fine; "Add login" only opens the new-user form, filled in. "Artists" opens the
+// manager's checklist. ps: the page's one usePeopleSync (the Users form's checklist reads the same INFO).
+function SheetManagers({ db, roleOf, onAddLogin, ps, reloadDb }) {
   const money = canUse(db, "money");
-  const ps = usePeopleSync(money);
-  const [name, setName] = useState(""), [busy, setBusy] = useState(null), [res, setRes] = useState(null);
+  const [name, setName] = useState(""), [busy, setBusy] = useState(null), [res, setRes] = useState(null), [artistsFor, setArtistsFor] = useState(null);
   if (!money) return null;
   const d = ps.data, info = d?.info, managers = info?.managers || [];
   const staff = db.users.filter((u) => u.role === "staff");
@@ -380,10 +557,13 @@ function SheetManagers({ db, roleOf, onAddLogin }) {
           {managers.map((m) => {
             const u = loginOf(m.name);
             return (
-              <li key={m.row} data-sheet-manager={m.name}>
-                <b>{m.name}</b>
-                {u ? <span className="muted"> · {u.noLogin ? "account ready, no password yet" : `login ${u.email}`}</span>
-                  : <><span className="muted"> · No login (that's fine)</span> <button type="button" className="inline-link" onClick={() => onAddLogin(m.name)} data-add-login>Add login</button></>}
+              <li key={m.row} className="sheet-mgr-row" data-sheet-manager={m.name}>
+                <span className="sheet-mgr-who">
+                  <b>{m.name}</b>
+                  {u ? <span className="muted"> · {u.noLogin ? "account ready, no password yet" : `login ${u.email}`}</span>
+                    : <><span className="muted"> · No login (that's fine)</span> <button type="button" className="inline-link" onClick={() => onAddLogin(m.name)} data-add-login>Add login</button></>}
+                </span>
+                {!db.access?.ownOnly && <button type="button" className="btn ghost sm" onClick={() => setArtistsFor(m.name)} data-manager-artists-open>Artists</button>}
               </li>
             );
           })}
@@ -408,6 +588,7 @@ function SheetManagers({ db, roleOf, onAddLogin }) {
       )}
       {(off || full) && <p className="hint">{off || "INFO's manager list is full (L4 to L13)."}</p>}
       <Said res={res} />
+      {artistsFor && <ArtistsDialog manager={artistsFor} ps={ps} reloadDb={reloadDb} onClose={() => setArtistsFor(null)} />}
     </section>
   );
 }
@@ -549,6 +730,12 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
   const accessOf = (u) => accessFor({ staffRole: pickOf(u), access: u.access, name: u.name }, { anyFounder: true });
   const artistsOf = (name) => db.clients.filter((c) => sameManager(c.manager, name));
   const managers = useManagers(reloadDb);
+  // (2026-11-14) INFO is read once for the page: Managers on the accounting sheet and a Co-manager's checklist share it. The
+  // checklist needs Money, and never an account limited to its own artists (the server refuses it: it works on every artist)
+  const money = canUse(db, "money"), sheetPicks = money && !db.access?.ownOnly;
+  const ps = usePeopleSync(money);
+  const artistsDirty = useRef(false); // ticks in the form's checklist that Save artists hasn't written yet
+  const [nudge, setNudge] = useState(0); // the form's Save was pressed while they were
   const who = (u) => {
     if (u.role === "client") return `Client · ${db.clients.find((c) => c.id === u.clientId)?.name || "no client linked"}`;
     const a = accessOf(u);
@@ -563,6 +750,9 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
   // (2026-11-14, people link) the people with no login yet (no email or no password) come last, under their own heading
   const usersShown = [...db.users.filter((u) => !u.noLogin), ...db.users.filter((u) => u.noLogin)];
   const save = async (o) => {
+    // the checklist has its own Save artists (it writes the accounting sheet); this Save writes the site, so ticks left
+    // unsaved hold it (the window stays open) and the checklist says why, never lost with the window
+    if (artistsDirty.current) { setNudge((n) => n + 1); return false; }
     // (2026-11-14) no password is a person with no login yet (a set-password link later); a password needs an email
     if ((o.password || "").trim() && !(o.email || "").trim()) return "Add their email first: a password needs an email to sign in with.";
     // (what the list shows until the next load: noLogin isn't saved, the server works it out)
@@ -620,11 +810,13 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
               <span>Only their own artists: the ones with this name as Assigned Manager on the accounting sheet's INFO tab.</span>
             </label>
           )}
-          {a?.ownOnly && (
-            <p className="hint" data-own-artists>{!(e.name || "").trim() ? "Type their name above, as INFO spells it." : mine.length ? `Their artists: ${mine.map((c) => c.name).join(", ")}.` : `No artist has "${e.name.trim()}" as Assigned Manager yet.`}
-              {" "}<button type="button" className="inline-link" onClick={managers.update} disabled={managers.busy}>{managers.busy ? "Reading the sheet…" : "Update from the sheet"}</button>
-              {managers.err && <span className="err-text"> {managers.err}</span>}</p>
-          )}
+          {pick === "comanager" && sheetPicks
+            ? <ManagerArtistsPart name={(e.name || "").trim()} ps={ps} reloadDb={reloadDb} onDirty={(v) => { artistsDirty.current = v; }} nudge={nudge} />
+            : a?.ownOnly && (
+              <p className="hint" data-own-artists>{!(e.name || "").trim() ? "Type their name above, as INFO spells it." : mine.length ? `Their artists: ${mine.map((c) => c.name).join(", ")}.` : `No artist has "${e.name.trim()}" as Assigned Manager yet.`}
+                {" "}<button type="button" className="inline-link" onClick={managers.update} disabled={managers.busy}>{managers.busy ? "Reading the sheet…" : "Update from the sheet"}</button>
+                {managers.err && <span className="err-text"> {managers.err}</span>}</p>
+            )}
           {e.role === "staff" && founder && (
             <fieldset className="fld sec-picks" data-sections>
               <legend>What they can open</legend>
@@ -646,7 +838,7 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
       }}
     />
     {founder && <p className="hint users-managers" data-managers-at>Each artist's manager comes from the accounting sheet's INFO tab{managers.at ? `, read ${shortDay(managers.at)}` : ""}. <button type="button" className="inline-link" onClick={managers.update} disabled={managers.busy}>{managers.busy ? "Reading the sheet…" : "Update from the sheet"}</button>{managers.err && <span className="err-text"> {managers.err}</span>}</p>}
-    <SheetManagers db={db} roleOf={pickOf} onAddLogin={addLogin} />
+    <SheetManagers db={db} roleOf={pickOf} onAddLogin={addLogin} ps={ps} reloadDb={reloadDb} />
     </>
   );
 }
