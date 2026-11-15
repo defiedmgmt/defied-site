@@ -3585,6 +3585,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .people-flag-text{flex:1 1 260px;min-width:0;font-size:12.5px;line-height:1.4;color:var(--d-ink-3);white-space:normal}
 .app:not(.pub) .people-flag-acts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
 .app:not(.pub) .sync-list .people-flag-acts .btn{margin-left:0}
+.app:not(.pub) .people-preview{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:10px 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field)}
 @media (max-width:699px){ .app:not(.pub) .people-flag-text{flex-basis:100%} .app:not(.pub) .people-flag-acts{justify-content:flex-start} .app:not(.pub) .admin-group{padding:12px 14px 6px} }
 
 /* (2026-11-14) a manager's artists ticked in one place: Site › Users' form for a Co-manager, and the "Artists" window from Managers on the accounting sheet */

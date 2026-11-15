@@ -759,7 +759,7 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
     const typedIn = (o.password || "").trim() && (o.email || "").trim(), noEmail = !(o.email || "").trim();
     const shown = { ...o, noLogin: o.id ? (typedIn ? false : noEmail ? true : !!o.noLogin) : !typedIn };
     const users = o.id ? db.users.map((u) => u.id === o.id ? shown : u) : [...db.users, { ...shown, id: uid() }];
-    if (!users.some((u) => u.role === "staff" && (!u.noLogin || (u.password || "").trim()))) return "There has to be at least one staff account.";
+    if (!users.some((u) => u.role === "staff" && (u.email || "").trim() && (!u.noLogin || (u.password || "").trim()))) return "There has to be at least one staff account.";
     if (anyFounder && !users.some((u) => u.role === "staff" && u.staffRole === "founder")) return "There has to be at least one Founder.";
     return saveRow(commit, { ...db, users }, "users", o.id, "user");
   };

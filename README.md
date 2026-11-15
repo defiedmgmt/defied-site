@@ -50,6 +50,10 @@ before `next build`. If a migration fails, the build stops and the live site sta
   - `--dry-run` lists what would run.
   - The script reads no `.env` file.
 - `db/migrate.mjs` is something else: a one-time import of an old JSON export. It empties the main tables first.
+- Rolling back past the people link (migration 022, `lib/people-link.js`, 2026-11-14): set `PEOPLE_AUTOLINK=off` first,
+  or remove the rows it made (their ids start with `auto-`, in `users`, `clients` and `staff_bios`) before the older
+  code is live. Older code can't save Site › Users while a login with no email exists (it answers 500), drops those
+  logins at its next users save, and answers "Login failed." for an email whose login has no password yet.
 
 ## Photos and covers
 
@@ -214,7 +218,7 @@ never values.
 | `DATA_REFRESH` | Not a write, but it spends money: the daily data crons start Apify runs and read YouTube/Spotify. Off, nothing is fetched (Site › Sync shows what's there). |
 | `DIGEST_WRITES` | The Monday digests: the team post to `DIGEST_CHANNEL_ID` and the personal messages. Off, a Monday run still builds each digest and logs it (`digest_runs`, status "off"), so the preview shows what would have gone out. |
 | `RADAR_SCANS` | Not a write, but it spends money: the TikTok radar's keyword scans and its risers' daily boost. Off, sounds added by link are still tracked one at a time. |
-| `PEOPLE_AUTOLINK` | On unless set to `off` (2026-11-14, `lib/people-link.js`): one person, same info everywhere. Someone new in the logins, the roster, the team page or INFO is added to the others, hidden and with no login: after a dashboard save that changes the people, from the Sync check at most every 2 minutes, nightly, and from Site › Sync's "Sync people now". Nothing is ever deleted or renamed by it. Its INFO writes (a client's name, a manager's name) also need `ACCOUNTING_SHEET_WRITES`, and it never grows Annual Summary. |
+| `PEOPLE_AUTOLINK` | On unless set to `off` (2026-11-14, `lib/people-link.js`): one person, same info everywhere. Someone new in the logins, the roster, the team page or INFO is added to the others, hidden and with no login: after a dashboard save that changes the people, from the Sync check at most every 2 minutes, nightly, and from Site › Sync's "Sync people now". Nothing is ever deleted or renamed by it. Its INFO writes (a client's name, a manager's name) also need `ACCOUNTING_SHEET_WRITES`, and it never grows Annual Summary. The first run is a person's: until Site › Sync's "Sync people now" (a preview, then "Add them") has run once, the automatic runs only log that they're waiting. |
 
 **Build and platform**
 
