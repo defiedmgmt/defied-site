@@ -87,3 +87,23 @@ export function changeWords(changes) {
   for (const c of changes) n[c.kind] += 1;
   return [n.tick && `${n.tick} added`, n.move && `${n.move} moved from another manager`, n.untick && `${n.untick} taken off`, n.cut && `${n.cut} cut changed`].filter(Boolean).join(", ");
 }
+
+// Is `name` exactly a name on INFO's manager list (L4:L13)? The list's own spelling and nothing near it: "Hank Rivers" is not
+// "Hank", "caden" is not "Caden", "Cayden" is not "Caden". managers: GET /api/people-sync's info.managers, [{ row, name }]
+export function onManagerList(managers, name) {
+  for (const m of managers || []) if (m.name === name) return true;
+  return false;
+}
+
+// Who gets the checklist in Site › Users' form (2026-11-15: a Founder too; Devin, Hank and Burny are Founders and also managers
+// on INFO's list). pick: the form's role (founder, comanager, intern, client). sheetPicks: the viewer has Money and isn't limited
+// to their own artists (the server refuses anyone else). managers: INFO's list. name: the form's name, trimmed.
+//   "checklist"  a Co-manager or a Founder whose name is exactly on the list
+//   "line"       a Co-manager whose name isn't (or isn't read yet): their part says so, and offers Add to the sheet
+//   null         nothing: a Founder not on the list (a Founder needn't be a manager: no line, no Add to the sheet), an Intern,
+//                a Client, or a viewer who can't pick from the sheet
+export function artistsPart(pick, sheetPicks, managers, name) {
+  if (!sheetPicks || (pick !== "comanager" && pick !== "founder")) return null;
+  if (onManagerList(managers, name)) return "checklist";
+  return pick === "comanager" ? "line" : null;
+}

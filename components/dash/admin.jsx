@@ -9,7 +9,7 @@ import { findTabClient, noTabNames, shortDay } from "./helpers";
 import { Area, Avatar, EmailButton, Field, PhotoUpload, SplitsEditor, splitTotal, uid } from "./ui";
 import { AskCard } from "../portal/ask";
 import { nameTaken, deleteClientCascade, clientDeleteAsk, NAME_TAKEN, SpotifyFill } from "./clients";
-import { pctText, pctOk, fillChecklist, checklistChanges, checklistRows, checklistWhy, rowNote, changeWords } from "./manager-artists";
+import { pctText, pctOk, fillChecklist, checklistChanges, checklistRows, checklistWhy, rowNote, changeWords, onManagerList, artistsPart } from "./manager-artists";
 import { orderUsers, nextSort, sortValue, sortFromValue, SORT_OPTIONS, loadSort, saveSort, loadOpen, saveOpen } from "./users-list";
 export { ClientMore, clientDeleteAsk, deleteClientCascade, NAME_TAKEN, nameTaken, SpotifyFill } from "./clients";
 
@@ -393,7 +393,8 @@ function TabPart({ client, unsaved, ps, reloadDb, onTab }) {
 
 /* (2026-11-14) A manager's artists, ticked in one place (the owner: "can we just have like a select box for his artists and
    have that sync to the accounting sheet"). Site › Users' form for a Co-manager shows it where the read-only "Their
-   artists" line was, and "Artists" on Managers on the accounting sheet opens it in a window for a manager with no login.
+   artists" line was (and, 2026-11-15, for a Founder whose name is on INFO's list: Devin, Hank and Burny are both), and
+   "Artists" on Managers on the accounting sheet opens it in a window for a manager with no login.
    Ticked = INFO's Assigned Manager is exactly this name. Save artists writes E and F of the rows changed in one go
    (lib/people-sync.js saveManagerArtists), and the site's managers follow the sheet. Its own button, apart from the
    form's Save, the way the Roster form's Accounting sheet part is: it writes the accounting sheet (its own lock, stale
@@ -502,7 +503,9 @@ function ManagerArtists({ manager, c, bounded = false, actions = true }) {
 
 // The Users form's part for a Co-manager (where "Their artists" was): their checklist when their name is exactly a name on
 // INFO's manager list, else one plain line with the list's own Add to the sheet. Never a near match: "Cayden" is not on a
-// list that has "Caden"; "Magnus Hale" isn't "Magnus" there, so it says what the list has and offers no second entry.
+// list that has "Caden"; "Magnus Hale" isn't "Magnus" there, so it says what the list has and offers no second entry. A
+// Founder is sent here only when their name IS on the list (manager-artists.js artistsPart), so they see the checklist and
+// never this line or Add to the sheet.
 function ManagerArtistsPart({ name, ps, reloadDb, onDirty, nudge }) {
   const [busy, setBusy] = useState(false), [res, setRes] = useState(null);
   const d = ps.data, info = d?.info, managers = info?.managers || [];
@@ -519,7 +522,7 @@ function ManagerArtistsPart({ name, ps, reloadDb, onDirty, nudge }) {
       {!name ? <p className="hint" data-manager-artists-hint>Type their name above, exactly as INFO's manager list spells it, to pick their artists here.</p>
         : !d ? <p className="hint">{ps.failed ? "Couldn't read the accounting sheet just now." : "Reading the accounting sheet…"}</p>
         : info?.problem ? <p className="hint err-text">{info.problem}</p>
-        : managers.some((m) => m.name === name) ? <FormArtists key={name} manager={name} ps={ps} reloadDb={reloadDb} onDirty={onDirty} nudge={nudge} />
+        : onManagerList(managers, name) ? <FormArtists key={name} manager={name} ps={ps} reloadDb={reloadDb} onDirty={onDirty} nudge={nudge} />
         : (
           <p className="hint" data-manager-unlisted>{name} isn't on the accounting sheet's Managers list{near ? ` (it has ${near.name}).` : "."}
             {!near && <>{" "}<button type="button" className="inline-link" disabled={!!off || busy || full} onClick={add} data-form-add-to-sheet>{busy ? "Adding…" : "Add to the sheet"}</button></>}
@@ -772,7 +775,7 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
   const accessOf = (u) => accessFor({ staffRole: pickOf(u), access: u.access, name: u.name }, { anyFounder: true });
   const artistsOf = (name) => db.clients.filter((c) => sameManager(c.manager, name));
   const managers = useManagers(reloadDb);
-  // (2026-11-14) INFO is read once for the page: Managers on the accounting sheet and a Co-manager's checklist share it. The
+  // (2026-11-14) INFO is read once for the page: Managers on the accounting sheet and a Co-manager's (or Founder's) checklist share it. The
   // checklist needs Money, and never an account limited to its own artists (the server refuses it: it works on every artist)
   const money = canUse(db, "money"), sheetPicks = money && !db.access?.ownOnly;
   const ps = usePeopleSync(money);
@@ -838,6 +841,8 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
       onSave={save} onDelete={del} openNew={newUser}
       extra={(e, set) => {
         const pick = pickOf(e), a = e.role === "staff" ? accessOf(e) : null, mine = a?.ownOnly ? artistsOf(e.name) : [];
+        // (2026-11-15) the artists checklist's part: a Co-manager's always (the checklist, or why not), a Founder's only when their name is exactly on INFO's list
+        const part = artistsPart(pick, sheetPicks, ps.data?.info?.managers, (e.name || "").trim());
         return (
         <>
           <Field label="Email" value={e.email || ""} onChange={(ev) => set({ ...e, email: ev.target.value })} />
@@ -866,7 +871,7 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
               <span>Only their own artists: the ones with this name as Assigned Manager on the accounting sheet's INFO tab.</span>
             </label>
           )}
-          {pick === "comanager" && sheetPicks
+          {part
             ? <ManagerArtistsPart name={(e.name || "").trim()} ps={ps} reloadDb={reloadDb} onDirty={(v) => { artistsDirty.current = v; }} nudge={nudge} />
             : a?.ownOnly && (
               <p className="hint" data-own-artists>{!(e.name || "").trim() ? "Type their name above, as INFO spells it." : mine.length ? `Their artists: ${mine.map((c) => c.name).join(", ")}.` : `No artist has "${e.name.trim()}" as Assigned Manager yet.`}
