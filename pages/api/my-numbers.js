@@ -18,8 +18,9 @@ export default async function handler(req, res) {
     const artist = a ? { clientId, name: a.name, mode: a.mode, links: a.links || {}, streams: a.streams ? { thisWeek: a.streams.thisWeek, lastWeek: a.streams.lastWeek, pct: a.streams.pct, day: a.streams.day } : null,
       metrics: Object.fromEntries(Object.entries(a.metrics || {}).map(([k, m]) => [k, { latest: m.latest, daily: m.daily, growthPct: m.growthPct, approx: !!m.approx, day: m.day }])),
       // (2026-11-11) their own songs' Spotify all-time and "under 1,000", for a song Luminate doesn't have yet (the portal);
-      // (2026-11-13) with the song's other Spotify ids, for a copy that links one of those
-      songs: withSameSongIds(a.songs, same).map((s) => ({ id: s.id, ...(s.ids ? { ids: s.ids } : {}), under1k: !!s.under1k, streams: s.streams ? { latest: s.streams.latest } : null })) } : null;
+      // (2026-11-13) with the song's other Spotify ids, for a copy that links one of those; (2026-11-15) and the day the
+      // count is from, which the portal's "Streams as of" says when Spotify's plays are all its streams (lib/portal-streams.js)
+      songs: withSameSongIds(a.songs, same).map((s) => ({ id: s.id, ...(s.ids ? { ids: s.ids } : {}), under1k: !!s.under1k, streams: s.streams ? { latest: s.streams.latest, day: s.streams.day } : null })) } : null;
     return res.status(200).json({ artists: artist ? [artist] : [] });
   } catch (err) {
     console.error("my-numbers failed:", err);

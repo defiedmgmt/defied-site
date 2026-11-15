@@ -3,7 +3,7 @@ import Link from "next/link";
 import { X, LogOut, Plus, Disc3, RefreshCw, AlertTriangle, CheckCircle2, Eye, PauseCircle, PlayCircle, KeyRound } from "lucide-react";
 import { PasswordCard } from "../dash/password";
 import { songSplit, splitWords, filledSplits, orderSplits } from "../../lib/splits";
-import { portalStreams, spotSongsOf, spotifyStandIn, trackKey } from "../../lib/portal-streams";
+import { portalStreams, spotSongsOf, spotifyStandIn, streamsDay, trackKey } from "../../lib/portal-streams";
 import { ShareStats } from "./share";
 import { changedFields, goneText } from "../app/saves";
 import { ClientMore, SpotifyFill } from "../dash/clients";
@@ -338,6 +338,9 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   const streamsNow = useMemo(() => portalStreams(songs, { growth, spotSongs }), [songs, growth, spotSongs]);
   const spotifyFill = streamsNow.spotifyFill;
   const notOnLuminate = `${spotifyFill.n} ${spotifyFill.n === 1 ? "song" : "songs"} not on Luminate yet`;
+  // (2026-11-15) a client's "as of" lines say the day their streams are from, as the share card does (lib/portal-streams.js
+  // streamsDay): the sheet's (Luminate's, numbersOn) unless Spotify's plays are all there is, then theirs. No day: the last pull's
+  const asOfWords = (day) => new Date(day ? `${day}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   const [stopAsk, setStopAsk] = useState(false);
   // a client's own links (2026-11-11): what's on their profile, and the one being added or changed
   const [myLinks, setMyLinks] = useState(() => ({ spotify: client?.spotify || "", instagram: client?.instagram || "", tiktok: client?.tiktok || "", youtube: client?.youtube || "" }));
@@ -382,7 +385,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
           <div className="cat-asof-row">
             <p className="hint cat-asof">
               {isStaff ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt })
-                : `Streams as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}
+                : `Streams as of ${asOfWords(streamsDay(streamsNow.sheetGross, spotifyFill.on, numbersOn))}`}
             </p>
             {streamsNow.gross > 0 && <ShareStats clientId={clientId} name={client?.name} isStaff={!!isStaff} />}
           </div>
@@ -517,7 +520,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                     </>
                   )}
                   <p className="hint song-asof">{isStaff ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt })
-                    : `as of ${new Date(numbersOn ? `${numbersOn}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`}</p>
+                    : `as of ${asOfWords(streamsDay(active.streams, spotifyOnly(active)?.on, numbersOn))}`}</p>
                 </div>
               )}
               {/* (2026-11-11, the owner: "make it clear that the splits are pub splits for each song") */}
