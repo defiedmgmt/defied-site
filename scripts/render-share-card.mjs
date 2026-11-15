@@ -4,7 +4,9 @@
 //   node scripts/render-share-card.mjs <stats.json> [story|post] [out.png]
 //
 // stats.json: { "name": "Sample Artist", "grossStreams": 1234567, "asOf": "2026-11-13",
-//               "songs": [{ "title": "Song One", "streams": 456789 }, ...], "photo": "data:image/png;base64,..." (optional) }
+//               "songs": [{ "title": "Song One", "streams": 456789, "cover": "one.jpg" }, ...], "photo": "me.png" }
+//   cover (a song's art) and photo are optional, each a data: URI or the path of a PNG or JPEG file, beside the stats file
+//   or absolute. A song with no cover gets the D tile, as on the site. A web link is left out: this never fetches anything.
 // Without out.png it writes <stats>-<format>.png beside the stats file.
 import fs from "node:fs";
 import path from "node:path";
@@ -28,6 +30,16 @@ globalThis.fetch = async (url) => { tried.push(String(url)); throw new Error("re
 
 const { renderCardPng, formatOf, cardText, loadAssets } = await import(path.join(ROOT, "lib/share-card-render.js"));
 const stats = JSON.parse(fs.readFileSync(statsPath, "utf8"));
+// a picture given as a file is read into the data: URI the card draws
+const dataUri = (v) => {
+  if (!v || /^data:/i.test(v)) return v || null;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(String(v))) return null;
+  const bytes = fs.readFileSync(path.resolve(path.dirname(path.resolve(statsPath)), v));
+  const type = bytes[0] === 0xff ? "image/jpeg" : bytes[0] === 0x89 ? "image/png" : null;
+  return type ? `data:${type};base64,${bytes.toString("base64")}` : null;
+};
+stats.photo = dataUri(stats.photo);
+stats.songs = (stats.songs || []).map((s) => ({ ...s, cover: dataUri(s.cover) }));
 const format = formatOf(formatArg);
 const out = outArg || statsPath.replace(/\.json$/i, "") + `-${format}.png`;
 const png = await renderCardPng(stats, format, { root: ROOT });
