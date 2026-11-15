@@ -1,6 +1,7 @@
 // GET /api/share-card?client=<id>&format=story|post — a client's share card as a PNG (2026-11-13, the owner: "a share
 // button that captures only their gross streams"): their total streams and top songs, as their portal shows them
-// (lib/share-card.js), drawn on the Defied look (lib/share-card-render.js). No net streams, splits or money.
+// (lib/share-card.js), drawn on the Defied look (lib/share-card-render.js) with each song's own cover art: a thumbnail in
+// its row, and the biggest song's cover blurred behind the whole card. No net streams, splits or money.
 //   a client      their own card (?client= may be left out; another client's id is refused)
 //   staff         Clients access, ?client= named; an account limited to its own artists gets only theirs
 // story is 1080x1920 (the default), post 1080x1350. A client with no streams yet gets 409, not an empty card, and a name
@@ -8,11 +9,12 @@
 // off the list, and X-Share-Left-Off says how many were, for the window to say so.
 // Errors are one short plain line; the card is never cached (it's someone's own numbers, and they change daily).
 import { requireAccess } from "../../lib/access";
-import { shareStats, shareTarget, loadPhoto } from "../../lib/share-card";
+import { shareStats, shareTarget, loadPhoto, loadCovers } from "../../lib/share-card";
 import { renderCardPng, cardText, loadAssets, FORMATS } from "../../lib/share-card-render";
 import { shareFileName } from "../../lib/portal-streams";
 
-// a story card is a few hundred KB: over Next's 4 MB warning only if something is badly wrong, so no warning needed
+// a story card with its cover art is about 1-1.5 MB (the blurred backdrop is most of it): well under Next's 4 MB warning and
+// Vercel's 4.5 MB limit, so no warning needed
 export const config = { api: { responseLimit: false } };
 
 const say = (res, status, text) => {
@@ -58,9 +60,12 @@ export default async function handler(req, res) {
 
   let png;
   try {
-    // their photo only when there is one and it arrives in time (~1.5 s); never a stand-in face
-    const photo = await loadPhoto(stats.photo);
-    png = await renderCardPng({ ...stats, photo }, format, { assets });
+    // their photo only when there is one and it arrives in time (~1.5 s); never a stand-in face. And each top song's
+    // cover art, all at once with the photo (~3 s at most): a song whose cover doesn't come gets the card's D tile, never
+    // another picture. said.songs are the songs the card draws, so a cover stays with its own song
+    const [photo, covers] = await Promise.all([loadPhoto(stats.photo), loadCovers(said.songs)]);
+    const songs = said.songs.map((s, i) => ({ title: s.title, streams: s.streams, cover: covers[i] }));
+    png = await renderCardPng({ ...stats, photo, songs }, format, { assets });
   } catch (err) {
     console.error("share card: drawing failed:", err);
     return say(res, 500, "Couldn't make the card. Try again in a minute.");

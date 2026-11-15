@@ -73,6 +73,14 @@ before `next build`. If a migration fails, the build stops and the live site sta
 - A client's portal has **Share my stats** on the line under their streams; staff see **Share card** in the same
   place on an artist's page. It opens the card: a PNG from `/api/share-card` (Story 1080 × 1920 or Post 1080 × 1350)
   with the Defied wordmark, the artist's total streams and their top 5 songs, and Save image (plus Share on a phone).
+- Each top song shows its own cover art: a thumbnail in its row, and the biggest song's cover, blurred and darkened,
+  behind the whole card (its tones are held in a dark band, so the white text reads on any cover). The cover is the
+  one stored for the song (`placements.cover`, a Spotify `i.scdn.co` link). A song whose stored cover can't be had
+  but that links a Spotify track gets Spotify's picture of that track (the Web API, the data engine's client-credentials
+  sign-in, `lib/data/direct.js`). A song with neither gets the D mark on a dark tile: never another song's art, never
+  a made-up one. Covers are fetched on the server by the same fetcher as the photo (`loadPhoto` in `lib/share-card.js`),
+  all at once, about 3 s each and 2 MB at most, only from `i.scdn.co`, the public site and the Blob store; one that
+  doesn't arrive just leaves its tile. A picture next/og can't decode is left out, not the whole card.
 - The numbers are the ones the portal shows as Gross Streams and per song, worked out by the same code
   (`lib/portal-streams.js`). Nothing about net streams, splits or money is on it.
 - A client gets only their own card. Staff need Clients access, and a Co-manager limited to their own artists gets
@@ -86,7 +94,8 @@ before `next build`. If a migration fails, the build stops and the live site sta
 - The card's fonts and logo are read from `public/` when it's drawn. `next.config.js` traces those files (and
   next/og's own) into that one function on Vercel.
 - `node scripts/render-share-card.mjs stats.json story out.png` draws a card from a stats file, for checking the
-  layout. It reads no database.
+  layout. It reads no database and fetches nothing; a song's `cover` (and the `photo`) can be a PNG or JPEG file
+  beside the stats file.
 
 ## Roles and permissions
 
