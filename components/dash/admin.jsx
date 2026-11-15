@@ -561,7 +561,7 @@ function SheetManagers({ db, roleOf, onAddLogin, ps, reloadDb }) {
                 <span className="sheet-mgr-who">
                   <b>{m.name}</b>
                   {u ? <span className="muted"> · {u.noLogin ? "account ready, no password yet" : `login ${u.email}`}</span>
-                    : <><span className="muted"> · No login (that's fine)</span> <button type="button" className="inline-link" onClick={() => onAddLogin(m.name)} data-add-login>Add login</button></>}
+                    : <><span className="muted"> · No account yet</span> <button type="button" className="inline-link" onClick={() => onAddLogin(m.name)} data-add-login>Add login</button></>}
                 </span>
                 {!db.access?.ownOnly && <button type="button" className="btn ghost sm" onClick={() => setArtistsFor(m.name)} data-manager-artists-open>Artists</button>}
               </li>
