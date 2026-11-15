@@ -10,11 +10,18 @@ import { Area, Avatar, EmailButton, Field, PhotoUpload, SplitsEditor, splitTotal
 import { AskCard } from "../portal/ask";
 import { nameTaken, deleteClientCascade, clientDeleteAsk, NAME_TAKEN, SpotifyFill } from "./clients";
 import { pctText, pctOk, fillChecklist, checklistChanges, checklistRows, checklistWhy, rowNote, changeWords } from "./manager-artists";
+import { orderUsers, nextSort, sortValue, sortFromValue, SORT_OPTIONS, loadSort, saveSort, loadOpen, saveOpen } from "./users-list";
 export { ClientMore, clientDeleteAsk, deleteClientCascade, NAME_TAKEN, nameTaken, SpotifyFill } from "./clients";
 
 
 /* generic editable list ------------------------------------------------ */
-export function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete, openId = null, noAdd = false, openNew = null, groupOf = null }) {
+// (2026-11-15, Site › Users) two options for a long list, both off unless given:
+//   sort  { by, dir, onSort(key), value, options: [[value, words]], onPick(value) }: a column with `sort: key` gets a head button (aria-sort;
+//         the list is then a table for assistive tech), and under 900px, where the head row is hidden, a "Sort:" picker
+//   fold  { group, open, onToggle(), onShow() }: the rows of groupOf's `group` fold away behind their heading row, which says how many
+//         there are and has a Show / Hide button; onShow() is called when a form opens for one of the folded rows
+// The order of `items` is the caller's: sorting is never done here.
+export function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete, openId = null, noAdd = false, openNew = null, groupOf = null, sort = null, fold = null }) {
   const [editing, setEditing] = useState(null); // object or null
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState(null);
@@ -28,7 +35,10 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, [editing]);
-  const start = (obj) => { from.current = obj; setFormErr(null); setEditing(obj ? { ...obj } : { id: null, ...blank }); };
+  const start = (obj) => {
+    from.current = obj; setFormErr(null); setEditing(obj ? { ...obj } : { id: null, ...blank });
+    if (obj && fold && groupOf?.(obj) === fold.group) fold.onShow(); // a form for a folded row: its group opens, so they're there when it closes
+  };
   // a link to one row (To do's "Set X's sheet tab") opens its form
   useEffect(() => { const it = openId && items.find((x) => x.id === openId); if (it) start(it); }, [openId]); // eslint-disable-line react-hooks/exhaustive-deps
   // (2026-11-13) a new row's form opened already filled in ({ key, values }: Site › Users' "Add login" for a manager
@@ -54,8 +64,22 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
   // reorder rows carry 4 action buttons (up/down/edit/delete) instead of 2,
   // so they need their own, wider mobile column — see .admin-row-reorder.
   const rowCls = "admin-row" + (onReorder ? " admin-row-reorder" : "");
-  // (2026-11-14) a heading over each group of rows (Users: "No login yet"), when groupOf gives one
-  const groupHead = (it, i) => { const g = groupOf?.(it) || null; return g && (i === 0 || groupOf(items[i - 1]) !== g) ? <div className="admin-group" key={`group:${g}`} data-group={g}>{g}</div> : null; };
+  // sort turns the list into a table for assistive tech (aria-sort needs a column header in a table); otherwise no role is set
+  const T = sort ? { table: "table", row: "row", cell: "cell", head: "columnheader" } : {};
+  const folded = (it) => !!fold && !fold.open && groupOf?.(it) === fold.group; // a row hidden behind its group's heading
+  // (2026-11-14) a heading over each group of rows (Users: "No login yet"), when groupOf gives one; the folded group's is a row with Show / Hide
+  const groupHead = (it, i) => {
+    const g = groupOf?.(it) || null;
+    if (!g || !(i === 0 || groupOf(items[i - 1]) !== g)) return null;
+    if (!fold || fold.group !== g) return <div className="admin-group" key={`group:${g}`} data-group={g}>{g}</div>;
+    const n = items.filter((x) => groupOf(x) === g).length, act = fold.open ? "Hide" : "Show";
+    return (
+      <div className="admin-group admin-fold" key={`group:${g}`} data-group={g} data-fold={fold.open ? "open" : "closed"} role={T.row}>
+        <span role={T.cell}>{g} ({n})</span>
+        <span role={T.cell}><button type="button" className="btn ghost sm" onClick={fold.onToggle} aria-label={`${act} ${g} (${n})`} data-fold-toggle>{act}</button></span>
+      </div>
+    );
+  };
   return (
     <div>
       <div className="admin-head">
@@ -69,16 +93,33 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
           <p>{ask.body}</p>
         </AskCard>
       )}
-      <div className="admin-table">
-        <div className={`${rowCls} admin-hd`} style={gridCols}>
-          {columns.map((c) => <span key={c.key}>{c.label}</span>)}
-          <span className="admin-act">Actions</span>
+      {sort && (
+        <label className="admin-sort" data-sort-pick>
+          <span>Sort:</span>
+          <select value={sort.value} onChange={(ev) => sort.onPick(ev.target.value)}>
+            {sort.options.map(([v, words]) => <option key={v} value={v}>{words}</option>)}
+          </select>
+        </label>
+      )}
+      <div className="admin-table" role={T.table} aria-label={sort ? title : undefined}>
+        <div className={`${rowCls} admin-hd`} style={gridCols} role={T.row}>
+          {columns.map((c) => {
+            const on = !!sort && !!c.sort && sort.by === c.sort;
+            return (
+              <span key={c.key} role={T.head} aria-sort={on ? (sort.dir < 0 ? "descending" : "ascending") : undefined}>
+                {sort && c.sort
+                  ? <button type="button" className={on ? "ar-sort on" : "ar-sort"} onClick={() => sort.onSort(c.sort)} title={c.sortTitle} data-sort={c.sort}>{c.label}{on && <span aria-hidden="true">{sort.dir < 0 ? " ▼" : " ▲"}</span>}</button>
+                  : c.label}
+              </span>
+            );
+          })}
+          <span className="admin-act" role={T.head}>Actions</span>
         </div>
         {items.length === 0 && <div className="admin-empty">Nothing here yet. Click “Add”.</div>}
-        {items.map((it, i) => [groupHead(it, i), (
-          <div className={rowCls} key={it.id} style={gridCols}>
-            {columns.map((c) => <span key={c.key} className="cell">{c.render ? c.render(it) : (it[c.key] || "—")}</span>)}
-            <span className="admin-act">
+        {items.map((it, i) => [groupHead(it, i), folded(it) ? null : (
+          <div className={rowCls} key={it.id} style={gridCols} role={T.row}>
+            {columns.map((c) => <span key={c.key} className="cell" role={T.cell}>{c.render ? c.render(it) : (it[c.key] || "—")}</span>)}
+            <span className="admin-act" role={T.cell}>
               {onReorder && (
                 <>
                   <button onClick={() => onReorder(it.id, -1)} disabled={i === 0} title="Move up"><ChevronUp size={14} /></button>
@@ -723,6 +764,7 @@ function PasswordLink({ userId }) {
   );
 }
 const dayOf = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
+const NO_LOGIN = "No login yet"; // the heading over the people who can't sign in yet (and the group the list folds)
 export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
   const founder = db.access?.role === "founder";
   const anyFounder = db.users.some((u) => u.role === "staff" && u.staffRole === "founder");
@@ -741,14 +783,23 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
     const a = accessOf(u);
     return `${ROLES[a.role].label}${a.ownOnly ? ` · own artists (${artistsOf(u.name).length})` : ""}`;
   };
+  // (2026-11-15) the heads sort the list (users-list.js orderUsers; the email column sorts by name, else email), and the people with no
+  // login yet are folded behind their heading: the owner, "hidden by default in users can we have a sort feature to make it easier".
+  // Both choices are remembered in this browser (a convenience: every read and write is in a try). A form for one of the folded people,
+  // or someone just saved with no login yet, opens the group without being asked: that isn't remembered.
+  const [sort, setSort] = useState(loadSort);
+  const [open, setOpen] = useState(loadOpen);
+  const pickSort = (next) => { setSort(next); saveSort(next); };
+  const toggleFold = () => { setOpen(!open); saveOpen(!open); };
   const cols = [
-    { key: "email", label: "Email", render: (u) => <span className="cell-name">{u.email || u.name || "No name"}{u.email && u.name ? <span className="muted"> · {u.name}</span> : null}</span> },
-    { key: "role", label: "Access", render: (u) => <span data-user-access={u.id}>{who(u)}</span> },
+    { key: "email", label: "Email", sort: "name", sortTitle: "Sort by name", render: (u) => <span className="cell-name">{u.email || u.name || "No name"}{u.email && u.name ? <span className="muted"> · {u.name}</span> : null}</span> },
+    { key: "role", label: "Access", sort: "access", sortTitle: "Sort by access", render: (u) => <span data-user-access={u.id}>{who(u)}</span> },
     // (2026-11-10) who's set up: their last sign-in and when their password was last set
-    { key: "signin", label: "Sign-in", render: (u) => <span className="muted" data-user-signin={u.id}>{u.noLogin ? (u.email ? "No password yet" : "No email yet") : u.lastLoginAt ? `Last in ${dayOf(u.lastLoginAt)}` : "Never signed in"}{u.passwordChangedAt ? ` · password set ${dayOf(u.passwordChangedAt)}` : ""}</span> },
+    { key: "signin", label: "Sign-in", sort: "signin", sortTitle: "Sort by last sign-in", render: (u) => <span className="muted" data-user-signin={u.id}>{u.noLogin ? (u.email ? "No password yet" : "No email yet") : u.lastLoginAt ? `Last in ${dayOf(u.lastLoginAt)}` : "Never signed in"}{u.passwordChangedAt ? ` · password set ${dayOf(u.passwordChangedAt)}` : ""}</span> },
   ];
-  // (2026-11-14, people link) the people with no login yet (no email or no password) come last, under their own heading
-  const usersShown = [...db.users.filter((u) => !u.noLogin), ...db.users.filter((u) => u.noLogin)];
+  // (2026-11-14, people link) the people with no login yet (no email or no password) come last, under their own heading;
+  // each group in the order chosen (the order given when none is), for showing only: saves below use db.users as it is
+  const usersShown = orderUsers(db.users, sort.by, sort.dir, pickOf);
   const save = async (o) => {
     // the checklist has its own Save artists (it writes the accounting sheet); this Save writes the site, so ticks left
     // unsaved hold it (the window stays open) and the checklist says why, never lost with the window
@@ -761,7 +812,10 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
     const users = o.id ? db.users.map((u) => u.id === o.id ? shown : u) : [...db.users, { ...shown, id: uid() }];
     if (!users.some((u) => u.role === "staff" && (u.email || "").trim() && (!u.noLogin || (u.password || "").trim()))) return "There has to be at least one staff account.";
     if (anyFounder && !users.some((u) => u.role === "staff" && u.staffRole === "founder")) return "There has to be at least one Founder.";
-    return saveRow(commit, { ...db, users }, "users", o.id, "user");
+    const saved = await saveRow(commit, { ...db, users }, "users", o.id, "user");
+    // (2026-11-15) someone saved who has no login yet (just added by hand, or an email taken off): show their group, so they aren't lost in the fold
+    if (saved && typeof saved !== "string" && shown.noLogin) setOpen(true);
+    return saved;
   };
   const del = async (id) => {
     const users = db.users.filter((u) => u.id !== id);
@@ -777,7 +831,9 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null }) {
   const addLogin = (name) => setNewUser({ key: Date.now(), values: { name, role: "staff", staffRole: "comanager", access: {} } });
   return (
     <>
-    <Editor title="Users" items={usersShown} columns={cols} groupOf={(u) => (u.noLogin ? "No login yet" : null)} openId={openId}
+    <Editor title="Users" items={usersShown} columns={cols} groupOf={(u) => (u.noLogin ? NO_LOGIN : null)} openId={openId}
+      sort={{ by: sort.by, dir: sort.dir, onSort: (by) => pickSort(nextSort(sort, by)), value: sortValue(sort), options: SORT_OPTIONS, onPick: (v) => pickSort(sortFromValue(v)) }}
+      fold={{ group: NO_LOGIN, open, onToggle: toggleFold, onShow: () => setOpen(true) }}
       blank={{ email: "", password: "", role: "staff", staffRole: "comanager", access: {}, name: "", clientId: null }}
       onSave={save} onDelete={del} openNew={newUser}
       extra={(e, set) => {

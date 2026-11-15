@@ -3588,6 +3588,20 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .people-preview{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:10px 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field)}
 @media (max-width:699px){ .app:not(.pub) .people-flag-text{flex-basis:100%} .app:not(.pub) .people-flag-acts{justify-content:flex-start} .app:not(.pub) .admin-group{padding:12px 14px 6px} }
 
+/* (2026-11-15) Site › Users: the "No login yet" heading is a row with a Show / Hide button (.btn.ghost.sm, as Artists on the same page); the
+   heads sort (.ar-sort, as the A&R tables'); under 900px, where the head row is hidden, a "Sort:" picker stands in for it. The picker's
+   select is the .fld select look; background-color, not the shorthand, so the shared --d-chev arrow stays */
+.app:not(.pub) .admin-group.admin-fold{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 12px 4px 16px}   /* the rows' own padding, so the button ends where their Edit and Delete do */
+.app:not(.pub) .admin-group.admin-fold:last-child{border-bottom:0}
+.app:not(.pub) .admin-sort{display:none}
+@media (max-width:899px){
+  .app:not(.pub) .admin-group.admin-fold{padding:2px 8px 2px 14px}   /* the list rows' padding under 900px */
+  .app:not(.pub) .admin-sort{display:flex;align-items:center;gap:10px;margin:0 0 12px;font-size:13px;color:var(--d-ink-4)}
+  .app:not(.pub) .admin-sort select{flex:0 1 auto;min-width:0;max-width:100%;height:var(--d-ctl-sm);padding:0 40px 0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field);background-color:var(--d-field);color:var(--d-ink);font:400 14px var(--d-body);
+    -webkit-appearance:none;appearance:none;cursor:pointer;background-image:var(--d-chev);background-position:calc(100% - 20px) 50%,calc(100% - 15px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+}
+@media (max-width:599px),(pointer:coarse){ .app:not(.pub) .admin-sort select{font-size:16px} }   /* 16px: a smaller one makes iOS zoom in on tap */
+
 /* (2026-11-14) a manager's artists ticked in one place: Site › Users' form for a Co-manager, and the "Artists" window from Managers on the accounting sheet */
 .app:not(.pub) .sheet-mgr-list li.sheet-mgr-row{display:flex;align-items:center;justify-content:space-between;gap:6px 12px;min-height:var(--d-ctl-sm)}
 .app:not(.pub) .sheet-mgr-who{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
