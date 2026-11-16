@@ -2,7 +2,10 @@
 // UsersAdmin and Editor), the parts with no screen in them. The owner said: "hidden by default in users can we have a sort feature to
 // make it easier". This is display only: db.users keeps the order it was loaded in (that is the order a save writes back); nothing
 // here is ever committed.
+// (2026-11-15, one place) the list is by Role by default (Founder, Co-manager, Intern, Client, then by name), a "Sort by" control above it
+// and the heads both change it, and the managers on the accounting sheet with no account yet are rows of it (sheetOnlyManagers).
 // (Plain loops, and comparators that read only their own two arguments: see components/dash/manager-artists.js on Next's minifier.)
+import { sameManager } from "../../lib/roles";
 
 // localStorage, one key each, per viewer (a convenience only: every read and write is in a try, and the page works without them)
 export const FOLD_KEY = "dm-users-nologin"; // "open" | "closed"
@@ -10,26 +13,23 @@ export const SORT_KEY = "dm-users-sort"; // { by, dir }
 
 // the sorts, and which way a first click on each runs: dir 1 is the key's own ascending (A to Z, Founder first), -1 its descending
 // (Last sign-in starts newest first, which is descending by date)
-const KEYS = ["name", "access", "signin"];
+const KEYS = ["access", "name", "signin"];
 const firstDir = (by) => (by === "signin" ? -1 : 1);
 
-// what a click on a column head does: another column starts at its first direction, the same column reverses
+// what a click on a column head or a "Sort by" choice does: another one starts at its first direction, the same one reverses
 export function nextSort(cur, by) {
   if (cur && cur.by === by) return { by, dir: cur.dir === 1 ? -1 : 1 };
   return { by, dir: firstDir(by) };
 }
 
-// the phone's picker: one option per (key, direction), and the default order; values "name:1", "signin:-1", "" for the default
-export const SORT_OPTIONS = [
-  ["", "Default order"],
-  ["name:1", "Name (A to Z)"], ["name:-1", "Name (Z to A)"],
-  ["access:1", "Access (Founder first)"], ["access:-1", "Access (Client first)"],
-  ["signin:-1", "Last sign-in (newest first)"], ["signin:1", "Last sign-in (oldest first)"],
-];
-export const sortValue = (s) => (s && s.by ? `${s.by}:${s.dir}` : "");
-export function sortFromValue(v) {
-  const m = /^(name|access|signin):(1|-1)$/.exec(v || "");
-  return m ? { by: m[1], dir: Number(m[2]) } : { by: null, dir: 1 };
+// the "Sort by" control: its choices in order, and the one in force when nothing was ever picked (Role: Founder first)
+export const SORT_CHOICES = [["access", "Role"], ["name", "Name"], ["signin", "Last sign-in"]];
+export const DEFAULT_SORT = { by: "access", dir: 1 };
+// what a choice's arrow means in words (the tooltip and the screen reader's): "Role, Founder first"
+const WORDS = { access: ["Founder first", "Client first"], name: ["A to Z", "Z to A"], signin: ["oldest first", "newest first"] };
+export function sortWords(by, dir) {
+  const w = WORDS[by];
+  return w ? w[dir === -1 ? 1 : 0] : "";
 }
 
 // ---- remembered choices ----------------------------------------------------------------------------------------------
@@ -38,7 +38,7 @@ export function loadSort() {
     const v = JSON.parse(window.localStorage.getItem(SORT_KEY) || "null");
     if (v && KEYS.indexOf(v.by) >= 0 && (v.dir === 1 || v.dir === -1)) return { by: v.by, dir: v.dir };
   } catch { /* storage blocked, or not JSON: the default order */ }
-  return { by: null, dir: 1 };
+  return { by: DEFAULT_SORT.by, dir: DEFAULT_SORT.dir };
 }
 export function saveSort(s) {
   try { window.localStorage.setItem(SORT_KEY, JSON.stringify({ by: s.by, dir: s.dir })); } catch { /* storage blocked: it just isn't remembered */ }
@@ -97,6 +97,22 @@ export function orderUsers(users, by, dir, pickOf) {
     if (by === "name") rows.sort(byName);
     else if (by === "access" || by === "signin") rows.sort(byNumber);
     for (let k = 0; k < rows.length; k++) out.push(rows[k].u);
+  }
+  return out;
+}
+
+// INFO's managers with no account here, as rows for the list: one for each name on INFO's manager list that no staff account is, by the
+// site's own-artists rule (lib/roles.js sameManager: "Magnus Hale" is "Magnus", "Cayden" is not "Caden"). Each is a Co-manager with no login
+// yet whose Edit opens the new-user form filled in, so one Save makes the account (components/dash/admin.jsx). managers: GET
+// /api/people-sync's info.managers, [{ row, name }]; users: db.users
+export function sheetOnlyManagers(managers, users) {
+  const out = [];
+  for (const m of managers || []) {
+    const name = String(m.name || "").trim();
+    if (!name) continue;
+    let has = false;
+    for (const u of users || []) if (u.role === "staff" && sameManager(name, u.name)) { has = true; break; }
+    if (!has) out.push({ id: `sheet:${name}`, sheetOnly: true, noLogin: true, email: "", name, role: "staff", staffRole: "comanager", access: {}, clientId: null, lastLoginAt: null, passwordChangedAt: null });
   }
   return out;
 }

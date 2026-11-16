@@ -24,8 +24,8 @@ export function SiteAdmin({ ctx, sub, onSub, chip }) {
       <div className="subnav" role="tablist" aria-label="Site">
         {secs.map(([id, label]) => <button key={id} role="tab" aria-selected={sec === id} data-site-tab={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { onSub(id === "website" ? null : id); revealChip(e.currentTarget); }}>{label}</button>)}
       </div>
-      {sec === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={onSub} songInfo={songInfo} reloadDb={ctx.reloadDb} embedded />}
-      {sec === "users" && <UsersAdmin db={db} commit={commit} reloadDb={ctx.reloadDb} openId={userOpen} />}
+      {sec === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={onSub} songInfo={songInfo} reloadDb={ctx.reloadDb} onGo={ctx.onGo} embedded />}
+      {sec === "users" && <UsersAdmin db={db} commit={commit} reloadDb={ctx.reloadDb} onGo={ctx.onGo} openId={userOpen} />}
       {sec === "messages" && <SubsAdmin db={db} commit={commit} />}
       {sec === "sync" && <SyncView ctx={ctx} />}
     </div>
@@ -36,7 +36,7 @@ export function SiteAdmin({ ctx, sub, onSub, chip }) {
 const WEBSITE_SECS = [["roster", "Roster"], ["notable", "Notable releases"], ["staff", "Team"], ["about", "About page"]];
 const WEB_SEC_KEY = "dm-web-sec";
 // embedded: inside Site, which has the page's title
-function WebsiteAdmin({ db, commit, sub, onSub, songInfo = null, reloadDb = null, embedded = false }) {
+function WebsiteAdmin({ db, commit, sub, onSub, songInfo = null, reloadDb = null, onGo = null, embedded = false }) {
   const secs = WEBSITE_SECS;
   // a Dashboard task's sub wins, then the last tab used in this browser tab, then Roster (the weekly work)
   // roster:<id> is To do's "Set X's sheet tab"; roster:<id>/accounting (2026-11-13) Site › Sync's "Add X to the sheet"
@@ -60,8 +60,8 @@ function WebsiteAdmin({ db, commit, sub, onSub, songInfo = null, reloadDb = null
         ))}
       </div>
       {sec === "about" && <AboutEditor db={db} commit={commit} />}
-      {sec === "roster" && <ClientsAdmin db={db} commit={commit} openId={openId} songInfo={songInfo} reloadDb={reloadDb} focus={focus} />}
-      {sec === "staff" && <TeamAdmin db={db} commit={commit} openId={staffOpen} />}
+      {sec === "roster" && <ClientsAdmin db={db} commit={commit} openId={openId} songInfo={songInfo} reloadDb={reloadDb} focus={focus} onGo={onGo} />}
+      {sec === "staff" && <TeamAdmin db={db} commit={commit} openId={staffOpen} reloadDb={reloadDb} onGo={onGo} />}
       {sec === "notable" && <NotableAdmin db={db} commit={commit} />}
     </div>
   );

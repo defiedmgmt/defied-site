@@ -15,9 +15,10 @@
 //           for an artist the manager already has)
 //   POST { action: "tab", clientId }  Publishing: a free WRITER tab on the pub sheet for the client
 //   (2026-11-14, lib/people-link.js; Money and Users, a Founder's by default)
-//   POST { action: "link", dryRun? }  "Sync people now": dryRun first (the preview: who'd be added, linked, flagged, by
+//   POST { action: "link", dryRun?, addedClients? }  "Sync people now": dryRun first (the preview: who'd be added, linked, flagged, by
 //           name), then without it ("Add them"): the logins, the roster, the team page and INFO, anyone new added hidden.
-//           The first run ever is only this (the automatic runs wait for it)
+//           The first run ever is only this (the automatic runs wait for it). Once it has been made, the dashboard also
+//           sends it (no dryRun) right after it adds someone, so INFO is written at once (components/dash/people-added.jsx)
 //   POST { action: "apply", staffId, field }  Users (a Founder for a Founder's login): a team entry's name or email put
 //           on its login ("Use it for the login")
 //   POST { action: "distinct", a, b }  a near miss answered "Two different people"
@@ -34,7 +35,7 @@ import { shareWritesOn } from "../../lib/split-fixes-store";
 import { loadClientTabNames } from "../../lib/sheets";
 import { withInfoNames } from "../../lib/info-links";
 import { readPeople, readTabs, saveClientToInfo, addManagerToInfo, saveManagerArtists, createClientTab, googleDenied, noEditText, ACCOUNTING_OFF, PUB_OFF } from "../../lib/people-sync";
-import { runPeopleLink, rememberAnswer, linkPair, applyTeamValue, autolinkOn } from "../../lib/people-link";
+import { runPeopleLink, rememberAnswer, linkPair, applyTeamValue, autolinkOn, rememberAdded } from "../../lib/people-link";
 
 const has = (req, k) => req.access?.sections?.includes(k);
 const pctIn = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Number(v) / 100);
@@ -124,9 +125,15 @@ async function people(req, res, session, b) {
     if (b.action === "link") {
       if (!autolinkOn()) return res.status(503).json({ error: "Linking people is off (PEOPLE_AUTOLINK)." });
       if (b.dryRun) { const d = await runPeopleLink({ dryRun: true, by: by(session) }); return res.status(200).json({ preview: d.preview, first: d.first, infoError: d.infoError || null }); }
-      const r = await runPeopleLink({ actor: { users: true, founder, staffChanges: {} }, by: by(session), waits: 2 });
+      // addedClients: the clients the dashboard has just added (a hidden client with no songs and no login is otherwise left alone)
+      const addedClients = Array.isArray(b.addedClients) ? b.addedClients.slice(0, 5).map((x) => String(x).slice(0, 80)) : [];
+      await rememberAdded(addedClients); // kept, so a run that is busy or can't write the sheet now is finished by the next one
+      const r = await runPeopleLink({ actor: { users: true, founder, staffChanges: {}, addedClients }, by: by(session), waits: 2 });
       if (r.busy) return res.status(409).json({ error: "The people are being linked right now. Try again in a minute.", busy: true });
-      return res.status(200).json(r);
+      // (2026-11-15) the browser runs this right after it adds someone (components/dash/people-added.jsx): a flag's "open the sheet" fix is
+      // a link there, the way lib/sync-checks.js makes it for Site › Sync
+      const url = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(String(process.env.ACCOUNTING_SHEET_LINK_ID || "").trim() || accountingSheetId())}/edit`;
+      return res.status(200).json({ ...r, ...(Array.isArray(r.flags) ? { flags: r.flags.map((f) => (f?.fix?.kind === "sheet" ? { ...f, fix: { kind: "url", label: f.fix.label, url } } : f)) } : {}) });
     }
     if (b.action === "distinct") {
       const a = String(b.a ?? "").slice(0, 120), c = String(b.b ?? "").slice(0, 120);

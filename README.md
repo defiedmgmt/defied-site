@@ -121,13 +121,28 @@ Money on for someone else (`lib/roles.js` `seesNetStreams`).
 - A Founder can turn any section on or off for one person, on top of their role.
 - "Only their own artists" limits a Co-manager to the clients whose **Assigned Manager** on the accounting sheet's
   INFO tab is that person's name. The daily cron reads INFO, and so does "Update from the sheet" in Site › Users.
-- A manager's artists are picked in one place: a Co-manager's form in Site › Users (where "Their artists" was) and **Artists**
-  on its "Managers on the accounting sheet" list (for a manager with no login) show a checklist of INFO's client rows. Ticked
-  = Assigned Manager is exactly that name (never a near match: Caden is not Cayden). Save artists writes Assigned Manager and
-  Manager Gets % of each row changed in one write (`manager-artists` in `/api/people-sync`, `saveManagerArtists` in
-  `lib/people-sync.js`); an untick clears both cells (Defied keeps 100%). Money access, never an account limited to its own
-  artists. A row changed on INFO since the checklist loaded refuses the whole save, and the site's managers follow the sheet
-  right after (a save that the site's manager copy would refuse is refused before anything is written).
+- Each person is managed in ONE place, their own form in Site › Users (2026-11-15). A Co-manager's or Founder's form has "Their
+  artists": their artists as chips (INFO's Assigned Manager is exactly their name, never a near match: Caden is not Cayden),
+  "Their cut" (INFO's Manager Gets %, typed once and applied to each artist they are given; a chip gets its own % only through
+  "different %"; changing it asks "Apply 30% to all 4 artists?"), and "+ Add artists" for the rest of INFO's artists, each with who has
+  them now. The form's ONE Save writes the account first, then (only if there is something to send) the accounting sheet: the name
+  onto INFO's manager list if it isn't on it (a Co-manager always, a Founder only to give them artists; never for a name near one
+  that is on it), then Assigned Manager and Manager Gets % of each row changed in one write (`manager` and `manager-artists` in
+  `/api/people-sync`, `saveManagerArtists` in `lib/people-sync.js`); an artist taken off clears both cells (Defied keeps 100%), and
+  Defied's share (G) is the sheet's own formula, never written. If the sheet part is refused (a row changed on INFO since, someone else
+  saving) the account is still saved and the form says "Saved. Their artists weren't saved: <reason>. Try again." with its chips as
+  they were. Money access, never an account limited to its own artists. The managers on INFO's list with no account here are rows
+  of the Users list under "No login yet" (their Edit opens the new-user form filled in, so one Save makes the account); there is no
+  separate managers section. The list has a "Sort by" control (Role by default: Founder, Co-manager, Intern, Client, then name; Name;
+  Last sign-in) and sortable heads, remembered in the browser.
+- Adding someone puts them everywhere at once, hidden. After a save that ADDS a person (Site › Users › Add, Website › Roster › Add,
+  the Clients tab's Add client, Website › Team › Add) the dashboard runs the people link at once (`POST /api/people-sync { action:
+  "link" }`, no preview once the first run has been confirmed): the account (no login), INFO (the manager on L, or the client's
+  row with its commission at 20%: `DEFAULT_COMMISSION` in `lib/people-sync.js`, the way INFO's D holds every row, 0.2) and the
+  hidden team or roster entry, and says in one line what exists (`components/dash/added-line.js`). A client added by a person is kept
+  in `app_state` `peopleSync:added` as real, so a run that was busy or couldn't write the sheet is finished by the sync check or the
+  nightly run. Annual Summary is never grown by it: until it reads the new row, the line says the client isn't on the sheet yet
+  and the flag says to add them from their form.
 - The server enforces all of it. Every dashboard API route starts with the same check, `requireAccess` in
   `lib/access.js`, and the dashboard just hides what an account can't use.
 - The sign-in and the session are unchanged: `users.role` is still `staff` or `client`. The role is

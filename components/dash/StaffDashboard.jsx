@@ -199,7 +199,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {at === "mypay" && !paired("mypay") && <MyPaymentsPage />}
         {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} myMoney={myMoney} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
         {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("site")} area="site" onGo={go} />} />}
-        {at === "catalog" && <CatalogAdmin db={db} commit={commit} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
+        {at === "catalog" && <CatalogAdmin db={db} commit={commit} reloadDb={reloadDb} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
       </main>
       {pwOpen && <PasswordCard onClose={() => setPwOpen(false)} />}

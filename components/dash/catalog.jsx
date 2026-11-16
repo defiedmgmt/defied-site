@@ -16,6 +16,7 @@ import { NotOursAsk, SongManager, noSheetTab, pushShare, releaseDay } from "../p
 import { AskCard } from "../portal/ask";
 import { ExtLink, Photo } from "../shared/ui";
 import { SectionWait } from "./sections";
+import { AddedSaid, syncEverywhere } from "./people-added";
 import { findByName, ownSplit } from "../site/data";
 import { normalizeTitle, splitsToConfirm, fullSiteSync } from "./catalog-data";
 import { dashCache } from "../shared/dash-caches";
@@ -781,7 +782,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
 // A Dashboard task can open it on a client ("client:<id>") or on the calculator ("advance").
 // (r11: the ISRCs tab is gone, the owner: "why is there an isrc tab on the pub tab do i need that ?". The finder is
 // To do's "N songs have no ISRC" row now, /dashboard/todo/isrc; the old /dashboard/catalog/isrc opens it there.)
-export function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, onSub, chip = null }) {
+export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSongInfo, sub, onGo, onSub, chip = null }) {
   // the Advance calculator is money: the Founders' (Money access). It runs on net streams, which go with the money
   // (lib/roles.js seesNetStreams), and /api/ar-data sends its clients' net streams only to an account with Money
   const seeMoney = canUse(db, "money"), own = !!db.access?.ownOnly;
@@ -805,6 +806,7 @@ export function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, 
   const client = db.clients.find((c) => c.id === clientId);
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;
   const [addingClient, setAddingClient] = useState(false);
+  const [addedSaid, setAddedSaid] = useState(null); // the line after a client was added: everywhere at once
   const [newClientForm, setNewClientForm] = useState({ name: "", role: "Producer" });
   const [adding, setAdding] = useState(false);
   const [deleteWarn, setDeleteWarn] = useState(null);
@@ -835,7 +837,10 @@ export function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, 
       sheetTabName: "", totalStreams: 0, onRoster: false,
     };
     setAdding(true);
-    const ok = await commit({ ...db, clients: [...db.clients, client] }).finally(() => setAdding(false));
+    setAddedSaid(null);
+    // (2026-11-15) a client ADDED is put everywhere at once: their client login and INFO row (commission left blank), hidden from the roster,
+    // and one line says so (components/dash/people-added.jsx)
+    const ok = await commit({ ...db, clients: [...db.clients, client] }).then(async (saved) => { if (saved) setAddedSaid(await syncEverywhere({ kind: "client", id: client.id, name }, reloadDb)); return saved; }).finally(() => setAdding(false));
     if (!ok) return; // the form stays open with the name typed
     setClientId(client.id);
     setAddingClient(false);
@@ -858,6 +863,7 @@ export function CatalogAdmin({ db, commit, songInfo, reloadSongInfo, sub, onGo, 
       <div className="admin-head">
         <h2>Clients</h2>{chip}
       </div>
+      <AddedSaid said={addedSaid} onGo={onGo} />
       {seeMoney && <div className="subnav">
         <button className={sec === "overview" ? "subpill active" : "subpill"} onClick={pick("overview")}>Overview &amp; clients</button>
         <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={pick("advance")}>Advance<span className="pill-long"> calculator</span></button>

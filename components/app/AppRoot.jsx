@@ -231,16 +231,18 @@ export default function AppRoot({ Component, pageProps }) {
 
   // after the server changed data itself (a sheet tab fixed, a song removed): swap in its copy once the
   // saves queued in this tab have landed. A save started meanwhile brings its own fresh copy.
+  // -> the server's copy it swapped in (the line after an add reads what exists now from it), or null when it didn't
   const reloadDb = async () => {
     const s = saves.current, gen = s.gen;
     await s.chain;
-    if (gen !== s.gen || s.pending) return;
+    if (gen !== s.gen || s.pending) return null;
     const calls = s.calls;
     const res = await fetch("/api/dashboard-data", { cache: "no-store" }).catch(() => null);
     const fresh = res?.ok ? await res.json().catch(() => null) : null;
-    if (!fresh?.role || gen !== s.gen || s.pending || calls !== s.calls || accountChanged(fresh, s.server || fresh)) return;
+    if (!fresh?.role || gen !== s.gen || s.pending || calls !== s.calls || accountChanged(fresh, s.server || fresh)) return null;
     s.server = inTabOrder(fresh, s.server); s.freshAt = Date.now();
     setDb(s.server);
+    return s.server;
   };
 
   // an open dashboard shows new contact messages when staff come back to the tab (at most every
