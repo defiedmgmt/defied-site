@@ -72,6 +72,41 @@ before `next build`. If a migration fails, the build stops and the live site sta
     every old value first (`--backup <file>` to choose where). Running it again does nothing.
   - `--restore <file>` puts the old values from a backup back.
 
+## Instagram (Site › Instagram)
+
+Drafts and posts to the company's Instagram (@defiedmgmt) in its exact caption format (2026-11-16). Paste a Spotify song
+or album link, tick the tracks Defied worked on, pick the producers and the credit, check the handles, and the preview
+shows the slides and the exact caption. Staff with Site use it; only a Founder connects or disconnects the account.
+
+**Setting it up (once, the owner)**
+
+1. In the Instagram app, make @defiedmgmt a **Professional** account (Creator or Business), if it isn't already.
+2. At developers.facebook.com, create a Meta app of the **Business** type and add the product
+   **Instagram API with Instagram login** (not the Facebook Login one: no Facebook Page is needed).
+3. In that product's settings (Business login settings), add the redirect URI
+   `https://www.defiedmgmt.com/api/instagram/callback`. A preview deploy only connects if its own
+   `https://<preview address>/api/instagram/callback` is added too; otherwise connect on the live site.
+4. While the app is in development mode, add yourself (the @defiedmgmt login) as an **Instagram tester** (App roles ›
+   Roles › Instagram testers) and accept the invite in the Instagram app (Settings › Apps and websites › Tester invites).
+5. In Vercel, add `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET` (the Instagram app ID and secret from that product's
+   page) and `INSTAGRAM_POSTS=on`, then redeploy.
+6. In the dashboard, open **Site › Instagram** and press **Connect Instagram** (Founders only), then Allow.
+
+**How it works**
+
+- The sign-in lasts 60 days and is renewed by itself (before a post, and when the tab opens, once it's a day old). It's
+  kept in `app_state` (`instagram:conn`) locked with AES-256-GCM under a key made from `SESSION_SECRET`: it never reaches
+  a browser or a log. Changing `SESSION_SECRET` means pressing Connect Instagram again.
+- Images (a replaced cover, a tracklist) are made a square JPEG in the browser and stored through `/api/upload-image`;
+  videos (MP4/MOV, up to 300 MB) go straight from the browser to Vercel Blob (`/api/instagram/upload`). Instagram
+  fetches those public links. Both need `BLOB_READ_WRITE_TOKEN`; the Spotify cover works without it.
+- A cover alone is one photo post; cover + video or image is a carousel; Video only is a Reel shown on the feed. Up to 3
+  collaborators (Instagram's limit), and everyone is tagged on the cover photo (a Reel can't carry photo tags).
+- A video Instagram is still processing after about 45 seconds is kept as "pending": **Check again** finishes the same post
+  (it never posts twice), **Discard** drops it.
+- The last 50 posts are kept in `app_state` (`instagram:posts`), and the handles used are remembered by name
+  (`instagram:handles`) for the next post's prefill (after the roster's own Instagram field and the team page).
+
 ## Share card
 
 - A client's portal has **Share my stats** on the line under their streams; staff see **Share card** in the same
@@ -241,6 +276,7 @@ never values.
 | `GOOGLE_SHEET_LINK_ID` | Only builds the pub master sheet's "Open in sheet" links (never read or written). `none` hides them (a preview whose stand-in id would open nothing). Unset, the links use `GOOGLE_SHEET_ID`. |
 | `DIGEST_CHANNEL_ID` | The ClickUp Chat channel the Monday team digest (one message a week since 2026-11-16: Our artists, Our songs, On the radar, Radar songs) posts to. Unset, the team digest isn't sent (it says so in its log). |
 | `DIGEST_PERSONAL_TO` | Who gets a personal Monday digest (a ClickUp direct message): `all`, or names or emails separated by commas. Unset, nobody does (opt-in since 2026-11-16; it used to start with Devin). |
+| `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | Site › Instagram (2026-11-16): the Meta app's "Instagram API with Instagram login" ID and secret, for Connect Instagram. Unset, the tab says what's missing and can only draft. See **Instagram** above. |
 | `PAID_WAIT_MS` | How long the paste box waits for a paid lookup (an Apify run) before answering, in milliseconds. 25000 by default; a run still going is picked up by the next lookup. |
 
 **Write switches (off unless set to `on`)**
@@ -258,6 +294,7 @@ never values.
 | `DATA_REFRESH` | Not a write, but it spends money: the daily data crons start Apify runs and read YouTube/Spotify. Off, nothing is fetched (Site › Sync shows what's there). |
 | `DIGEST_WRITES` | The Monday digests: the team post to `DIGEST_CHANNEL_ID` and the personal messages. Off, a Monday run still builds each digest and logs it (`digest_runs`, status "off"), so the preview shows what would have gone out. |
 | `RADAR_SCANS` | Not a write, but it spends money: the TikTok radar's keyword scans and its risers' daily boost. Off, sounds added by link are still tracked one at a time. |
+| `INSTAGRAM_POSTS` | Site › Instagram's **Post to Instagram** (2026-11-16, `lib/instagram.js`): a post to the connected Instagram account. Off, the composer still looks songs up, drafts and previews; a post is refused (503) before anything reaches Instagram. Connecting the account doesn't need it. |
 | `PEOPLE_AUTOLINK` | On unless set to `off` (2026-11-14, `lib/people-link.js`): one person, same info everywhere. Someone new in the logins, the roster, the team page or INFO is added to the others, hidden and with no login: after a dashboard save that changes the people, from the Sync check at most every 2 minutes, nightly, and from Site › Sync's "Sync people now". Nothing is ever deleted or renamed by it. Its INFO writes (a client's name, a manager's name) also need `ACCOUNTING_SHEET_WRITES`, and it never grows Annual Summary. The first run is a person's: until Site › Sync's "Sync people now" (a preview, then "Add them") has run once, the automatic runs only log that they're waiting. |
 
 **Build and platform**

@@ -1,0 +1,22 @@
+// (2026-11-16) Instagram sends the Founder back here after "Allow" (lib/instagram.js finishConnect): the code becomes a
+// 60-day sign-in, kept locked in app_state; then back to Site › Instagram, which says whether it worked
+import { requireAccess } from "../../../lib/access";
+import { finishConnect, scrub, KEYS } from "../../../lib/instagram";
+import { setState } from "../../../lib/app-state";
+
+const back = (res, q) => { res.writeHead(302, { Location: `/dashboard/site/instagram?instagram=${q}` }); res.end(); };
+export default async function handler(req, res) {
+  if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
+  const session = await requireAccess(req, res, "site", { whole: true });
+  if (!session) return;
+  res.setHeader("Cache-Control", "no-store");
+  if (req.access?.role !== "founder") return back(res, "founders");
+  const { code, state, error } = req.query;
+  try {
+    if (error) { await setState(KEYS.oauth, { result: "cancelled", at: Date.now() }); return back(res, "cancelled"); }
+    return back(res, await finishConnect({ code: typeof code === "string" ? code : "", state: typeof state === "string" ? state : "", byId: session.user.id }));
+  } catch (err) {
+    console.error("instagram callback failed:", scrub(err?.message));
+    return back(res, "failed");
+  }
+}

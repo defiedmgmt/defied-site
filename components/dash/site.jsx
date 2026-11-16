@@ -7,16 +7,18 @@ import { SectionWait } from "./sections";
 import { Field, PhotoUpload, revealChip, uid } from "./ui";
 // Site › Sync lives with Home (home.jsx): its code comes when Sync opens, so Site alone doesn't load Home's (list B #11)
 const SyncView = dynamic(() => import("./home").then((m) => m.SyncView), { ssr: false, loading: SectionWait });
+// (2026-11-16) Site › Instagram, the post composer (instagram.jsx): its code comes when the tab opens
+const InstagramPanel = dynamic(() => import("./instagram").then((m) => m.InstagramPanel), { ssr: false, loading: SectionWait });
 
 // Site: the public website's content, the logins, the contact form's messages, and the Sync view
-const SITE_SECS = [["website", "Website"], ["users", "Users"], ["messages", "Messages"], ["sync", "Sync"]];
+const SITE_SECS = [["website", "Website"], ["users", "Users"], ["messages", "Messages"], ["instagram", "Instagram"], ["sync", "Sync"]];
 export function SiteAdmin({ ctx, sub, onSub, chip }) {
   const { db, commit, songInfo } = ctx;
-  // Users is user management; the rest is Site's. Sync reads every artist at once.
-  const secs = SITE_SECS.filter(([id]) => (id === "users" ? ctx.can("users") : ctx.can("site") && !(id === "sync" && db.access?.ownOnly)));
+  // Users is user management; the rest is Site's. Sync and Instagram (2026-11-16) work on every artist at once.
+  const secs = SITE_SECS.filter(([id]) => (id === "users" ? ctx.can("users") : ctx.can("site") && !((id === "sync" || id === "instagram") && db.access?.ownOnly)));
   // users:<id> (2026-11-14, Site › Sync's people line) opens that login's form
   const [, userOpen = null] = /^users:(.+)$/.exec(sub || "") || [];
-  const want = userOpen ? "users" : ["users", "messages", "sync"].includes(sub) ? sub : "website";
+  const want = userOpen ? "users" : ["users", "messages", "sync", "instagram"].includes(sub) ? sub : "website";
   const sec = secs.some(([id]) => id === want) ? want : secs[0]?.[0];
   return (
     <div className="site-page">
@@ -27,6 +29,7 @@ export function SiteAdmin({ ctx, sub, onSub, chip }) {
       {sec === "website" && <WebsiteAdmin db={db} commit={commit} sub={sub} onSub={onSub} songInfo={songInfo} reloadDb={ctx.reloadDb} onGo={ctx.onGo} embedded />}
       {sec === "users" && <UsersAdmin db={db} commit={commit} reloadDb={ctx.reloadDb} onGo={ctx.onGo} openId={userOpen} />}
       {sec === "messages" && <SubsAdmin db={db} commit={commit} />}
+      {sec === "instagram" && <InstagramPanel />}
       {sec === "sync" && <SyncView ctx={ctx} />}
     </div>
   );

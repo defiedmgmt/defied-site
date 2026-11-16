@@ -29,10 +29,12 @@ const securityHeaders = [
       // vitals.vercel-insights.com is where Vercel Web Analytics beacons page views.
       // content.dropboxapi.com: the contact form sends a music file straight to its one-time Dropbox upload link
       // (2026-11-10, lib/dropbox.js); CSP_EXTRA_CONNECT is only for the local test copy's stand-in Dropbox
-      `connect-src 'self' https://vitals.vercel-insights.com https://content.dropboxapi.com${process.env.CSP_EXTRA_CONNECT ? ` ${process.env.CSP_EXTRA_CONNECT}` : ""}`,
+      // vercel.com/api/blob: Site › Instagram's video upload goes from the browser straight to Vercel Blob (2026-11-16, @vercel/blob/client)
+      `connect-src 'self' https://vitals.vercel-insights.com https://content.dropboxapi.com https://vercel.com${process.env.CSP_EXTRA_CONNECT ? ` ${process.env.CSP_EXTRA_CONNECT}` : ""}`,
       // a message's music files play in Site › Messages straight from Dropbox (2026-11-10): a shared link with raw=1
       // redirects to <id>.dl.dropboxusercontent.com
-      `media-src 'self' https://www.dropbox.com https://*.dl.dropboxusercontent.com${process.env.CSP_EXTRA_CONNECT ? ` ${process.env.CSP_EXTRA_CONNECT}` : ""}`,
+      // blob: and the Blob store: Site › Instagram previews the video it's about to post (2026-11-16)
+      `media-src 'self' blob: https://*.public.blob.vercel-storage.com https://www.dropbox.com https://*.dl.dropboxusercontent.com${process.env.CSP_EXTRA_CONNECT ? ` ${process.env.CSP_EXTRA_CONNECT}` : ""}`,
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
