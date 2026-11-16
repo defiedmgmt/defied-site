@@ -9,7 +9,7 @@ import { findTabClient, noTabNames, shortDay } from "./helpers";
 import { Area, Avatar, EmailButton, Field, PhotoUpload, SplitsEditor, splitTotal, uid } from "./ui";
 import { AskCard } from "../portal/ask";
 import { nameTaken, deleteClientCascade, clientDeleteAsk, NAME_TAKEN, SpotifyFill } from "./clients";
-import { pctText, pctOk, SPLITS, splitOf, FOUNDER_LINE, nowLine, refillChecklist, checklistChanges, checklistRows, checklistWhy, rowNote, changeWords, nearManager, artistsPart, sheetSteps, pickNote, pickRows, savedLine, notSavedLine, tickRow } from "./manager-artists";
+import { pctText, pctOk, SPLITS, splitOf, FOUNDER_LINE, founderNames, isFounderManager, clientCut, nowLine, refillChecklist, checklistChanges, checklistRows, checklistWhy, rowNote, changeWords, nearManager, artistsPart, sheetSteps, pickNote, pickRows, savedLine, notSavedLine, tickRow } from "./manager-artists";
 import { hasMyTodo, hasMyPay } from "../../lib/own-pages";
 import { orderUsers, nextSort, sortWords, SORT_CHOICES, loadSort, saveSort, loadOpen, saveOpen, sheetOnlyManagers } from "./users-list";
 import { usePeopleSync, peoplePost, Said, AddedSaid, syncEverywhere } from "./people-added";
@@ -272,19 +272,21 @@ function SheetsPart({ e, set, db, reloadDb, focus }) {
   const box = useRef(null);
   useEffect(() => { if (focus) box.current?.scrollIntoView?.({ block: "center" }); }, [focus]);
   if (!money && !pub) return null;
+  const founders = founderNames(db.users); // a manager who is a Founder has no cut to pick (AccountingPart): Defied keeps the whole commission
   const saved = e.id && db.clients.find((c) => c.id === e.id);
   // the server writes the client as saved: an unsaved name (or sheet tab name) would go to the sheet as it was
   const unsaved = !saved ? "Save the client first." : (saved.name || "").trim() !== (e.name || "").trim() ? "Save the name change first." : null;
   return (
     <div ref={box} className="sheet-parts">
-      {money && <AccountingPart client={saved || e} unsaved={unsaved} ps={ps} reloadDb={reloadDb} />}
+      {money && <AccountingPart client={saved || e} unsaved={unsaved} ps={ps} reloadDb={reloadDb} founders={founders} />}
       {pub && <TabPart client={saved || e} unsaved={unsaved || (saved && (saved.sheetTabName || "").trim() !== (e.sheetTabName || "").trim() ? "Save the sheet tab name first." : null)} ps={ps} reloadDb={reloadDb} onTab={(tab) => set({ ...e, sheetTabName: tab })} />}
     </div>
   );
 }
 
-// The client's row on INFO: Commission (D), Manager (E, from INFO's own list), Manager's cut (F)
-function AccountingPart({ client, unsaved, ps, reloadDb }) {
+// The client's row on INFO: Commission (D), Manager (E, from INFO's own list), Manager's cut (F). founders: the Founders' account names: their artists have no cut to pick
+// (Defied keeps the whole commission: F is 0), the cut is picked from the two splits for anyone else (components/dash/manager-artists.js clientCut)
+function AccountingPart({ client, unsaved, ps, reloadDb, founders = [] }) {
   const d = ps.data, info = d?.info;
   const row = (info?.roster || []).find((r) => client.id && r.clientId === client.id) || null;
   const names = (info?.managers || []).map((m) => m.name);
@@ -299,15 +301,20 @@ function AccountingPart({ client, unsaved, ps, reloadDb }) {
     // DEFAULT_COMMISSION); a row whose D is blank stays blank until one is typed
     // (2026-11-16) the manager's cut is one of two splits (66.7 / 33.3, 50 / 50): split is the one INFO holds ("" when it holds neither: the form says what it holds, and leaves it)
     const rate = row?.rate != null ? pctText(row.rate) : row ? "" : "20", cut = row?.manager && row.cut != null ? pctText(row.cut) : "";
-    const split = row?.manager ? splitOf(row.cut) : "";
+    // zero: F is 0 now (a Founder's artist); infoManager: INFO's E now (a manager that isn't on its list leaves the select on "Pick one", but is still what INFO has)
+    const split = row?.manager ? splitOf(row.cut) : "", zero = !!row?.manager && typeof row.cut === "number" && Math.abs(row.cut) <= 1e-9;
     const manager = !row ? PICK_MANAGER : !row.manager ? "" : names.includes(row.manager) ? row.manager : PICK_MANAGER;
-    setF({ rate, manager, cut: split, newName: "", base: row ? { row: row.row, raw: row.raw || {}, rate, manager, cut, split } : null });
+    setF({ rate, manager, cut: split, newName: "", base: row ? { row: row.row, raw: row.raw || {}, rate, manager, cut, split, zero, infoManager: row.manager || "" } : null });
   }, [info, f == null]); // eslint-disable-line react-hooks/exhaustive-deps
   const offList = row?.manager && !names.includes(row.manager);
   const hasManager = f && f.manager !== "" && f.manager !== PICK_MANAGER;
   const b = f?.base;
   const rateSent = !!f && (!b || f.rate.trim() !== b.rate);
-  const cutSent = !!hasManager && (!b || f.cut !== b.split || b.cut === "");
+  // the manager picked (a typed new one counts by its name), and what Save sends for the cut: a Founder's artist is 0, anyone else's one of the two splits
+  const mgrName = !f ? "" : f.manager === NEW_MANAGER ? f.newName.trim() : f.manager;
+  const founderPick = !!hasManager && isFounderManager(founders, mgrName);
+  const cc = hasManager ? clientCut({ founder: founderPick, row: b ? { cut: b.cut, split: b.split, zero: b.zero, manager: b.infoManager } : null, picked: f.cut, manager: mgrName }) : { send: false, cut: null, pick: false };
+  const cutSent = cc.send;
   const changed = !b || rateSent || cutSent || f.manager !== b.manager;
   const why = !d ? (ps.failed ? "Couldn't read the accounting sheet just now." : "Reading the accounting sheet…") : info?.problem ? null : unsaved
     || (!d.writes?.accounting ? d.off?.accounting : null)
@@ -316,12 +323,12 @@ function AccountingPart({ client, unsaved, ps, reloadDb }) {
     || (rateSent && !pctOk(f.rate) ? "Type the commission as a number from 0 to 100." : null)
     || (f.manager === PICK_MANAGER ? "Pick a manager first." : null)
     || (f.manager === NEW_MANAGER && !f.newName.trim() ? "Type the new manager's name." : null)
-    || (cutSent && !f.cut ? "Pick the manager's cut (66.7 / 33.3 or 50 / 50)." : null)
+    || (cc.pick ? "Pick the manager's cut (66.7 / 33.3 or 50 / 50)." : null)
     || (!changed ? "Change something first." : null);
   const save = async () => {
     setBusy(true); setRes(null);
     const r = await peoplePost({ action: "client", clientId: client.id, mode: b ? "update" : "add", row: b?.row ?? null, was: b ? b.raw : null,
-      rate: rateSent ? Number(f.rate) : null, manager: f.manager === NEW_MANAGER ? "" : f.manager, cut: cutSent ? Number(f.cut) : null, newManager: f.manager === NEW_MANAGER ? f.newName.trim() : "" });
+      rate: rateSent ? Number(f.rate) : null, manager: f.manager === NEW_MANAGER ? "" : f.manager, cut: cutSent ? cc.cut : null, newManager: f.manager === NEW_MANAGER ? f.newName.trim() : "" });
     // INFO as it reads now, whatever the answer (a new manager may have gone on its list before a refusal)
     await ps.load(true);
     setBusy(false); setRes(r);
@@ -349,7 +356,8 @@ function AccountingPart({ client, unsaved, ps, reloadDb }) {
             {offList && <span className="hint">INFO says {row.manager}, which isn't on its manager list.</span>}
           </label>
           {f.manager === NEW_MANAGER && <Field label="New manager's name" value={f.newName} onChange={(ev) => setF({ ...f, newName: ev.target.value })} hint="Spelled as the sheet should have it. It goes on INFO's manager list first." data-acct-new-manager="" />}
-          {hasManager && (
+          {founderPick && <p className="hint" data-acct-founder>{FOUNDER_LINE}</p>}
+          {hasManager && !founderPick && (
             <div className="fld"><span>Manager's cut</span>
               <SplitPick value={f.cut} label="Manager's cut" onPick={(v) => setF({ ...f, cut: v })} data-acct-cut="" />
               {b && b.cut !== "" && !b.split && <span className="hint" data-acct-cut-now>Now {b.cut}% on the sheet</span>}

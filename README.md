@@ -127,8 +127,11 @@ Money on for someone else (`lib/roles.js` `seesNetStreams`).
   artists": their artists as chips (INFO's Assigned Manager is exactly their name, never a near match: Caden is not Cayden),
   "Their cut" (INFO's Manager Gets %: one of two splits for all of their artists, 66.7 / 33.3 or 50 / 50, Manager / Defied; picking
   one rewrites every artist of theirs that isn't on it, and artists are only ever added at the picked split. A Founder has no picker:
-  Defied keeps the whole commission, so a Founder's new artists go in at 0), and "+ Add artists" for the rest of INFO's artists, each with who has
-  them now. The form's ONE Save writes the account first, then (only if there is something to send) the accounting sheet: the name
+  Defied keeps the whole commission, so a Founder's new artists go in at 0; the picked split is a filled button), and "+ Add artists" for the rest of INFO's
+  artists, each with who has them now. A client's own form (Site › Roster, "Accounting sheet") has the same two buttons for its Manager's cut, and for a
+  Founder's artist the same Founders' line instead (F is written as 0 when it isn't 0 already); a client moved to a co-manager whose F is no split (a
+  Founder's artist at 0, a blank F) has to have a split picked before Save, and one that stays with its manager and holds some other cut ("Now 67% on the
+  sheet") is left alone unless a split is picked. (The Founders are known from the logins the form can read, so a viewer without Users gets the picker.) The form's ONE Save writes the account first, then (only if there is something to send) the accounting sheet: the name
   onto INFO's manager list if it isn't on it (a Co-manager always, a Founder only to give them artists, and only through this Save: the
   automatic link never puts a Founder on the list; never for a name near one that is on it: the same person by first name, or a near miss by
   the people link's own rule, `nearMiss` in `lib/names.js`, swaps included ("Jaime" next to "Jamie"); Caden and Cayden are two people,

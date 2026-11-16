@@ -10,7 +10,7 @@
 // and savedLine / notSavedLine are its one line.
 // (2026-11-16, the owner: "their cut is confusing") one cut for all of a manager's artists, and only two to choose from: 66.7 / 33.3 or 50 / 50
 // (Manager / Defied: SPLITS). No typed %, no "different %" per artist, no "apply to all?". A Founder's artists are Defied's whole commission: cut 0, no picker.
-import { nearManagerEntry } from "../../lib/roles";
+import { nearManagerEntry, sameManager, roleOf } from "../../lib/roles";
 
 // a fraction as the form shows it (0.67 -> "67"), and a typed percent that can be written (0 to 100)
 export const pctText = (x) => (x == null ? "" : String(Math.round(Number(x) * 10000) / 100));
@@ -36,6 +36,37 @@ export const FOUNDER_CUT = 0;
 export const FOUNDER_LINE = "Founders' artists: Defied keeps the whole commission (Manager Gets 0% on the sheet).";
 // why Save is held when artists are being added and no split is picked (the form says "Their artists: " first)
 export const PICK_CUT = "pick their cut (66.7 / 33.3 or 50 / 50).";
+
+// The names of the Founders' accounts (users: the dashboard's db.users): a staff login whose role is Founder (a login with no role yet is one only while nobody has been made one,
+// lib/roles.js roleOf). A viewer without Users gets no logins, so none are known and the Founder rule doesn't apply for them
+export function founderNames(users) {
+  let any = false;
+  for (const u of users || []) if (u.role === "staff" && u.staffRole === "founder") any = true;
+  const out = [];
+  for (const u of users || []) if (u.role === "staff" && roleOf(u.staffRole, any) === "founder" && String(u.name || "").trim()) out.push(String(u.name).trim());
+  return out;
+}
+// Is `name`, a manager on INFO's list (or typed as a new one), a Founder's? By the site's own-artists rule (lib/roles.js sameManager): the same name, or the first name of an account
+// named in full (INFO's "Hank" for the account "Hank Rivers")
+export function isFounderManager(founders, name) {
+  for (const n of founders || []) if (sameManager(name, n)) return true;
+  return false;
+}
+// (2026-11-16) What the client form's Save sends for the manager's cut (admin.jsx AccountingPart), once a manager is picked.
+//   founder  the manager picked is a Founder's: Defied keeps the whole commission, so F is 0 (no picker); sent when the client has no INFO row, or F isn't 0 now
+//   row      the client's INFO row as the form read it, null when it has none: { cut (F as text, "" when blank or no manager), split (the split F is, "" when neither), zero (F is 0 now), manager (INFO's E now) }
+//   picked   the split picked ("66.7", "50" or "")
+//   manager  the manager picked (a name)
+// -> { send, cut, pick }. send: the cut goes with the save; cut: the percent (0 for a Founder's, else the split as a number, null when none); pick: a split has to be picked first. For a
+// co-manager the cut is sent when a split is picked other than the one INFO holds, when INFO holds none (blank), and when the artist is new to them (no row, or another manager's now:
+// a Founder's artist at 0 moved to a co-manager has to be given a cut) and INFO's F is no split; an artist who stays with a manager whose F is neither split is left alone.
+export function clientCut({ founder, row, picked, manager }) {
+  if (founder) return { send: !row || !row.zero, cut: FOUNDER_CUT, pick: false };
+  const s = splitByPct(picked);
+  const moved = !row || manager !== row.manager;
+  const send = !row || picked !== row.split || row.cut === "" || (moved && !row.split);
+  return { send, cut: s ? Number(s.pct) : null, pick: send && !s };
+}
 
 // The checklist filled from INFO as read (the company row is no artist). rows: what it shows, in INFO's order; on: each row's tick by INFO
 // row; base: each row as it was read (its tick, its cut as a fraction, and its raw cells, which go back with a save so a row changed on INFO since is

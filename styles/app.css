@@ -3568,7 +3568,9 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .sheet-part legend{font-size:12px;color:var(--d-ink-4, var(--mut2));padding:0 6px}
 .app:not(.pub) .sheet-part .hint{margin:0}
 .app:not(.pub) .sheet-cut{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.app:not(.pub) .sheet-cut .btn.on{border-color:var(--d-ink-3, #a3a3a3);color:var(--d-ink, #f5f5f5)}
+/* the split that is picked is a filled pill, the primary button's light fill with dark text (aria-pressed says it too); the one that isn't stays a ghost */
+.app:not(.pub) .sheet-cut .btn.on{background:#f5f5f5;border-color:#f5f5f5;color:#000}
+@media (hover:hover){ .app:not(.pub) .sheet-cut .btn.on:hover{background:#fff;border-color:#fff} }
 .app:not(.pub) .split-cap{font-size:12px;color:var(--d-ink-4, #8a8a8a)}   /* (2026-11-16) "Manager / Defied" beside the two splits */
 .app:not(.pub) .sheet-part input[aria-invalid=true]{border-color:var(--d-warn-line, #7a5a2a)}
 .app:not(.pub) .sheet-go{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
