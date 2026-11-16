@@ -141,8 +141,14 @@ Money on for someone else (`lib/roles.js` `seesNetStreams`).
   row with its commission at 20%: `DEFAULT_COMMISSION` in `lib/people-sync.js`, the way INFO's D holds every row, 0.2) and the
   hidden team or roster entry, and says in one line what exists (`components/dash/added-line.js`). A client added by a person is kept
   in `app_state` `peopleSync:added` as real, so a run that was busy or couldn't write the sheet is finished by the sync check or the
-  nightly run. Annual Summary is never grown by it: until it reads the new row, the line says the client isn't on the sheet yet
-  and the flag says to add them from their form.
+  nightly run. It never grows Annual Summary (a person does that, from the client's form); if INFO's client list can't take the
+  row, the line says the client isn't on the sheet yet and the flag says why.
+- Site › Website › Team has an **Account** select (2026-11-15) so adding a team entry doesn't make everyone a manager: **Manager** (a
+  Co-manager account, put on INFO's manager list), **Intern** (an Intern account, not on INFO) or **No account**. A new entry starts at
+  what its Role text says (`teamAccountOf` in `lib/roles.js`: manager, Founder, A&R or management is a Manager, anything else an Intern);
+  an entry that has an account already shows its role, read only. People-link rule h makes the account chosen (this save's, or the answer
+  kept with the other answers in `peopleSync:seen`: `noacct:<id>`, `acct:intern:<id>`, `acct:comanager:<id>`); "No account" is never
+  made or asked about later. An entry made any other way, with nothing said, is a Co-manager as before.
 - The server enforces all of it. Every dashboard API route starts with the same check, `requireAccess` in
   `lib/access.js`, and the dashboard just hides what an account can't use.
 - The sign-in and the session are unchanged: `users.role` is still `staff` or `client`. The role is

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { X, Plus, Trash2, Pencil, Check, ChevronUp, ChevronDown, AlertTriangle, Music, Link2 } from "lucide-react";
 import { ExtLink } from "../shared/ui";
 import { filledSplits } from "../../lib/splits";
-import { SECTIONS, ROLES, accessFor, cleanAccess, sameManager } from "../../lib/roles";
+import { SECTIONS, ROLES, accessFor, cleanAccess, sameManager, roleOf, teamAccountOf } from "../../lib/roles";
 import { changedFields, saveRow } from "../app/saves";
 import { canUse } from "./access";
 import { findTabClient, noTabNames, shortDay } from "./helpers";
@@ -584,6 +584,31 @@ function PlacementsAdmin({ db, commit }) {
   );
 }
 
+// (2026-11-15) Site › Team's "Account": the account a team entry gets from the people link. A NEW entry (or an old one with no account yet) picks: Manager
+// (a Co-manager account, on INFO's manager list), Intern (an Intern account, not on INFO) or No account; it starts at what the entry's Role text says
+// (lib/roles.js teamAccountOf: "Artist Manager" is a Manager, "Designer" an Intern). An entry that has an account already shows its role, read only.
+const ACCOUNT_WORDS = {
+  comanager: "A Co-manager account with no login yet, and a place on the accounting sheet's manager list.",
+  intern: "An Intern account with no login yet (Site only). Not on the accounting sheet.",
+  none: "No account is made for them, now or later.",
+};
+function TeamAccount({ e, set, db }) {
+  if (e.id && e.userId) {
+    const u = db.users.find((x) => x.id === e.userId);
+    return <p className="hint" data-team-account>{u ? `Account: ${ROLES[roleOf(u.staffRole, true)].label}${u.noLogin ? ", no login yet" : ""}.` : "Account: they have one."} Change it in Site › Users.</p>;
+  }
+  const value = e.account || teamAccountOf(e.role);
+  return (
+    <label className="fld"><span>Account</span>
+      <select value={value} onChange={(ev) => set({ ...e, account: ev.target.value })} data-team-account-pick>
+        <option value="comanager">Manager</option>
+        <option value="intern">Intern</option>
+        <option value="none">No account</option>
+      </select>
+      <span className="hint" data-team-account-words>{ACCOUNT_WORDS[value]}</span>
+    </label>
+  );
+}
 export function TeamAdmin({ db, commit, openId = null, reloadDb = null, onGo = null }) {
   const [said, setSaid] = useState(null); // the line after a team entry was ADDED: its account and INFO's manager list too, hidden (people-added.jsx)
   const cols = [
@@ -594,10 +619,12 @@ export function TeamAdmin({ db, commit, openId = null, reloadDb = null, onGo = n
   ];
   const save = async (o) => {
     const id = o.id || uid();
-    const staff = o.id ? db.staff.map((s) => s.id === o.id ? o : s) : [...db.staff, { ...o, id }];
+    // a new entry always sends its Account (the Role text's when it wasn't touched); an old one only when it was changed
+    const row = !o.id ? { ...o, id, account: o.account || teamAccountOf(o.role) } : { ...o, id };
+    const staff = o.id ? db.staff.map((s) => s.id === o.id ? row : s) : [...db.staff, row];
     const saved = await saveRow(commit, { ...db, staff }, "staff", o.id, "team member");
-    // (2026-11-15) an entry ADDED is put everywhere at once: a Co-manager account with no login, and INFO's manager list
-    if (saved && typeof saved !== "string" && !o.id) setSaid(await syncEverywhere({ kind: "team", id, name: (o.name || "").trim() }, reloadDb));
+    // (2026-11-15) an entry ADDED (or given an account) is put everywhere at once: the account it said, and INFO's manager list for a Manager
+    if (saved && typeof saved !== "string" && (!o.id || row.account)) setSaid(await syncEverywhere({ kind: "team", id, name: (o.name || "").trim(), account: row.account }, reloadDb));
     return saved;
   };
   const del = async (id) => commit({ ...db, staff: db.staff.filter((s) => s.id !== id) });
@@ -613,6 +640,7 @@ export function TeamAdmin({ db, commit, openId = null, reloadDb = null, onGo = n
           </label>
           <Field label="Name" value={e.name} onChange={(ev) => set({ ...e, name: ev.target.value })} />
           <Field label="Role" value={e.role} onChange={(ev) => set({ ...e, role: ev.target.value })} />
+          <TeamAccount e={e} set={set} db={db} />
           <Field label="Email" value={e.email} onChange={(ev) => set({ ...e, email: ev.target.value })} />
           <Field label="Instagram handle" value={e.instagram} onChange={(ev) => set({ ...e, instagram: ev.target.value })} />
           <PhotoUpload label="Photo" value={e.photo} onChange={(v) => set({ ...e, photo: v })} />

@@ -31,7 +31,8 @@ export const LATER = "Saved. The accounting sheet will catch up in a couple of m
 //           (founder, comanager, intern); noLogin is whether it has no password yet
 //   client  a new client (Roster › Add, Clients › Add client): id is the client's
 //   login   a new client login in Users (its client is whoever it is linked to): the account alone
-//   team    a new team page entry (Site › Website › Team › Add): id is the entry's; the link makes its account and puts it on INFO's list
+//   team    a new team page entry (Site › Website › Team › Add): id is the entry's; account is what its Account select said (comanager, intern, none): the
+//           link makes that account and puts a Co-manager on INFO's list
 // link: what linkNow gave: { created: { clients, users, staff }, sheet: { infoClients, infoManagers }, flags } | { busy } | { error }
 // db: the site's copy as it reads now (users, staff, clients), or null; info: INFO as it reads now (GET /api/people-sync's info), or null
 // -> { text, flags, later }: text is "Added everywhere: account (no login yet), accounting sheet, team page (hidden)." or LATER; flags are
@@ -73,12 +74,14 @@ export function addedLine({ who, link, db, info }) {
     let t = null, u = null;
     for (const x of staff) if (x.id === who.id) t = x;
     if (t) for (const x of users) if (x.id === t.userId) u = x;
-    if (u) parts.push(u.noLogin ? "account (no login yet)" : "account");
+    // (2026-11-15) which account: the one Site › Team's Account said (an Intern is never on INFO's list; "No account" makes none)
+    if (u) parts.push(`${u.staffRole === "intern" ? "Intern account" : "Co-manager account"}${u.noLogin ? " (no login yet)" : ""}`);
     wantSheet = !!u && (u.staffRole === "comanager" || u.staffRole === "founder");
     for (const m of managers) if (m.name === name) hasSheet = true;
     if (madeIn(link.sheet && link.sheet.infoManagers, key)) hasSheet = true;
     if (wantSheet && hasSheet) parts.push("accounting sheet");
     if (t) parts.push(t.visible === false ? "team page (hidden)" : "team page");
+    if (!u && who.account === "none") parts.push("no account");
   } else {
     parts.push(who.noLogin === false ? "account" : "account (no login yet)");
   }

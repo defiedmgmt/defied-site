@@ -226,7 +226,7 @@ async function handleGet(req, res, session) {
 // team entry's fields this save changes ({ id: ["name", "email"] }): a login's name may follow only those, with Users.
 async function peopleChanges(body, { priorClients, priorUsers, userQueryData, mine }) {
   let touched = false;
-  const staffChanges = {}, addedClients = [];
+  const staffChanges = {}, addedClients = [], accounts = {};
   if (priorClients && Array.isArray(body.clients)) {
     const base = mine ? priorClients.filter((c) => mine.has(c.id)) : priorClients, was = new Map(base.map((c) => [c.id, c]));
     // (2026-11-15) a client this save adds is one a person has just made: the link treats it as real from now on, hidden or not
@@ -244,8 +244,11 @@ async function peopleChanges(body, { priorClients, priorUsers, userQueryData, mi
       if (f.length) staffChanges[x.id] = f;
     }
     if (Object.keys(staffChanges).length || body.staff.length !== prior.length) touched = true;
+    // (2026-11-15) Site › Team's "Account" for an entry (a new one always says; an old one only when it was changed): the people link makes that account
+    for (const x of body.staff) if (x && x.id && (x.account === "comanager" || x.account === "intern" || x.account === "none") && Object.keys(accounts).length < 20) accounts[String(x.id)] = x.account;
+    if (Object.keys(accounts).length) touched = true;
   }
-  return { touched, staffChanges, addedClients };
+  return { touched, staffChanges, addedClients, accounts };
 }
 
 // Mirrors the old commit({...db, someKey: newValue}) shape: the body may
@@ -592,7 +595,7 @@ async function handlePost(req, res, session) {
   // (a login, a client, a team entry) puts them in the other places now, hidden and with no login. Its sheet writes
   // wait for the next Sync check or the nightly run; a team entry this account changed may change its login only with
   // Users (a Founder for a Founder's).
-  if (role === "staff" && people.touched) await linkAfterSave({ users: can("users"), founder: a.role === "founder", staffChanges: people.staffChanges, addedClients: people.addedClients }, { sheet: false });
+  if (role === "staff" && people.touched) await linkAfterSave({ users: can("users"), founder: a.role === "founder", staffChanges: people.staffChanges, addedClients: people.addedClients, accounts: people.accounts }, { sheet: false });
 
   return res.status(200).json({ ok: true });
 }
