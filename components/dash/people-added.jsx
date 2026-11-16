@@ -35,14 +35,15 @@ export async function peoplePost(body) {
   return r.ok ? j : { error: j.error || "That didn't go through. Try again in a minute.", ...(j.stale ? { stale: true } : {}), ...(j.addedManager ? { addedManager: j.addedManager } : {}), ...(j.busy ? { busy: true } : {}) };
 }
 
-// The people link, now: the same run Site › Sync's "Sync people now" makes once it has been confirmed, without the preview (the first run
-// ever was confirmed on the live site; until it is, the server answers 503/409 and the line says the sheet will catch up). It makes the
-// accounting sheet's part (INFO's manager list, or the client's row with its commission left blank) at once, where the run that follows
-// every save leaves it for later. -> { created, sheet, flags, ... } | { busy } | { error }
+// The people link, now (`after: true`): the run right after an add, without the preview. It is an automatic run, so it stops at the first-run gate: until a
+// person has pressed Site › Sync's "Sync people now" once (which sends no `after`), the server answers { waiting: true } and does nothing. Once that has
+// been done it makes the accounting sheet's part (INFO's manager list, or the client's row at 20%) at once, where the run that follows every save leaves
+// it for later. -> { created, sheet, flags, ... } | { waiting } | { busy } | { error }
 export async function linkNow(extra = {}) {
-  const r = await peoplePost({ action: "link", ...extra });
+  const r = await peoplePost({ action: "link", after: true, ...extra });
   if (r.error) return { error: r.error, ...(r.busy ? { busy: true } : {}) };
-  if (r.busy || r.waiting || r.off) return { busy: true };
+  if (r.waiting) return { waiting: true };
+  if (r.busy || r.off) return { busy: true };
   return r;
 }
 // After a save that ADDED someone: link now, read the site and INFO again, and say in one line what exists (added-line.js).

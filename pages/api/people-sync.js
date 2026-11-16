@@ -15,10 +15,11 @@
 //           for an artist the manager already has)
 //   POST { action: "tab", clientId }  Publishing: a free WRITER tab on the pub sheet for the client
 //   (2026-11-14, lib/people-link.js; Money and Users, a Founder's by default)
-//   POST { action: "link", dryRun?, addedClients? }  "Sync people now": dryRun first (the preview: who'd be added, linked, flagged, by
+//   POST { action: "link", dryRun?, addedClients?, after? }  "Sync people now": dryRun first (the preview: who'd be added, linked, flagged, by
 //           name), then without it ("Add them"): the logins, the roster, the team page and INFO, anyone new added hidden.
-//           The first run ever is only this (the automatic runs wait for it). Once it has been made, the dashboard also
-//           sends it (no dryRun) right after it adds someone, so INFO is written at once (components/dash/people-added.jsx)
+//           The first run ever is only this (the automatic runs wait for it). The dashboard also sends it right after it adds someone
+//           (`after: true`, so INFO is written at once: components/dash/people-added.jsx): that one is an automatic run, so until the first
+//           run has been confirmed it answers { waiting: true } and does nothing. Refused for an account limited to its own artists
 //   POST { action: "apply", staffId, field }  Users (a Founder for a Founder's login): a team entry's name or email put
 //           on its login ("Use it for the login")
 //   POST { action: "distinct", a, b }  a near miss answered "Two different people"
@@ -35,7 +36,9 @@ import { shareWritesOn } from "../../lib/split-fixes-store";
 import { loadClientTabNames } from "../../lib/sheets";
 import { withInfoNames } from "../../lib/info-links";
 import { readPeople, readTabs, saveClientToInfo, addManagerToInfo, saveManagerArtists, createClientTab, googleDenied, noEditText, ACCOUNTING_OFF, PUB_OFF } from "../../lib/people-sync";
-import { runPeopleLink, rememberAnswer, linkPair, applyTeamValue, autolinkOn, rememberAdded } from "../../lib/people-link";
+import { runPeopleLink, rememberAnswer, linkPair, applyTeamValue, autolinkOn, rememberAdded, managerAccounts, SEEN_KEY } from "../../lib/people-link";
+import { sql } from "../../lib/db";
+import { getState } from "../../lib/app-state";
 
 const has = (req, k) => req.access?.sections?.includes(k);
 const pctIn = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Number(v) / 100);
@@ -52,6 +55,14 @@ async function get(req, res) {
         const p = await readPeople({ clients: await withInfoNames(clients) });
         // an account limited to its own artists sees only their rows
         if (limited(req)) { const own = ownSet(req); p.info.roster = p.info.roster.filter((r) => r.clientId && own.has(r.clientId)); }
+        // (2026-11-15) each of INFO's managers with the account the people link pairs it with ({ id, name } or null), by the planner's own rules (the stored link,
+        // then sameManager): Site > Users lists a manager with no account as a row, and a renamed or linked one has an account. Only for an account with Users.
+        if (has(req, "users") && p.info && Array.isArray(p.info.managers)) {
+          try {
+            const [users, seen] = await Promise.all([sql`SELECT id, name, role FROM users WHERE role = 'staff'`, getState(SEEN_KEY)]);
+            p.info.managers = managerAccounts(p.info.managers, users, seen?.mlink);
+          } catch (err) { console.error("people sync: managers' accounts", err); }
+        }
         Object.assign(out, p);
       } catch (err) { console.error("people sync: read INFO", err); out.info = { problem: "Couldn't read the accounting sheet just now. Try again in a minute.", roster: [], managers: [] }; }
     })());
@@ -124,11 +135,15 @@ async function people(req, res, session, b) {
   try {
     if (b.action === "link") {
       if (!autolinkOn()) return res.status(503).json({ error: "Linking people is off (PEOPLE_AUTOLINK)." });
+      // (2026-11-15) it works on every client and manager at once: an account limited to its own artists doesn't run it
+      if (limited(req)) return res.status(403).json({ error: "Linking people works on everyone at once, and your account sees only your own artists." });
       if (b.dryRun) { const d = await runPeopleLink({ dryRun: true, by: by(session) }); return res.status(200).json({ preview: d.preview, first: d.first, infoError: d.infoError || null }); }
       // addedClients: the clients the dashboard has just added (a hidden client with no songs and no login is otherwise left alone)
       const addedClients = Array.isArray(b.addedClients) ? b.addedClients.slice(0, 5).map((x) => String(x).slice(0, 80)) : [];
       await rememberAdded(addedClients); // kept, so a run that is busy or can't write the sheet now is finished by the next one
-      const r = await runPeopleLink({ actor: { users: true, founder, staffChanges: {}, addedClients }, by: by(session), waits: 2 });
+      // after: the run the dashboard asks for right after it adds someone (components/dash/people-added.jsx). It is an automatic run: until a person has confirmed
+      // the first run (Site > Sync's Sync people now, which sends no `after`), it only answers { waiting: true } and does nothing
+      const r = await runPeopleLink({ actor: { users: true, founder, staffChanges: {}, addedClients }, by: by(session), waits: 2, auto: b.after === true });
       if (r.busy) return res.status(409).json({ error: "The people are being linked right now. Try again in a minute.", busy: true });
       // (2026-11-15) the browser runs this right after it adds someone (components/dash/people-added.jsx): a flag's "open the sheet" fix is
       // a link there, the way lib/sync-checks.js makes it for Site › Sync

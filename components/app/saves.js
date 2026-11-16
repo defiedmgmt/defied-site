@@ -125,4 +125,9 @@ export async function saveRow(commit, next, key, id, thing) {
 }
 // a typed password goes out only with the save it was typed for: re-sent later, it would undo
 // one the user has since chosen themselves
-export const withoutPasswords = (d) => (d?.users?.some((u) => "password" in u) ? { ...d, users: d.users.map(({ password, ...u }) => u) } : d);
+// (2026-11-15) and a team entry's `account` (Site > Team's Account select): it goes out with the save that made it, and is never kept in the copy, so no later save sends it again
+export function withoutPasswords(d) {
+  const users = d?.users?.some((u) => "password" in u), staff = d?.staff?.some((s) => "account" in s);
+  if (!users && !staff) return d;
+  return { ...d, ...(users && { users: d.users.map(({ password, ...u }) => u) }), ...(staff && { staff: d.staff.map(({ account, ...s }) => s) }) };
+}

@@ -221,7 +221,7 @@ export default function AppRoot({ Component, pageProps }) {
         // the last save out shows the server's copy: others' changes, minus anything that failed
         if (!quiet && --s.held === 0) window.removeEventListener("beforeunload", holdUnload);
         if (--s.pending === 0) { s.failed = false; if (gen === s.gen) setDb(s.server); }
-        else if (saved && patch.users && gen === s.gen) setDb(withoutPasswords);
+        else if (saved && (patch.users || patch.staff) && gen === s.gen) setDb(withoutPasswords);
       }
       return saved;
     });

@@ -25,6 +25,8 @@ function flagsAbout(link, name, key) {
   return out;
 }
 export const LATER = "Saved. The accounting sheet will catch up in a couple of minutes.";
+// said when nobody has pressed Sync people now yet (the first run is a person's: nothing is added to the other places by itself until then)
+export const WAITING = "Saved. They aren't added to the other places yet: press Sync people now in Site › Sync once, and after that every add goes everywhere at once.";
 
 // who: { kind: "staff" | "client" | "login" | "team", id, name, pick?, noLogin? }
 //   staff   a new staff account (Users › Add, or an INFO manager made an account): id is the user's; pick is the form's role
@@ -38,6 +40,7 @@ export const LATER = "Saved. The accounting sheet will catch up in a couple of m
 // -> { text, flags, later }: text is "Added everywhere: account (no login yet), accounting sheet, team page (hidden)." or LATER; flags are
 // the run's own flags about this person (a commission left blank, a name near another), each { key, text, fix }
 export function addedLine({ who, link, db, info }) {
+  if (link && link.waiting) return { text: WAITING, flags: [], later: true };
   if (!link || link.busy || link.error) return { text: LATER, flags: [], later: true };
   const name = String(who.name || "").trim(), key = personKey(name);
   const users = (db && db.users) || [], staff = (db && db.staff) || [], clients = (db && db.clients) || [];

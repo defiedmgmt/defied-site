@@ -597,15 +597,17 @@ function TeamAccount({ e, set, db }) {
     const u = db.users.find((x) => x.id === e.userId);
     return <p className="hint" data-team-account>{u ? `Account: ${ROLES[roleOf(u.staffRole, true)].label}${u.noLogin ? ", no login yet" : ""}.` : "Account: they have one."} Change it in Site › Users.</p>;
   }
-  const value = e.account || teamAccountOf(e.role);
+  // a new entry starts at its Role text's; an old one with no account yet (nobody has said) asks, so it is never made one by default
+  const value = e.account || (e.id ? "" : teamAccountOf(e.role));
   return (
     <label className="fld"><span>Account</span>
       <select value={value} onChange={(ev) => set({ ...e, account: ev.target.value })} data-team-account-pick>
+        {!value && <option value="" disabled>Pick one</option>}
         <option value="comanager">Manager</option>
         <option value="intern">Intern</option>
         <option value="none">No account</option>
       </select>
-      <span className="hint" data-team-account-words>{ACCOUNT_WORDS[value]}</span>
+      <span className="hint" data-team-account-words>{value ? ACCOUNT_WORDS[value] : "No account has been picked for them: until one is, none is made."}</span>
     </label>
   );
 }

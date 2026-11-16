@@ -11,14 +11,14 @@ import bcrypt from "bcryptjs";
 import { sql, rowsOrNoneIfNoTable } from "../../lib/db";
 import { requireSameOrigin, restampSession } from "../../lib/session";
 import { requireAccess, limited, ownSet, refreshManagers } from "../../lib/access";
-import { roleOf, cleanAccess, ROLE_KEYS, sectionLabel } from "../../lib/roles";
+import { roleOf, cleanAccess, ROLE_KEYS, sectionLabel, sameManager } from "../../lib/roles";
 import { readSheetFacts } from "../../lib/sheet-facts-store";
 import { afterAction } from "../../lib/area-tasks";
 import { MAX_DATA_BYTES } from "../../lib/image-links";
 import { streamsOn } from "../../lib/streams-on";
 import { mgmtListOf } from "../../lib/clickup-tasks";
 import { ownLinkOf } from "../../lib/commission";
-import { linkAfterSave } from "../../lib/people-link";
+import { linkAfterSave, accountsMerge, addedMerge } from "../../lib/people-link";
 
 // photos uploaded before list B #2 are data: URIs inside the rows (new ones are Blob links,
 // /api/upload-image), so Next's default 1 MB body cap turned every staff save into a 413 once ~5-8 had
@@ -244,7 +244,7 @@ async function peopleChanges(body, { priorClients, priorUsers, userQueryData, mi
       if (f.length) staffChanges[x.id] = f;
     }
     if (Object.keys(staffChanges).length || body.staff.length !== prior.length) touched = true;
-    // (2026-11-15) Site › Team's "Account" for an entry (a new one always says; an old one only when it was changed): the people link makes that account
+    // (2026-11-15) Site › Team's "Account" for an entry (a new one always says; an old one only when it was changed), written with the rows (below)
     for (const x of body.staff) if (x && x.id && (x.account === "comanager" || x.account === "intern" || x.account === "none") && Object.keys(accounts).length < 20) accounts[String(x.id)] = x.account;
     if (Object.keys(accounts).length) touched = true;
   }
@@ -397,6 +397,14 @@ async function handlePost(req, res, session) {
     // Roles (lib/roles.js): only a Founder sets anyone's role or overrides; anyone else's save keeps what's
     // stored (an older tab sending no role keeps it too). A Founder's own login is a Founder's to change.
     const prior = Object.fromEntries(existing.map((u) => [u.id, u]));
+    // (2026-11-15) a NEW staff login for someone who has one already (the same person by the own-artists rule: "Magnus Hale" and "Magnus"), or whose login the
+    // people link made while this tab was open (auto-staff-…, a row this tab's copy never had), is a second account for them: refused, nothing is saved
+    for (const u of body.users) {
+      const name = String(u?.name || "").trim();
+      if (!u || u.role !== "staff" || prior[u.id] || !name) continue;
+      const dup = existing.find((e) => e.role === "staff" && e.id !== u.id && (sameManager(e.name, name) || sameManager(name, e.name)));
+      if (dup) return res.status(400).json({ error: `${name} already has an account.` });
+    }
     const anyFounder = existing.some((u) => u.role === "staff" && u.staff_role === "founder");
     const isFounderRow = (u) => u.role === "staff" && roleOf(u.staff_role, anyFounder) === "founder";
     const founderSave = a.role === "founder";
@@ -462,6 +470,8 @@ async function handlePost(req, res, session) {
   };
   if ("clients" in body) {
     const ids = body.clients.map((c) => c.id);
+    // (2026-11-15) the clients this save adds are real to the people link from now on: written in this transaction (peopleSync:added), never apart from it
+    if (people.addedClients.length) queries.push(addedMerge(people.addedClients));
     if (!mine && asOf) queries.push(ids.length ? sql`DELETE FROM clients WHERE id != ALL(${ids}) AND created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'` : sql`DELETE FROM clients WHERE created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'`);
     for (let i = 0; i < body.clients.length; i++) {
       const c = rowFor(body.clients[i], i);
@@ -493,6 +503,9 @@ async function handlePost(req, res, session) {
   if ("staff" in body) {
     if (!Array.isArray(body.staff)) return res.status(400).json({ error: "staff[] is required." });
     const rows = body.staff.map(staffRow), ids = rows.map((s) => s.id);
+    // (2026-11-15) Site > Team's "Account" answers for these entries, in THIS transaction (peopleSync:accounts, an atomic jsonb merge): no run can read an
+    // entry without its answer, and nothing waits for the people link's lock
+    if (Object.keys(people.accounts).length) queries.push(accountsMerge(people.accounts));
     if (asOf) queries.push(ids.length ? sql`DELETE FROM staff_bios WHERE id != ALL(${ids}) AND created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'` : sql`DELETE FROM staff_bios WHERE created_at < LEAST(${asOf}::timestamptz, now()) - interval '2 seconds'`);
     rows.forEach((s, i) => {
       queries.push(sql`
@@ -595,7 +608,7 @@ async function handlePost(req, res, session) {
   // (a login, a client, a team entry) puts them in the other places now, hidden and with no login. Its sheet writes
   // wait for the next Sync check or the nightly run; a team entry this account changed may change its login only with
   // Users (a Founder for a Founder's).
-  if (role === "staff" && people.touched) await linkAfterSave({ users: can("users"), founder: a.role === "founder", staffChanges: people.staffChanges, addedClients: people.addedClients, accounts: people.accounts }, { sheet: false });
+  if (role === "staff" && people.touched) await linkAfterSave({ users: can("users"), founder: a.role === "founder", staffChanges: people.staffChanges, addedClients: people.addedClients }, { sheet: false });
 
   return res.status(200).json({ ok: true });
 }

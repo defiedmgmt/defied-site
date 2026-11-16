@@ -101,17 +101,20 @@ export function orderUsers(users, by, dir, pickOf) {
   return out;
 }
 
-// INFO's managers with no account here, as rows for the list: one for each name on INFO's manager list that no staff account is, by the
-// site's own-artists rule (lib/roles.js sameManager: "Magnus Hale" is "Magnus", "Cayden" is not "Caden"). Each is a Co-manager with no login
-// yet whose Edit opens the new-user form filled in, so one Save makes the account (components/dash/admin.jsx). managers: GET
-// /api/people-sync's info.managers, [{ row, name }]; users: db.users
+// INFO's managers with no account here, as rows for the list: one for each name on INFO's manager list that has no staff account. It has one when the
+// server says so (GET /api/people-sync gives each manager `account`: { id, name } by the people link's own pairing, the stored link first, so a renamed
+// login or one answered "Same person" counts) and that login is still here, or when a staff login is the same person by the site's own-artists rule
+// (lib/roles.js sameManager: "Magnus Hale" is "Magnus", "Cayden" is not "Caden"; this is also what keeps a row from showing after its account was just
+// made, before INFO is read again). Each row is a Co-manager with no login yet whose Edit opens the new-user form filled in, so one Save makes the
+// account (components/dash/admin.jsx). managers: GET /api/people-sync's info.managers, [{ row, name, account? }]; users: db.users
 export function sheetOnlyManagers(managers, users) {
   const out = [];
   for (const m of managers || []) {
     const name = String(m.name || "").trim();
     if (!name) continue;
     let has = false;
-    for (const u of users || []) if (u.role === "staff" && sameManager(name, u.name)) { has = true; break; }
+    if (m.account && m.account.id) for (const u of users || []) if (u.id === m.account.id) { has = true; break; }
+    if (!has) for (const u of users || []) if (u.role === "staff" && sameManager(name, u.name)) { has = true; break; }
     if (!has) out.push({ id: `sheet:${name}`, sheetOnly: true, noLogin: true, email: "", name, role: "staff", staffRole: "comanager", access: {}, clientId: null, lastLoginAt: null, passwordChangedAt: null });
   }
   return out;

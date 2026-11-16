@@ -126,29 +126,37 @@ Money on for someone else (`lib/roles.js` `seesNetStreams`).
   "Their cut" (INFO's Manager Gets %, typed once and applied to each artist they are given; a chip gets its own % only through
   "different %"; changing it asks "Apply 30% to all 4 artists?"), and "+ Add artists" for the rest of INFO's artists, each with who has
   them now. The form's ONE Save writes the account first, then (only if there is something to send) the accounting sheet: the name
-  onto INFO's manager list if it isn't on it (a Co-manager always, a Founder only to give them artists; never for a name near one
-  that is on it), then Assigned Manager and Manager Gets % of each row changed in one write (`manager` and `manager-artists` in
+  onto INFO's manager list if it isn't on it (a Co-manager always, a Founder only to give them artists, and only through this Save: the
+  automatic link never puts a Founder on the list; never for a name near one that is on it), then Assigned Manager and Manager Gets % of each row changed in one write (`manager` and `manager-artists` in
   `/api/people-sync`, `saveManagerArtists` in `lib/people-sync.js`); an artist taken off clears both cells (Defied keeps 100%), and
   Defied's share (G) is the sheet's own formula, never written. If the sheet part is refused (a row changed on INFO since, someone else
   saving) the account is still saved and the form says "Saved. Their artists weren't saved: <reason>. Try again." with its chips as
   they were. Money access, never an account limited to its own artists. The managers on INFO's list with no account here are rows
   of the Users list under "No login yet" (their Edit opens the new-user form filled in, so one Save makes the account); there is no
-  separate managers section. The list has a "Sort by" control (Role by default: Founder, Co-manager, Intern, Client, then name; Name;
+  separate managers section. A manager counts as having an account by the people link's own pairing (`GET /api/people-sync` gives each
+  INFO manager its `account`: the stored link first, so a renamed login or a "Same person" answer counts, then `sameManager`), and a
+  save of a NEW staff login for someone who has one already (or whose login the link made meanwhile) is refused: "<name> already has an
+  account." The list has a "Sort by" control (Role by default: Founder, Co-manager, Intern, Client, then name; Name;
   Last sign-in) and sortable heads, remembered in the browser.
 - Adding someone puts them everywhere at once, hidden. After a save that ADDS a person (Site › Users › Add, Website › Roster › Add,
   the Clients tab's Add client, Website › Team › Add) the dashboard runs the people link at once (`POST /api/people-sync { action:
-  "link" }`, no preview once the first run has been confirmed): the account (no login), INFO (the manager on L, or the client's
+  "link", after: true }`: an automatic run, so until a person has pressed Site › Sync's Sync people now once (the first run, which sends
+  no `after`) it answers `{ waiting: true }` and does nothing, and the line says so; never for an account limited to its own artists):
+  the account (no login), INFO (the manager on L, or the client's
   row with its commission at 20%: `DEFAULT_COMMISSION` in `lib/people-sync.js`, the way INFO's D holds every row, 0.2) and the
   hidden team or roster entry, and says in one line what exists (`components/dash/added-line.js`). A client added by a person is kept
-  in `app_state` `peopleSync:added` as real, so a run that was busy or couldn't write the sheet is finished by the sync check or the
-  nightly run. It never grows Annual Summary (a person does that, from the client's form); if INFO's client list can't take the
+  in `app_state` `peopleSync:added` as real (an atomic append, written in the save's own transaction), so a run that was busy or
+  couldn't write the sheet is finished by the sync check or the nightly run. It never grows Annual Summary (a person does that, from the client's form); if INFO's client list can't take the
   row, the line says the client isn't on the sheet yet and the flag says why.
 - Site › Website › Team has an **Account** select (2026-11-15) so adding a team entry doesn't make everyone a manager: **Manager** (a
   Co-manager account, put on INFO's manager list), **Intern** (an Intern account, not on INFO) or **No account**. A new entry starts at
-  what its Role text says (`teamAccountOf` in `lib/roles.js`: manager, Founder, A&R or management is a Manager, anything else an Intern);
-  an entry that has an account already shows its role, read only. People-link rule h makes the account chosen (this save's, or the answer
-  kept with the other answers in `peopleSync:seen`: `noacct:<id>`, `acct:intern:<id>`, `acct:comanager:<id>`); "No account" is never
-  made or asked about later. An entry made any other way, with nothing said, is a Co-manager as before.
+  what its Role text says (`teamAccountOf` in `lib/roles.js`: an intern or assistant is an Intern first; otherwise manager, Founder, A&R or
+  management is a Manager; anything else an Intern); an entry that has an account already shows its role, read only; an old entry with no
+  account asks ("Pick one"). The answer is saved in the SAME transaction as the team row (`app_state` `peopleSync:accounts`, `{ teamId:
+  "comanager" | "intern" | "none" }`, an atomic jsonb merge in `pages/api/dashboard-data.js`), so no run can read the entry without it and
+  nothing waits for the link's lock; answers for entries that are gone are pruned when a run saves. People-link rule h makes the account
+  chosen; "No account" is never made or asked about later. An entry nobody answered for gets NO account and a flag ("<name> on the team
+  page has no account: pick Manager, Intern or No account"): never a default Co-manager.
 - The server enforces all of it. Every dashboard API route starts with the same check, `requireAccess` in
   `lib/access.js`, and the dashboard just hides what an account can't use.
 - The sign-in and the session are unchanged: `users.role` is still `staff` or `client`. The role is
