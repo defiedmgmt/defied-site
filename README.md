@@ -239,8 +239,8 @@ never values.
 | `AR_TRACKER_SHEET_ID` | The A&R sheet's spreadsheet id (r11): a new spreadsheet ("Defied A&R Tracker"), shared as Editor with `GOOGLE_SHEETS_CLIENT_EMAIL` (the same Google service account as the pub and accounting sheets). Written only with `AR_TRACKER_SHEET_WRITES=on`. |
 | `AR_TRACKER_SHEET_LINK_ID` | Only builds the A&R sheet's "Open the sheet" link (never read or written). `none` hides the link; unset, it uses `AR_TRACKER_SHEET_ID`. |
 | `GOOGLE_SHEET_LINK_ID` | Only builds the pub master sheet's "Open in sheet" links (never read or written). `none` hides them (a preview whose stand-in id would open nothing). Unset, the links use `GOOGLE_SHEET_ID`. |
-| `DIGEST_CHANNEL_ID` | The ClickUp Chat channel the Monday team digest posts to. Unset, the team digest isn't sent (it says so in its log). |
-| `DIGEST_PERSONAL_TO` | Who gets a personal Monday digest (a ClickUp direct message): `all`, or names or emails separated by commas. |
+| `DIGEST_CHANNEL_ID` | The ClickUp Chat channel the Monday team digest (one message a week since 2026-11-16: Our artists, Our songs, On the radar, Radar songs) posts to. Unset, the team digest isn't sent (it says so in its log). |
+| `DIGEST_PERSONAL_TO` | Who gets a personal Monday digest (a ClickUp direct message): `all`, or names or emails separated by commas. Unset, nobody does (opt-in since 2026-11-16; it used to start with Devin). |
 | `PAID_WAIT_MS` | How long the paste box waits for a paid lookup (an Apify run) before answering, in milliseconds. 25000 by default; a run still going is picked up by the next lookup. |
 
 **Write switches (off unless set to `on`)**
@@ -249,6 +249,7 @@ never values.
 |---|---|
 | `ACCOUNTING_SHEET_WRITES` | "Log it": new rows on the accounting sheet's Income tab. |
 | `CLICKUP_TASK_WRITES` | ClickUp tasks: create, update and mark done. |
+| `CLICKUP_REACTIONS` | Not off by default, unlike the rest: on unless set to `off` (2026-11-16). A website message marked read in Site › Messages gets a ✅ reaction on its post in ClickUp's Website Messages channel, and marking it unread takes it off again (`lib/clickup.js` `reactToMessage`, after the save). Best effort: a ClickUp failure or a slow answer (4 seconds at most) never changes the save. |
 | `AR_SHEET_WRITES` | Publishing › Advance calculator's saves to the pub sheet's OUTREACH / ADVANCE CALCULATOR tabs (r11: the A&R Outreach view is gone; the calculator keeps these saves). Off in production when unset. |
 | `AR_TRACKER_SHEET_WRITES` | The A&R sheet (r11, `lib/ar/tracker-sheet.js`), a one-way copy of the A&R lists in its own spreadsheet: its **Watchlist** tab rewritten in full (A:V, values only) after every list change and after each data cron, and one **Log** row appended per action (Added / Removed / Renewed / Expired / Confirmed). It creates those two tabs if they're missing and never touches any other tab; nothing is ever read back. Off, nothing calls Google for it. |
 | `PUB_SHARE_WRITES` | "Fill in 100%": a blank Writer Share cell on the pub sheet. Also the nightly sync's Site Sync ID stamp (column N) on a row it imports from a client tab, the same stamp a staff member's pull makes (r11). |

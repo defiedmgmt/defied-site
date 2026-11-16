@@ -33,8 +33,8 @@ export function NumTile({ m, label, sub, k }) {
     </div>
   );
 }
-// List B #9: "Preview this week's digest": exactly what Monday's team digest and this account's own
-// digest would say (GET /api/digest), for the sections this account may see. A Founder can look at
+// List B #9: "Preview this week's digest": exactly what Monday's team digest (one message since 2026-11-16) and this
+// account's own digest would say (GET /api/digest), for the sections this account may see. A Founder can look at
 // anyone's personal digest, and sees who gets one and what this week's run did.
 const pctSigned = (p) => (p == null ? "" : `${p > 0 ? "+" : p < 0 ? "−" : ""}${Math.abs(p)}%`);
 function DigestItem({ k, it }) {
@@ -42,11 +42,10 @@ function DigestItem({ k, it }) {
   const main = k === "radar" || song ? `${it.title || it.name}${it.artist ? ` — ${it.artist}` : ""}` : it.name || it.title || "";
   const nums = song ? [<span key="s"><b>{fmt(it.thisWeek)}</b> streams this week{it.pct != null && it.lastWeek > 0 && <> <span className={it.pct >= 0 ? "pos" : "neg"}>{pctSigned(it.pct)}</span></>}</span>]
     : k === "roster"
-    ? [it.streams && <span key="s"><b>{fmt(it.streams.thisWeek)}</b> streams this week{it.streams.pct != null && <> <span className={it.streams.pct >= 0 ? "pos" : "neg"}>{pctSigned(it.streams.pct)}</span></>}</span>,
-      ...(it.followers || []).map((f) => <span key={f.key}>{f.label} <b>{f.approx ? "about " : ""}{big(f.latest)}</b> <span className={f.pct >= 0 ? "pos" : "neg"}>{pctSigned(f.pct)}</span></span>)]
+    ? [it.streams && <span key="s"><b>{fmt(it.streams.thisWeek)}</b> streams this week{it.streams.pct != null && <> <span className={it.streams.pct >= 0 ? "pos" : "neg"}>{pctSigned(it.streams.pct)}</span></>}</span>]
     : k === "radar" ? [<span key="v"><b>{fmt(it.newVideos)}</b> new videos{it.pct != null && <> <span className={it.pct >= 0 ? "pos" : "neg"}>{pctSigned(Math.round(it.pct * 10) / 10)}</span></>}</span>]
       : k === "expiring" ? [<span key="e">{it.expiresAt || it.expires ? `ends ${String(it.expiresAt || it.expires).slice(0, 10)}` : ""}</span>]
-        : [<span key="m">momentum <b>{fmt(it.score)}</b>{it.trend != null && it.trend !== "" && <> · {typeof it.trend === "number" ? pctSigned(Math.round(it.trend * 10) / 10) : String(it.trend)}</>}</span>, it.why && <span key="w">{it.why}</span>];
+        : [<span key="m">score <b>{fmt(Math.round(it.score))}</b></span>, it.why && <span key="w">{it.why}</span>];
   return (
     <li className="dg-item" data-dg-item>
       <a className="dg-name" href={it.url} target="_blank" rel="noreferrer">{main}</a>
@@ -85,7 +84,7 @@ export function DigestPreview() {
   return (
     <div className="dg" data-digest-preview>
       <p className="dg-status" data-dg-status>{d.writesOn ? `Posts to ClickUp ${d.schedule}.` : `Posting is off for now (DIGEST_WRITES), so nothing is sent. This is exactly what ${d.schedule.replace(/^Mondays/, "Monday")} would send.`}{d.writesOn && !d.team.channelSet ? " The team channel isn't set yet (DIGEST_CHANNEL_ID)." : ""}</p>
-      <DigestBlock d={d.team} label="Team digest (2 messages in ClickUp's Weekly Digest channel)" />
+      <DigestBlock d={d.team} label="Team digest (one message in ClickUp's Weekly Digest channel)" />
       {d.people && (
         <label className="fld dg-who"><span>Personal digest for</span>
           <select value={who || d.personal.user?.id || ""} onChange={(e) => setWho(e.target.value)} aria-label="Personal digest for">
@@ -95,7 +94,7 @@ export function DigestPreview() {
       )}
       {d.personal.sections.length ? <DigestBlock d={d.personal} label={`${d.personal.user?.name ? `${d.personal.user.name}'s` : "Your"} digest (a ClickUp direct message)`} />
         : <p className="hint" data-dg-no-personal>No personal digest: it holds A&R trackers, and this account has no A&R.</p>}
-      {me && !me.getsPersonal && <p className="hint">Personal digests go to Devin first (DIGEST_PERSONAL_TO). Set it to "all" to send everyone theirs.</p>}
+      {me && !me.getsPersonal && <p className="hint">Personal digests are opt-in: nobody gets one unless DIGEST_PERSONAL_TO names them ("all", or names or emails).</p>}
     </div>
   );
 }

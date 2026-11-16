@@ -19,6 +19,8 @@ import { streamsOn } from "../../lib/streams-on";
 import { mgmtListOf } from "../../lib/clickup-tasks";
 import { ownLinkOf } from "../../lib/commission";
 import { linkAfterSave, accountsMerge, addedMerge } from "../../lib/people-link";
+import { reactToMessage } from "../../lib/clickup";
+import { readFlips } from "../../lib/submission-reactions";
 
 // photos uploaded before list B #2 are data: URIs inside the rows (new ones are Blob links,
 // /api/upload-image), so Next's default 1 MB body cap turned every staff save into a 413 once ~5-8 had
@@ -541,11 +543,18 @@ async function handlePost(req, res, session) {
       `);
     }
   }
+  // (2026-11-16) the messages' read flags as stored BEFORE this save, so the ✅ on their ClickUp posts can follow the flips (below, after it)
+  let subsBefore = null;
   if ("submissions" in body) {
     // (2026-11-10) an upsert, not delete-all-and-insert: a message's music link, files and ClickUp post stay as stored,
     // and a message that arrived after this tab loaded (newer than everything it sent) is never deleted by its save
     const rows = body.submissions.map(submissionRow);
     const ids = rows.map((s) => s.id);
+    // (a failed read only means no ✅ changes this time: the save itself never depends on it)
+    if (ids.length) {
+      try { subsBefore = await sql`SELECT id, read, clickup_message_id FROM submissions WHERE id = ANY(${ids})`; }
+      catch (err) { console.error("message reactions: couldn't read the messages first:", err?.message); }
+    }
     const newest = rows.map((s) => s.created_at).filter(Boolean).sort().pop() || null;
     queries.push(ids.length ? sql`DELETE FROM submissions WHERE id != ALL(${ids}) AND (${newest}::timestamptz IS NULL OR created_at <= ${newest}::timestamptz)` : sql`DELETE FROM submissions WHERE created_at < now() - interval '1 minute'`);
     for (const s of rows) {
@@ -599,6 +608,15 @@ async function handlePost(req, res, session) {
       console.error("dashboard-data save failed:", err);
       return res.status(502).json({ error: "Save failed — nothing was changed." });
     }
+  }
+
+  // (2026-11-16) the save is in: a website message it marked read gets a ✅ on its ClickUp post, one marked unread loses it. Best effort and
+  // bounded (reactToMessage gives up after 4 seconds and never throws): nothing here changes this save's answer
+  if (subsBefore) {
+    try {
+      const flips = readFlips(subsBefore, body.submissions);
+      if (flips.length) await Promise.allSettled(flips.map((f) => reactToMessage(f.messageId, f.on)));
+    } catch (err) { console.error("message reactions failed:", err?.message); }
   }
 
   // a staff member who just typed a new password for their own account stays
