@@ -8,8 +8,7 @@
 // (2026-11-15, one place) the checklist is part of the person's own form and the form's one Save writes it (admin.jsx UsersAdmin):
 // artistsPart says what the form shows, sheetSteps what that Save sends to the sheet, refillChecklist keeps the ticks of a refused save,
 // and savedLine / notSavedLine are its one line.
-import { personKey } from "../../lib/names";
-import { sameManager } from "../../lib/roles";
+import { nearManagerEntry } from "../../lib/roles";
 
 // a fraction as the form shows it (0.67 -> "67"), and a typed percent that can be written (0 to 100)
 export const pctText = (x) => (x == null ? "" : String(Math.round(Number(x) * 10000) / 100));
@@ -145,27 +144,12 @@ export function onManagerList(managers, name) {
   return false;
 }
 
-// A name one letter away from another (a letter added, dropped or changed), both at least four letters so "Ed" and "Al" are never near
-// each other. x, y: personKeys. "cayden" and "caden" are one apart: that is why "Cayden" can't be added next to "Caden" by a Save.
-function oneApart(x, y) {
-  if (x === y || x.length < 4 || y.length < 4 || x.length - y.length > 1 || y.length - x.length > 1) return false;
-  let i = 0;
-  while (i < x.length && i < y.length && x.charAt(i) === y.charAt(i)) i++;
-  return x.slice(x.length >= y.length ? i + 1 : i) === y.slice(y.length >= x.length ? i + 1 : i);
-}
-
-// The entry on INFO's manager list that `name` is near but not exactly (the list's own spelling is the only one a Save writes with): the
-// same person by the site's own-artists rule either way round ("Hank Rivers" and "Hank", "caden" and "Caden"), or one letter apart
-// ("Cayden" and "Caden"). null when there is none. managers: GET /api/people-sync's info.managers, [{ row, name }]
+// The entry on INFO's manager list that `name` is near but not exactly (the list's own spelling is the only one a Save writes with): the same person by the
+// site's own-artists rule either way round ("Hank Rivers" and "Hank", "caden" and "Caden"), or a near miss by the rule the people link uses (lib/names.js
+// nearMiss, swaps included: "Jaime" next to "Jamie"), except a pair the owner has said are two people (Caden and Cayden). null when there is none. The server's
+// "manager" action refuses it the same way (lib/people-sync.js planManager). managers: GET /api/people-sync's info.managers, [{ row, name }]
 export function nearManager(managers, name) {
-  const n = String(name ?? "").trim();
-  if (!n) return null;
-  const k = personKey(n);
-  for (const m of managers || []) {
-    if (m.name === n) continue;
-    if (sameManager(m.name, n) || sameManager(n, m.name) || oneApart(personKey(m.name), k)) return m;
-  }
-  return null;
+  return nearManagerEntry(managers, name);
 }
 
 // What Site › Users' form shows for a person's artists (2026-11-15: a Founder too, and a name that isn't on the list yet). pick: the form's

@@ -397,17 +397,25 @@ async function handlePost(req, res, session) {
     // Roles (lib/roles.js): only a Founder sets anyone's role or overrides; anyone else's save keeps what's
     // stored (an older tab sending no role keeps it too). A Founder's own login is a Founder's to change.
     const prior = Object.fromEntries(existing.map((u) => [u.id, u]));
-    // (2026-11-15) a NEW staff login for someone who has one already (the same person by the own-artists rule: "Magnus Hale" and "Magnus"), or whose login the
-    // people link made while this tab was open (auto-staff-…, a row this tab's copy never had), is a second account for them: refused, nothing is saved
-    for (const u of body.users) {
-      const name = String(u?.name || "").trim();
-      if (!u || u.role !== "staff" || prior[u.id] || !name) continue;
-      const dup = existing.find((e) => e.role === "staff" && e.id !== u.id && (sameManager(e.name, name) || sameManager(name, e.name)));
-      if (dup) return res.status(400).json({ error: `${name} already has an account.` });
-    }
     const anyFounder = existing.some((u) => u.role === "staff" && u.staff_role === "founder");
     const isFounderRow = (u) => u.role === "staff" && roleOf(u.staff_role, anyFounder) === "founder";
     const founderSave = a.role === "founder";
+    // (2026-11-15) a NEW login for someone who has a staff login already is refused, nothing saved. The same name is a second account for them. A Co-manager or a
+    // Founder is also matched by FIRST NAME (the own-artists rule: "Ella Kim" would be "Ella"'s artists' manager too, and the people link pairs them), so one is
+    // refused when its first name is an existing staff login's; an Intern or a Client has no artists to mix up, so only the exact name is refused (an Intern "Ella
+    // Kim" next to "Ella" is fine). It also catches a login the people link made while this tab was open (auto-staff-…: a row this tab's copy never had).
+    // Editing an existing login is never checked.
+    for (const u of body.users) {
+      const name = String(u?.name || "").trim();
+      if (!u || prior[u.id] || !name) continue;
+      const newRole = u.role === "client" ? "client" : roleOf(founderSave && "staffRole" in u && ROLE_KEYS.includes(u.staffRole) ? u.staffRole : null, anyFounder);
+      const same = existing.find((e) => e.role === "staff" && e.id !== u.id && String(e.name || "").trim().toLowerCase() === name.toLowerCase());
+      if (same) return res.status(400).json({ error: `${name} already has an account.` });
+      if (newRole === "comanager" || newRole === "founder") {
+        const first = existing.find((e) => e.role === "staff" && e.id !== u.id && (sameManager(e.name, name) || sameManager(name, e.name)));
+        if (first) return res.status(400).json({ error: `${name} would be matched to ${first.name}'s artists: the site matches managers by first name. Edit ${first.name}'s login, or use a different first name.` });
+      }
+    }
     if (!founderSave) {
       const sent = new Map(body.users.map((u) => [u.id, u]));
       const touched = existing.filter(isFounderRow).some((f) => {

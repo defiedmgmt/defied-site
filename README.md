@@ -127,7 +127,9 @@ Money on for someone else (`lib/roles.js` `seesNetStreams`).
   "different %"; changing it asks "Apply 30% to all 4 artists?"), and "+ Add artists" for the rest of INFO's artists, each with who has
   them now. The form's ONE Save writes the account first, then (only if there is something to send) the accounting sheet: the name
   onto INFO's manager list if it isn't on it (a Co-manager always, a Founder only to give them artists, and only through this Save: the
-  automatic link never puts a Founder on the list; never for a name near one that is on it), then Assigned Manager and Manager Gets % of each row changed in one write (`manager` and `manager-artists` in
+  automatic link never puts a Founder on the list; never for a name near one that is on it: the same person by first name, or a near miss by
+  the people link's own rule, `nearMiss` in `lib/names.js`, swaps included ("Jaime" next to "Jamie"); Caden and Cayden are two people,
+  `TWO_PEOPLE`; the server's `manager` action refuses those names too, with the form's words), then Assigned Manager and Manager Gets % of each row changed in one write (`manager` and `manager-artists` in
   `/api/people-sync`, `saveManagerArtists` in `lib/people-sync.js`); an artist taken off clears both cells (Defied keeps 100%), and
   Defied's share (G) is the sheet's own formula, never written. If the sheet part is refused (a row changed on INFO since, someone else
   saving) the account is still saved and the form says "Saved. Their artists weren't saved: <reason>. Try again." with its chips as
@@ -135,8 +137,10 @@ Money on for someone else (`lib/roles.js` `seesNetStreams`).
   of the Users list under "No login yet" (their Edit opens the new-user form filled in, so one Save makes the account); there is no
   separate managers section. A manager counts as having an account by the people link's own pairing (`GET /api/people-sync` gives each
   INFO manager its `account`: the stored link first, so a renamed login or a "Same person" answer counts, then `sameManager`), and a
-  save of a NEW staff login for someone who has one already (or whose login the link made meanwhile) is refused: "<name> already has an
-  account." The list has a "Sort by" control (Role by default: Founder, Co-manager, Intern, Client, then name; Name;
+  save of a NEW login with the exact name of a staff login (one the link made meanwhile included) is refused ("<name> already has an
+  account."), and so is a NEW Co-manager or Founder whose first name is a staff login's, because the site matches managers by first name
+  ("<name> would be matched to <existing>'s artists: …"); an Intern or a Client is refused only for the exact name, and editing an existing
+  login is never checked The list has a "Sort by" control (Role by default: Founder, Co-manager, Intern, Client, then name; Name;
   Last sign-in) and sortable heads, remembered in the browser.
 - Adding someone puts them everywhere at once, hidden. After a save that ADDS a person (Site › Users › Add, Website › Roster › Add,
   the Clients tab's Add client, Website › Team › Add) the dashboard runs the people link at once (`POST /api/people-sync { action:
