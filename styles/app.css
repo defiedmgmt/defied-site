@@ -357,6 +357,7 @@ button{font-family:inherit;cursor:pointer}
 .sec-picks legend{font-size:12px;color:var(--mut2);padding:0 6px}
 .users-managers{margin-top:12px}
 .sec-picks .hint{grid-column:1/-1;margin:4px 0 0}
+.sec-picks .sec-sub{grid-column:1/-1;margin:6px 0 0;font-size:12px;color:var(--mut2)}   /* (2026-11-16) "Their own": My to-do and My payments, which come with the name */
 .sec-pick{display:flex;align-items:center;gap:8px;min-height:36px;font-size:13px;color:var(--ink);cursor:pointer}
 .sec-pick input{width:16px;height:16px;accent-color:#fff;flex-shrink:0}
 .sec-pick.locked{opacity:.55;cursor:default}
@@ -3567,8 +3568,8 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .sheet-part legend{font-size:12px;color:var(--d-ink-4, var(--mut2));padding:0 6px}
 .app:not(.pub) .sheet-part .hint{margin:0}
 .app:not(.pub) .sheet-cut{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.app:not(.pub) .sheet-cut input{flex:none;width:96px;text-align:right;font-variant-numeric:tabular-nums}
 .app:not(.pub) .sheet-cut .btn.on{border-color:var(--d-ink-3, #a3a3a3);color:var(--d-ink, #f5f5f5)}
+.app:not(.pub) .split-cap{font-size:12px;color:var(--d-ink-4, #8a8a8a)}   /* (2026-11-16) "Manager / Defied" beside the two splits */
 .app:not(.pub) .sheet-part input[aria-invalid=true]{border-color:var(--d-warn-line, #7a5a2a)}
 .app:not(.pub) .sheet-go{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 
@@ -3605,15 +3606,10 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .mgr-art-name{font-size:14px;line-height:1.35;color:var(--d-ink, #f5f5f5);overflow-wrap:anywhere}
 .app:not(.pub) .mgr-art-note{font-size:12.5px;line-height:1.35;color:var(--d-ink-4, #8a8a8a)}
 .app:not(.pub) .mgr-chip.changed .mgr-art-note{color:var(--d-warn, #e0b48f)}
-.app:not(.pub) .mgr-art-cut{flex:none;flex-direction:row;align-items:center;gap:6px}
-.app:not(.pub) .mgr-art-cut input{flex:none;width:72px;padding:0 10px;text-align:right;font-variant-numeric:tabular-nums}
-.app:not(.pub) .mgr-art-cut > span{font-size:13px;letter-spacing:0;color:var(--d-ink-3, #a3a3a3)}
 .app:not(.pub) .mgr-chip-x{flex:none;display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:100px;background:none;color:var(--d-ink-4, #8a8a8a);cursor:pointer}
 @media (hover:hover){ .app:not(.pub) .mgr-chip-x:hover{background:var(--d-hover, #1c1c1e);color:var(--d-ink, #f5f5f5)} }
 @media (pointer:coarse){ .app:not(.pub) .mgr-chip-x{width:44px;height:44px} .app:not(.pub) .mgr-chip{min-height:56px} }
 .app:not(.pub) .mgr-their{margin:0}
-.app:not(.pub) .mgr-diff{flex:none;font-size:12.5px;white-space:nowrap}
-.app:not(.pub) .mgr-ask{margin:0;padding:8px 12px;border:1px solid var(--d-line-2, #2a2a2c);border-radius:10px}
 .app:not(.pub) .mgr-add{display:grid;gap:8px;justify-items:start;min-width:0}
 .app:not(.pub) .mgr-pick{display:grid;gap:8px;width:100%;min-width:0}
 .app:not(.pub) .mgr-search{width:100%;min-width:0}

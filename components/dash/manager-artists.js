@@ -8,126 +8,126 @@
 // (2026-11-15, one place) the checklist is part of the person's own form and the form's one Save writes it (admin.jsx UsersAdmin):
 // artistsPart says what the form shows, sheetSteps what that Save sends to the sheet, refillChecklist keeps the ticks of a refused save,
 // and savedLine / notSavedLine are its one line.
+// (2026-11-16, the owner: "their cut is confusing") one cut for all of a manager's artists, and only two to choose from: 66.7 / 33.3 or 50 / 50
+// (Manager / Defied: SPLITS). No typed %, no "different %" per artist, no "apply to all?". A Founder's artists are Defied's whole commission: cut 0, no picker.
 import { nearManagerEntry } from "../../lib/roles";
 
 // a fraction as the form shows it (0.67 -> "67"), and a typed percent that can be written (0 to 100)
 export const pctText = (x) => (x == null ? "" : String(Math.round(Number(x) * 10000) / 100));
 export const pctOk = (v) => String(v ?? "").trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100;
 
-// The cut most of this manager's artists have, as text; a tie goes to the artist higher up on INFO; "" when none of them
-// has one yet (a cut is never made up: it is typed)
-export function commonCut(roster, manager) {
-  const n = new Map();
-  for (const r of roster) if (r.manager === manager && r.cut != null) { const t = pctText(r.cut); n.set(t, (n.get(t) || 0) + 1); }
-  let best = "", most = 0;
-  for (const [t, c] of n) if (c > most) { best = t; most = c; }
-  return best;
+// ---- "Their cut" (2026-11-16): the two splits on offer. pct: the percent the form sends (the server turns "66.7" into exactly 0.667: pages/api/people-sync.js
+// pctIn), frac: what INFO's F holds, label: Manager / Defied.
+export const SPLITS = [{ pct: "66.7", frac: 0.667, label: "66.7 / 33.3" }, { pct: "50", frac: 0.5, label: "50 / 50" }];
+// the split INFO's F reads as, by its pct ("" when it is neither: 0.67 is 67%, not a split on offer; 2/3 and 0.6667 are 66.7); blank, text and 0 are none
+export function splitOf(fraction) {
+  if (fraction == null || fraction === "") return "";
+  const x = Number(fraction);
+  for (const s of SPLITS) if (Math.abs(x - s.frac) < 0.0005) return s.pct;
+  return "";
 }
+// the split with this pct ("66.7" or "50"), or null
+export function splitByPct(pct) {
+  for (const s of SPLITS) if (s.pct === pct) return s;
+  return null;
+}
+// a Founder's artists: Defied keeps the whole commission. There is no picker for a Founder; a new artist is sent with this cut (percent)
+export const FOUNDER_CUT = 0;
+export const FOUNDER_LINE = "Founders' artists: Defied keeps the whole commission (Manager Gets 0% on the sheet).";
+// why Save is held when artists are being added and no split is picked (the form says "Their artists: " first)
+export const PICK_CUT = "pick their cut (66.7 / 33.3 or 50 / 50).";
 
-// The checklist filled from INFO as read (the company row is no artist). rows: what it shows, in INFO's order; on / cut:
-// each row's tick and cut text by INFO row; base: each row as it was read (its tick, cut text and raw cells, which go
-// back with a save so a row changed on INFO since is refused, never typed over). Ticked = E is exactly this name ("Cayden"
-// is not "Caden", "caden" is not "Caden"). A ticked row starts at its own cut; a row that isn't theirs starts at their
-// most common cut, ready for a tick.
+// The checklist filled from INFO as read (the company row is no artist). rows: what it shows, in INFO's order; on: each row's tick by INFO
+// row; base: each row as it was read (its tick, its cut as a fraction, and its raw cells, which go back with a save so a row changed on INFO since is
+// refused, never typed over). Ticked = E is exactly this name ("Cayden" is not "Caden", "caden" is not "Caden").
+// theirCut: "Their cut", one split for the whole manager: the split ALL their artists have on INFO now; "" when they have artists and not all of them are on
+// one split (nothing is picked for them: the form lists what the sheet has, and a pick rewrites every artist that isn't on it); "66.7" for a manager with no
+// artists yet. theirCutBase: what it was filled as, to tell whether it was moved
 export function fillChecklist(roster, manager) {
-  const rows = (roster || []).filter((r) => !r.company), common = commonCut(rows, manager);
-  // theirCut: "Their cut", one % for the whole manager (INFO's Manager Gets %, column F), at the cut most of their artists have now; "" for a
-  // manager with none (never made up: it is typed). theirCutBase: what it was filled as, to tell whether it was changed
-  const f = { rows, on: {}, cut: {}, base: {}, theirCut: common, theirCutBase: common };
+  const rows = (roster || []).filter((r) => !r.company);
+  const f = { rows, on: {}, base: {}, theirCut: "", theirCutBase: "" };
+  let n = 0, split = "", agree = true;
   for (const r of rows) {
-    const mine = r.manager === manager, own = mine && r.cut != null ? pctText(r.cut) : "";
+    const mine = r.manager === manager;
     f.on[r.row] = mine;
-    f.cut[r.row] = mine ? own : common;
-    f.base[r.row] = { name: r.name, manager: r.manager, on: mine, cut: own, raw: r.raw || {} };
+    f.base[r.row] = { name: r.name, manager: r.manager, on: mine, cut: mine && r.cut != null ? r.cut : null, raw: r.raw || {} };
+    if (!mine) continue;
+    const s = splitOf(r.cut);
+    if (n === 0) split = s; else if (s !== split) agree = false;
+    n += 1;
   }
+  const start = n === 0 ? SPLITS[0].pct : agree ? split : "";
+  f.theirCut = start; f.theirCutBase = start;
   return f;
 }
 
-// What was changed: [{ row, name, kind, send }]. kind: "tick" (nobody had them), "move" (another manager's), "untick" (no
-// manager: Defied gets 100%), "cut" (still theirs, the cut typed over). send: the cut goes with the save (a ticked row's
-// cut is sent only when it is new or typed over, so 66.6667% on INFO isn't rewritten as 66.67).
-export function checklistChanges(f) {
+// "On the sheet now: Liyakk! 50%, bucketboy1021 67%. Pick a split to set all of them." for a manager whose artists aren't all on one split, until one is picked; "" otherwise
+export function nowLine(f) {
+  if (!f || f.theirCut !== "") return "";
+  const parts = [];
+  for (const r of f.rows) {
+    const b = f.base[r.row];
+    if (b.on) parts.push(`${b.name} ${b.cut == null ? "blank" : `${pctText(b.cut)}%`}`);
+  }
+  return parts.length ? `On the sheet now: ${parts.join(", ")}. Pick a split to set all of them.` : "";
+}
+
+// What was changed: [{ row, name, kind, send }]. kind: "tick" (nobody had them), "move" (another manager's), "untick" (no manager: Defied gets 100%), "cut"
+// (still theirs and still ticked, and a split was picked that INFO's F isn't exactly: the pick rewrites it). send: the cut goes with the save. The artists that
+// are theirs already are looked at only once the split was MOVED from how the form filled it (opening the form and saving rewrites no row, even one at 66.6667%
+// that the form calls 66.7), and never for a Founder (their artists are left as they are; a new one goes in at 0).
+export function checklistChanges(f, founder) {
   const out = [];
   if (!f) return out;
+  const pick = founder || f.theirCut === f.theirCutBase ? null : splitByPct(f.theirCut);
   for (const r of f.rows) {
-    const b = f.base[r.row], on = f.on[r.row], text = String(f.cut[r.row] ?? "").trim();
+    const b = f.base[r.row], on = f.on[r.row];
     if (!b) continue;
     if (on && !b.on) out.push({ row: r.row, name: r.name, kind: b.manager ? "move" : "tick", send: true });
     else if (!on && b.on) out.push({ row: r.row, name: r.name, kind: "untick", send: false });
-    else if (on && b.on && text !== b.cut) out.push({ row: r.row, name: r.name, kind: "cut", send: true });
+    else if (on && b.on && pick && !(typeof b.cut === "number" && Math.abs(b.cut - pick.frac) <= 1e-9)) out.push({ row: r.row, name: r.name, kind: "cut", send: true });
   }
   return out;
+}
+
+// the % a save sends with each ticked artist: a Founder's 0, else the split picked as a number (66.7 or 50); null when none is picked (the server refuses a tick with no cut)
+export function cutSent(f, founder) {
+  if (founder) return FOUNDER_CUT;
+  const s = splitByPct(f ? f.theirCut : "");
+  return s ? Number(s.pct) : null;
 }
 
 // The request's rows for those changes: the row, what it read when the checklist was filled (C name, D, E, F), ticked or
 // not, and the cut as a percent (null: leave F as INFO has it)
-export function checklistRows(f, changes) {
-  const out = [];
+export function checklistRows(f, changes, founder) {
+  const out = [], cut = cutSent(f, founder);
   for (const c of changes) {
     const b = f.base[c.row];
-    out.push({ row: c.row, was: { C: b.name, D: b.raw.D ?? "", E: b.raw.E ?? "", F: b.raw.F ?? "" }, on: c.kind !== "untick", cut: c.send ? Number(f.cut[c.row]) : null });
+    out.push({ row: c.row, was: { C: b.name, D: b.raw.D ?? "", E: b.raw.E ?? "", F: b.raw.F ?? "" }, on: c.kind !== "untick", cut: c.send ? cut : null });
   }
   return out;
 }
 
-// The line under an artist: where they stand now, or what saving will do ("moves from Hank" before it is saved)
-export function rowNote(f, row) {
+// The line under an artist: where they stand now, or what saving will do ("moves from Hank" before it is saved). kind: the artist's change, if any
+export function rowNote(f, row, kind) {
   const b = f.base[row], on = f.on[row];
   if (on && !b.on) return b.manager ? `moves from ${b.manager}` : "was no manager";
-  if (on && b.on && String(f.cut[row] ?? "").trim() !== b.cut) return b.cut ? `cut was ${b.cut}%` : "cut was blank";
+  if (on && b.on && kind === "cut") return b.cut == null ? "cut was blank" : `cut was ${pctText(b.cut)}%`;
   if (!on && b.on) return "no manager: Defied gets 100%";
   if (!on) return b.manager ? `with ${b.manager}` : "no manager: Defied gets 100%";
   return "";
 }
 
-// Why Save is off, or null: a ticked row that is new or typed over needs a cut from 0 to 100
-export function checklistWhy(f, changes, manager) {
+// Why Save is off, or null: artists are being added (or moved) and no split is picked (never for a Founder: their artists go in at 0)
+export function checklistWhy(f, changes, founder) {
   if (!f) return "Reading the accounting sheet…";
-  for (const c of changes) {
-    if (!c.send || pctOk(f.cut[c.row])) continue;
-    // an artist with no % of their own follows "Their cut": when that is what can't be written, it is the field to fix
-    if (!pctOk(f.theirCut) && String(f.cut[c.row] ?? "").trim() === String(f.theirCut ?? "").trim()) return `Type ${manager}'s cut (Their cut) as a number from 0 to 100.`;
-    return `Type ${manager}'s cut for ${c.name} as a number from 0 to 100.`;
-  }
+  if (!founder && f.theirCut === "") for (const c of changes) if (c.send) return PICK_CUT;
   return changes.length ? null : "Change something first.";
 }
 
-// ---- "Their cut" (2026-11-15): one % for the manager, applied to each artist they are given. The owner: "maybe we can setup the co manager
-// split like when we're adding the manager like we can type it". A chip gets its own % only as an exception ("different %"). Defied's share
-// (INFO's G) is the sheet's own formula: it is never written.
-
-// Does this artist have a % of their own (one that is not Their cut)?
-export function differs(f, row) {
-  return String(f.cut[row] ?? "").trim() !== String(f.theirCut ?? "").trim();
-}
-// "Their cut" typed: the artists who aren't theirs yet follow it (a ticked one with a % of its own keeps it); the ones that are theirs keep
-// what INFO has until the person says to apply it to them too (applyToAll)
-export function setTheirCut(f, text) {
-  const was = String(f.theirCut ?? "").trim(), cut = { ...f.cut };
-  for (const r of f.rows) {
-    if (f.base[r.row].on) continue;
-    if (!f.on[r.row] || String(cut[r.row] ?? "").trim() === was) cut[r.row] = text;
-  }
-  return { ...f, theirCut: text, cut };
-}
-// the artists that are theirs on INFO and still ticked
-export function currentArtists(f) {
-  const out = [];
-  if (!f) return out;
-  for (const r of f.rows) if (f.on[r.row] && f.base[r.row].on) out.push(r);
-  return out;
-}
-// "Apply 30% to all 4 artists?" yes: every artist that is theirs on INFO and still ticked takes Their cut
-export function applyToAll(f, text) {
-  const cut = { ...f.cut };
-  for (const r of currentArtists(f)) cut[r.row] = text;
-  return { ...f, cut };
-}
-// an artist picked from the list: a new one starts at Their cut (one that was theirs and taken off in this form comes back at their own)
+// an artist picked from the list is ticked, at the manager's one cut
 export function tickRow(f, row) {
-  const cut = { ...f.cut };
-  if (!f.base[row].on) cut[row] = f.theirCut;
-  return { ...f, on: { ...f.on, [row]: true }, cut };
+  return { ...f, on: { ...f.on, [row]: true } };
 }
 
 // "1 added, 2 moved from another manager, 1 taken off, 1 cut changed" for the changes not saved yet
@@ -180,18 +180,17 @@ export function sheetSteps(part, pick, changes) {
   return out;
 }
 
-// The checklist filled again from INFO as it reads now, with the ticks and cuts the person had changed carried over: a refused save (INFO
+// The checklist filled again from INFO as it reads now, with the ticks and the split the person had changed carried over: a refused save (INFO
 // changed under it) can be tried again without ticking it all over. A row that is another artist now, or gone, isn't carried. old: the
 // checklist as it was (fillChecklist's), or null
 export function refillChecklist(roster, manager, old) {
   const f = fillChecklist(roster, manager);
   if (!old) return f;
-  if (String(old.theirCut ?? "") !== String(old.theirCutBase ?? "")) f.theirCut = old.theirCut; // Their cut as they typed it
+  if (old.theirCut !== old.theirCutBase) f.theirCut = old.theirCut; // the split as they picked it
   for (const r of f.rows) {
     const b = old.base[r.row];
     if (!b || b.name !== r.name) continue;
-    const on = old.on[r.row], cut = old.cut[r.row];
-    if (on !== b.on || (on && b.on && String(cut ?? "").trim() !== b.cut)) { f.on[r.row] = on; f.cut[r.row] = cut; }
+    if (old.on[r.row] !== b.on) f.on[r.row] = old.on[r.row];
   }
   return f;
 }

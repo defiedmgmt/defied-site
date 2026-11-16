@@ -109,7 +109,7 @@ Every staff login has a role. Founders set roles in **Site › Users** (`lib/rol
 |---|---|
 | Founder | Everything, including Money and Users (user management). |
 | Co-manager | Everything except Money and Users. Can optionally be limited to their own artists. |
-| Intern | Site only (website content, messages). |
+| Intern | A&R and Site (website content, messages). |
 | Client | Their own portal. Unchanged. |
 
 Net streams are for the spreadsheet (2026-11-13): an artist's page (the Net Streams card and a song's Net streams row)
@@ -118,13 +118,16 @@ that still uses them, as the input of its estimate, so it and the data behind it
 net columns of `/api/sheets-master`) are for an account with **Money** access, which is a Founder unless a Founder turns
 Money on for someone else (`lib/roles.js` `seesNetStreams`).
 
-- A Founder can turn any section on or off for one person, on top of their role.
+- A Founder can turn any section on or off for one person, on top of their role. In that list To do reads "Team to-do" (everyone's) and
+  Money "All money" (Defied's books); a login's own **My to-do** (their ClickUp MGMT list) and **My payments** (their pay link) come with
+  their first name, not with a tick (`lib/own-pages.js`, shown under "Their own").
 - "Only their own artists" limits a Co-manager to the clients whose **Assigned Manager** on the accounting sheet's
   INFO tab is that person's name. The daily cron reads INFO, and so does "Update from the sheet" in Site › Users.
 - Each person is managed in ONE place, their own form in Site › Users (2026-11-15). A Co-manager's or Founder's form has "Their
   artists": their artists as chips (INFO's Assigned Manager is exactly their name, never a near match: Caden is not Cayden),
-  "Their cut" (INFO's Manager Gets %, typed once and applied to each artist they are given; a chip gets its own % only through
-  "different %"; changing it asks "Apply 30% to all 4 artists?"), and "+ Add artists" for the rest of INFO's artists, each with who has
+  "Their cut" (INFO's Manager Gets %: one of two splits for all of their artists, 66.7 / 33.3 or 50 / 50, Manager / Defied; picking
+  one rewrites every artist of theirs that isn't on it, and artists are only ever added at the picked split. A Founder has no picker:
+  Defied keeps the whole commission, so a Founder's new artists go in at 0), and "+ Add artists" for the rest of INFO's artists, each with who has
   them now. The form's ONE Save writes the account first, then (only if there is something to send) the accounting sheet: the name
   onto INFO's manager list if it isn't on it (a Co-manager always, a Founder only to give them artists, and only through this Save: the
   automatic link never puts a Founder on the list; never for a name near one that is on it: the same person by first name, or a near miss by

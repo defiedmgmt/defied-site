@@ -9,7 +9,8 @@ import { findTabClient, noTabNames, shortDay } from "./helpers";
 import { Area, Avatar, EmailButton, Field, PhotoUpload, SplitsEditor, splitTotal, uid } from "./ui";
 import { AskCard } from "../portal/ask";
 import { nameTaken, deleteClientCascade, clientDeleteAsk, NAME_TAKEN, SpotifyFill } from "./clients";
-import { pctText, pctOk, refillChecklist, checklistChanges, checklistRows, checklistWhy, rowNote, changeWords, nearManager, artistsPart, sheetSteps, pickNote, pickRows, savedLine, notSavedLine, differs, setTheirCut, applyToAll, currentArtists, tickRow } from "./manager-artists";
+import { pctText, pctOk, SPLITS, splitOf, FOUNDER_LINE, nowLine, refillChecklist, checklistChanges, checklistRows, checklistWhy, rowNote, changeWords, nearManager, artistsPart, sheetSteps, pickNote, pickRows, savedLine, notSavedLine, tickRow } from "./manager-artists";
+import { hasMyTodo, hasMyPay } from "../../lib/own-pages";
 import { orderUsers, nextSort, sortWords, SORT_CHOICES, loadSort, saveSort, loadOpen, saveOpen, sheetOnlyManagers } from "./users-list";
 import { usePeopleSync, peoplePost, Said, AddedSaid, syncEverywhere } from "./people-added";
 export { ClientMore, clientDeleteAsk, deleteClientCascade, NAME_TAKEN, nameTaken, SpotifyFill } from "./clients";
@@ -254,6 +255,17 @@ export function ClientsAdmin({ db, commit, openId = null, songInfo = null, reloa
 // (Clients); the shared read, posts and lines are components/dash/people-added.jsx
 const NEW_MANAGER = "__new", PICK_MANAGER = "__pick";
 
+// (2026-11-16, the owner: "their cut is confusing") a manager's cut is one of two splits, as a pair of buttons with "Manager / Defied" beside them
+// (components/dash/manager-artists.js SPLITS). value: the pct picked ("66.7" or "50"), "" when neither is. A client's accounting part and a person's artists use it
+function SplitPick({ value, onPick, disabled = false, label, ...rest }) {
+  return (
+    <span className="sheet-cut split-pick" role="group" aria-label={label} {...rest}>
+      {SPLITS.map((s) => <button key={s.pct} type="button" className={`btn ghost sm${value === s.pct ? " on" : ""}`} aria-pressed={value === s.pct} disabled={disabled} onClick={() => onPick(s.pct)} data-split={s.pct}>{s.label}</button>)}
+      <span className="split-cap">Manager / Defied</span>
+    </span>
+  );
+}
+
 function SheetsPart({ e, set, db, reloadDb, focus }) {
   const money = canUse(db, "money"), pub = canUse(db, "publishing");
   const ps = usePeopleSync(money || pub);
@@ -285,15 +297,17 @@ function AccountingPart({ client, unsaved, ps, reloadDb }) {
     if (!info || info.problem || f) return;
     // (2026-11-15) a client not on INFO yet starts at 20% (the owner: "commission is always going to be 20 percent"; lib/people-sync.js
     // DEFAULT_COMMISSION); a row whose D is blank stays blank until one is typed
+    // (2026-11-16) the manager's cut is one of two splits (66.7 / 33.3, 50 / 50): split is the one INFO holds ("" when it holds neither: the form says what it holds, and leaves it)
     const rate = row?.rate != null ? pctText(row.rate) : row ? "" : "20", cut = row?.manager && row.cut != null ? pctText(row.cut) : "";
+    const split = row?.manager ? splitOf(row.cut) : "";
     const manager = !row ? PICK_MANAGER : !row.manager ? "" : names.includes(row.manager) ? row.manager : PICK_MANAGER;
-    setF({ rate, manager, cut, newName: "", base: row ? { row: row.row, raw: row.raw || {}, rate, manager, cut } : null });
+    setF({ rate, manager, cut: split, newName: "", base: row ? { row: row.row, raw: row.raw || {}, rate, manager, cut, split } : null });
   }, [info, f == null]); // eslint-disable-line react-hooks/exhaustive-deps
   const offList = row?.manager && !names.includes(row.manager);
   const hasManager = f && f.manager !== "" && f.manager !== PICK_MANAGER;
   const b = f?.base;
   const rateSent = !!f && (!b || f.rate.trim() !== b.rate);
-  const cutSent = !!hasManager && (!b || f.cut.trim() !== b.cut || b.cut === "");
+  const cutSent = !!hasManager && (!b || f.cut !== b.split || b.cut === "");
   const changed = !b || rateSent || cutSent || f.manager !== b.manager;
   const why = !d ? (ps.failed ? "Couldn't read the accounting sheet just now." : "Reading the accounting sheet…") : info?.problem ? null : unsaved
     || (!d.writes?.accounting ? d.off?.accounting : null)
@@ -302,7 +316,7 @@ function AccountingPart({ client, unsaved, ps, reloadDb }) {
     || (rateSent && !pctOk(f.rate) ? "Type the commission as a number from 0 to 100." : null)
     || (f.manager === PICK_MANAGER ? "Pick a manager first." : null)
     || (f.manager === NEW_MANAGER && !f.newName.trim() ? "Type the new manager's name." : null)
-    || (cutSent && !pctOk(f.cut) ? "Type the manager's cut as a number from 0 to 100." : null)
+    || (cutSent && !f.cut ? "Pick the manager's cut (66.7 / 33.3 or 50 / 50)." : null)
     || (!changed ? "Change something first." : null);
   const save = async () => {
     setBusy(true); setRes(null);
@@ -336,12 +350,9 @@ function AccountingPart({ client, unsaved, ps, reloadDb }) {
           </label>
           {f.manager === NEW_MANAGER && <Field label="New manager's name" value={f.newName} onChange={(ev) => setF({ ...f, newName: ev.target.value })} hint="Spelled as the sheet should have it. It goes on INFO's manager list first." data-acct-new-manager="" />}
           {hasManager && (
-            <div className="fld"><span>Manager's cut %</span>
-              <span className="sheet-cut">
-                <input inputMode="decimal" autoComplete="off" value={f.cut} aria-invalid={cutSent && !pctOk(f.cut)} aria-label="Manager's cut %" onChange={(ev) => setF({ ...f, cut: ev.target.value })} data-acct-cut />
-                {["50", "67"].map((v) => <button key={v} type="button" className={`btn ghost sm${f.cut === v ? " on" : ""}`} onClick={() => setF({ ...f, cut: v })}>{v}%</button>)}
-              </span>
-              <span className="hint">Defied keeps the rest.</span>
+            <div className="fld"><span>Manager's cut</span>
+              <SplitPick value={f.cut} label="Manager's cut" onPick={(v) => setF({ ...f, cut: v })} data-acct-cut="" />
+              {b && b.cut !== "" && !b.split && <span className="hint" data-acct-cut-now>Now {b.cut}% on the sheet</span>}
             </div>
           )}
         </>
@@ -387,11 +398,12 @@ function TabPart({ client, unsaved, ps, reloadDb, onTab }) {
    have that sync to the accounting sheet"). (2026-11-15, one place) it is part of the person's own form in Site › Users, for a
    Co-manager or a Founder, and the form's ONE Save writes it: the owner, "i wanted to be in each users account that i can choose
    their clients and stuff idk why its 2 separate things rn", "default at the clients that manager represents if its known but like
-   there shld be an option to select more". So their artists are chips (INFO's Assigned Manager is exactly this name), each with a ×
-   and its Manager Gets % beside it, and "+ Add artists" opens the rest of INFO's artists to pick from, with who has them now.
+   there shld be an option to select more". So their artists are chips (INFO's Assigned Manager is exactly this name), each with a ×,
+   and "+ Add artists" opens the rest of INFO's artists to pick from, with who has them now. (2026-11-16) "Their cut" is one of two
+   splits for all of them (66.7 / 33.3 or 50 / 50); a Founder's artists have none (Defied keeps the whole commission: they go in at 0).
    Save writes E and F of the rows changed in one go (lib/people-sync.js saveManagerArtists) after the account is saved, and the
    site's managers follow the sheet. The logic is components/dash/manager-artists.js. */
-function useArtistsChecklist({ manager, ps }) {
+function useArtistsChecklist({ manager, ps, founder }) {
   const d = ps.data, info = d?.info;
   const [f, setF] = useState(null);
   const carry = useRef(null); // the checklist as it was, when a refused save has it filled again with the ticks put back on it
@@ -400,7 +412,7 @@ function useArtistsChecklist({ manager, ps }) {
     if (!info || info.problem || f) return;
     setF(refillChecklist(info.roster, manager, carry.current)); carry.current = null;
   }, [info, f == null]); // eslint-disable-line react-hooks/exhaustive-deps
-  const changes = checklistChanges(f);
+  const changes = checklistChanges(f, founder);
   const off = d && !d.writes?.accounting ? d.off?.accounting : null; // writing to the sheet isn't switched on: the account alone is saved
   return { d, info, f, setF, changes, off, carry };
 }
@@ -425,13 +437,13 @@ function TheirArtists({ pick, name, ps, reg, reloadDb }) {
 
 // the chips, "+ Add artists", and what Save will do. Registers in `reg` what the form's Save needs, and runs it (send)
 function ArtistsBox({ manager, part, pick, ps, reg, reloadDb }) {
-  const c = useArtistsChecklist({ manager, ps });
+  const founder = pick === "founder"; // a Founder's artists have no cut to pick: Defied keeps the whole commission (they go in at 0)
+  const c = useArtistsChecklist({ manager, ps, founder });
   const { info, f, setF, changes, off, carry } = c;
   const [adding, setAdding] = useState(false), [typed, setTyped] = useState("");
-  const [diff, setDiff] = useState({}), [askAll, setAskAll] = useState(false); // chips whose own % is showing; "Apply to all?" is open
   const owner = useRef({}).current;
   const steps = off ? [] : sheetSteps(part, pick, changes.length);
-  const block = !off && changes.length ? checklistWhy(f, changes, manager) : null; // a cut that can't be written holds the whole Save
+  const block = !off && changes.length ? checklistWhy(f, changes, founder) : null; // artists to add and no split picked holds the whole Save
   const full = part === "new" && info?.nextManagerRow == null;
   // what the form's Save does with the sheet: the manager's name onto INFO's list (a Co-manager who isn't on it yet), then the changed
   // ticks. Answers { texts, alarm } (what went through), or { error, texts } (the first thing refused; nothing after it was sent)
@@ -445,7 +457,7 @@ function ArtistsBox({ manager, part, pick, ps, reg, reloadDb }) {
       else texts.push(`${manager} is on INFO's manager list now (L${r.row}).`);
     }
     if (!alarm && steps.includes("manager-artists")) {
-      r = await peoplePost({ action: "manager-artists", manager, rows: checklistRows(f, changes) });
+      r = await peoplePost({ action: "manager-artists", manager, rows: checklistRows(f, changes, founder) });
       // INFO as it reads now, whatever the answer
       await ps.load(true);
       if (r.error) {
@@ -464,9 +476,7 @@ function ArtistsBox({ manager, part, pick, ps, reg, reloadDb }) {
   const chips = f ? f.rows.filter((r) => f.on[r.row]) : [], more = pickRows(f, typed);
   const untick = (row) => setF({ ...f, on: { ...f.on, [row]: false } });
   const tick = (row) => setF(tickRow(f, row));
-  // "Their cut": typed once, applied to each artist given. The artists that are theirs already keep what INFO has until they say otherwise
-  const current = currentArtists(f), behind = current.filter((r) => differs(f, r.row)).length;
-  const typedCut = (text) => { setF(setTheirCut(f, text)); setAskAll(true); };
+  const now = nowLine(f); // what INFO has for their artists, while they aren't all on one split and none is picked
   return (
     <>
       <p className="hint">{off ? off : `Their artists are the ones INFO lists with ${manager} as Assigned Manager. Save writes what you change to the accounting sheet.`}</p>
@@ -475,36 +485,24 @@ function ArtistsBox({ manager, part, pick, ps, reg, reloadDb }) {
       {!f ? <p className="hint">Reading the accounting sheet…</p> : (
         <>
           <div className="fld mgr-their" data-mgr-their>
-            <span>Their cut</span>
-            <span className="sheet-cut">
-              <input inputMode="decimal" autoComplete="off" value={f.theirCut} disabled={!!off} aria-invalid={!!block && !pctOk(f.theirCut)} aria-label={`${manager}'s cut %`} onChange={(ev) => typedCut(ev.target.value)} data-mgr-their-cut />
-              <span aria-hidden="true">%</span>
-              {["50", "67"].map((v) => <button key={v} type="button" className={`btn ghost sm${f.theirCut.trim() === v ? " on" : ""}`} disabled={!!off} onClick={() => typedCut(v)}>{v}%</button>)}
-            </span>
-            <span className="hint">Manager Gets % on the accounting sheet: their share of the commission on each of their artists. Defied keeps the rest.</span>
+            {founder ? <p className="hint" data-mgr-founder>{FOUNDER_LINE}</p> : (
+              <>
+                <span>Their cut</span>
+                <SplitPick value={f.theirCut} disabled={!!off} label={`${manager}'s cut`} onPick={(v) => setF({ ...f, theirCut: v })} data-mgr-their-cut="" />
+                {now && <span className="hint" data-mgr-now>{now}</span>}
+              </>
+            )}
           </div>
-          {askAll && pctOk(f.theirCut) && current.length > 0 && behind > 0 && (
-            <p className="hint mgr-ask" data-mgr-ask>Apply {f.theirCut.trim()}% to all {current.length} {current.length === 1 ? "artist" : "artists"}?{" "}
-              <button type="button" className="inline-link" onClick={() => { setF(applyToAll(f, f.theirCut)); setAskAll(false); }} data-mgr-ask-yes>Yes</button>{" · "}
-              <button type="button" className="inline-link" onClick={() => setAskAll(false)} data-mgr-ask-no>No, only new ones</button></p>
-          )}
           {chips.length > 0 && (
             <ul className="mgr-chips" data-mgr-chips>
               {chips.map((r) => {
-                const note = rowNote(f, r.row), ch = changes.find((x) => x.row === r.row), invalid = !!ch?.send && !pctOk(f.cut[r.row]), own = differs(f, r.row) || !!diff[r.row];
+                const ch = changes.find((x) => x.row === r.row), note = rowNote(f, r.row, ch?.kind);
                 return (
                   <li key={r.row} className={`mgr-chip${ch ? " changed" : ""}`} data-mgr-artist={r.row}>
                     <span className="mgr-chip-text">
                       <span className="mgr-art-name">{r.name}</span>
                       {note && <span className="mgr-art-note" data-mgr-note>{note}</span>}
                     </span>
-                    {own ? (
-                      <span className="fld mgr-art-cut">
-                        <input inputMode="decimal" autoComplete="off" value={f.cut[r.row]} aria-invalid={invalid} aria-label={`${r.name}: ${manager}'s own cut %`} disabled={!!off}
-                          onChange={(ev) => setF({ ...f, cut: { ...f.cut, [r.row]: ev.target.value } })} data-mgr-cut />
-                        <span aria-hidden="true">%</span>
-                      </span>
-                    ) : !off && <button type="button" className="inline-link mgr-diff" onClick={() => setDiff({ ...diff, [r.row]: true })} data-mgr-diff>different %</button>}
                     <button type="button" className="mgr-chip-x" onClick={() => untick(r.row)} disabled={!!off} aria-label={`Take ${r.name} off ${manager}`} title="Take off" data-mgr-remove><X size={14} /></button>
                   </li>
                 );
@@ -534,7 +532,7 @@ function ArtistsBox({ manager, part, pick, ps, reg, reloadDb }) {
             </div>
           )}
           {changes.length > 0 && <p className="hint" data-mgr-changes>{changes.length === 1 ? "1 change" : `${changes.length} changes`} not saved yet: {changeWords(changes)}. Save writes {changes.length === 1 ? "it" : "them"} to the accounting sheet.</p>}
-          {block && <p className="hint err-text" data-mgr-block>{block}</p>}
+          {block && <p className="hint err-text" data-mgr-block>{block.charAt(0).toUpperCase() + block.slice(1)}</p>}
         </>
       )}
     </>
@@ -589,7 +587,7 @@ function PlacementsAdmin({ db, commit }) {
 // (lib/roles.js teamAccountOf: "Artist Manager" is a Manager, "Designer" an Intern). An entry that has an account already shows its role, read only.
 const ACCOUNT_WORDS = {
   comanager: "A Co-manager account with no login yet, and a place on the accounting sheet's manager list.",
-  intern: "An Intern account with no login yet (Site only). Not on the accounting sheet.",
+  intern: "An Intern account with no login yet (A&R and Site). Not on the accounting sheet.",
   none: "No account is made for them, now or later.",
 };
 function TeamAccount({ e, set, db }) {
@@ -658,6 +656,22 @@ export function TeamAdmin({ db, commit, openId = null, reloadDb = null, onGo = n
 // server checks all of it on every request; this only shows it.
 const ROLE_PICK = [["founder", "Founder"], ["comanager", "Co-manager"], ["intern", "Intern"], ["client", "Client"]];
 const SECTION_OF = Object.fromEntries(SECTIONS);
+// (2026-11-16, the owner: "What they can open" should be more intuitive) To do is the whole team's list and Money is all of Defied's books; a login's own My to-do and
+// My payments come with their name (lib/own-pages.js), not with these two. So these two read that way in this block only: [label, muted note]. The sidebar tabs keep their names.
+const SHOWN = { todo: ["Team to-do", "everyone's"], money: ["All money", "Defied's books"] };
+const shownLabel = (k) => (SHOWN[k] ? SHOWN[k][0] : SECTION_OF[k]);
+const andList = (words) => (words.length < 3 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`);
+// What a role starts with, in those words, built from its preset (lib/roles.js ROLES), so a preset changed there reads right here: "Intern starts with A&R and Site."
+// (Plain loops: the production build inlines a once-used function like this into the component, and an arrow function inside it that reads its argument loses the name.)
+function startsWith(role) {
+  const preset = ROLES[role], words = [], left = [];
+  if (preset.sections.length === SECTIONS.length) return `${preset.label} starts with everything.`;
+  for (const k of preset.sections) words.push(role === "comanager" && k === "publishing" ? `${shownLabel(k)} (their own artists)` : shownLabel(k));
+  for (const k of ["todo", "money"]) if (!preset.sections.includes(k)) left.push(shownLabel(k));
+  let text = `${preset.label} starts with ${andList(words)}.`;
+  if (role === "comanager") text += ` My to-do and My payments come with their name.${left.length ? ` ${andList(left)} stay${left.length === 1 ? "s" : ""} with Founders.` : ""}`;
+  return text;
+}
 function useManagers(reloadDb) {
   const [st, setSt] = useState({ at: undefined, busy: false, err: null });
   const update = async () => {
@@ -848,11 +862,19 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null })
                 return (
                   <label key={k} className={`sec-pick${locked ? " locked" : ""}`} data-section={k}>
                     <input type="checkbox" checked={a.sections.includes(k)} disabled={locked} onChange={(ev) => setSection(e, set, k, ev.target.checked)} />
-                    <span>{SECTION_OF[k]}</span>
+                    <span>{shownLabel(k)}{SHOWN[k] && <span className="muted" data-section-note> · {SHOWN[k][1]}</span>}</span>
                   </label>
                 );
               })}
-              <p className="hint">{ROLES[pick].label} starts with {pick === "founder" ? "everything" : pick === "comanager" ? "Clients (their own artists) and A&R, with no money" : "Site only"}. Tick or untick to change it for this person.</p>
+              {/* (2026-11-16) a login's own pages come with their name, not with a tick: shown so it is clear they have them (lib/own-pages.js) */}
+              <p className="sec-sub" data-own-head>Their own</p>
+              {[["mytodo", "My to-do", hasMyTodo(e.name)], ["mypay", "My payments", hasMyPay(e.name)]].map(([k, label, has]) => (
+                <label key={k} className="sec-pick locked" data-own-page={k} data-own-has={has ? "yes" : "no"}>
+                  <input type="checkbox" checked={has} disabled />
+                  <span>{label}{!has && <span className="muted"> (none for {(e.name || "").trim().split(/\s+/)[0] || "them"} yet)</span>}</span>
+                </label>
+              ))}
+              <p className="hint" data-sections-hint>{startsWith(pick)} Tick or untick to change it for this person.</p>
             </fieldset>
           )}
           <p className="hint">Clients only see their own placements and splits. They can never edit the website.</p>

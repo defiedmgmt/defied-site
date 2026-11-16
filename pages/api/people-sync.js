@@ -41,7 +41,8 @@ import { sql } from "../../lib/db";
 import { getState } from "../../lib/app-state";
 
 const has = (req, k) => req.access?.sections?.includes(k);
-const pctIn = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Number(v) / 100);
+// a percent as the page sends it (66.7, "50") -> the fraction INFO holds. Rounded to four decimals of the percent, so 66.7 is exactly 0.667 and not 0.6670000000000001
+const pctIn = (v) => (v === "" || v == null || !Number.isFinite(Number(v)) ? null : Math.round(Number(v) * 10000) / 1000000);
 const by = (session) => session.user?.name || session.user?.email || "staff";
 
 async function get(req, res) {
