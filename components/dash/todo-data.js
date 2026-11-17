@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { endingWords } from "../ar/fmt";
 import { autoConfirms, autoWords } from "../../lib/split-fixes";
 import { fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
-import { dashTasks, dupeIds, songsToUpdate } from "./helpers";
+import { autoAddedOf, dashTasks, dupeIds, songsToUpdate } from "./helpers";
 import { money } from "./ui";
 import { songsWithoutIsrc } from "./isrc-data";
 import { cuCache, syncCache } from "../shared/dash-caches";
@@ -68,6 +68,9 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   // Only once the song facts are in (an ISRC lives there), so the count never flashes the whole catalog.
   const noIsrc = songInfo?.tracking ? songsWithoutIsrc(db, songInfo).length : 0;
   if (noIsrc) out.push({ k: "isrc", area: "roster", t: `${noIsrc} song${noIsrc === 1 ? " has" : "s have"} no ISRC`, cta: "Find them", panel: "isrc", rank: { kind: "other" } });
+  // (2026-11-17) the songs lib/auto-add.js put on the site and the pub sheet by themselves, with the assumed split: each one checked here (Edit, or OK)
+  const nAuto = autoAddedOf(db, songInfo).length;
+  if (nAuto) out.push({ k: "autoAdded", area: "roster", t: `${nAuto} song${nAuto === 1 ? "" : "s"} added automatically — check the splits`, d: "Assumed splits, already on the pub sheet. Edit one to change it, or press OK.", cta: "Check", panel: "autoAdded", rank: { kind: "fix", value: 0 } });
   // (r7) the shares with one clear answer: One tap, each with its preview first (ShareFix)
   const fx = shareFixesOf(db);
   const few = (xs) => (xs.length > 3 ? `${xs.slice(0, 2).map((x) => x.p.song || "Untitled").join(", ")} and ${xs.length - 2} more` : xs.map((x) => `${x.p.song || "Untitled"} (${x.client.name})`).join(", "));

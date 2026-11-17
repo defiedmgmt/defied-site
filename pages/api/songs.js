@@ -1,6 +1,6 @@
 // Each song's extra facts (lib/song-info.js): GET returns them; POST takes one { action, ... }: an ISRC
 // typed in or picked, the ISRC finder run on a few songs, "This isn't ours", "Not the same song", and
-// (2026-11-17) "Not on streaming" for one song.
+// (2026-11-17) "Not on streaming" for one song and "OK" on a song added automatically (lib/auto-add.js).
 // Publishing only. (Luminate's page had these until list B #3; the ISRC lookups stayed.)
 import { sql } from "../../lib/db";
 import { requireSameOrigin } from "../../lib/session";
@@ -56,9 +56,24 @@ async function setNotOnStreaming(body, { req, session }) {
   return [200, { ok: true, notOnStreaming: body.notOnStreaming }];
 }
 
+// (2026-11-17) "OK" on To do's "songs added automatically" list: that song's entry in app_state autoAdded gets checked: true. One statement
+// per song, each changing only its own key inside the stored object (jsonb_set), so two people pressing OK at once, or a night's run
+// adding more songs, never undo each other; a key that isn't there (or isn't an object) is left alone, so nothing is made up
+const checkAutoAdded = (id) => sql`
+  UPDATE app_state SET value = jsonb_set(value, ARRAY[${id}::text, 'checked'], 'true'::jsonb), updated_at = now()
+  WHERE key = 'autoAdded' AND jsonb_typeof(value -> ${id}::text) = 'object'
+`;
+
 async function act(body, ctx) {
   const { action } = body;
   if (action === "notOnStreaming") return setNotOnStreaming(body, ctx);
+  if (action === "autoChecked") {
+    // the Spotify track ids that key autoAdded (22 letters and digits)
+    const list = [...new Set(ids(body.ids).filter((x) => /^[A-Za-z0-9]{22}$/.test(x)))];
+    if (!list.length) return [400, { error: "Pick the song first." }];
+    await sql.transaction(list.map(checkAutoAdded));
+    return [200, { ok: true }];
+  }
   if (action === "setIsrc") {
     const isrc = cleanIsrc(body.isrc);
     if (isrc && !ISRC_RE.test(isrc)) return [400, { error: "An ISRC is 12 letters and numbers, like USUM72506269." }];

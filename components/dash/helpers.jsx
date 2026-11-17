@@ -179,6 +179,16 @@ export function songsToUpdate(db, songInfo) {
   }
   return out.sort((a, b) => (b.p.streams || 0) - (a.p.streams || 0));
 }
+// (2026-11-17) The songs lib/auto-add.js put on the site by themselves that nobody has said OK to yet (To do's "songs added
+// automatically — check the splits"): songInfo.autoAdded (GET /api/songs) whose song is still on the site, as { id (the Spotify track
+// id, what OK sends), p (the song), client }. The newest release first. Nothing while the songs' facts aren't loaded.
+// (an entry whose song is gone is left out: lib/auto-added.js stillOnSite, the rule the server's count uses)
+export function autoAddedOf(db, songInfo) {
+  const byId = new Map(db.placements.map((p) => [p.id, p]));
+  return (songInfo?.autoAdded || []).filter((x) => byId.has(x.placementId))
+    .map((x) => ({ id: x.id, p: byId.get(x.placementId), client: (db.clients || []).find((c) => c.id === byId.get(x.placementId).clientId) || null }))
+    .sort((a, b) => String(b.p.releaseDate || "").localeCompare(String(a.p.releaseDate || "")) || String(a.p.song || "").localeCompare(String(b.p.song || "")));
+}
 // Two cards that look like the same song (build H1, lib/duplicates.js): only once each song's facts are in (the ISRCs
 // and the pairs staff marked "Not the same song" come with it), and only for clients whose tab the last pull read
 export function likelyDupes(db, songInfo) {

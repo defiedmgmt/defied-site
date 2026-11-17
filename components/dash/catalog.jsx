@@ -9,7 +9,7 @@ import { mergedCard, mergedTitle } from "../../lib/duplicates";
 import { PhoneSort } from "../ui/responsive";
 import { NAME_TAKEN, clientDeleteAsk, deleteClientCascade, nameTaken } from "./clients";
 import { WowPill } from "./chips";
-import { GAP_WORDS, WEEK_PCT_MIN, dayRange, dupeName, songsPost, songsToUpdate, useGrowthState } from "./helpers";
+import { GAP_WORDS, WEEK_PCT_MIN, autoAddedOf, dayRange, dupeName, shortDay, songsPost, songsToUpdate, useGrowthState } from "./helpers";
 import { canUse } from "./access";
 import { Avatar, DropNote, Field, PctInput, fmt, landOn, money, revealChip, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "./ui";
 import { NotOursAsk, SongManager, noSheetTab, pushShare, releaseDay } from "../portal/ClientPortal";
@@ -378,6 +378,51 @@ export function SongsToUpdate({ db, songInfo, reloadSongInfo, onFix, focus, dupe
             </div>
           ); })}
           {shown.length > UPDATE_FIRST && <button className="inline-link upd-more" data-upd-more onClick={() => setMore(!more)}>{more ? `Show the first ${UPDATE_FIRST}` : `Show all ${shown.length}`}</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// (2026-11-17) To do's "songs added automatically — check the splits": the songs lib/auto-add.js put on the site and the pub sheet from a new
+// release, each with the assumed split, until someone says OK. Edit opens the song's editor (onFix, as Songs to update's Update does);
+// OK is saved in app_state (POST /api/songs { action: "autoChecked" }): the row goes at once, and comes back with the reason if the save
+// doesn't go through. `done`: the songs OK'd here, until the songs' facts are read again.
+export function AutoAddedList({ db, songInfo, reloadSongInfo, onFix }) {
+  const [done, setDone] = useState(() => new Set());
+  const [err, setErr] = useState(null);
+  const list = useMemo(() => autoAddedOf(db, songInfo).filter((x) => !done.has(x.id)), [db, songInfo, done]);
+  useEffect(() => { setDone((d) => (d.size ? new Set() : d)); }, [songInfo]);
+  const ok = async (x) => {
+    setErr(null);
+    setDone((d) => new Set(d).add(x.id));
+    try {
+      await songsPost({ action: "autoChecked", ids: [x.id] });
+      await reloadSongInfo?.();
+    } catch (e) {
+      setDone((d) => { const n = new Set(d); n.delete(x.id); return n; });
+      setErr(`Couldn't mark "${x.p.song || "Untitled"}" OK: ${e.message}`);
+    }
+  };
+  return (
+    <div className="fix-panel" data-sec="autoAdded">
+      <div className="fix-head">
+        <h3>{list.length ? `Added automatically (${list.length})` : "Added automatically"}</h3>
+        <span className="hint">{list.length ? "New releases, on the site and the pub sheet with the assumed split. Edit one to change it, or press OK." : "Nothing left to check."}</span>
+      </div>
+      {err && <p className="hint err-text" role="alert" data-auto-err>{err}</p>}
+      {list.length > 0 && (
+        <div className="fix-group" data-group="autoAdded">
+          {list.map((x) => (
+            <div className="fix-row" key={x.id} data-song={x.p.id} data-auto={x.id}>
+              <span className="fix-song"><span className="fix-who">{x.client?.name || "A deleted client"} · </span>{x.p.song || "Untitled"}</span>
+              <span className="fix-mid">{[x.p.artist, x.p.releaseDate && shortDay(x.p.releaseDate)].filter(Boolean).join(" · ")}</span>
+              <span className="fix-acts">
+                <button type="button" className="btn ghost sm" data-auto-edit onClick={() => onFix(x.p.id)}>Edit</button>
+                <button type="button" className="btn sm" data-auto-ok onClick={() => ok(x)}>OK</button>
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </div>

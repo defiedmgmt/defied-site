@@ -25,6 +25,7 @@ const AccountingAdmin = panel(() => import("./money"), "AccountingAdmin");
 const SubsAdmin = panel(() => import("./admin"), "SubsAdmin");
 const DupeMerge = panel(() => import("./catalog"), "DupeMerge");
 const SongsToUpdate = panel(() => import("./catalog"), "SongsToUpdate");
+const AutoAddedList = panel(() => import("./catalog"), "AutoAddedList");
 const SplitsToFix = panel(() => import("./catalog"), "SplitsToFix");
 const SongManager = panel(() => import("../portal/ClientPortal"), "SongManager");
 const TrueUpPanel = panel(() => import("../TrueUp"), "TrueUpPanel"); // TRUEUP-HOOK: the monthly Luminate true-up
@@ -78,7 +79,7 @@ function ArEnding({ it, ctx }) {
 function TodoPanel({ it, ctx, onClose, viaCta = false }) {
   const { db, commit, onGo } = ctx;
   switch (it.panel) {
-    case "splits": case "update": case "dupes": return <PubFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
+    case "splits": case "update": case "dupes": case "autoAdded": return <PubFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
     case "shareSite": case "shareSheet": return <ShareFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
     case "tabs": return <SheetTabFix ctx={ctx} />;
     case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log" && viaCta} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
@@ -93,8 +94,8 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
   }
 }
 
-// Publishing's lists in place: Splits to confirm, Songs to update and the merge card. Fix / Update open
-// the song's editor right here (SongManager's own editor, nothing else of the client's page)
+// Publishing's lists in place: Splits to confirm, Songs to update, the merge card and (2026-11-17) the songs added automatically.
+// Fix / Update / Edit open the song's editor right here (SongManager's own editor, nothing else of the client's page)
 // (Merge, the row's button, opens the merge card at once; the sentence or a link shows the line with Review)
 function PubFix({ kind, ctx, viaCta = false }) {
   const { db, commit, reloadDb, songInfo, reloadSongInfo, onGo } = ctx;
@@ -110,6 +111,7 @@ function PubFix({ kind, ctx, viaCta = false }) {
     <>
       {kind === "splits" && <SplitsToFix db={db} commit={commit} reloadDb={reloadDb} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} onGo={onGo} dupes={dupes} onDupe={openDupe} />}
       {kind === "update" && <SongsToUpdate db={db} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} dupes={dupes} onDupe={openDupe} />}
+      {kind === "autoAdded" && <AutoAddedList db={db} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} />}
       {kind === "dupes" && (dupes.length
         ? <p className="pub-tasks dupe-line" data-dupe-line>{dupeWords(dupes)} · <button className="inline-link" data-dupe-review onClick={openDupe}>Review</button></p>
         : <p className="home-muted acct-clear"><CheckCircle2 size={15} /> No possible duplicates left.</p>)}

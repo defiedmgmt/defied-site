@@ -1,6 +1,7 @@
 // Runs once a day (vercel.json "crons"): pulls the sheet onto the site so a
 // change typed straight into the sheet shows up without anyone signed in,
 // gives a writer tab that's running out of song rows more of them (lib/sheet-rows.js),
+// puts a roster artist's new releases on the site and the pub sheet with the assumed split (lib/auto-add.js),
 // looks up a few missing ISRCs (and the A&R artists' Deezer pages), keeps the ClickUp tasks the dashboard
 // owns ("Log new payments", one per area) up to date, and reads each client's manager off the
 // accounting sheet's INFO tab (roles: a Co-manager limited to their own artists). Vercel sends
@@ -17,6 +18,7 @@ import { checkClickUpTasks } from "../../../lib/money";
 import { refreshManagers } from "../../../lib/access";
 import { keepRoom } from "../../../lib/sheet-rows";
 import { runPeopleLink } from "../../../lib/people-link";
+import { runAutoAdds } from "../../../lib/auto-add";
 
 // the sheet pull plus the Stripe read behind the ClickUp tasks (see pages/api/home.js)
 export const config = { maxDuration: 60 };
@@ -37,6 +39,11 @@ export default async function handler(req, res) {
     const trouble = [...r.refused.map((x) => x.reason), ...r.failed.map((x) => `${x.tab}: ${x.error}`), ...r.extended.filter((x) => x.alarm).map((x) => x.alarm)];
     if (trouble.length && String(process.env.CLICKUP_ALERTS ?? "").trim().toLowerCase() === "on") await notifyClickUp(`**Pub sheet rows**: ${trouble.join(" ")}\n[Open dashboard](https://www.defiedmgmt.com/dashboard/site/sync)`);
   } catch (err) { report.rowsError = err.message; }
+
+  // (2026-11-17) a roster artist's new release goes on the site and on the pub sheet by itself, with the assumed split (lib/auto-add.js;
+  // AUTO_ADD_SONGS=off stops it). Before the pull, so the pull reads the new rows back. It stops at the first thing that goes wrong and
+  // says so in the report; whatever it does never keeps the rest of tonight's run from going. 15 s at most, like the rows above (the whole cron has 60)
+  try { report.autoAdd = await runAutoAdds({ budgetMs: 15000 }); } catch (err) { report.autoAddError = err.message; }
 
   try { report.sync = await syncSiteFromSheet(); } catch (err) {
     report.syncError = err.message;

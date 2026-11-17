@@ -21,6 +21,7 @@ import { ownLinkOf } from "../../lib/commission";
 import { linkAfterSave, accountsMerge, addedMerge } from "../../lib/people-link";
 import { reactToMessage } from "../../lib/clickup";
 import { readFlips } from "../../lib/submission-reactions";
+import { placementRow, insertPlacement } from "../../lib/placement-rows";
 
 // photos uploaded before list B #2 are data: URIs inside the rows (new ones are Blob links,
 // /api/upload-image), so Next's default 1 MB body cap turned every staff save into a 413 once ~5-8 had
@@ -83,11 +84,7 @@ const clientRow = (c, i) => ({
   youtube: c.youtube || "", soundcloud: c.soundcloud || "", sheet_tab_name: c.sheetTabName || "",
   total_streams: c.totalStreams || 0, on_roster: !!c.onRoster, roster_order: i,
 });
-const placementRow = (p) => ({
-  id: p.id, client_id: p.clientId, song: p.song || "", artist: p.artist || "", release_date: p.releaseDate || "",
-  link: p.link || "", cover: p.cover || "", notable: !!p.notable, luminate_id: p.luminateId || "",
-  streams: p.streams || 0, revenue: p.revenue || 0, admin_fee: p.adminFee || 0, splits: p.splits || [],
-});
+// (a song's row, placementRow, and its INSERT, insertPlacement, are lib/placement-rows.js's: lib/auto-add.js stores a song the same way)
 // visible: null when the row didn't say (a tab from before it existed): the stored value stays
 const staffRow = (s) => ({ id: s.id, name: s.name || "", role: s.role || "", credit: s.credit || "", bio: s.bio || "", photo: s.photo || "", email: s.email || "", instagram: s.instagram || "", visible: s && "visible" in s ? !!s.visible : null });
 // (2026-11-14) no email is NULL (a person with no login yet), never "": UNIQUE allows any number of NULLs
@@ -95,10 +92,6 @@ const normEmail = (e) => String(e ?? "").trim().toLowerCase() || null;
 const userRow = (u) => ({ password_changed_at: u.pwAt || null, clickup_user_id: u.cuId || "", id: u.id, email: normEmail(u.email), password_hash: u.hash || null, role: u.role, name: u.name || "", client_id: u.clientId || null, staff_role: u.staffRole || null, access: u.access || {} });
 const submissionRow = (s) => ({ id: s.id, name: s.name || "", email: s.email || "", instagram: s.instagram || "", subject: s.subject || "", message: s.message || "", created_at: s.at || new Date().toISOString(), read: !!s.read });
 const notableRow = (n) => ({ id: n.id, song: n.song || "", artist: n.artist || "", client: n.client || "", cover: n.cover || "", release_date: n.releaseDate || "", link: n.link || "" });
-const insertPlacement = (r) => sql`
-  INSERT INTO placements (id, client_id, song, artist, release_date, link, cover, notable, luminate_id, streams, revenue, admin_fee, splits)
-  VALUES (${r.id}, ${r.client_id}, ${r.song}, ${r.artist}, ${r.release_date}, ${r.link}, ${r.cover}, ${r.notable}, ${r.luminate_id}, ${r.streams}, ${r.revenue}, ${r.admin_fee}, ${JSON.stringify(r.splits)})
-`;
 
 // Everything a staff session's GET returns — and what the size guard weighs.
 // the day the pub sheet's streams are from (streamsOn) is lib/streams-on.js's, shared with the share card
