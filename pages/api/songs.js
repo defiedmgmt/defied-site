@@ -1,9 +1,10 @@
 // Each song's extra facts (lib/song-info.js): GET returns them; POST takes one { action, ... }: an ISRC
-// typed in or picked, the ISRC finder run on a few songs, "This isn't ours", "Not the same song".
+// typed in or picked, the ISRC finder run on a few songs, "This isn't ours", "Not the same song", and
+// (2026-11-17) "Not on streaming" for one song.
 // Publishing only. (Luminate's page had these until list B #3; the ISRC lookups stayed.)
 import { sql } from "../../lib/db";
 import { requireSameOrigin } from "../../lib/session";
-import { requireAccess } from "../../lib/access";
+import { requireAccess, mayUseClient } from "../../lib/access";
 import { songInfoState } from "../../lib/song-info";
 import { lookupIsrc, cleanIsrc, ISRC_RE, SOURCES } from "../../lib/isrc";
 import { normalizeTitle } from "../../lib/sheets";
@@ -30,9 +31,34 @@ const upsertTracking = (id, set) => sql`
     isrc_checked_at = CASE WHEN ${"isrc_checked_at" in set} THEN EXCLUDED.isrc_checked_at ELSE song_tracking.isrc_checked_at END,
     updated_at = now()
 `;
+// (2026-11-17) "Not on streaming" = song_tracking.skip: taken down, unreleased, or only on SoundCloud/TikTok, so the song has no
+// release date or link to find and no ISRC to look up. Only the flag is written (the ISRC columns stay as they are). No foreign key
+// ties this row to the song (db/migrations/001), so a save of the songs, which rewrites them, leaves the flag alone.
+const setSkip = (id, on) => sql`
+  INSERT INTO song_tracking (placement_id, skip, updated_at) VALUES (${id}, ${on}, now())
+  ON CONFLICT (placement_id) DO UPDATE SET skip = EXCLUDED.skip, updated_at = now()
+`;
+// One song's own flag, so it is checked song by song, by the rule that decides who may change the song (the same as
+// pages/api/sheets-push.js): staff with Publishing (done by the route), an account limited to its own artists only theirs,
+// and a client session only its own client's songs. Several ids at once (the same song on more than one page) all have to pass.
+async function setNotOnStreaming(body, { req, session }) {
+  const list = [...new Set(ids(body.placementIds))];
+  if (!list.length) return [400, { error: "Pick the song first." }];
+  if (typeof body.notOnStreaming !== "boolean") return [400, { error: "Say whether the song is on streaming." }];
+  const isStaff = session.user.role === "staff";
+  const rows = await sql`SELECT id, client_id FROM placements WHERE id = ANY(${list})`;
+  if (rows.some((p) => (isStaff ? !mayUseClient(req, p.client_id) : p.client_id !== session.user.clientId))) {
+    return [403, { error: isStaff ? "That song isn't one of your artists'." : "That isn't one of your songs." }];
+  }
+  // a song that was deleted meanwhile has nothing to mark
+  if (rows.length !== list.length) return [404, { error: "That song isn't on the site any more. Reload the page and try again." }];
+  await sql.transaction(list.map((id) => setSkip(id, body.notOnStreaming)));
+  return [200, { ok: true, notOnStreaming: body.notOnStreaming }];
+}
 
-async function act(body) {
+async function act(body, ctx) {
   const { action } = body;
+  if (action === "notOnStreaming") return setNotOnStreaming(body, ctx);
   if (action === "setIsrc") {
     const isrc = cleanIsrc(body.isrc);
     if (isrc && !ISRC_RE.test(isrc)) return [400, { error: "An ISRC is 12 letters and numbers, like USUM72506269." }];
@@ -107,16 +133,19 @@ async function act(body) {
 }
 
 export default async function handler(req, res) {
-  // every artist's songs at once (as the old Luminate route was): an account limited to its own artists is refused
-  const session = await requireAccess(req, res, "publishing", { whole: true });
+  // every artist's songs at once (as the old Luminate route was): an account limited to its own artists is refused.
+  // (2026-11-17) Except "Not on streaming": one song's own flag, which the song editor sets for its client (a client session)
+  // and for an account limited to its own artists, each checked song by song in setNotOnStreaming
+  const own = req.method === "POST" && req.body?.action === "notOnStreaming";
+  const session = await requireAccess(req, res, "publishing", own ? { clients: true } : { whole: true });
   if (!session) return;
   try {
     if (req.method === "GET") return res.status(200).json(await songInfoState());
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
-    const [status, json] = await act(req.body || {});
-    // the Publishing ClickUp task follows what just changed (CLICKUP_TASK_WRITES only)
-    if (status === 200) await afterAction(["publishing"]);
+    const [status, json] = await act(req.body || {}, { req, session });
+    // the Publishing ClickUp task follows what just changed (CLICKUP_TASK_WRITES only; a client's own change waits for the nightly run)
+    if (status === 200 && session.user.role === "staff") await afterAction(["publishing"]);
     return res.status(status).json(json);
   } catch (err) {
     console.error("songs route failed:", err);

@@ -169,12 +169,13 @@ export function songsToUpdate(db, songInfo) {
   for (const p of db.placements) {
     if (held.has(p.id)) continue;
     const split = splitTotal(p.splits) === 100 ? "ok" : songSplit(p, (db.clients || []).find((c) => c.id === p.clientId)).status;
-    // a song taken down from streaming (song_tracking.skip) has no date or link to find; its money gaps stay
+    // a song marked "Not on streaming" (song_tracking.skip: taken down, unreleased, or only on SoundCloud/TikTok) has no date or link
+    // to find (songGaps leaves them out); its money gaps stay, and its row says why it isn't asked for them (`skip`)
     const gone = !!songInfo?.tracking?.[p.id]?.skip;
-    const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split }).filter((x) => !(x.k === "share" && fillIds.has(p.id)) && !(gone && (x.k === "date" || x.k === "link")));
+    const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split, skip: gone }).filter((x) => !(x.k === "share" && fillIds.has(p.id)));
     if (!gaps.some((x) => GAP_WORDS[x.k])) continue;
     // a split to confirm or review is Splits to confirm's (build I3): listed here only for the other gaps, with a pointer
-    out.push({ p, client: (db.clients || []).find((c) => c.id === p.clientId) || null, gaps: gaps.filter((x) => GAP_WORDS[x.k]), splitSee: gaps.some((x) => !GAP_WORDS[x.k]) });
+    out.push({ p, client: (db.clients || []).find((c) => c.id === p.clientId) || null, gaps: gaps.filter((x) => GAP_WORDS[x.k]), splitSee: gaps.some((x) => !GAP_WORDS[x.k]), skip: gone });
   }
   return out.sort((a, b) => (b.p.streams || 0) - (a.p.streams || 0));
 }

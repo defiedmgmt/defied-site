@@ -306,9 +306,30 @@ const UPDATE_FIRST = 8;
 // a row's chips, the money gaps first (no writer share, not on the sheet), as updateWords names them
 const GAP_RANK = ["share", "sheet", "date", "link"];
 const gapRank = (k) => (GAP_RANK.includes(k) ? GAP_RANK.indexOf(k) : GAP_RANK.length);
-// Publishing › Songs to update: what each song is missing, one button that opens the song at the first gap
-export function SongsToUpdate({ db, songInfo, onFix, focus, dupes = [], onDupe }) {
-  const list = useMemo(() => songsToUpdate(db, songInfo), [db, songInfo]);
+// Publishing › Songs to update: what each song is missing, one button that opens the song at the first gap, and "Not on streaming"
+// for a song with no date or link because it isn't out (or only on SoundCloud/TikTok): it stops asking for them
+export function SongsToUpdate({ db, songInfo, reloadSongInfo, onFix, focus, dupes = [], onDupe }) {
+  // "Not on streaming" is saved in song tracking (song_tracking.skip); the list is worked out again at once with the song marked,
+  // and if the save doesn't go through the row comes back with the reason. `marked`: the songs marked here, until the facts are read again
+  const [marked, setMarked] = useState(() => new Set());
+  const [markErr, setMarkErr] = useState(null);
+  const info = useMemo(() => (songInfo && marked.size ? { ...songInfo, tracking: { ...songInfo.tracking, ...Object.fromEntries([...marked].map((id) => [id, { ...songInfo.tracking?.[id], skip: true }])) } } : songInfo), [songInfo, marked]);
+  const list = useMemo(() => songsToUpdate(db, info), [db, info]);
+  useEffect(() => {
+    const left = [...marked].filter((id) => !songInfo?.tracking?.[id]?.skip);
+    if (left.length !== marked.size) setMarked(new Set(left));
+  }, [songInfo]); // eslint-disable-line react-hooks/exhaustive-deps
+  const markGone = async (p) => {
+    setMarkErr(null);
+    setMarked((m) => new Set(m).add(p.id));
+    try {
+      await songsPost({ action: "notOnStreaming", placementIds: [p.id], notOnStreaming: true });
+      await reloadSongInfo?.();
+    } catch (e) {
+      setMarked((m) => { const n = new Set(m); n.delete(p.id); return n; });
+      setMarkErr(`Couldn't mark "${p.song || "Untitled"}" as not on streaming: ${e.message}`);
+    }
+  };
   const box = useRef(null);
   useEffect(() => { if (focus) landOn(box.current); }, [focus]);
   // the biggest 8 first, so Overview's totals stay close; a gap chip narrows the list to that gap
@@ -325,6 +346,7 @@ export function SongsToUpdate({ db, songInfo, onFix, focus, dupes = [], onDupe }
         <span className="hint">{list.length ? "What each song is missing, from the last sheet pull. Update opens the song there." : "Every song has its sheet row, writer share, release date and link."}</span>
       </div>
       <HeldDupes dupes={dupes} onDupe={onDupe} />
+      {markErr && <p className="hint err-text" role="alert" data-upd-err>{markErr}</p>}
       {Object.keys(counts).length > 1 && (
         <div className="upd-filters" data-upd-filters>
           <button className={`upd-filter${gap ? "" : " on"}`} aria-pressed={!gap} onClick={() => setGap(null)}>All ({list.length})</button>
@@ -335,19 +357,24 @@ export function SongsToUpdate({ db, songInfo, onFix, focus, dupes = [], onDupe }
       )}
       {list.length > 0 && (
         <div className="fix-group" data-group="update">
-          {rows.map((x) => { const gs = [...x.gaps].sort((a, b) => gapRank(a.k) - gapRank(b.k)), extra = gs.length + (x.splitSee ? 1 : 0) - 2, open = opened.has(x.p.id); return (
+          {rows.map((x) => { const gs = [...x.gaps].sort((a, b) => gapRank(a.k) - gapRank(b.k)), extra = gs.length + (x.skip ? 1 : 0) + (x.splitSee ? 1 : 0) - 2, open = opened.has(x.p.id); return (
             <div className={`fix-row${open ? " upd-open" : ""}`} key={x.p.id} data-song={x.p.id}>
               <span className="fix-song"><span className="fix-who">{x.client?.name || "A deleted client"} · </span>{x.p.song || "Untitled"}</span>
               {/* money gaps first (as the To do names them); on phones the first two chips and a "+N" that shows the rest */}
               <span className="fix-mid upd-gaps">
                 {gs.map((g, i) => <span key={g.k} className={`upd-gap${i >= 2 ? " upd-gap-x" : ""}`} data-gap={g.k}>{g.label}</span>)}
-                {x.splitSee && <span className={`upd-gap upd-split${gs.length >= 2 ? " upd-gap-x" : ""}`} data-gap="split-see">Split: see Splits to confirm</span>}
+                {/* a song marked Not on streaming isn't asked for a date or a link: a gray tag says so where those chips would be */}
+                {x.skip && <span className={`upd-gap upd-off${gs.length >= 2 ? " upd-gap-x" : ""}`} data-gap="not-on-streaming" title="Marked not on streaming, so no release date or link is asked for">Not on streaming</span>}
+                {x.splitSee && <span className={`upd-gap upd-split${gs.length + (x.skip ? 1 : 0) >= 2 ? " upd-gap-x" : ""}`} data-gap="split-see">Split: see Splits to confirm</span>}
                 {/* m-tap-off: a chip-sized toggle so the row stays short; its ::after is the 44px tap area (mobile.css) */}
                 {extra > 0 && <button type="button" className="upd-gap upd-gap-more m-tap-off" data-gap-more aria-expanded={open} aria-label={open ? "Show fewer" : `Show ${extra} more`}
                   onClick={() => setOpened((o) => { const n = new Set(o); if (n.has(x.p.id)) n.delete(x.p.id); else n.add(x.p.id); return n; })}>{open ? "Less" : `+${extra}`}</button>}
               </span>
               <span className="fix-streams">{fmt(x.p.streams || 0)} streams</span>
-              <span className="fix-acts"><button className="btn sm" data-update onClick={() => onFix(x.p.id, (x.gaps[0] || {}).field)}>Update</button></span>
+              <span className="fix-acts">
+                {songInfo && x.gaps.some((g) => g.k === "date" || g.k === "link") && <button className="btn ghost sm upd-off-btn" data-not-on-streaming title="Not out yet, taken down, or only on SoundCloud/TikTok: no release date or link to find" onClick={() => markGone(x.p)}>Not on streaming</button>}
+                <button className="btn sm" data-update onClick={() => onFix(x.p.id, (x.gaps[0] || {}).field)}>Update</button>
+              </span>
             </div>
           ); })}
           {shown.length > UPDATE_FIRST && <button className="inline-link upd-more" data-upd-more onClick={() => setMore(!more)}>{more ? `Show the first ${UPDATE_FIRST}` : `Show all ${shown.length}`}</button>}

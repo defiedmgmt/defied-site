@@ -365,6 +365,7 @@ button{font-family:inherit;cursor:pointer}
 .check-row{display:flex;align-items:flex-start;gap:10px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer}
 .check-row input{margin-top:2px;width:16px;height:16px;accent-color:#fff;flex-shrink:0}
 .check-row span{font-size:13px;color:var(--ink);line-height:1.5}
+.check-row .check-hint{display:block;margin-top:2px;font-style:normal;font-size:12.5px;color:var(--mut2)}   /* a line of help under the box's own words (Not on streaming) */
 
 .releases-empty-note{text-align:center;padding:20px 0}
 .rel-filter{display:flex;justify-content:center;margin:0 0 30px}
@@ -714,6 +715,7 @@ html:has(.app:not(.pub) .dash),html:has(.app:not(.pub) .portal){scrollbar-gutter
 .app:not(.pub) .check-row{align-items:center;gap:12px;min-height:48px;padding:12px 14px;background:var(--d-s2);border:1px solid var(--d-line-2);border-radius:var(--d-r-field)}
 .app:not(.pub) .check-row input{margin:0;width:18px;height:18px;accent-color:#f5f5f5}
 .app:not(.pub) .check-row span{font-size:14px;color:var(--d-ink)}
+.app:not(.pub) .check-row .check-hint{margin-top:2px;font-size:12.5px;color:var(--d-ink-4)}
 /* photo upload */
 .app:not(.pub) .photo-up{gap:16px}
 .app:not(.pub) .photo-prev{width:64px;height:64px;border:0;border-radius:var(--d-r-field);background:var(--d-s2);box-shadow:0 0 0 1px var(--d-line-2)}
@@ -2099,7 +2101,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 @media (pointer:coarse){ .app:not(.pub) .fix-tab{height:44px} }
 .app:not(.pub) .upd-gaps{gap:4px 6px}
 .app:not(.pub) .upd-gap{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;border:1px solid var(--d-line-2);color:var(--d-warn);font-size:12px;line-height:18px;white-space:nowrap}
-.app:not(.pub) .upd-gap.upd-split{color:var(--d-ink-3)}
+.app:not(.pub) .upd-gap.upd-split,.app:not(.pub) .upd-gap.upd-off{color:var(--d-ink-3)}   /* neutral: nothing to fix (Not on streaming, a split Splits to confirm has) */
 .app:not(.pub) .upd-gap-more{display:none;color:var(--d-ink-3);background:none;font-family:inherit;cursor:pointer}
 .app:not(.pub) .upd-filters{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
 .app:not(.pub) .upd-filter{display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid var(--d-line-2);border-radius:999px;background:none;color:var(--d-ink-3);font:400 12px/1 var(--d-body);cursor:pointer;white-space:nowrap}
@@ -2145,6 +2147,8 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .fix-group[data-group=update] .fix-song{grid-column:1 / -1}
   .app:not(.pub) .fix-group[data-group=update] .fix-acts{grid-column:auto}
   .app:not(.pub) .fix-group[data-group=update] .fix-acts .btn{min-height:34px}
+  /* with Not on streaming beside Update the buttons take their own line, so the streams never run into them */
+  .app:not(.pub) .fix-group[data-group=update] .fix-row:has(.upd-off-btn) .fix-acts{grid-column:1 / -1;justify-content:flex-start}
   .app:not(.pub) .fix-group[data-group=update] .upd-gap-x{display:none}
   .app:not(.pub) .fix-group[data-group=update] .upd-gap-more{display:inline-flex}
   /* the "+N" never gets cut: the chips before it shrink and clip instead, and its tap area is 40px tall */
@@ -3114,6 +3118,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .seed-head .lm-song-main strong{font-size:13.5px;font-weight:600;color:var(--d-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app:not(.pub) .seed-head .lm-song-main span{font-size:12px;color:var(--d-ink-4)}
 .app:not(.pub) .seed-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.app:not(.pub) .seed-same{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin:0}   /* a song on the site with this title */
 .app:not(.pub) .seed-match{flex:1 1 220px;font-size:12.5px;color:var(--d-ink-3)}
 .app:not(.pub) .seed-btns{display:flex;align-items:center;gap:6px;margin-left:auto}
 .app:not(.pub) .seed-url,.app:not(.pub) .seed-socials input{flex:1 1 220px;min-width:0;height:var(--d-ctl-sm);padding:0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-field);color:var(--d-ink);font:inherit;font-size:13px}

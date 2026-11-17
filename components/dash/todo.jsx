@@ -109,7 +109,7 @@ function PubFix({ kind, ctx, viaCta = false }) {
   return (
     <>
       {kind === "splits" && <SplitsToFix db={db} commit={commit} reloadDb={reloadDb} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} onGo={onGo} dupes={dupes} onDupe={openDupe} />}
-      {kind === "update" && <SongsToUpdate db={db} songInfo={songInfo} onFix={openFix} dupes={dupes} onDupe={openDupe} />}
+      {kind === "update" && <SongsToUpdate db={db} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} dupes={dupes} onDupe={openDupe} />}
       {kind === "dupes" && (dupes.length
         ? <p className="pub-tasks dupe-line" data-dupe-line>{dupeWords(dupes)} · <button className="inline-link" data-dupe-review onClick={openDupe}>Review</button></p>
         : <p className="home-muted acct-clear"><CheckCircle2 size={15} /> No possible duplicates left.</p>)}
@@ -335,12 +335,12 @@ function SyncFix({ check, ctx }) {
     </div>
   );
 }
-// To do's list for one area: each line finished right here (Yes to the match Spotify found, a pasted link,
-// or Not on Spotify in its ⋯ menu); an artist can get their Instagram / TikTok / YouTube at the same time
+// To do's list for one area: each line finished right here (Yes to the match Spotify found, No to turn it down, a pasted
+// link, or Not on Spotify); an artist can get their Instagram / TikTok / YouTube at the same time
 function SeedList({ area, ctx }) {
   const rows = (ctx.seeds?.data?.todo || []).filter((r) => r.area === area);
   const [note, setNote] = useState(null);
-  // songs taken down from streaming (owner, Nov 8): not tracked, their Luminate all-time stays as their streams
+  // songs that aren't on Spotify (taken down from streaming, owner, Nov 8): not tracked, their Luminate all-time stays as their streams
   const songs = rows.filter((r) => r.kind !== "artist");
   const [askGone, setAskGone] = useState(false);
   const allGone = async () => {
@@ -350,19 +350,19 @@ function SeedList({ area, ctx }) {
     }
     setAskGone(false);
     const done = songs.length - bad.length;
-    (ctx.flash || setNote)({ warn: !!bad.length, text: [done && `${done} ${done === 1 ? "song is" : "songs are"} marked removed from streaming. Their Luminate all-time stays as their streams.`, bad.length && `Not saved: ${bad.join("; ")}.`].filter(Boolean).join(" ") });
+    (ctx.flash || setNote)({ warn: !!bad.length, text: [done && `${done} ${done === 1 ? "song is" : "songs are"} marked not on Spotify. Their Luminate all-time stays as their streams.`, bad.length && `Not saved: ${bad.join("; ")}.`].filter(Boolean).join(" ") });
   };
   return (
     <div className="todo-sublist seed-list" data-seed-list={area}>
-      <p className="hint">From the old Luminate {area === "ar" ? "Artist and Song Trackers" : "Admin Catalogs"}. Once one is on Spotify here, its numbers come in with the next daily update; its Luminate numbers stay as history. A song taken down from streaming can be marked as removed instead.</p>
-      {songs.length > 1 && <button className="btn ghost sm seed-all-gone" data-seed-all-gone onClick={() => setAskGone(true)}>All {songs.length} removed from streaming</button>}
+      <p className="hint">From the old Luminate {area === "ar" ? "Artist and Song Trackers" : "Admin Catalogs"}, not linked to Spotify yet. Paste its Spotify link, or press Not on Spotify. Its Luminate numbers stay as history either way.</p>
+      {songs.length > 1 && <button className="btn ghost sm seed-all-gone" data-seed-all-gone onClick={() => setAskGone(true)}>All {songs.length} not on Spotify</button>}
       {askGone && (
-        <AskCard title={`Mark ${songs.length} songs as removed from streaming?`} goLabel={`Mark ${songs.length} removed`} busyLabel="Saving…" plain go={allGone} onClose={() => setAskGone(false)}>
+        <AskCard title={`Mark ${songs.length} songs as not on Spotify?`} goLabel={`Mark ${songs.length} not on Spotify`} busyLabel="Saving…" plain go={allGone} onClose={() => setAskGone(false)}>
           <p>They come off this list and aren't looked for on Spotify. Each keeps its Luminate all-time as its streams. Nothing is written to the sheets.</p>
           <ul className="ask-places">{songs.map((r) => <li key={r.lumId}>{r.name}{r.atd != null ? `: ${fmt(r.atd)} all-time (Luminate, ${shortDay(r.atdOn)})` : ""}</li>)}</ul>
         </AskCard>
       )}
-      {rows.map((r) => <SeedRow key={r.lumId} r={r} picks={r.kind !== "artist" && !r.isrc ? isrcPicksOf(ctx.songInfo, r.placementIds || []) : []}
+      {rows.map((r) => <SeedRow key={r.lumId} r={r} picks={r.kind !== "artist" && !r.isrc ? isrcPicksOf(ctx.songInfo, r.placementIds || []) : []} onRejected={() => ctx.seeds.load()}
         onDone={(text) => { const last = rows.length === 1; ctx.seeds.drop(r.lumId); if (last && ctx.flash) ctx.flash({ text }); else setNote({ text }); }} />)}
       {!rows.length && <p className="home-muted acct-clear"><CheckCircle2 size={15} /> All found.</p>}
       <DropNote note={note} />
@@ -372,12 +372,15 @@ function SeedList({ area, ctx }) {
 const SOCIALS = [["instagram", "Instagram"], ["tiktok", "TikTok"], ["youtube", "YouTube"]];
 const ISRC_RE = /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/; // the server's own check (lib/data/seeds.js decideSeed)
 // picks: the ISRC finder's guesses for a song with no ISRC (one tap: kept on the song, then looked up on Spotify)
-function SeedRow({ r, picks = [], onDone }) {
+// onRejected: after No, the list is read again (the row has no match now)
+function SeedRow({ r, picks = [], onDone, onRejected }) {
   const artist = r.kind === "artist";
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [url, setUrl] = useState("");
   const [other, setOther] = useState(!r.spotify);
+  // the paste-a-link box also shows when the match is gone from a list read again (another person said No, or it was turned down here)
+  const paste = other || !r.spotify;
   const [so, setSo] = useState({ instagram: r.socials?.instagram || "", tiktok: r.socials?.tiktok || "", youtube: r.socials?.youtube || "" });
   const [isrc, setIsrc] = useState(r.isrc || "");
   // r11 todoedit: the ISRC typed (beside the finder's guesses, or alone without them), or a kept one changed
@@ -397,19 +400,34 @@ function SeedRow({ r, picks = [], onDone }) {
     } catch (e) { setErr(e.message); setBusy(false); }
   };
   const what = artist ? r.name : `"${r.name}"`;
+  // No: the match is turned down for good (it's never offered for this one again), and the paste-a-link box shows
+  const reject = async () => {
+    setBusy(true); setErr(null);
+    try { await dataPost({ action: "seed", lumId: r.lumId, op: "reject" }); setOther(true); onRejected?.(); } catch (e) { setErr(e.message); onRejected?.(); }
+    setBusy(false);
+  };
   return (
     <div className="seed-row" data-seed={r.lumId} data-status={r.status}>
       <div className="seed-head">
-        <span className="lm-cover">{r.spotify?.image && !other ? <img src={r.spotify.image} alt="" loading="lazy" decoding="async" /> : <Disc3 size={16} />}</span>
+        <span className="lm-cover">{r.spotify?.image && !paste ? <img src={r.spotify.image} alt="" loading="lazy" decoding="async" /> : <Disc3 size={16} />}</span>
         <span className="lm-song-main"><strong>{r.name}</strong>
-          <span>{[r.list, r.artist, r.atd != null && `Luminate: ${fmt(r.atd)} all-time on ${shortDay(r.atdOn)}`].filter(Boolean).join(" · ")}</span></span>
+          <span>{[r.list, r.artist, !artist && isrc && `ISRC ${isrc}`, r.atd != null && `Luminate: ${fmt(r.atd)} all-time on ${shortDay(r.atdOn)}`].filter(Boolean).join(" · ")}</span></span>
       </div>
-      {!other ? (
+      {/* a song on the site with this title: a different recording (both have an ISRC and they differ), or maybe the same one, with its link to use */}
+      {(r.sameTitle || []).map((m, i) => (
+        <p key={`${i}|${m.client}|${m.song}`} className="hint seed-same" data-seed-same={m.differs ? "differs" : "same"}>
+          {m.differs
+            ? <span>Different recording from “{m.song}”{m.artist ? ` · ${m.artist}` : ""} on the site (different ISRC)</span>
+            : <><span>Same song as “{m.song}”{m.artist ? ` · ${m.artist}` : ""} on the site?</span>
+              {m.link && <button type="button" className="btn ghost sm" data-seed-link-it disabled={busy} onClick={() => send({ op: "link", url: m.link }, `Linked ${what} to “${m.song}” on the site. Tracking it from the next update.`)}>{busy ? "Saving…" : "Link it"}</button>}</>}
+        </p>
+      ))}
+      {!paste ? (
         <div className="seed-acts">
           <span className="seed-match">Spotify has <ExtLink className="inline-link" href={r.spotify.url}>{r.spotify.name} ↗</ExtLink>. Is that {artist ? "them" : "it"}?</span>
           <span className="seed-btns">
             <button className="btn sm" data-seed-yes disabled={busy} onClick={() => send({ op: "confirm" }, `Tracking ${what} from the next update.`)}>{busy ? "Saving…" : "Yes"}</button>
-            <button className="btn ghost sm" disabled={busy} onClick={() => setOther(true)}>No</button>
+            <button className="btn ghost sm" data-seed-no disabled={busy} onClick={reject}>No</button>
           </span>
         </div>
       ) : (
@@ -419,12 +437,12 @@ function SeedRow({ r, picks = [], onDone }) {
             <button className="btn sm" data-seed-save disabled={busy || !url.trim()} onClick={() => send({ op: "link", url }, `Tracking ${what} from the next update.`)}>{busy ? "Saving…" : "Save"}</button>
             {artist
               ? <RowMenu label={`More for ${r.name}`} items={[{ label: "Not on Spotify: don't track", onClick: () => send({ op: "skip" }, `${r.name} won't be tracked. Its Luminate numbers stay as history.`) }]} />
-              : <button className="btn ghost sm" data-seed-gone disabled={busy} onClick={() => send({ op: "skip" }, `"${r.name}" is marked removed from streaming. Its Luminate all-time${r.atd != null ? `, ${fmt(r.atd)},` : ""} stays as its streams.`)}>Removed from streaming</button>}
+              : <button className="btn ghost sm" data-seed-gone disabled={busy} onClick={() => send({ op: "skip" }, `"${r.name}" is marked not on Spotify. Its Luminate all-time${r.atd != null ? `, ${fmt(r.atd)},` : ""} stays as its streams.`)}>Not on Spotify</button>}
           </span>
         </div>
       )}
-      {!artist && other && (isrc && !typeIsrc
-        ? <p className="hint seed-isrc">ISRC <code>{isrc}</code> (Spotify has nothing under it yet) <button type="button" className="inline-link" data-seed-isrc-change onClick={() => { setIsrcIn(isrc); setTypeIsrc(true); }}>Change it</button></p>
+      {!artist && paste && (isrc && !typeIsrc
+        ? <p className="hint seed-isrc" data-seed-isrc-none>Not on Spotify under this ISRC. <button type="button" className="inline-link" data-seed-isrc-change onClick={() => { setIsrcIn(isrc); setTypeIsrc(true); }}>Change it</button></p>
         : picks.length > 0 && !typeIsrc && !isrc ? <>
           {/* a tapped guess still saves at once, as before; the link below types one instead */}
           <IsrcPicks list={picks} busy={busy} onPick={(c) => send({ op: "isrc", isrc: c.isrc, source: c.source }, `Found "${r.name}" on Spotify by its ISRC.`)} />

@@ -9,7 +9,7 @@ import { requireAccess, limited, ownSet } from "../../lib/access";
 import { loadSummary } from "../../lib/data/summary";
 import { setMode, addSound, removeSound, saveSetting, loadSettings, dataSql as sql } from "../../lib/data/engine";
 import { SOURCES, sourceSettings, soundId } from "../../lib/data/sources";
-import { loadSeeds, seedTodo, decideSeed, countsOf } from "../../lib/data/seeds";
+import { loadSeeds, seedTodo, decideSeed, countsOf, loadSiteSongs } from "../../lib/data/seeds";
 import { syncEntities, loadState, modeFor, loadSameSongIds, withSameSongIds } from "../../lib/data/engine";
 import { lumSeries, lumWeek } from "../../lib/data/lum";
 
@@ -120,7 +120,9 @@ async function seeds(req, res) {
     const areas = seedAreas(req);
     if (req.method === "GET") {
       const rows = await loadSeeds();
-      return res.status(200).json({ todo: seedTodo(rows, areas), counts: countsOf(rows.filter((r) => areas.includes(r.area))) });
+      // (2026-11-17) the Admin Catalog songs say when the site has a song with the same title (only Publishing's rows ask)
+      const site = areas.includes("roster") ? await loadSiteSongs() : null;
+      return res.status(200).json({ todo: seedTodo(rows, areas, site), counts: countsOf(rows.filter((r) => areas.includes(r.area))) });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST" });
     const b = req.body || {};
@@ -131,8 +133,8 @@ async function seeds(req, res) {
     const source = ["deezer", "deezer-artist", "musicbrainz", "spotify-link"].includes(b.source) ? b.source : "manual";
     const r = await decideSeed(row.lum_id, { op: String(b.op || ""), url: String(b.url || "").slice(0, 400), socials: b.socials && typeof b.socials === "object" ? b.socials : {}, isrc: String(b.isrc || "").slice(0, 20), source }, by);
     if (r.error) return res.status(400).json(r);
-    // tracked from the next numbers on (no paid run starts here)
-    await syncEntities().catch((err) => console.error("seed sync:", err));
+    // tracked from the next numbers on (no paid run starts here). A "No" tracks nothing new: the row only goes back to the list
+    if (b.op !== "reject") await syncEntities().catch((err) => console.error("seed sync:", err));
     const s = r.row;
     return res.status(200).json({ ok: true, match: s.status, isrc: s.isrc, spotify: s.spotify_id ? { id: s.spotify_id, name: s.spotify_name } : null, socials: s.socials });
   } catch (err) {

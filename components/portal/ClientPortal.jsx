@@ -199,8 +199,16 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   const [formErr, setFormErr] = useState(null);
   const [splitsFirst, setSplitsFirst] = useState(0); // a Fix's n while its editor is open: it opens on the Splits
   const [fieldFirst, setFieldFirst] = useState(null); // Songs to update's Update: { f: the field to open on, n }
+  // "Not on streaming" (song_tracking.skip): a song that's unreleased, taken down or only on SoundCloud/TikTok has no date or link to
+  // find. Staff read a song's flag from the songs' facts (songInfo), a client from the list their page came with (db.notOnStreaming);
+  // what this page has just saved comes first, until staff's facts are read again. noStream: the editor's box, null until it's touched
+  const [skipSaved, setSkipSaved] = useState({});
+  useEffect(() => { setSkipSaved((s) => (Object.keys(s).length ? {} : s)); }, [songInfo]);
+  const skipOf = (id) => (!id ? false : id in skipSaved ? skipSaved[id] : isStaff ? !!songInfo?.tracking?.[id]?.skip : (db.notOnStreaming || []).includes(id));
+  const [noStream, setNoStream] = useState(null);
+  const [flagWarn, setFlagWarn] = useState(null);
   // a closed form takes its message with it, and a Fix's "open on the Splits" with it
-  useEffect(() => { if (!editing) { setFormErr(null); setSplitsFirst(0); setFieldFirst(null); } }, [editing]);
+  useEffect(() => { if (!editing) { setFormErr(null); setSplitsFirst(0); setFieldFirst(null); setNoStream(null); } }, [editing]);
   // an Update from Songs to update opens on its first missing field (the window's own scroll only)
   useEffect(() => {
     const el = fieldFirst && document.querySelector(`.modal-body [data-field="${fieldFirst.f}"]`), body = el?.closest(".modal-body");
@@ -276,6 +284,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
     });
     if (possibleDup && !anyway) return setAsk({ kind: "dup", form, dup: possibleDup });
     const placementId = o.id || uid();
+    const wantFlag = noStream; // "Not on streaming" as the form has it (null: not touched)
     const row = { ...o, id: placementId, clientId };
     const placements = o.id
       ? db.placements.map((p) => p.id === o.id ? row : p)
@@ -295,6 +304,14 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
     fixing.current = null;
     if (updating.current?.id === placementId) updating.current.saved = true;
     setEditing(null);
+    // "Not on streaming" goes with the song, now that it exists (a new song's id is made above): its own write, in the background like
+    // the pub sheet's, so a slow or failed one never undoes the save. A line under the header says when it didn't go through
+    setFlagWarn(null);
+    if (wantFlag !== null && wantFlag !== skipOf(placementId)) {
+      songsPost({ action: "notOnStreaming", placementIds: [placementId], notOnStreaming: wantFlag })
+        .then(() => { setSkipSaved((m) => ({ ...m, [placementId]: wantFlag })); reloadSongInfo?.(); })
+        .catch((e) => setFlagWarn(`"${saved.song || "Untitled"}" is saved, but "Not on streaming" didn't save (${e.message}). Open the song and try again.`));
+    }
     // push to the pub sheet in the background — a slow/failed network call
     // should never block or undo the local save that already succeeded —
     // but staff still need to know if the sheet side silently fell out of
@@ -423,6 +440,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
         </p>
       )}
       {isStaff && <DropNote note={delNote} />}
+      {flagWarn && <p className="hint err-text" role="alert" data-flag-warn>{flagWarn}</p>}
       {stopAsk && (
         <AskCard title={`Stop tracking ${client?.name || "this artist"}?`} goLabel="Stop tracking" busyLabel="Stopping…" onClose={() => setStopAsk(false)}
           go={async () => { await setTracking(clientId, false); setStopAsk(false); await nums.reload(); }}>
@@ -585,6 +603,10 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               <Field label="Artist" value={editing.artist} onChange={(ev) => setEditing({ ...editing, artist: ev.target.value })} />
               <Field label="Release date" type="date" data-field="releaseDate" value={editing.releaseDate} onChange={(ev) => setEditing({ ...editing, releaseDate: ev.target.value })} />
               <Field label="Streaming link" data-field="link" value={editing.link} onChange={(ev) => setEditing({ ...editing, link: ev.target.value })} />
+              <label className="check-row" data-not-on-streaming>
+                <input type="checkbox" checked={noStream ?? skipOf(editing.id)} onChange={(ev) => setNoStream(ev.target.checked)} />
+                <span>Not on streaming<em className="check-hint">Unreleased, or only on SoundCloud/TikTok: no link or release date needed.</em></span>
+              </label>
               <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} focusPct={splitsFirst} assume={!!isStaff || !editing.id} forClient={!isStaff} owner={client} artist={editing.artist} />
               <label className="check-row">
                 <input type="checkbox" checked={!!editing.notable} onChange={(ev) => setEditing({ ...editing, notable: ev.target.checked })} />

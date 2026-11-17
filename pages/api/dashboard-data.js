@@ -204,18 +204,23 @@ async function handleGet(req, res, session) {
   }
 
   // client: own record + own placements only, redacted
-  const [clients, placements, [settings], sheetFacts, lumDay] = await Promise.all([
+  const [clients, placements, [settings], sheetFacts, lumDay, flagged] = await Promise.all([
     sql`SELECT * FROM clients WHERE id = ${clientId}`,
     sql`SELECT * FROM placements WHERE client_id = ${clientId}`,
     sql`SELECT last_synced_at FROM site_settings WHERE id = 1`,
     readSheetFacts(clientId),
     streamsOn(),
+    // (2026-11-17) their songs marked "Not on streaming" (song_tracking.skip): the song editor's checkbox starts from this. It
+    // only fills a checkbox, so a failed read never keeps the portal from loading
+    rowsOrNoneIfNoTable(sql`SELECT t.placement_id FROM song_tracking t JOIN placements p ON p.id = t.placement_id WHERE p.client_id = ${clientId} AND t.skip`)
+      .catch((err) => { console.error("client GET: songs not on streaming:", err?.message); return []; }),
   ]);
   if (!clients[0]) return res.status(404).json({ error: "Client record not found." });
   return res.status(200).json({
     role: "client",
     client: toClient(clients[0]),
     placements: placements.map((p) => toPlacement(p, { redact: true })),
+    notOnStreaming: flagged.map((r) => r.placement_id),
     sheetSync: { lastSyncedAt: settings.last_synced_at },
     streamsOn: lumDay,
     // their own songs' rows and their own net streams on the sheet: streams and shares only, no money
