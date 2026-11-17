@@ -59,8 +59,8 @@ export const ScrollFoot = ({ n, box }) => (n ? (
 // (GET /api/growth?top=1, Spotify streams, global: lib/data/growth.js): from 1,000 streams this week, the
 // rest filling in by streams without a %. Each list says the days it covers ("This week" on the Dashboard).
 // A&R (r10 prove): A&R Home's own day-over-day movers (GET /api/ar-lists?view=home, read once the tab is
-// opened): each row its two readings on two days in a row; until there are two, Luminate's last real weeks
-// (labelled). A row opens that thing's A&R page (/dashboard/ar/item/<key>).
+// opened): each row its two readings on two days in a row, ranked by % with the biggest rise first; until there
+// are two, Luminate's last real weeks (labelled). A row opens that thing's A&R page (/dashboard/ar/item/<key>).
 const AR_HOME = "/api/ar-lists?view=home";
 function useArMovers(on) {
   const [d, setD] = useState(() => peekJson(AR_HOME) || null);
@@ -68,9 +68,12 @@ function useArMovers(on) {
   useEffect(() => { if (on) swrJson(AR_HOME, (j) => { setD(j); setFailed(false); }).catch(() => setFailed(true)); }, [on]);
   if (!d) return { rows: null, failed };
   const day = d.movers?.day || { up: [], down: [] };
-  // r11 fix: the card's 5 rows on every tab (the biggest moves, rises first), each numbered, worded as on A&R Home
-  const top5 = (up, down) => { const by = (a, b) => Math.abs(b.pct) - Math.abs(a.pct); return [...up, ...down].sort(by).slice(0, 5).sort((a, b) => (b.pct > 0) - (a.pct > 0) || Math.abs(b.pct) - Math.abs(a.pct)); };
-  const rows = top5(day.up, day.down);
+  // r11 fix: the card's 5 rows on every tab, each numbered, worded as on A&R Home. 2026-11-17 (the owner: "shouldnt that be the biggest
+  // gainers"): ranked by %, the biggest rise first, so every rise comes before any fall and a fall only fills a row once fewer than 5
+  // rose, the mildest first (it was the 5 biggest moves by size, so a -3.3% took #5 from smaller rises). The day's list arrives ranked
+  // from all of its movers (the server's day.top: its up and down are 5 each); the weekly fallbacks rank their two lists here.
+  const top5 = (up, down) => [...up, ...down].sort((a, b) => b.pct - a.pct).slice(0, 5);
+  const rows = day.top || top5(day.up, day.down);
   // r10 fix: two readings on one New York day are "the last two readings" with their times, never "day over day";
   // r11 fix: the newest reading today says "Today vs yesterday" (it isn't this week)
   const today = nyDayOf(Date.now()) === nyDayOf(day.span?.to);
