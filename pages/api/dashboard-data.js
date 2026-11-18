@@ -21,7 +21,8 @@ import { ownLinkOf } from "../../lib/commission";
 import { linkAfterSave, accountsMerge, addedMerge } from "../../lib/people-link";
 import { reactToMessage } from "../../lib/clickup";
 import { readFlips } from "../../lib/submission-reactions";
-import { placementRow, insertPlacement } from "../../lib/placement-rows";
+import { placementRow, upsertPlacement, deletePlacements, samePlacement } from "../../lib/placement-rows";
+import { knownOf, planRows } from "../../lib/known-ids";
 
 // photos uploaded before list B #2 are data: URIs inside the rows (new ones are Blob links,
 // /api/upload-image), so Next's default 1 MB body cap turned every staff save into a 413 once ~5-8 had
@@ -84,7 +85,7 @@ const clientRow = (c, i) => ({
   youtube: c.youtube || "", soundcloud: c.soundcloud || "", sheet_tab_name: c.sheetTabName || "",
   total_streams: c.totalStreams || 0, on_roster: !!c.onRoster, roster_order: i,
 });
-// (a song's row, placementRow, and its INSERT, insertPlacement, are lib/placement-rows.js's: lib/auto-add.js stores a song the same way)
+// (a song's row, placementRow, and its statements are lib/placement-rows.js's: lib/auto-add.js stores a song the same way)
 // visible: null when the row didn't say (a tab from before it existed): the stored value stays
 const staffRow = (s) => ({ id: s.id, name: s.name || "", role: s.role || "", credit: s.credit || "", bio: s.bio || "", photo: s.photo || "", email: s.email || "", instagram: s.instagram || "", visible: s && "visible" in s ? !!s.visible : null });
 // (2026-11-14) no email is NULL (a person with no login yet), never "": UNIQUE allows any number of NULLs
@@ -92,6 +93,7 @@ const normEmail = (e) => String(e ?? "").trim().toLowerCase() || null;
 const userRow = (u) => ({ password_changed_at: u.pwAt || null, clickup_user_id: u.cuId || "", id: u.id, email: normEmail(u.email), password_hash: u.hash || null, role: u.role, name: u.name || "", client_id: u.clientId || null, staff_role: u.staffRole || null, access: u.access || {} });
 const submissionRow = (s) => ({ id: s.id, name: s.name || "", email: s.email || "", instagram: s.instagram || "", subject: s.subject || "", message: s.message || "", created_at: s.at || new Date().toISOString(), read: !!s.read });
 const notableRow = (n) => ({ id: n.id, song: n.song || "", artist: n.artist || "", client: n.client || "", cover: n.cover || "", release_date: n.releaseDate || "", link: n.link || "" });
+const sameNotable = (a, b) => ["song", "artist", "client", "cover", "release_date", "link"].every((k) => (a[k] ?? "") === (b[k] ?? ""));
 
 // Everything a staff session's GET returns — and what the size guard weighs.
 // the day the pub sheet's streams are from (streamsOn) is lib/streams-on.js's, shared with the share card
@@ -151,6 +153,10 @@ async function growsPastLimit(change, clientIds) {
 // The staff GET for one account (lib/roles.js): a table its sections don't cover comes back empty,
 // an account limited to its own artists gets only theirs, and the logins (with each one's role and
 // overrides) only with Users. `access` says what the dashboard shows.
+// the songs as a staff account sees them (a save answers with them too): the money columns are Publishing's (the fee each song earns)
+// (2026-11-10) and the money is the Founders' (Money access): a Co-manager gets the songs without it
+const songsFor = (placements, can) => (!can("publishing") ? placements.map(({ luminateId, revenue, adminFee, ...p }) => p)
+  : !can("money") ? placements.map(({ revenue, adminFee, ...p }) => p) : placements);
 export function payloadFor(full, users, a) {
   const can = (k) => a.sections.includes(k);
   const out = { ...full, access: { role: a.role, sections: a.sections, ownOnly: a.ownOnly, manager: a.manager || "", mgmtList: a.mgmtList || null, payLink: a.payLink || null } };
@@ -158,10 +164,7 @@ export function payloadFor(full, users, a) {
   delete out.managers;
   out.users = can("users") ? users : [];
   if (!can("site")) out.submissions = [];
-  // the money columns are Publishing's (the fee each song earns)
-  if (!can("publishing")) out.placements = full.placements.map(({ luminateId, revenue, adminFee, ...p }) => p);
-  // (2026-11-10) and the money is the Founders' (Money access): a Co-manager gets the songs without it
-  else if (!can("money")) out.placements = full.placements.map(({ revenue, adminFee, ...p }) => p);
+  out.placements = songsFor(full.placements, can);
   if (a.ownOnly) {
     const mine = new Set(a.clientIds || []);
     out.clients = out.clients.filter((c) => mine.has(c.id));
@@ -251,14 +254,48 @@ async function peopleChanges(body, { priorClients, priorUsers, userQueryData, mi
   return { touched, staffChanges, addedClients, accounts };
 }
 
+// (2026-11-18) The songs and the notable releases are saved by the rule of lib/known-ids.js (a save never deletes or overwrites a row its page
+// didn't know about). storedSongs: the songs a save may change, as the table holds them now: scope = the clients it may change (a client's own,
+// an account limited to its own artists'), null = every client's
+const storedSongs = (scope) => (scope ? sql`SELECT * FROM placements WHERE client_id = ANY(${scope})` : sql`SELECT * FROM placements`);
+// a list as the GET would send it once a plan is in (the size guard weighs that): what the plan removes gone, what it writes in place of the row
+// with that id (or after the others). view: a written row as the GET maps it
+const rowsAfter = (now, plan, view) => {
+  const gone = new Set(plan.remove), put = new Map(plan.write.map((r) => [r.id, view(r)])), had = new Set(now.map((x) => x.id));
+  return now.filter((x) => !gone.has(x.id)).map((x) => put.get(x.id) || x).concat([...put].filter(([id]) => !had.has(id)).map(([, x]) => x));
+};
+// What a save of those lists answers once it's in: `fresh`, the lists as the database holds them now (the page takes them in: a row it didn't
+// know comes into view, and its next save knows it), `kept`, how many rows the save left alone because the page's copy didn't have them (the page
+// says so), and `stale` when the page sent no list of what it knew (a page from before). The save is in whatever this says: a failed read only means
+// no lists. saved: { table: { plan, read() -> the table's rows, view(rows) -> them as the GET sends them } }
+async function savedAnswer(saved) {
+  const out = { ok: true };
+  if (!Object.keys(saved).length) return out; // a save of anything else answers as it always did
+  if (Object.values(saved).some((s) => s.plan.stale)) { out.stale = true; console.warn("dashboard-data: a save of whole lists with no knownIds (a page from before): written, nothing deleted"); }
+  try {
+    const fresh = {}, kept = {};
+    for (const [table, s] of Object.entries(saved)) {
+      const rows = await s.read(), n = rows.filter((r) => !s.plan.known?.has(r.id) && !s.plan.sent.has(r.id)).length;
+      if (n) kept[table] = n;
+      fresh[table] = s.view(rows);
+    }
+    if (Object.keys(kept).length) { out.kept = kept; console.warn(`dashboard-data: a save left rows alone that its page didn't know: ${JSON.stringify(kept)}`); }
+    out.fresh = fresh;
+  } catch (err) { console.error("dashboard-data: the saved lists couldn't be read back:", err?.message); }
+  return out;
+}
+
 // Mirrors the old commit({...db, someKey: newValue}) shape: the body may
-// contain any subset of these keys, each fully replacing that table (or,
-// for a client session, just their own slice of placements). Low write
-// volume, small dataset, single-writer-at-a-time in practice — full-table
-// replace per key is simpler and safer here than diffing/patching, and is
-// still strictly more consistent than the old one-copy-per-browser model.
+// contain any subset of these keys, each sent whole. How a table is applied:
+// the songs (placements) and the notable releases by the rule of lib/known-ids.js
+// (2026-11-18: only the rows that are new or changed are written, and only the ids
+// the page knew and left out are deleted, so a row added since its copy was read
+// is never lost); clients, the team, the logins and the messages are upserts that
+// delete a missing row only when it's older than the page's copy (asOf, or the
+// newest message it sent). A client session writes only its own slice of
+// placements.
 //
-// Every DELETE+reinsert sequence below is built as an array of query
+// Every sequence of writes below is built as an array of query
 // objects and executed via sql.transaction(), not individually-awaited
 // calls — a mid-loop failure (a bad value, a constraint violation) used to
 // leave that table (and, since commit() always spreads the *entire* db,
@@ -292,24 +329,28 @@ async function handlePost(req, res, session) {
     // *any* client save (editing one song rewrote every one of that
     // client's placements). Look up what's actually in the database right
     // now and keep it, regardless of what the client's payload carries.
-    const existing = await sql`SELECT id, luminate_id, revenue, admin_fee FROM placements WHERE client_id = ${clientId}`;
-    const existingById = Object.fromEntries(existing.map((r) => [r.id, r]));
+    //
+    // (2026-11-18) The list it sent is not "all my songs", to delete the rest by: a song its page didn't know about (added since by the
+    // nightly auto-add, the sheet sync or the Defied team) stays (lib/known-ids.js). Only the songs that are new or changed are written, and
+    // only the ids its page knew and left out are deleted, all of it within this client's own songs
+    const scope = [clientId];
+    const stored = await storedSongs(scope);
+    const storedById = new Map(stored.map((r) => [r.id, r]));
     const rows = body.placements.map((p) => {
-      const prior = existingById[p.id];
+      const prior = storedById.get(p.id);
       return { ...placementRow({ ...p, clientId }), luminate_id: prior ? prior.luminate_id : "", revenue: prior ? Number(prior.revenue) : 0, admin_fee: prior ? Number(prior.admin_fee) : 0 };
     });
-    const queries = [sql`DELETE FROM placements WHERE client_id = ${clientId}`, ...rows.map(insertPlacement)];
+    const plan = planRows({ submitted: rows, known: knownOf(body, "placements"), stored, same: samePlacement });
+    const queries = [...(plan.remove.length ? [deletePlacements(plan.remove, scope)] : []), ...plan.write.map((r) => upsertPlacement(r, scope))];
     try {
-      const tooBig = await growsPastLimit((now) => ({
-        placements: now.placements.filter((p) => p.clientId !== clientId).concat(rows.map((r) => toPlacement(r))),
-      }));
+      const tooBig = await growsPastLimit((now) => ({ placements: rowsAfter(now.placements, plan, (r) => toPlacement(r)) }));
       if (tooBig) return res.status(413).json({ error: TOO_BIG_CLIENT });
-      await sql.transaction(queries);
+      if (queries.length) await sql.transaction(queries);
     } catch (err) {
       console.error("client placements save failed:", err);
       return res.status(502).json({ error: "Save failed — your existing songs were not changed." });
     }
-    return res.status(200).json({ ok: true });
+    return res.status(200).json(await savedAnswer({ placements: { plan, read: () => storedSongs(scope), view: (all) => all.map((r) => toPlacement(r, { redact: true })) } }));
   }
 
   // what this account may write (lib/roles.js): a table its sections don't cover refuses the whole
@@ -495,15 +536,24 @@ async function handlePost(req, res, session) {
       `);
     }
   }
+  // (2026-11-18) The songs: by the rule of lib/known-ids.js, as a client's own are above. Not "delete them all and insert them again" (that lost
+  // a song added since the page's copy was read, by the nightly auto-add, the sheet sync or another person): only the songs that are new or changed
+  // are written, and only the ids the page knew and left out are deleted. An account limited to its own artists changes only theirs.
+  let songs = null, notables = null;
   if ("placements" in body) {
-    queries.push(mine ? sql`DELETE FROM placements WHERE client_id = ANY(${[...mine]})` : sql`DELETE FROM placements`);
+    const scope = mine ? [...mine] : null;
+    const stored = await storedSongs(scope);
     // an account without Money never got each song's money columns: they keep what's stored (2026-11-10)
-    const kept = can("money") ? null : new Map((await sql`SELECT id, revenue, admin_fee FROM placements`).map((r) => [r.id, r]));
-    for (const p of body.placements) {
+    const storedById = can("money") ? null : new Map(stored.map((r) => [r.id, r]));
+    const rows = body.placements.map((p) => {
       const row = placementRow(p);
-      if (kept) { const was = kept.get(row.id); row.revenue = was ? Number(was.revenue) : 0; row.admin_fee = was ? Number(was.admin_fee) : 0; }
-      queries.push(insertPlacement(row));
-    }
+      if (storedById) { const was = storedById.get(row.id); row.revenue = was ? Number(was.revenue) : 0; row.admin_fee = was ? Number(was.admin_fee) : 0; }
+      return row;
+    });
+    const plan = planRows({ submitted: rows, known: knownOf(body, "placements"), stored, same: samePlacement });
+    if (plan.remove.length) queries.push(deletePlacements(plan.remove, scope));
+    for (const r of plan.write) queries.push(upsertPlacement(r, scope));
+    songs = { plan, read: () => storedSongs(scope), view: (all) => songsFor(all.map((r) => toPlacement(r)), can) };
   }
   // (2026-11-14) the team page and the logins: an upsert, and a row missing from the save deleted only when older than
   // the copy it was built on (asOf, above), never "delete all and insert again" (that wiped rows the server had added).
@@ -565,13 +615,20 @@ async function handlePost(req, res, session) {
     }
   }
   if ("notableReleases" in body) {
-    queries.push(sql`DELETE FROM notable_releases`);
-    for (const n of body.notableReleases.map(notableRow)) {
+    // (2026-11-18) the same rule as the songs: an upsert of what's new or changed, and a delete of only the ids the page knew and left out
+    // (it was "delete them all and insert them again")
+    const stored = await sql`SELECT * FROM notable_releases`;
+    const plan = planRows({ submitted: body.notableReleases.map(notableRow), known: knownOf(body, "notableReleases"), stored, same: sameNotable });
+    if (plan.remove.length) queries.push(sql`DELETE FROM notable_releases WHERE id = ANY(${plan.remove})`);
+    for (const n of plan.write) {
       queries.push(sql`
         INSERT INTO notable_releases (id, song, artist, client, cover, release_date, link)
         VALUES (${n.id}, ${n.song}, ${n.artist}, ${n.client}, ${n.cover}, ${n.release_date}, ${n.link})
+        ON CONFLICT (id) DO UPDATE SET song = EXCLUDED.song, artist = EXCLUDED.artist, client = EXCLUDED.client,
+          cover = EXCLUDED.cover, release_date = EXCLUDED.release_date, link = EXCLUDED.link
       `);
     }
+    notables = { plan, read: () => sql`SELECT * FROM notable_releases`, view: (all) => all.map(toNotable) };
   }
   if (body.site) {
     queries.push(sql`UPDATE site_settings SET about_text = ${body.site.about || ""} WHERE id = 1`);
@@ -588,11 +645,11 @@ async function handlePost(req, res, session) {
       ...("clients" in body && { clients: mine
         ? now.clients.map((c) => { const i = body.clients.findIndex((x) => x.id === c.id); return i < 0 ? c : toClient(rowFor(body.clients[i], i)); })
         : body.clients.map((c, i) => toClient(rowFor(c, i))) }),
-      ...("placements" in body && { placements: (mine ? now.placements.filter((p) => !mine.has(p.clientId)) : []).concat(body.placements.map((p) => toPlacement(placementRow(p)))) }),
+      ...(songs && { placements: rowsAfter(now.placements, songs.plan, (r) => toPlacement(r)) }),
       ...("staff" in body && { staff: body.staff.map((s) => toStaffBio(staffRow(s))) }),
       ...(userQueryData && { users: userQueryData.map((u) => toUser(userRow(u))) }),
       ...("submissions" in body && { submissions: body.submissions.map(submissionRow).map((s) => toSubmission({ ...s, created_at: at(s.created_at) })) }),
-      ...("notableReleases" in body && { notableReleases: body.notableReleases.map((n) => toNotable(notableRow(n))) }),
+      ...(notables && { notableReleases: rowsAfter(now.notableReleases, notables.plan, toNotable) }),
       ...(body.site && { site: { about: body.site.about || "" } }),
       ...(body.sheetSync && { sheetSync: { lastSyncedAt: at(body.sheetSync.lastSyncedAt) } }),
     });
@@ -607,6 +664,10 @@ async function handlePost(req, res, session) {
       return res.status(502).json({ error: "Save failed — nothing was changed." });
     }
   }
+
+  // (2026-11-18) the songs and notable releases it wrote, as the database holds them now, for the page to take in (read before the slower steps
+  // below, and only when this save sent one of them)
+  const answer = await savedAnswer({ ...(songs && { placements: songs }), ...(notables && { notableReleases: notables }) });
 
   // (2026-11-16) the save is in: a website message it marked read gets a ✅ on its ClickUp post, one marked unread loses it. Best effort and
   // bounded (reactToMessage gives up after 4 seconds and never throws): nothing here changes this save's answer
@@ -634,7 +695,7 @@ async function handlePost(req, res, session) {
   // Users (a Founder for a Founder's).
   if (role === "staff" && people.touched) await linkAfterSave({ users: can("users"), founder: a.role === "founder", staffChanges: people.staffChanges, addedClients: people.addedClients }, { sheet: false });
 
-  return res.status(200).json({ ok: true });
+  return res.status(200).json(answer);
 }
 
 export default async function handler(req, res) {

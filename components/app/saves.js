@@ -4,8 +4,9 @@ import { MAX_DATA_BYTES } from "../../lib/image-links";
 /*  STAFF DASHBOARD                                                     */
 /* ------------------------------------------------------------------ */
 /* dashboard saves (see App's commit) ---------------------------------- */
-// what each role can write. POST /api/dashboard-data replaces every table it's sent (rows
-// reinserted in array order; clients take roster_order from it), so each one goes out whole
+// what each role can write. POST /api/dashboard-data takes every table it's sent whole (rows in array order; clients take
+// roster_order from it). The songs and the notable releases also go with the ids this tab's copy had (knownIds, below), so the
+// server deletes only a row the tab knew and left out, never one added since
 const SAVE_TABLES = { staff: ["clients", "placements", "staff", "users", "submissions", "notableReleases"], client: ["placements"] };
 const sameValue = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
 // b's top-level fields that differ from a's (one b dropped comes back undefined), or null
@@ -88,6 +89,20 @@ export function applyPatch(fresh, patch) {
 }
 // what a save sends: the tables it changed, plus any applyPatch rewrote for it (a login dropped with its client)
 export const saveKeys = (patch, fresh, merged) => [...(SAVE_TABLES[fresh.role] || []), "site", "sheetSync"].filter((k) => patch[k] || merged[k] !== fresh[k]);
+// (2026-11-18) The tables whose saves carry the ids the page had (lib/known-ids.js): the server deletes only a row the page knew and left out,
+// never one added since by the nightly auto-add, the sheet sync or another person. They are the ids of the copy the save was built on (what the
+// server gave just before it), never the ids of the list being saved: a row the server has and this copy hasn't is in neither
+const KNOWN = ["placements", "notableReleases"];
+export const knownIds = (fresh, keys) => Object.fromEntries(KNOWN.filter((k) => keys.includes(k)).map((k) => [k, (fresh[k] || []).map((r) => r.id)]));
+// The server answers a save with those tables as it holds them now: they replace this tab's copy of them (in this tab's order), so a row it kept
+// that the tab didn't have comes into view
+export function withServerRows(merged, reply) {
+  const back = Object.fromEntries(KNOWN.filter((k) => Array.isArray(reply?.fresh?.[k]) && Array.isArray(merged[k])).map((k) => [k, reply.fresh[k]]));
+  return Object.keys(back).length ? inTabOrder({ ...merged, ...back }, merged) : merged;
+}
+// ...and says so when it left rows alone that this tab's copy didn't have (or this page sent no list of the ones it had: a page from before)
+export const SONGS_ADDED = "Saved. Some songs were added since you opened this page — reload to see them.";
+export const addedSince = (reply) => !!reply && (reply.stale === true || Object.values(reply.kept || {}).some((n) => n > 0));
 const TOO_BIG = "That's too much to save — the photos and covers are over the size limit. Remove or shrink some images and try again.";
 // a client can't shrink the photos and covers that fill the data, only the Defied team can
 const TOO_BIG_CLIENT = "Your change couldn't be saved right now — please let the Defied team know.";

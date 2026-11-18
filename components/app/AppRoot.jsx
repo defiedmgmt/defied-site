@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
-import { ACCOUNT_CHANGED, SAVE_OFFLINE, SIGNED_OUT, accountChanged, applyPatch, diffDb, holdUnload, inTabOrder, refusal, saveFailure, saveKeys, withoutPasswords } from "./saves";
+import { ACCOUNT_CHANGED, SAVE_OFFLINE, SIGNED_OUT, SONGS_ADDED, accountChanged, addedSince, applyPatch, diffDb, holdUnload, inTabOrder, knownIds, refusal, saveFailure, saveKeys, withServerRows, withoutPasswords } from "./saves";
 import { clearDashCaches } from "../shared/dash-caches";
 import { ROUTE_TO_PATH, routeOf } from "../shared/routes";
 import { useRevealOnScroll, vtWillRun } from "../shared/ui";
@@ -202,15 +202,21 @@ export default function AppRoot({ Component, pageProps }) {
         const merged = applyPatch(fresh, patch);
         const refused = refusal(patch, fresh, merged);
         if (refused) throw new Error(refused);
+        const keys = saveKeys(patch, fresh, merged);
         const res = await fetch("/api/dashboard-data", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
           // (2026-11-14) asOf: the copy this save is built on, so the server deletes only rows older than it
-          body: JSON.stringify({ ...Object.fromEntries(saveKeys(patch, fresh, merged).map((k) => [k, merged[k]])), ...(fresh.asOf ? { asOf: fresh.asOf } : {}) }),
+          // (2026-11-18) knownIds: the ids of the songs and notable releases in that same copy, so the server deletes only a row this
+          // tab knew and left out (never one added since: the nightly auto-add, the sheet sync, another person)
+          body: JSON.stringify({ ...Object.fromEntries(keys.map((k) => [k, merged[k]])), ...(fresh.asOf ? { asOf: fresh.asOf } : {}), knownIds: knownIds(fresh, keys) }),
         }).catch(() => null);
         if (!res?.ok) throw new Error(saveFailure(res, res && await res.json().catch(() => null), "Save failed.", fresh.role));
-        s.server = saved = withoutPasswords(merged);
-        if (!s.failed) setLoadErr(null);
+        // (2026-11-18) the server answers with the songs and notable releases as it holds them now: what it kept that this tab's copy didn't
+        // have comes into view, and the notice says so
+        const reply = await res.json().catch(() => null);
+        s.server = saved = withoutPasswords(withServerRows(merged, reply));
+        if (!s.failed) setLoadErr(addedSince(reply) ? SONGS_ADDED : null);
         // the public pages' copy is now out of date: refetch it when staff next open one
         pubStale.current = true;
         try { localStorage.removeItem(PUBLIC_CACHE_KEY); } catch { /* storage blocked */ }

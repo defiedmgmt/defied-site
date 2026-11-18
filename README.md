@@ -311,6 +311,15 @@ never values.
 
 ## Notes
 
+- A save of the songs or the notable releases (`POST /api/dashboard-data`, 2026-11-18, `lib/known-ids.js`) never deletes or overwrites a
+  row its page didn't know about. The page sends the ids its copy had (`knownIds.placements`, `knownIds.notableReleases`: from the copy
+  its save was built on, never from the list it edited); the server upserts only the rows that are new or changed and deletes only the
+  ids the page knew and left out, inside one transaction, so a song the nightly auto-add, the sheet sync or another person added in the
+  meantime stays. A page from before (no `knownIds`) has its rows written and nothing deleted, and the answer says `stale: true`. The
+  answer carries the lists as the database holds them now (`fresh`) and how many rows it left alone (`kept`); the page takes them in and
+  says "Saved. Some songs were added since you opened this page — reload to see them." An account limited to its own artists, and a
+  client, can only change (and delete) their own artists' songs. Anything else that writes songs should do it by id
+  (`lib/placement-rows.js`), never "delete them all and insert them again".
 - Roster and team photos load from `https://www.defiedmgmt.com/assets/…`. Spotify covers come from `i.scdn.co`.
   Uploaded photos come from `*.public.blob.vercel-storage.com`. All three hosts are listed in `next.config.js`.
 - `next.config.js` holds the security headers, caching, redirects (`/staff` → `/team` and the pay.defiedmgmt.com links)
