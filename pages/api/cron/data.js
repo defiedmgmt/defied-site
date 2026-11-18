@@ -5,7 +5,7 @@
 import { tick } from "../../../lib/data/engine";
 import { afterDataCron } from "../../../lib/ar/tracker-sheet";
 import { setState } from "../../../lib/app-state";
-import { alert, WHOLE_RUN } from "../../../lib/alerts";
+import { alert, watchDaily, WHOLE_RUN } from "../../../lib/alerts";
 
 export const config = { maxDuration: 300 }; // Hobby's most; the Apify runs themselves aren't waited for
 
@@ -13,6 +13,9 @@ export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   if (!secret) return res.status(503).json({ error: "CRON_SECRET is not configured." });
   if (req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: "Not authorized." });
+  // (2026-11-17) first thing, so a tick that runs long can't keep it from being said: the daily update's report hasn't been saved for 26 hours
+  // (lib/alerts.js: once a day at most, it never throws and waits 8 s at the most)
+  await watchDaily();
   try {
     const report = await tick();
     // r11: the A&R sheet's Watchlist with the new numbers, and the Log's Expired lines (AR_TRACKER_SHEET_WRITES only)
