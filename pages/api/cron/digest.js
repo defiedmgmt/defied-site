@@ -4,6 +4,7 @@
 // isn't needed this season does nothing. Posting needs DIGEST_WRITES=on (default off). Vercel sends
 // Authorization: Bearer $CRON_SECRET; without that secret set, this refuses to run at all.
 import { runDigests, dueNow, nyParts } from "../../../lib/digest";
+import { alert, WHOLE_RUN } from "../../../lib/alerts";
 
 export const config = { maxDuration: 120 };
 
@@ -17,6 +18,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ due: true, ...(await runDigests({ now })) });
   } catch (err) {
     console.error("digest cron failed:", err);
+    await alert({ job: "Weekly digest", step: WHOLE_RUN, error: err, now }); // (2026-11-17) the founders are told in ClickUp (lib/alerts.js); it never throws
     return res.status(500).json({ error: "The Monday digest didn't finish." });
   }
 }

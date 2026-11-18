@@ -6,7 +6,8 @@
 // owns ("Log new payments", one per area) up to date, and reads each client's manager off the
 // accounting sheet's INFO tab (roles: a Co-manager limited to their own artists). Vercel sends
 // Authorization: Bearer $CRON_SECRET; without that secret set, this refuses
-// to run at all.
+// to run at all. (2026-11-17) A step that went wrong, the data refresh not having run for 26 hours and the Monday digest not having
+// posted are told to the founders in ClickUp once the report is saved (lib/alerts.js), and so is a run that throws.
 import { sql } from "../../../lib/db";
 import { syncSiteFromSheet } from "../../../lib/site-sync";
 import { setState } from "../../../lib/app-state";
@@ -19,11 +20,21 @@ import { refreshManagers } from "../../../lib/access";
 import { keepRoom } from "../../../lib/sheet-rows";
 import { runPeopleLink } from "../../../lib/people-link";
 import { runAutoAdds } from "../../../lib/auto-add";
+import { alert, alertDaily, WHOLE_RUN } from "../../../lib/alerts";
 
 // the sheet pull plus the Stripe read behind the ClickUp tasks (see pages/api/home.js)
 export const config = { maxDuration: 60 };
 
+// every step below is in its own try, so what can still throw here is the report's save: it is said, not left to Vercel's own 500
 export default async function handler(req, res) {
+  try { return await run(req, res); } catch (err) {
+    console.error("daily cron failed:", err);
+    await alert({ job: "Daily update", step: WHOLE_RUN, error: err });
+    if (!res.headersSent) return res.status(500).json({ error: "The daily update didn't finish." });
+  }
+}
+
+async function run(req, res) {
   const secret = process.env.CRON_SECRET;
   if (!secret) return res.status(503).json({ error: "CRON_SECRET is not configured." });
   if (req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: "Not authorized." });
@@ -107,5 +118,6 @@ export default async function handler(req, res) {
   // CLICKUP_TASK_WRITES=on
   try { report.clickupTasks = await checkClickUpTasks({ force: true }); } catch (err) { report.clickupTasksError = err.message; }
   await setState("cron", report);
+  await alertDaily(report); // after the save, so a slow ClickUp can't cost the report; it never throws and waits 8 s at the most
   return res.status(200).json(report);
 }

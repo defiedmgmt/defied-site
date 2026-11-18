@@ -5,6 +5,7 @@
 import { tick } from "../../../lib/data/engine";
 import { afterDataCron } from "../../../lib/ar/tracker-sheet";
 import { setState } from "../../../lib/app-state";
+import { alert, WHOLE_RUN } from "../../../lib/alerts";
 
 export const config = { maxDuration: 300 }; // Hobby's most; the Apify runs themselves aren't waited for
 
@@ -23,6 +24,7 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error("data cron failed:", err);
     await setState("cronData", { at: new Date().toISOString(), error: String(err?.message || err).slice(0, 200) }).catch(() => {});
+    await alert({ job: "Data refresh", step: WHOLE_RUN, error: err }); // (2026-11-17) the founders are told in ClickUp (lib/alerts.js); it never throws
     return res.status(500).json({ error: "The numbers' update failed. The last numbers stay." });
   }
 }
