@@ -329,7 +329,7 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
 // What's wrong first (one line: the year's gap, payments to log, rows to check), then the four balance
 // tiles (the Money card's Accounting tab), then Stripe against the sheet by month with a This year row
 const cents2 = (x) => Math.round(x * 100) / 100;
-function AcctOverview({ d, onSec }) {
+export function AcctOverview({ d, onSec }) {
   const t = d.tiles, month = monthName(d.month), M = d.months;
   // a month with no rows yet says so, instead of "$0.00 in · $0.00 out" (list A 8)
   const monthEmpty = !t.monthRevenue && !t.monthExpenses;
@@ -346,7 +346,11 @@ function AcctOverview({ d, onSec }) {
   const coveredText = covered ? `the sheet counts ${money(covered)} of co-managers' share of Stripe's fees (Stripe Fees tab)` : "";
   const checkRow = new Set((d.toCheck?.items || []).map((x) => x.row).filter(Boolean)); // rows with an open To check line
   const diffText = (v) => (v ? money(v).replace("$-", "-$") : "—");
-  const clean = yr && !yr.diff && !nLog && !nCheck;
+  // (2026-11-18) a difference on rows marked OK in To check is accepted, like rounding and the co-managers' fees the sheet counts: okAmount (Stripe minus the sheet) is
+  // the part of the year's difference on those rows, okRows how many (lib/accounting-checks.js acceptedOf). Only when nothing else is left is the year matched
+  const okAmt = cents2(d.toCheck?.okAmount || 0), okN = d.toCheck?.okRows || 0;
+  const okText = okAmt ? `${money(Math.abs(okAmt))} on ${okN === 1 ? "1 row" : `${okN} rows`} you marked OK` : "";
+  const clean = yr && !cents2(yr.diff - okAmt - rounding) && !nLog && !nCheck;
   const fold = foldMonths(M || [], { current: d.month });
   const [unfold, setUnfold] = useState(false); // the matching months' own rows, opened from the fold line
   const monthRow = (m) => (
@@ -372,12 +376,13 @@ function AcctOverview({ d, onSec }) {
     <>
       {yr && (
         <p className={clean ? "acct-status ok" : "acct-status"} data-acct-status>
-          {clean ? <><CheckCircle2 size={15} /> <span>Stripe and the sheet match for {d.year}{covered ? <span className="acct-round" data-status-covered> · {coveredText}</span> : null}.</span></> : (
+          {clean ? <><CheckCircle2 size={15} /> <span>Stripe and the sheet match for {d.year}{okText ? <span className="acct-round" data-status-ok> · {okText}</span> : null}{rounding ? <span className="acct-round" data-status-rounding> · {money(Math.abs(rounding))} is rounding</span> : null}{covered ? <span className="acct-round" data-status-covered> · {coveredText}</span> : null}.</span></> : (
             <><AlertTriangle size={15} /> <span>{yr.diff ? `${money(Math.abs(yr.diff))} apart for ${d.year}` : `Stripe and the sheet add up the same for ${d.year}`}
               {nLog > 0 && <>: {nLog === 1 ? "1 payment" : `${nLog} payments`} to log <span className="nobr">(<button className="inline-link" data-status-log onClick={() => onSec("log")}>log {nLog === 1 ? "it" : "them"}</button>)</span></>}
               {nCheck > 0 && <>{nLog ? " · " : ": "}{nCheck === 1 ? "1 row" : `${nCheck} rows`} to check <span className="nobr">(<button className="inline-link" data-status-check onClick={() => onSec("check")}>see why</button>)</span></>}
-              {rounding ? <span className="acct-round">{nLog || nCheck ? " · " : ": "}{money(Math.abs(rounding))} is rounding</span> : null}
-              {covered ? <span className="acct-round" data-status-covered>{nLog || nCheck || rounding ? " · " : ": "}{coveredText}</span> : null}.</span></>
+              {okText ? <span className="acct-round" data-status-ok>{nLog || nCheck ? " · " : ": "}{okText}</span> : null}
+              {rounding ? <span className="acct-round" data-status-rounding>{nLog || nCheck || okText ? " · " : ": "}{money(Math.abs(rounding))} is rounding</span> : null}
+              {covered ? <span className="acct-round" data-status-covered>{nLog || nCheck || okText || rounding ? " · " : ": "}{coveredText}</span> : null}.</span></>
           )}
         </p>
       )}

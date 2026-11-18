@@ -1,33 +1,37 @@
 // Runs once a day (vercel.json "crons"): pulls the sheet onto the site so a
 // change typed straight into the sheet shows up without anyone signed in,
 // gives a writer tab that's running out of song rows more of them (lib/sheet-rows.js),
-// puts a roster artist's new releases on the site and the pub sheet with the assumed split (lib/auto-add.js),
 // looks up a few missing ISRCs (and the A&R artists' Deezer pages), keeps the ClickUp tasks the dashboard
-// owns ("Log new payments", one per area) up to date, and reads each client's manager off the
-// accounting sheet's INFO tab (roles: a Co-manager limited to their own artists). Vercel sends
+// owns ("Log new payments", one per area) up to date, reads each client's manager off the
+// accounting sheet's INFO tab (roles: a Co-manager limited to their own artists) and, LAST, puts a roster artist's
+// new releases on the site and the pub sheet with the assumed split (lib/auto-add.js). Vercel sends
 // Authorization: Bearer $CRON_SECRET; without that secret set, this refuses
 // to run at all. (2026-11-17) A step that went wrong, the data refresh not having run for 26 hours and the Monday digest not having
 // posted are told to the founders in ClickUp once the report is saved (lib/alerts.js), and so is a run that throws.
+// (2026-11-18) The auto-add is last: it is the one step that can spend a lot of Google's per-minute Sheets quota (seven reads a song), and on
+// Nov 18 it used up the minute before the sheet pull and the managers read, which failed. The core steps get the quota first; whatever the
+// auto-add can't finish waits for tomorrow (lib/auto-add.js). A Sheets request that Google turns away for the quota waits and tries again
+// (lib/sheets.js), but never past 45 seconds into this run (the whole run has 60).
 import { sql } from "../../../lib/db";
 import { syncSiteFromSheet } from "../../../lib/site-sync";
 import { setState } from "../../../lib/app-state";
 import { lookupIsrc } from "../../../lib/isrc";
 import { refreshDeezer, refreshArIsrcs } from "../../../lib/ar-deezer";
-import { normalizeTitle } from "../../../lib/sheets";
+import { normalizeTitle, withSheetsDeadline } from "../../../lib/sheets";
 import { notifyClickUp } from "../../../lib/clickup";
 import { checkClickUpTasks } from "../../../lib/money";
 import { refreshManagers } from "../../../lib/access";
 import { keepRoom } from "../../../lib/sheet-rows";
 import { runPeopleLink } from "../../../lib/people-link";
 import { runAutoAdds } from "../../../lib/auto-add";
-import { alert, alertDaily, WHOLE_RUN } from "../../../lib/alerts";
+import { alert, alertDaily, plainWhy, WHOLE_RUN } from "../../../lib/alerts";
 
 // the sheet pull plus the Stripe read behind the ClickUp tasks (see pages/api/home.js)
 export const config = { maxDuration: 60 };
 
 // every step below is in its own try, so what can still throw here is the report's save: it is said, not left to Vercel's own 500
 export default async function handler(req, res) {
-  try { return await run(req, res); } catch (err) {
+  try { return await withSheetsDeadline(Date.now() + 45000, () => run(req, res)); } catch (err) {
     console.error("daily cron failed:", err);
     await alert({ job: "Daily update", step: WHOLE_RUN, error: err });
     if (!res.headersSent) return res.status(500).json({ error: "The daily update didn't finish." });
@@ -48,18 +52,13 @@ async function run(req, res) {
     const r = await keepRoom({ budgetMs: 15000 });
     report.rows = { extended: r.extended, refused: r.refused, failed: r.failed, later: r.later, fewest: [...r.room].filter((x) => x.free != null).sort((a, b) => a.free - b.free)[0] || null };
     const trouble = [...r.refused.map((x) => x.reason), ...r.failed.map((x) => `${x.tab}: ${x.error}`), ...r.extended.filter((x) => x.alarm).map((x) => x.alarm)];
-    if (trouble.length && String(process.env.CLICKUP_ALERTS ?? "").trim().toLowerCase() === "on") await notifyClickUp(`**Pub sheet rows**: ${trouble.join(" ")}\n[Open dashboard](https://www.defiedmgmt.com/dashboard/site/sync)`);
+    if (trouble.length && String(process.env.CLICKUP_ALERTS ?? "").trim().toLowerCase() === "on") await notifyClickUp(`**Pub sheet rows**: ${trouble.map(plainWhy).join(" ")}\n[Open dashboard](https://www.defiedmgmt.com/dashboard/site/sync)`);
   } catch (err) { report.rowsError = err.message; }
-
-  // (2026-11-17) a roster artist's new release goes on the site and on the pub sheet by itself, with the assumed split (lib/auto-add.js;
-  // AUTO_ADD_SONGS=off stops it). Before the pull, so the pull reads the new rows back. It stops at the first thing that goes wrong and
-  // says so in the report; whatever it does never keeps the rest of tonight's run from going. 15 s at most, like the rows above (the whole cron has 60)
-  try { report.autoAdd = await runAutoAdds({ budgetMs: 15000 }); } catch (err) { report.autoAddError = err.message; }
 
   try { report.sync = await syncSiteFromSheet(); } catch (err) {
     report.syncError = err.message;
     // r11 launch: posting to ClickUp's Dashboard Alerts chat is its own gate (off by default)
-    if (String(process.env.CLICKUP_ALERTS ?? "").trim().toLowerCase() === "on") await notifyClickUp(`**Nightly sync failed**: ${err.message}\nThe site's numbers weren't refreshed tonight. [Open dashboard](https://www.defiedmgmt.com/dashboard)`);
+    if (String(process.env.CLICKUP_ALERTS ?? "").trim().toLowerCase() === "on") await notifyClickUp(`**Nightly sync failed**: ${plainWhy(err.message)}\nThe site's numbers weren't refreshed tonight. [Open dashboard](https://www.defiedmgmt.com/dashboard)`);
   }
 
   // up to 60 songs a night that have no ISRC yet and weren't looked up in the last 2 weeks: a sure hit
@@ -117,6 +116,13 @@ async function run(req, res) {
   // "Log new payments" and the Publishing, A&R and Money tasks (one stored task each), written only with
   // CLICKUP_TASK_WRITES=on
   try { report.clickupTasks = await checkClickUpTasks({ force: true }); } catch (err) { report.clickupTasksError = err.message; }
+
+  // (2026-11-17) a roster artist's new release goes on the site and on the pub sheet by itself, with the assumed split (lib/auto-add.js;
+  // AUTO_ADD_SONGS=off stops it). (2026-11-18) Last, so the steps above had Google's per-minute quota first: it first finishes the pub
+  // sheet rows an earlier night left undone, then adds new songs, at most 40 estimated reads in all. The new rows are read back by tomorrow's
+  // pull. It stops at the first thing that goes wrong and says so in the report; whatever it does never keeps the report from being saved.
+  // 15 s at most, and never past 50 s into the run (the whole cron has 60: what is left of it after the steps above)
+  try { report.autoAdd = await runAutoAdds({ budgetMs: Math.min(15000, 50000 - (Date.now() - t0)) }); } catch (err) { report.autoAddError = err.message; }
   await setState("cron", report);
   await alertDaily(report); // after the save, so a slow ClickUp can't cost the report; it never throws and waits 8 s at the most
   return res.status(200).json(report);

@@ -94,7 +94,7 @@ export function DigestPreview() {
       )}
       {d.personal.sections.length ? <DigestBlock d={d.personal} label={`${d.personal.user?.name ? `${d.personal.user.name}'s` : "Your"} digest (a ClickUp direct message)`} />
         : <p className="hint" data-dg-no-personal>No personal digest: it holds A&R trackers, and this account has no A&R.</p>}
-      {me && !me.getsPersonal && <p className="hint">Personal digests are opt-in: nobody gets one unless DIGEST_PERSONAL_TO names them ("all", or names or emails).</p>}
+      {me && !me.getsPersonal && <p className="hint" data-dg-personal-off={d.personalOn ? undefined : ""}>{d.personalOn ? 'Personal digests are opt-in: nobody gets one unless DIGEST_PERSONAL_TO names them ("all", or names or emails).' : "Personal digests are switched off (DIGEST_PERSONAL), so nobody gets one."}</p>}
     </div>
   );
 }

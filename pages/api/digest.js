@@ -4,7 +4,7 @@
 // the list of people and what this week's run did for each (digest_runs). Reads only; nothing is sent here.
 import { requireAccess } from "../../lib/access";
 import { sql } from "../../lib/db";
-import { buildTeamDigest, buildPersonalDigest, messageOf, teamMessageOf, digestWritesOn, digestWeek, personalPeople } from "../../lib/digest";
+import { buildTeamDigest, buildPersonalDigest, messageOf, teamMessageOf, digestWritesOn, digestPersonalOn, digestWeek, personalPeople } from "../../lib/digest";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ error: "GET only." });
@@ -27,11 +27,12 @@ export default async function handler(req, res) {
       week: digestWeek(now), writesOn: digestWritesOn(), schedule: "Mondays, 9 AM New York time",
       // the team digest is ONE ClickUp message (2026-11-16; it was two)
       team: { ...team, text: teamMessageOf(team), channelSet: !!String(process.env.DIGEST_CHANNEL_ID || "").trim() },
-      personal: { ...personal, text: personal.sections.length ? messageOf(personal) : "" },
+      personal: { ...personal, text: personal.sections.length ? messageOf(personal) : "" }, personalOn: digestPersonalOn(),
     };
     if (founder) {
       const users = await sql`SELECT id, email, name FROM users WHERE role = 'staff' AND email IS NOT NULL AND password_hash IS NOT NULL ORDER BY name`;
-      const getting = new Set(personalPeople(users).map((u) => u.id));
+      // (2026-11-18) with DIGEST_PERSONAL off nobody gets one, whoever DIGEST_PERSONAL_TO names
+      const getting = new Set((digestPersonalOn() ? personalPeople(users) : []).map((u) => u.id));
       let runs = [];
       try { runs = await sql`SELECT id, kind, user_id, status, error, created_at FROM digest_runs WHERE week = ${out.week}`; } catch (err) { if (err?.code !== "42P01") throw err; }
       out.people = users.map((u) => ({ id: u.id, name: u.name || u.email, getsPersonal: getting.has(u.id), thisWeek: runs.find((r) => r.user_id === u.id) || null }));
