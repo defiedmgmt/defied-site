@@ -1,5 +1,7 @@
 // The automated numbers' second daily cron (vercel.json, two hours after /api/cron/data): collects the
 // Apify runs the webhook didn't, and starts nothing new. Same CRON_SECRET check.
+// (2026-11-18) It also runs the credits scan (lib/credits/scan.js, 25 s at most): the new releases of the artists our clients work with, checked against Apple Music and
+// YouTube credits. What it finds only appears in To do as possible placements; it never adds a song.
 import { tick } from "../../../lib/data/engine";
 import { afterDataCron } from "../../../lib/ar/tracker-sheet";
 import { setState } from "../../../lib/app-state";
@@ -15,6 +17,9 @@ export default async function handler(req, res) {
     const report = await tick({ step: "collect" });
     // r11: the A&R sheet's Watchlist with the new numbers, and the Log's Expired lines (AR_TRACKER_SHEET_WRITES only)
     report.arSheet = await afterDataCron().catch((err) => ({ error: String(err?.message || err).slice(0, 200) }));
+    // (2026-11-18) the credits scan, in a try of its own (loaded when it runs): whatever happens in it is only a line in this report and never touches the rest of the run.
+    // CREDITS_SCAN=off stops it; APPLE_CREDITS=off stops its Apple part
+    try { report.credits = await (await import("../../../lib/credits/scan")).runCredits({ budgetMs: 25000 }); } catch (err) { report.creditsError = String(err?.message || err).slice(0, 200); }
     // kept like the daily cron's report (app_state "cronDataCollect"): the last run and its errors stay readable after
     // the response is gone. Not saving it never fails a run that worked
     await setState("cronDataCollect", report).catch((err) => console.error("data collect cron report not saved:", err));

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Disc3 } from "lucide-react";
 import { songSplit } from "../../lib/splits";
 import { songGaps } from "../../lib/sheet-facts";
-import { likelyDuplicates, plainTitle } from "../../lib/duplicates";
+import { likelyDuplicates, plainTitle, songOnSite } from "../../lib/duplicates";
 import { shareFixesOf, splitsToConfirm } from "./catalog-data";
 import { fmt, splitTotal, useEscape } from "./ui";
 
@@ -188,6 +188,15 @@ export function autoAddedOf(db, songInfo) {
   return (songInfo?.autoAdded || []).filter((x) => byId.has(x.placementId))
     .map((x) => ({ id: x.id, p: byId.get(x.placementId), client: (db.clients || []).find((c) => c.id === byId.get(x.placementId).clientId) || null }))
     .sort((a, b) => String(b.p.releaseDate || "").localeCompare(String(a.p.releaseDate || "")) || String(a.p.song || "").localeCompare(String(b.p.song || "")));
+}
+// (2026-11-18) The possible placements the credits scan found (lib/credits/scan.js) that nobody has said Add or Not ours to, whose song isn't on the site for that
+// client yet (To do's "N possible placements"): songInfo.possible (GET /api/songs), each with its client. The newest release first (the server sends them so).
+// Nothing while the songs' facts aren't loaded. Nothing here adds a song: that is the Add button, one song at a time.
+// (an entry whose song is on the site is left out: lib/duplicates.js songOnSite, the rule the server's count uses, lib/area-tasks.js)
+export function possibleOf(db, songInfo) {
+  const isrcOf = (id) => songInfo?.tracking?.[id]?.isrc || "";
+  return (songInfo?.possible || []).filter((x) => !songOnSite({ clientId: x.clientId, spotifyId: x.spotifyId, isrc: x.isrc, title: x.song }, db.placements, isrcOf))
+    .map((x) => ({ ...x, clientName: x.client, client: (db.clients || []).find((c) => c.id === x.clientId) || null }));
 }
 // Two cards that look like the same song (build H1, lib/duplicates.js): only once each song's facts are in (the ISRCs
 // and the pairs staff marked "Not the same song" come with it), and only for clients whose tab the last pull read

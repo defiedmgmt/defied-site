@@ -26,6 +26,7 @@ const SubsAdmin = panel(() => import("./admin"), "SubsAdmin");
 const DupeMerge = panel(() => import("./catalog"), "DupeMerge");
 const SongsToUpdate = panel(() => import("./catalog"), "SongsToUpdate");
 const AutoAddedList = panel(() => import("./catalog"), "AutoAddedList");
+const PossibleList = panel(() => import("./catalog"), "PossibleList");
 const SplitsToFix = panel(() => import("./catalog"), "SplitsToFix");
 const SongManager = panel(() => import("../portal/ClientPortal"), "SongManager");
 const TrueUpPanel = panel(() => import("../TrueUp"), "TrueUpPanel"); // TRUEUP-HOOK: the monthly Luminate true-up
@@ -80,6 +81,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
   const { db, commit, onGo } = ctx;
   switch (it.panel) {
     case "splits": case "update": case "dupes": case "autoAdded": return <PubFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
+    case "possible": return <PubFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
     case "shareSite": case "shareSheet": return <ShareFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
     case "tabs": return <SheetTabFix ctx={ctx} />;
     case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log" && viaCta} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
@@ -94,7 +96,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
   }
 }
 
-// Publishing's lists in place: Splits to confirm, Songs to update, the merge card and (2026-11-17) the songs added automatically.
+// Publishing's lists in place: Splits to confirm, Songs to update, the merge card, (2026-11-17) the songs added automatically and (2026-11-18) the possible placements.
 // Fix / Update / Edit open the song's editor right here (SongManager's own editor, nothing else of the client's page)
 // (Merge, the row's button, opens the merge card at once; the sentence or a link shows the line with Review)
 function PubFix({ kind, ctx, viaCta = false }) {
@@ -112,6 +114,7 @@ function PubFix({ kind, ctx, viaCta = false }) {
       {kind === "splits" && <SplitsToFix db={db} commit={commit} reloadDb={reloadDb} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} onGo={onGo} dupes={dupes} onDupe={openDupe} />}
       {kind === "update" && <SongsToUpdate db={db} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} dupes={dupes} onDupe={openDupe} />}
       {kind === "autoAdded" && <AutoAddedList db={db} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} />}
+      {kind === "possible" && <PossibleList db={db} songInfo={songInfo} reloadSongInfo={reloadSongInfo} reloadDb={reloadDb} />}
       {kind === "dupes" && (dupes.length
         ? <p className="pub-tasks dupe-line" data-dupe-line>{dupeWords(dupes)} · <button className="inline-link" data-dupe-review onClick={openDupe}>Review</button></p>
         : <p className="home-muted acct-clear"><CheckCircle2 size={15} /> No possible duplicates left.</p>)}

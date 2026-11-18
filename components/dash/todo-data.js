@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { endingWords } from "../ar/fmt";
 import { autoConfirms, autoWords } from "../../lib/split-fixes";
 import { fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
-import { autoAddedOf, dashTasks, dupeIds, songsToUpdate } from "./helpers";
+import { autoAddedOf, dashTasks, dupeIds, possibleOf, songsToUpdate } from "./helpers";
 import { money } from "./ui";
 import { songsWithoutIsrc } from "./isrc-data";
 import { cuCache, syncCache } from "../shared/dash-caches";
@@ -71,6 +71,10 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   // (2026-11-17) the songs lib/auto-add.js put on the site and the pub sheet by themselves, with the assumed split: each one checked here (Edit, or OK)
   const nAuto = autoAddedOf(db, songInfo).length;
   if (nAuto) out.push({ k: "autoAdded", area: "roster", t: `${nAuto} song${nAuto === 1 ? "" : "s"} added automatically — check the splits`, d: "Assumed splits, already on the pub sheet. Edit one to change it, or press OK.", cta: "Check", panel: "autoAdded", rank: { kind: "fix", value: 0 } });
+  // (2026-11-18) the possible placements the credits scan found (our clients credited on a new release): they only appear here. Add puts one on the site and the pub sheet with the
+  // assumed split, Not ours dismisses it for good; nothing is added by itself
+  const nPossible = possibleOf(db, songInfo).length;
+  if (nPossible) out.push({ k: "possible", area: "roster", t: `${nPossible} possible placement${nPossible === 1 ? "" : "s"}`, d: "Our clients credited on new releases (Apple Music, YouTube). Add one with the assumed split, or say it isn't ours.", cta: "Review", panel: "possible", rank: { kind: "fix", value: 0 } });
   // (r7) the shares with one clear answer: One tap, each with its preview first (ShareFix)
   const fx = shareFixesOf(db);
   const few = (xs) => (xs.length > 3 ? `${xs.slice(0, 2).map((x) => x.p.song || "Untitled").join(", ")} and ${xs.length - 2} more` : xs.map((x) => `${x.p.song || "Untitled"} (${x.client.name})`).join(", "));

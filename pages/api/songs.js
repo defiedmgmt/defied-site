@@ -1,6 +1,7 @@
 // Each song's extra facts (lib/song-info.js): GET returns them; POST takes one { action, ... }: an ISRC
 // typed in or picked, the ISRC finder run on a few songs, "This isn't ours", "Not the same song", and
-// (2026-11-17) "Not on streaming" for one song and "OK" on a song added automatically (lib/auto-add.js).
+// (2026-11-17) "Not on streaming" for one song and "OK" on a song added automatically (lib/auto-add.js), and
+// (2026-11-18) "Add" and "Not ours" on a possible placement (lib/credits/add.js: the only way one becomes a song).
 // Publishing only. (Luminate's page had these until list B #3; the ISRC lookups stayed.)
 import { sql } from "../../lib/db";
 import { requireSameOrigin } from "../../lib/session";
@@ -67,9 +68,14 @@ const checkAutoAdded = (id) => sql`
 async function act(body, ctx) {
   const { action } = body;
   if (action === "notOnStreaming") return setNotOnStreaming(body, ctx);
+  // (2026-11-18) a possible placement from the credits scan (lib/credits): Add puts it on the site and the pub sheet with the assumed split, Not ours keeps it
+  // from ever being suggested again. The same permission as OK below: Publishing staff, not an account limited to its own artists (the list is every artist's)
+  // (loaded when used: Add reaches the pub sheet's code, which the rest of this route never needs)
+  if (action === "possibleAdd") return (await import("../../lib/credits/add")).addPossible({ key: body.key, by: ctx.session?.user?.name || ctx.session?.user?.email || "" });
+  if (action === "possibleNotOurs") return (await import("../../lib/credits/add")).dismissPossible({ key: body.key });
   if (action === "autoChecked") {
-    // the Spotify track ids that key autoAdded (22 letters and digits)
-    const list = [...new Set(ids(body.ids).filter((x) => /^[A-Za-z0-9]{22}$/.test(x)))];
+    // the Spotify track ids that key autoAdded (22 letters and digits; a song added for a second client on one release is "<id>:<client id>")
+    const list = [...new Set(ids(body.ids).filter((x) => /^[A-Za-z0-9]{22}(?::[A-Za-z0-9_-]{1,40})?$/.test(x)))];
     if (!list.length) return [400, { error: "Pick the song first." }];
     await sql.transaction(list.map(checkAutoAdded));
     return [200, { ok: true }];

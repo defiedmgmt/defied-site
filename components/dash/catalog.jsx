@@ -9,7 +9,7 @@ import { mergedCard, mergedTitle } from "../../lib/duplicates";
 import { PhoneSort } from "../ui/responsive";
 import { NAME_TAKEN, clientDeleteAsk, deleteClientCascade, nameTaken } from "./clients";
 import { WowPill } from "./chips";
-import { GAP_WORDS, WEEK_PCT_MIN, autoAddedOf, dayRange, dupeName, shortDay, songsPost, songsToUpdate, useGrowthState } from "./helpers";
+import { GAP_WORDS, WEEK_PCT_MIN, autoAddedOf, dayRange, dupeName, possibleOf, shortDay, songsPost, songsToUpdate, useGrowthState } from "./helpers";
 import { canUse } from "./access";
 import { Avatar, DropNote, Field, PctInput, fmt, landOn, money, revealChip, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "./ui";
 import { NotOursAsk, SongManager, noSheetTab, pushShare, releaseDay } from "../portal/ClientPortal";
@@ -423,6 +423,64 @@ export function AutoAddedList({ db, songInfo, reloadSongInfo, onFix }) {
               </span>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// (2026-11-18) To do's "N possible placements": our clients credited on a new release, from Apple Music or YouTube credits (lib/credits/scan.js). Nothing here is on the
+// site until someone presses Add: it puts the song on the site and the pub sheet with the assumed split (POST /api/songs { action: "possibleAdd" }, one song), and the
+// song then also shows under "songs added automatically" to check the splits. Not ours (possibleNotOurs) dismisses it for good, for that client. Each row says why it
+// matched: where the credit was read, its role, and the name as shown. A row goes at once and comes back with the reason if the save doesn't go through.
+// `gone`: the rows answered here, until the songs' facts are read again.
+const POSSIBLE_SOURCE = { apple: "Apple Music credits", youtube: "YouTube credits" };
+const POSSIBLE_HOW = { name: "the client's name", "name without Prod": "the client's name without Prod.", "staff alias": "a staff alias" };
+export function PossibleList({ db, songInfo, reloadSongInfo, reloadDb }) {
+  const [gone, setGone] = useState(() => new Set());
+  const [busy, setBusy] = useState(null);
+  const [err, setErr] = useState(null);
+  const list = useMemo(() => possibleOf(db, songInfo).filter((x) => !gone.has(x.key)), [db, songInfo, gone]);
+  useEffect(() => { setGone((d) => (d.size ? new Set() : d)); }, [songInfo]);
+  const answer = async (x, action, said) => {
+    setErr(null);
+    setBusy(x.key);
+    try {
+      await songsPost({ action, key: x.key });
+      setGone((d) => new Set(d).add(x.key));
+      if (action === "possibleAdd") await reloadDb?.(); // the song is on the site now, made by the server: the page's copy of the songs is read again
+      await reloadSongInfo?.();
+    } catch (e) {
+      // the song is on the site but its pub sheet row isn't written: it is Songs to update's now, so the row goes
+      if (e.data?.added) { setGone((d) => new Set(d).add(x.key)); await reloadDb?.(); await reloadSongInfo?.(); }
+      setErr(`${said} "${x.song || "Untitled"}": ${e.message}`);
+    } finally { setBusy(null); }
+  };
+  return (
+    <div className="fix-panel" data-sec="possible">
+      <div className="fix-head">
+        <h3>{list.length ? `Possible placements (${list.length})` : "Possible placements"}</h3>
+        <span className="hint">{list.length ? "Our clients credited on new releases. Nothing is added until you press Add." : "Nothing left to look at."}</span>
+      </div>
+      {err && <p className="hint err-text" role="alert" data-possible-err>{err}</p>}
+      {list.length > 0 && (
+        <div className="fix-group" data-group="possible">
+          {list.map((x) => {
+            const who = x.client?.name || x.clientName || "A deleted client";
+            return (
+              <div className="fix-row" key={x.key} data-possible={x.key} data-client={x.clientId}>
+                <span className="fix-song fix-sentence"><span className="fix-who">{who}</span> on “{x.song || "Untitled"}”{x.artist ? ` · ${x.artist}` : ""}{x.releaseDate ? ` (${shortDay(x.releaseDate)})` : ""} — found in {POSSIBLE_SOURCE[x.source] || "the credits"}</span>
+                <span className="fix-mid">
+                  <span className="fix-words" data-why>{POSSIBLE_SOURCE[x.source] || "Credits"}: {x.roles?.length ? x.roles.join(", ") : "Credited"} — "{x.credit}"{x.alias ? ` · matches ${POSSIBLE_HOW[x.via] || "the client's name"} "${x.alias}"` : ""}</span>
+                  <ExtLink href={`https://open.spotify.com/track/${x.spotifyId}`} className="inline-link" title="Open the song on Spotify">Spotify</ExtLink>
+                </span>
+                <span className="fix-acts">
+                  <button type="button" className="btn ghost sm" data-possible-notours disabled={busy === x.key} onClick={() => answer(x, "possibleNotOurs", "Couldn't mark")}>Not ours</button>
+                  <button type="button" className="btn sm" data-possible-add disabled={busy === x.key} onClick={() => answer(x, "possibleAdd", "Couldn't add")}>{busy === x.key ? "Adding…" : "Add"}</button>
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

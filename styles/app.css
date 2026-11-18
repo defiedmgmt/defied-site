@@ -2093,6 +2093,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
    words start at the same x */
 .app:not(.pub) .fix-group[data-group] .fix-mid{grid-column:1 / -1;grid-row:2;min-width:0;display:flex;flex-wrap:wrap;gap:2px 10px}
 .app:not(.pub) .fix-group[data-group] .fix-words{white-space:normal;overflow:visible}
+.app:not(.pub) .fix-group[data-group=possible] .fix-sentence{white-space:normal;overflow:visible}   /* "Chxse on “Song” · Artist (Nov 14) — found in Apple Music credits" wraps, never cut off */
 .app:not(.pub) .fix-sheet{color:var(--d-warn);font-size:12.5px;font-variant-numeric:tabular-nums}
 .app:not(.pub) .fix-sheet.tabless{color:var(--d-ink-3)}
 .app:not(.pub) .fix-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
