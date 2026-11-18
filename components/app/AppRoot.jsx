@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
-import { ACCOUNT_CHANGED, SAVE_OFFLINE, SIGNED_OUT, SONGS_ADDED, accountChanged, addedSince, applyPatch, diffDb, holdUnload, inTabOrder, knownIds, refusal, saveFailure, saveKeys, withServerRows, withoutPasswords } from "./saves";
+import { CheckCircle2 } from "lucide-react";
+import { ACCOUNT_CHANGED, SAVE_NOTE_MS, SAVE_OFFLINE, SIGNED_OUT, accountChanged, addedNote, applyPatch, diffDb, holdUnload, inTabOrder, knownIds, refusal, saveFailure, saveKeys, withServerRows, withoutPasswords } from "./saves";
 import { clearDashCaches } from "../shared/dash-caches";
 import { ROUTE_TO_PATH, routeOf } from "../shared/routes";
 import { useRevealOnScroll, vtWillRun } from "../shared/ui";
@@ -72,6 +73,7 @@ export default function AppRoot({ Component, pageProps }) {
   const pubStale = useRef(false); // set by a dashboard save
   const [menuOpen, setMenuOpen] = useState(false);
   const [loadErr, setLoadErr] = useState(null); // the dashboard's own load / save errors
+  const [saveNote, setSaveNote] = useState(null); // (2026-11-18) the quiet line after a save that brought in rows added meanwhile (addedNote): gone after SAVE_NOTE_MS, or when the next save starts
   const [signIns, setSignIns] = useState(0); // each sign-in reloads its data, even as the same account
   const signedInHere = useRef(false); // login() is already on its way to the dashboard
   const [pubErr, setPubErr] = useState(null); // the public pages' data
@@ -148,6 +150,7 @@ export default function AppRoot({ Component, pageProps }) {
     const s = saves.current;
     s.gen++; s.server = null;
     setLoadErr(null); // the last account's banner isn't this one's
+    clearTimeout(s.noteTimer); setSaveNote(null); // nor its note
     setDb(null); // nor its data: "Loading…" until this account's own copy lands
     if (!session) return;
     let alive = true;
@@ -181,6 +184,7 @@ export default function AppRoot({ Component, pageProps }) {
     const patch = diffDb(base, next);
     if (!patch) return Promise.resolve(next);
     const s = saves.current, gen = s.gen;
+    clearTimeout(s.noteTimer); setSaveNote(null); // the last save's note goes when the next one starts
     setDb((cur) => (cur === base ? next : cur && applyPatch(cur, patch)));
     // leaving now would drop it: the browser asks first while anything is unsaved
     s.pending++;
@@ -213,10 +217,12 @@ export default function AppRoot({ Component, pageProps }) {
         }).catch(() => null);
         if (!res?.ok) throw new Error(saveFailure(res, res && await res.json().catch(() => null), "Save failed.", fresh.role));
         // (2026-11-18) the server answers with the songs and notable releases as it holds them now: what it kept that this tab's copy didn't
-        // have comes into view, and the notice says so
+        // have comes into view, and a quiet note (not the error banner: it's a success) says how many, for a few seconds
         const reply = await res.json().catch(() => null);
         s.server = saved = withoutPasswords(withServerRows(merged, reply));
-        if (!s.failed) setLoadErr(addedSince(reply) ? SONGS_ADDED : null);
+        if (!s.failed) setLoadErr(null);
+        const note = addedNote(reply);
+        if (note && gen === s.gen) { setSaveNote(note); clearTimeout(s.noteTimer); s.noteTimer = setTimeout(() => setSaveNote(null), SAVE_NOTE_MS); }
         // the public pages' copy is now out of date: refetch it when staff next open one
         pubStale.current = true;
         try { localStorage.removeItem(PUBLIC_CACHE_KEY); } catch { /* storage blocked */ }
@@ -401,6 +407,8 @@ export default function AppRoot({ Component, pageProps }) {
 
         {!inPortal && <Footer route={route} inert={menuOpen} />}
         {!inPortal && <Toast />}
+        {/* the dashboard's and the portal's toast spot: a save that brought in rows added meanwhile says how many, in the success strip's look */}
+        {inPortal && <div className="toast-wrap" aria-live="polite">{saveNote && <p className="hint del-note save-note"><CheckCircle2 size={14} /> <span>{saveNote}</span></p>}</div>}
       </div>
     </AppCtx.Provider>
   );

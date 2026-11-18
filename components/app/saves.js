@@ -100,9 +100,16 @@ export function withServerRows(merged, reply) {
   const back = Object.fromEntries(KNOWN.filter((k) => Array.isArray(reply?.fresh?.[k]) && Array.isArray(merged[k])).map((k) => [k, reply.fresh[k]]));
   return Object.keys(back).length ? inTabOrder({ ...merged, ...back }, merged) : merged;
 }
-// ...and says so when it left rows alone that this tab's copy didn't have (or this page sent no list of the ones it had: a page from before)
-export const SONGS_ADDED = "Saved. Some songs were added since you opened this page — reload to see them.";
-export const addedSince = (reply) => !!reply && (reply.stale === true || Object.values(reply.kept || {}).some((n) => n > 0));
+// ...and says how many rows it left alone that this tab's copy didn't have (added meanwhile: they came in with the lists above). That is a success,
+// so it is a quiet line for SAVE_NOTE_MS (never the error banner), or null when there were none. (`stale` is for a page from before, which sends no
+// knownIds and can't read an answer: this page always sends them)
+export const SAVE_NOTE_MS = 6000;
+export function addedNote(reply) {
+  const n = (k) => { const v = reply?.kept?.[k]; return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0; };
+  const parts = [[n("placements"), "song"], [n("notableReleases"), "notable release"]].filter(([c]) => c);
+  const total = parts.reduce((a, [c]) => a + c, 0);
+  return total ? `Saved. ${parts.map(([c, w]) => `${c} ${w}${c === 1 ? "" : "s"}`).join(" and ")} added since you opened this page ${total === 1 ? "is" : "are"} now in your list.` : null;
+}
 const TOO_BIG = "That's too much to save — the photos and covers are over the size limit. Remove or shrink some images and try again.";
 // a client can't shrink the photos and covers that fill the data, only the Defied team can
 const TOO_BIG_CLIENT = "Your change couldn't be saved right now — please let the Defied team know.";

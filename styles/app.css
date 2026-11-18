@@ -2061,6 +2061,9 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) p.hint.del-note svg{flex:none;margin-top:3px;color:var(--d-pos)}
 .app:not(.pub) p.hint.del-note.warn{border-color:var(--d-warn-line);background:var(--d-warn-bg);color:var(--d-ban-warn-ink)}
 .app:not(.pub) p.hint.del-note.warn svg{color:var(--d-warn)}
+/* the note after a save that brought in rows added meanwhile (components/app/AppRoot.jsx): the success strip's look, floating where the toasts do so nothing
+   under it moves, over an opaque base (the strip's own tint is see-through) */
+.app:not(.pub) .toast-wrap p.hint.save-note{margin:0 16px;max-width:min(80ch,calc(100% - 32px));background:linear-gradient(var(--d-pos-bg),var(--d-pos-bg)),var(--d-s2);box-shadow:0 10px 30px rgba(0,0,0,.5);animation:toast-in .45s var(--spring) both}
 .app:not(.pub) .adv-out > .cat-summary{margin-top:20px}
 @media (min-width:1100px){
   .app:not(.pub) .adv-cols{display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:24px;align-items:start}

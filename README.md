@@ -317,9 +317,10 @@ never values.
   ids the page knew and left out, inside one transaction, so a song the nightly auto-add, the sheet sync or another person added in the
   meantime stays. A page from before (no `knownIds`) has its rows written and nothing deleted, and the answer says `stale: true`. The
   answer carries the lists as the database holds them now (`fresh`) and how many rows it left alone (`kept`); the page takes them in and
-  says "Saved. Some songs were added since you opened this page — reload to see them." An account limited to its own artists, and a
-  client, can only change (and delete) their own artists' songs. Anything else that writes songs should do it by id
-  (`lib/placement-rows.js`), never "delete them all and insert them again".
+  says so quietly (a success: never the red error banner), in the toast spot in the success strip's look, for a few seconds or until its
+  next save: "Saved. 2 songs added since you opened this page are now in your list." (`addedNote` in `components/app/saves.js`). An
+  account limited to its own artists, and a client, can only change (and delete) their own artists' songs. Anything else that writes
+  songs should do it by id (`lib/placement-rows.js`), never "delete them all and insert them again".
 - Roster and team photos load from `https://www.defiedmgmt.com/assets/…`. Spotify covers come from `i.scdn.co`.
   Uploaded photos come from `*.public.blob.vercel-storage.com`. All three hosts are listed in `next.config.js`.
 - `next.config.js` holds the security headers, caching, redirects (`/staff` → `/team` and the pay.defiedmgmt.com links)
