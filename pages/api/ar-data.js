@@ -19,6 +19,7 @@ import { tabLink, getSheetId } from "../../lib/sheets";
 import { readSheetFacts } from "../../lib/sheet-facts-store";
 import { netStreamsOf } from "../../lib/sheet-facts";
 import { readPaces } from "../../lib/advance-pace";
+import { masterOverview } from "../../lib/sheet-cache";
 
 // The same net streams a client's page shows (components/App.jsx SongManager): the sheet's own figure
 // from the last pull (MASTER's writer table, build G3), else the estimate — each placement's streams ×
@@ -62,7 +63,12 @@ export function signedClientsFor(access, list) {
 async function withPace(list, runRate) {
   if (!list.length) return list;
   try {
-    const paces = await readPaces({ sql, clients: list, runRate: Number(runRate) || 0 });
+    // (review, 11-20) without the A&R read there's no B9 for the untracked songs: take it from the saved MASTER copy, and with none
+    // at all give no pace (the calculator then says it's an estimate) rather than a pace that leaves those songs out
+    let rr = Number.isFinite(Number(runRate)) && runRate != null ? Number(runRate) : null;
+    if (rr == null) rr = await masterOverview().then((o) => (Number.isFinite(Number(o?.v?.assumptions?.runRate)) ? Number(o.v.assumptions.runRate) : null)).catch(() => null);
+    if (rr == null) return list.map((c) => ({ ...c, pace: null }));
+    const paces = await readPaces({ sql, clients: list, runRate: rr });
     return list.map((c) => ({ ...c, pace: paces.get(c.id) ?? null }));
   } catch (err) {
     console.error("ar-data pace read failed:", err);
