@@ -2073,6 +2073,33 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .adv-out .cat-summary-grid:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 .app:not(.pub) .adv-empty{margin:20px 0 0;padding:16px;border:1px dashed var(--d-line-3);border-radius:var(--d-r-md);color:var(--d-ink-3);font-size:13.5px;max-width:560px}
+/* Advance calculator (2026-11-20): the verdict pill, the where-it-comes-from note and its warning, the options ladder, the amount check, the year
+   ledgers and "How we got these numbers". Colours come from the [data-tone] hooks above (pos / warn / neg / neutral); only width, style and shape here */
+.app:not(.pub) .adv-pill{display:inline-flex;align-self:flex-start;align-items:center;min-height:22px;padding:2px 9px;border-width:1px;border-style:solid;border-radius:100px;font:600 12px/1.25 var(--d-body);white-space:nowrap}
+.app:not(.pub) .adv-stat-sub{font-size:12px;line-height:1.35;color:var(--d-ink-4)}
+.app:not(.pub) p.adv-source{margin:0}
+.app:not(.pub) p.adv-warn{margin:0;padding:10px 12px;border-width:1px;border-style:solid;border-radius:var(--d-r-md);font-size:13px;line-height:1.5}
+.app:not(.pub) .adv-block{margin-top:16px;padding:14px 16px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card);min-width:0}
+.app:not(.pub) .adv-h{margin:0;font:600 14px/1.3 var(--d-body);letter-spacing:0;text-transform:none;color:var(--d-ink)}
+.app:not(.pub) .adv-ladder{width:100%;margin-top:6px;border-collapse:collapse;font-size:14px}
+.app:not(.pub) .adv-ladder th{padding:6px 8px;text-align:left;font:400 10px/1.35 var(--d-display);font-synthesis:none;letter-spacing:.12em;text-transform:uppercase;color:var(--d-ink-4)}
+.app:not(.pub) .adv-ladder td{padding:9px 8px;border-top:1px solid var(--d-line);font-variant-numeric:tabular-nums;vertical-align:middle}
+.app:not(.pub) .adv-ladder tr[data-chosen] td{background:var(--d-active);border-top-color:var(--d-line-2);font-weight:600;color:var(--d-ink)}
+.app:not(.pub) .adv-ladder tr[data-chosen] td:first-child{border-radius:var(--d-r-sm) 0 0 var(--d-r-sm)}
+.app:not(.pub) .adv-ladder tr[data-chosen] td:last-child{border-radius:0 var(--d-r-sm) var(--d-r-sm) 0}
+.app:not(.pub) .adv-ladder td:last-child,.app:not(.pub) .adv-ladder th:last-child{text-align:right}
+.app:not(.pub) .adv-block .fld{margin:0}
+.app:not(.pub) p.adv-check-out{margin:12px 0 0;padding:10px 12px;border-width:1px;border-style:solid;border-radius:var(--d-r-md);font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.app:not(.pub) p.adv-nofee{margin:16px 0 0}
+.app:not(.pub) .adv-more{margin-top:24px;min-width:0}
+.app:not(.pub) .adv-ledgers{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+@media (min-width:700px){ .app:not(.pub) .adv-ledgers{grid-template-columns:repeat(2,minmax(0,1fr))} }
+.app:not(.pub) .adv-ledgers > .split-list{margin:0;padding:0 16px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}
+.app:not(.pub) .adv-ledgers > .split-list + .split-list{margin-top:0}
+.app:not(.pub) .adv-how{margin-top:16px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}
+.app:not(.pub) .adv-how > summary{padding:14px 16px;min-height:44px;cursor:pointer;list-style-position:inside;font:600 14px/1.3 var(--d-body);color:var(--d-ink)}
+.app:not(.pub) .adv-how-list{display:flex;flex-direction:column;gap:12px;margin:0;padding:0 16px 16px;list-style:none;font-size:13.5px;line-height:1.55;color:var(--d-ink-2)}
+.app:not(.pub) .adv-how-list li{max-width:80ch;overflow-wrap:anywhere}
 /* Publishing: Splits to fix (one list, Fix opens the editor) and the strip after a Save */
 .app:not(.pub) .fix-panel{margin:0 0 18px;padding:14px 16px;border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1)}
 .app:not(.pub) .fix-panel.flash{animation:lm-flash 1.2s ease-out;outline:2px solid transparent}

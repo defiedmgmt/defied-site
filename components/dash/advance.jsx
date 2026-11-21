@@ -8,6 +8,7 @@ import { Area, Field, fmt, money, useEscape } from "./ui";
 import { AskCard, useDirtyGuard } from "../portal/ask";
 import { ExtLink } from "../shared/ui";
 import { findByName } from "../site/data";
+import { advanceModel, verdictFor, VERDICTS } from "../../lib/advance-model";
 
 const BLANK_SONGS = [1, 2, 3, 4, 5].map((slot) => ({ slot, streams: "", writerShare: "" }));
 const FIELD_LABEL = { name: "Name", contact: "Contact", status: "Status", lastContact: "Last contacted", notes: "Notes", given: "'Advance given?'" };
@@ -257,37 +258,61 @@ export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true
   );
 }
 
-// Mirrors the ADVANCE CALCULATOR tab's own row formulas exactly (verified
-// cell-by-cell against a real prospect's computed values before shipping).
-// netStreams is the only real input; everything else is an assumption
-// pulled live from the sheet, or a target staff can tune per-run.
-function calcAdvance({ netStreams, blendedRate, runRate, decay, adminFeeRate, recoupMonths }) {
-  const royYr1 = netStreams * blendedRate * runRate * (1 - decay);
-  const royYr2 = royYr1 * (1 - decay);
-  const royYr3 = royYr2 * (1 - decay);
-  const roy3yr = royYr1 + royYr2 + royYr3;
-  const adminYr1 = royYr1 * adminFeeRate;
-  const adminYr2 = royYr2 * adminFeeRate;
-  const adminYr3 = royYr3 * adminFeeRate;
-  const admin3yr = roy3yr * adminFeeRate;
-  const advance = adminYr1 * (recoupMonths / 12);
+// The Advance calculator's screen (2026-11-20). Its math is lib/advance-model.js (pure, tested): what our fee pays back in the months picked, with the
+// slowdown. It starts from TODAY'S PACE, the streams a year the person earns now: a signed client's comes from real daily readings (`pace` from
+// /api/ar-data, lib/advance-pace.js), anyone else's from the sheet's rule, lifetime streams × the run-rate (ASSUMPTIONS!B9). The sheet's own
+// ADVANCE CALCULATOR tab still uses that rule for everyone, so its numbers differ (the page says so).
+// A client's pace counts as measured when at least this share of it comes from songs with daily readings; below that the page uses the rule and says so.
+const REAL_PACE_MIN = 0.5;
+// A measured pace gets a warning when this share of it comes from songs out under 3 months (they usually fall faster than the assumed slowdown).
+const NEW_SONGS_WARN = 0.25;
 
-  let monthsToRecoup = null;
-  if (adminYr1 > 0) {
-    if (advance <= adminYr1) monthsToRecoup = (advance / adminYr1) * 12;
-    else if (advance <= adminYr1 + adminYr2) monthsToRecoup = (1 + (advance - adminYr1) / adminYr2) * 12;
-    else if (advance <= adminYr1 + adminYr2 + adminYr3) monthsToRecoup = (2 + (advance - adminYr1 - adminYr2) / adminYr3) * 12;
-    else monthsToRecoup = (3 + (advance - adminYr1 - adminYr2 - adminYr3) / adminYr3) * 12;
+// Today's pace for who's picked (streams a year, their share) and where it comes from, in words. client: a signedClients row (with `pace`) or null
+function paceOf({ client, netStreams, runRate, decay }) {
+  const p = client?.pace || null;
+  const rule = pct1(runRate);
+  if (p && p.realShare >= REAL_PACE_MIN) {
+    const rest = p.songs - p.tracked;
+    const dates = p.from && p.to ? `, ${shortDay(p.from)} to ${shortDay(p.to)}` : "";
+    const other = p.rulePerYear > 0 ? ` ${rest === 1 ? "The other song uses" : `The other ${rest} use`} the sheet's rule (${rule} of lifetime a year).` : "";
+    return {
+      real: true, perYear: p.perYear,
+      source: `Real streams: Spotify's daily counts for ${p.tracked} of ${p.songs} ${p.songs === 1 ? "song" : "songs"}${dates}, scaled to all platforms by each song's lifetime total.${other}`,
+      warning: p.newShare >= NEW_SONGS_WARN ? `${Math.round(p.newShare * 100)}% of this pace is from songs out under 3 months. New songs usually drop faster than ${pct1(decay)} a year, so treat this as the high end.` : null,
+    };
   }
-  const coverage = advance > 0 ? admin3yr / advance : null;
-  const verdict = monthsToRecoup == null ? null
-    : monthsToRecoup <= 18 ? "Safe"
-    : monthsToRecoup <= 30 ? "Workable"
-    : monthsToRecoup <= 36 ? "Tight"
-    : "Too high — lower target";
-
-  return { royYr1, royYr2, royYr3, roy3yr, adminYr1, adminYr2, adminYr3, admin3yr, advance, monthsToRecoup, coverage, verdict };
+  return {
+    real: false, perYear: netStreams * runRate, warning: null,
+    source: p && p.tracked > 0
+      ? `Estimate: Spotify's daily counts cover only ${pct1(p.realShare)} of their pace (${p.tracked} of ${p.songs} songs), so this uses the sheet's rule: lifetime streams × ${rule} a year.`
+      : `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${rule} a year.`,
+  };
 }
+
+// verdict pills: Safe, Workable, Tight, Too high (the sentence "Too high — lower it" is the model's)
+// The verdict is judged on the months as the page shows them (to a tenth), so an advance typed back from a dollar figure rounded to the cent, or the last digit of
+// a float, never flips it at 18, 30 or 36: the model's own 36-month advance checked is 36.00000000000001 months, and that must say Tight, not "Too high".
+const verdictShown = (m) => verdictFor(Number.isFinite(m) ? Math.round(m * 10) / 10 : m);
+const verdictTone = (v) => (!v ? undefined : v === "Safe" ? "pos" : v === "Tight" ? "warn" : v.startsWith("Too high") ? "neg" : "neutral");
+const VerdictPill = ({ verdict }) => (verdict ? <span className="adv-pill" data-tone={verdictTone(verdict)} data-verdict={verdict}>{verdict.startsWith("Too high") ? "Too high" : verdict}</span> : null);
+// months to one decimal, no trailing .0: "36 months", "31.2 months", "1 month"
+const monthsText = (m) => `${Math.round(m * 10) / 10} ${Math.round(m * 10) / 10 === 1 ? "month" : "months"}`;
+// the months typed: blank (or nothing sensible) is 12, otherwise 1 to 120
+const clampMonths = (v) => { const n = Number(v); return String(v ?? "").trim() === "" || !Number.isFinite(n) ? 12 : Math.min(Math.max(n, 1), 120); };
+// an advance typed to check, with or without the $ and commas: a number above 0, or null
+const amountOf = (v) => { const n = Number(String(v ?? "").replace(/[$,\s]/g, "")); return Number.isFinite(n) && n > 0 ? n : null; };
+// the sentence under "Check an amount" (model.check: advanceModel's answer for it)
+function checkSentence(model) {
+  const c = model.check;
+  if (!c) return null;
+  const covers = c.coverage != null ? ` Our fee over 3 years covers it ${c.coverage.toFixed(1)}×.` : "";
+  if (c.months == null) return { tone: "neutral", text: "There's no fee at this pace, so there's nothing to pay it back from." };
+  if (c.months === Infinity) return { tone: "neg", text: `Our fee would never pay this back at this pace${model.ceiling != null ? `; the most it could ever repay is ${money(model.ceiling)}` : ""}.${covers}` };
+  const verdict = verdictShown(c.months);
+  return { tone: verdictTone(verdict), text: `Pays back in ${monthsText(c.months)} (${verdict}).${covers}` };
+}
+// "Verdict: Safe ≤ 18 months to pay back, Workable ≤ 30, Tight ≤ 36, Too high beyond." from the model's own limits
+const verdictRule = () => `Verdict: ${[`${VERDICTS[0][1]} ≤ ${VERDICTS[0][0]} months to pay back`, ...VERDICTS.slice(1).map(([max, word]) => `${word} ≤ ${max}`), "Too high beyond"].join(", ")}.`;
 
 // A blank scenario to start from — no prospect/client picked, no streams
 // typed. Matches the same field shape Outreach's own single-song entry
@@ -306,6 +331,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
   const [recoupMonths, setRecoupMonths] = useState(recoupTargetMonths);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [checkAmount, setCheckAmount] = useState(""); // an advance typed to check: how long our fee takes to pay it back
 
   const selectedProspect = scenario.kind === "outreach" ? prospects.find((p) => p.id && p.id === scenario.key) : null;
   const selectedClient = scenario.kind === "client" ? signedClients.find((c) => c.id === scenario.key) : null;
@@ -331,15 +357,23 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
   };
   const setField = (patch) => { setScenario({ ...scenario, ...patch }); };
 
-  const result = useMemo(() => calcAdvance({
-    netStreams,
+  // the sheet's levers (ASSUMPTIONS), today's pace for who's picked, and the model's answer
+  const runRate = Number(assumptions.runRate) || 0, decay = Number(assumptions.decayRate) || 0, fee = Number(assumptions.adminFeeRate) || 0;
+  const pace = paceOf({ client: selectedClient, netStreams, runRate, decay });
+  const R = clampMonths(recoupMonths);
+  const amount = amountOf(checkAmount);
+  const model = useMemo(() => advanceModel({
+    annualNetStreams: pace.perYear,
     blendedRate: assumptions.blendedRate,
-    runRate: assumptions.runRate,
     decay: assumptions.decayRate,
-    adminFeeRate: assumptions.adminFeeRate,
-    recoupMonths: Number(recoupMonths) || 12,
-  }), [netStreams, recoupMonths, assumptions]);
+    feeRate: assumptions.adminFeeRate,
+    recoupMonths: R,
+    amount,
+  }), [pace.perYear, R, amount, assumptions]);
   const estRevenue = netStreams * assumptions.blendedRate;
+  const empty = !selectedProspect && !selectedClient && !netStreams;
+  const checked = checkSentence(model);
+  const rateText = assumptions.blendedRate != null ? `$${+Number(assumptions.blendedRate).toFixed(6)}` : "the pub sheet's rate";
 
   const setGiven = async (given) => {
     if (!selectedProspect) return;
@@ -358,7 +392,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
           <ExtLink href={links.advanceCalculator} className="btn ghost sm"><ExternalLink size={14} /> Open in sheet</ExtLink>
         )}
       </div>
-      <p className="muted mb">Works out an advance the same way the sheet's ADVANCE CALCULATOR tab does.</p>
+      <p className="muted mb">How big an advance our fee can pay back, worked out from the streams they're earning today. It's paid back out of our fee, not their share. The sheet's own ADVANCE CALCULATOR tab uses a simpler rule, so its numbers differ.</p>
       {/* the dollars below use the pub sheet's rate (ASSUMPTIONS!B7), read live: say which */}
       <p className="hint adv-rate" title="The rate is ASSUMPTIONS!B7 on the pub sheet">{assumptions.blendedRate != null ? `At $${+Number(assumptions.blendedRate).toFixed(6)} a stream (your pub sheet's rate).` : "At your pub sheet's rate a stream."}</p>
 
@@ -370,7 +404,8 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
         </div>
       </div>
 
-      {/* wide screens: the result sits beside the form, so it shows in the first screen as you type */}
+      {/* wide screens: the answer sits beside the form, so it shows in the first screen as you type; the year by year numbers and
+          "How we got these numbers" run full width under both */}
       <div className="adv-cols">
       <div className="form-card" style={{ maxWidth: 560 }}>
         <label className="fld"><span>Prospect or signed client</span>
@@ -402,12 +437,15 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
             {netStreams > 0 && <p className="hint">Net streams: {fmt(Math.round(netStreams))} · Their earnings so far: {money(estRevenue)}</p>}
           </>
         )}
+        {/* where today's pace comes from: real daily streams for a signed client with enough of them, otherwise the sheet's rule */}
+        {!empty && <p className="hint adv-source" data-adv-source={pace.real ? "real" : "estimate"}>{pace.source}</p>}
+        {!empty && pace.warning && <p className="hint adv-warn" data-tone="warn" data-adv-warn role="note">{pace.warning}</p>}
         <Field
-          label="Recoup target (months)" type="number" value={recoupMonths}
+          label="Pay it back in (months)" type="number" min={1} max={120} value={recoupMonths}
           onChange={(e) => setRecoupMonths(e.target.value)}
-          hint="The advance is this many months of our fee in year 1. 12 to 18 is usual, 24 to 36 is aggressive."
+          hint={`How fast our fee should pay it back. Safe is ${VERDICTS[0][0]} months or less; past ${VERDICTS[VERDICTS.length - 1][0]} is too high.`}
         />
-        <p className="hint">Paid back out of our fee, not their share.</p>
+        {String(recoupMonths ?? "").trim() !== "" && Number(recoupMonths) !== R && <p className="hint" data-adv-clamp>Using {monthsText(R)} (it can be 1 to 120 months).</p>}
         {err && <p className="hint err-text">{err}</p>}
         {/* r11 launch: no "Save to the sheet's OUTREACH tab" for a from-scratch scenario; Outreach is gone (owner) */}
         {selectedProspect && (
@@ -428,31 +466,77 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
       <div className="adv-out">
       {/* nothing to work out yet: one line says what to do, instead of rows of $0.00; streams typed with no
           writer % asks for the % */}
-      {!selectedProspect && !selectedClient && !netStreams ? <p className="adv-empty">{Number(scenario.grossStreams) > 0 && !(Number(scenario.writerShare) > 0) ? "Add their writer share (%) to see an advance." : "Pick a client or prospect, or type streams, to see an advance."}</p> : <>
-      <div className="cat-summary">
+      {empty ? <p className="adv-empty">{Number(scenario.grossStreams) > 0 && !(Number(scenario.writerShare) > 0) ? "Add their writer share (%) to see an advance." : "Pick a client or prospect, or type streams, to see an advance."}</p> : <>
+      <div className="cat-summary" data-adv-tiles>
         <div className="cat-summary-grid">
-          <div className="cat-stat"><span className="cat-stat-label">Recommended Advance</span><span className="cat-stat-val">{money(result.advance)}</span></div>
-          <div className="cat-stat"><span className="cat-stat-label">Months to Recoup</span><span className="cat-stat-val">{result.monthsToRecoup != null ? `${result.monthsToRecoup.toFixed(1)} mo` : "—"}</span></div>
-          <div className="cat-stat"><span className="cat-stat-label">Coverage</span><span className="cat-stat-val">{result.coverage != null ? `${result.coverage.toFixed(1)}x` : "—"}</span></div>
-          <div className="cat-stat"><span className="cat-stat-label">Verdict</span><span className="cat-stat-val" data-tone={!result.verdict ? undefined : result.verdict === "Safe" ? "pos" : result.verdict === "Tight" ? "warn" : result.verdict.startsWith("Too high") ? "neg" : "neutral"}>{result.verdict || "—"}</span></div>
+          <div className="cat-stat" data-stat="advance"><span className="cat-stat-label">{`Advance that pays back in ${monthsText(R)}`}</span><span className="cat-stat-val">{money(model.recommended)}</span>{model.recommended > 0 && <VerdictPill verdict={verdictShown(R)} />}</div>
+          <div className="cat-stat" data-stat="theirs"><span className="cat-stat-label">Their earnings, next 12 months</span><span className="cat-stat-val">{money(model.their[0])}</span><span className="adv-stat-sub">{decay > 0 ? `slowing ${pct1(decay)} a year` : "no slowdown"}</span></div>
+          <div className="cat-stat" data-stat="ours"><span className="cat-stat-label">Our fee, next 12 months</span><span className="cat-stat-val">{money(model.ours[0])}</span><span className="adv-stat-sub">{`our ${pct1(fee)} of theirs`}</span></div>
+          <div className="cat-stat" data-stat="pace"><span className="cat-stat-label">Today's pace</span><span className="cat-stat-val">{bigNum(model.pace)}</span><span className="adv-stat-sub">{pace.real ? "streams a year, from daily counts" : "streams a year, an estimate"}</span></div>
         </div>
       </div>
 
-      <div className="split-list" style={{ marginTop: 16 }}>
-        <div className="split-list-row"><span className="split-name">Their earnings yr 1</span><span className="split-pct">{money(result.royYr1)}</span></div>
-        <div className="split-list-row"><span className="split-name">Their earnings yr 2</span><span className="split-pct">{money(result.royYr2)}</span></div>
-        <div className="split-list-row"><span className="split-name">Their earnings yr 3</span><span className="split-pct">{money(result.royYr3)}</span></div>
-        <div className="split-list-row split-list-total"><span>Their earnings next 3 yrs</span><span>{money(result.roy3yr)}</span></div>
-      </div>
-      <div className="split-list" style={{ marginTop: 12 }}>
-        <div className="split-list-row"><span className="split-name">Our fee yr 1</span><span className="split-pct">{money(result.adminYr1)}</span></div>
-        <div className="split-list-row"><span className="split-name">Our fee yr 2</span><span className="split-pct">{money(result.adminYr2)}</span></div>
-        <div className="split-list-row"><span className="split-name">Our fee yr 3</span><span className="split-pct">{money(result.adminYr3)}</span></div>
-        <div className="split-list-row split-list-total"><span>Our fee next 3 yrs</span><span>{money(result.admin3yr)}</span></div>
-      </div>
+      {model.feeNow > 0 ? <>
+        <div className="adv-block" data-adv-ladder>
+          <h3 className="adv-h">Advance for each payback time</h3>
+          <table className="adv-ladder">
+            <thead><tr><th scope="col">Pays back in</th><th scope="col">Advance</th><th scope="col">Verdict</th></tr></thead>
+            <tbody>
+              {model.ladder.map((r) => (
+                <tr key={r.months} data-ladder-months={r.months} data-chosen={r.months === R ? "" : undefined} aria-current={r.months === R ? "true" : undefined}>
+                  <td>{monthsText(r.months)}</td><td>{money(r.advance)}</td><td><VerdictPill verdict={r.verdict} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="adv-block" data-adv-check>
+          <Field
+            label="Check an amount" type="text" inputMode="decimal" autoComplete="off" placeholder="$ amount, like 25,000" value={checkAmount}
+            onChange={(e) => setCheckAmount(e.target.value)}
+            hint={String(checkAmount).trim() !== "" && amount == null ? "Type the amount as a number, like 25000." : "An advance you have in mind: how long would our fee take to pay it back?"}
+          />
+          {checked && <p className="adv-check-out" data-tone={checked.tone} data-adv-check-result role="status">{checked.text}</p>}
+        </div>
+      </> : <p className="hint adv-nofee" data-adv-nofee>At today's pace there's no fee to pay an advance back from.</p>}
       </>}
       </div>
       </div>
+
+      {!empty && (
+        <div className="adv-more">
+          <div className="adv-ledgers">
+            <div className="split-list" data-adv-ledger="theirs">
+              <div className="split-list-row"><span className="split-name">Their earnings yr 1</span><span className="split-pct">{money(model.their[0])}</span></div>
+              <div className="split-list-row"><span className="split-name">Their earnings yr 2</span><span className="split-pct">{money(model.their[1])}</span></div>
+              <div className="split-list-row"><span className="split-name">Their earnings yr 3</span><span className="split-pct">{money(model.their[2])}</span></div>
+              <div className="split-list-row split-list-total"><span>Their earnings next 3 yrs</span><span>{money(model.theirTotal)}</span></div>
+            </div>
+            <div className="split-list" data-adv-ledger="ours">
+              <div className="split-list-row"><span className="split-name">Our fee yr 1</span><span className="split-pct">{money(model.ours[0])}</span></div>
+              <div className="split-list-row"><span className="split-name">Our fee yr 2</span><span className="split-pct">{money(model.ours[1])}</span></div>
+              <div className="split-list-row"><span className="split-name">Our fee yr 3</span><span className="split-pct">{money(model.ours[2])}</span></div>
+              <div className="split-list-row split-list-total"><span>Our fee next 3 yrs</span><span>{money(model.oursTotal)}</span></div>
+            </div>
+          </div>
+
+          {/* every number above, from the start, with this person's real figures in it */}
+          <details className="adv-how" open data-adv-how>
+            <summary>How we got these numbers</summary>
+            <ul className="adv-how-list">
+              <li data-how="pace">{`Today's pace: ${fmt(Math.round(model.pace))} streams a year (all platforms, their share). ${pace.source}`}</li>
+              <li data-how="rate">{`× ${rateText} a stream: the sheet's blended publishing rate (ASSUMPTIONS!B7) = ${money(model.theirNow)} a year at today's pace.`}</li>
+              <li data-how="slowdown">{decay > 0
+                ? `Slows ${pct1(decay)} a year (ASSUMPTIONS!B8), so the next 12 months average ${pct1(model.year1Share)} of today's pace; each year after is ${pct1(1 - decay)} of the one before. (Our songs actually grew from August to October; ${pct1(decay)} is a careful assumption.)`
+                : "No slowdown (ASSUMPTIONS!B8 is 0%), so every year earns today's pace."}</li>
+              <li data-how="fee">{`Our fee is ${pct1(fee)} (ASSUMPTIONS!B11) = ${money(model.feeNow)} a year at today's pace. Advances pay back from our fee only, not the writer's share.`}</li>
+              <li data-how="advance">{`The advance is what our fee adds up to over the ${monthsText(R)} you picked, slowdown included: ${money(model.recommended)}.`}</li>
+              <li data-how="verdict">{verdictRule()}</li>
+              <li data-how="sheet">{`The sheet's own ADVANCE CALCULATOR tab still uses the ${pct1(runRate)} rule for everyone, so its numbers differ.`}{links.advanceCalculator && <> <ExtLink href={links.advanceCalculator} className="inline-link">Open in sheet</ExtLink></>}</li>
+            </ul>
+          </details>
+        </div>
+      )}
     </div>
   );
 }
@@ -475,7 +559,8 @@ export function AdvanceTab({ pick = null, db = null }) {
 
 // Publishing › Advance calculator: the pub sheet's own 3-year forecast of our fee (MASTER), for the roster and
 // by writer (r7: it moved here from Publishing's Overview). The sheet's Year 1 is the fee so far × B9 × (1 − B8),
-// then B8 less each year: a rough guess, said so.
+// then B8 less each year: a rough guess, said so. (2026-11-20) It is the sheet's 30% rule for every writer, not the calculator's
+// real pace above, so it's labelled as the sheet's and says it won't match.
 function RosterForecast({ db }) {
   const [d, setD] = useState(null);
   const [failed, setFailed] = useState(false);
@@ -492,8 +577,8 @@ function RosterForecast({ db }) {
   const writerOf = (r) => { const cs = db?.clients || []; const c = findByName([...cs.filter((x) => x.sheetTabName), ...cs.filter((x) => !x.sheetTabName)], r.sheetTab || r.writer, (x) => x.sheetTabName || x.name); return c ? c.name : r.writer; };
   return (
     <div className="pub-sec adv-forecast" data-forecast>
-      <h3 className="lm-h3">Our fee, next 3 years</h3>
-      <p className="hint">The pub sheet's rough guess{y ? `: ${y.share} of the fee so far in year 1, then ${y.decay} less a year` : ""}.</p>
+      <h3 className="lm-h3">The sheet's forecast: our fee, next 3 years</h3>
+      <p className="hint" data-forecast-note>The pub sheet's own forecast for the whole roster. It uses {y ? `the ${y.run} rule` : "one rule"} for every writer, not their real streams, so it won't match the calculator above{y ? `: ${y.share} of the fee so far in year 1, then ${y.decay} less a year` : ""}.</p>
       <div className="cat-summary"><div className="cat-summary-grid">
         <div className="cat-stat" data-stat="next3"><span className="cat-stat-label">Next 3 years</span><span className="cat-stat-val">{money(d.totals.threeYearForecast)}</span></div>
         <div className="cat-stat" data-stat="inAll"><span className="cat-stat-label">So far + 3 years</span><span className="cat-stat-val">{money(d.totals.totalEstAdminFee)}</span></div>
