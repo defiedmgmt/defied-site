@@ -288,8 +288,10 @@ the producer's own share of it. The owner's old file ("Defied Schedule A (Update
 
 ## Money › EMPIRE deal (2026-11-21)
 
-The publishing-administration deal with EMPIRE, as a Money sub-tab (first pill, and where Money opens). Money access, and an account that sees every
-artist (one limited to its own is refused): `GET`/`POST /api/empire` is the only way the page sees any of it. The contract is confidential, so its terms
+The publishing-administration deal with EMPIRE, as a Money sub-tab (the pill after Overview, `/dashboard/money/empire`; Money still opens on Overview).
+Founders only: Money access, an account that sees every artist (one limited to its own is refused) and the Founder role itself, since a Founder can switch
+Money on for an intern or co-manager in Site › Users and that must not open this page (403 "Only Founders can see the EMPIRE deal.", the pill and Clients'
+pointer hidden): `GET`/`POST /api/empire` is the only way the page sees any of it. The contract is confidential, so its terms
 live in server code only (`lib/empire-terms.js`); the page's own code (`components/dash/empire*.jsx`, `empire-data.js`, `lib/empire-math.js`) holds none
 and takes every rate, amount and date from the answer, so none of them is in what a browser downloads.
 
@@ -298,13 +300,22 @@ and takes every rate, amount and date from the answer, so none of them is in wha
   latest count where both exist, a song's lifetime count if it came out since, else today's pace × the days), × the pub sheet's rate a stream
   (ASSUMPTIONS!B7) × the share of it EMPIRE receives as Net Income (a standard guess a Founder can change on the page) × what EMPIRE pays Defied. It says
   how much of the estimate is measured, when the advance is paid back at today's pace (the slowdown is B8's), whether that is in time for EMPIRE's extra
-  advance, and what a buyout would cost on the day it opens.
+  advance, and what a buyout would cost on the day it opens. It is "paid back" only when the statements typed in reach the total on their own (they come a
+  quarter after the quarter ends); an estimate that crosses it is "estimated to be paid back, wait for EMPIRE's statement to confirm", with the bar still
+  showing the estimated part as estimated. The extra advance is "yes" only from statements; from the estimate it is on track, close (within 6 months of its
+  last day) or not on this pace, and says it is an estimate. Every mention of it says that it is recouped too. The Net Income estimate is before EMPIRE's
+  collection fees (the contract caps them); a statement replaces it.
 - **The pot** is what EMPIRE advanced that Defied gives its own producers advances from: received (yes and the day), given, planned, left.
 - **Producer deals** are a producer's advance for a song or a whole catalog, paid back from that producer's royalties (Net Income × EMPIRE's payout, less
   Defied's cut, 20% unless the deal says another). Saved as planned from the calculator, marked given with a day, edited, deleted (asked in the page).
-  A given deal's own bar counts the royalties earned since its day.
+  A given deal's own bar counts the royalties earned since its day (an estimate: it says "estimated to be paid back", never "paid back"). One producer's
+  deals never share a song, or its royalties would repay two advances: a whole catalog overlaps everything of that producer's, two deals on songs overlap when
+  they share one, a prospect's deal overlaps nothing, and a save that would overlap is refused with a sentence that says to edit or delete the other deal. An
+  edit writes only the fields it sent, so one made from an old copy of a deal can't undo a status or advance someone else changed meanwhile, and an edit that
+  leaves the producer and songs alone still goes through for a producer who has since left Schedule A.
 - **The Advance calculator** moved here from Clients (its old address opens this page). Same model as before (`lib/advance-model.js`), run on the producer's
-  royalties (`lib/empire-math.js`); pick a producer's whole catalog or some songs (each with its own pace), a prospect or someone new.
+  royalties (`lib/empire-math.js`); pick a producer's whole catalog or some songs (each with its own pace), a prospect or someone new. For a producer who
+  already has a deal on those songs it says so and takes what is still to pay back on that deal (an estimate) off the advance it recommends, never below 0.
 - **Saved state**: the one `app_state` row "empireDeal", an entry per key (`received`, `levers`, `statement:<quarter>`, `deal:<id>`), each write one SQL
   statement on its own key so two founders saving at once never overwrite each other. No migration. `lib/empire-store.js` checks everything typed.
 

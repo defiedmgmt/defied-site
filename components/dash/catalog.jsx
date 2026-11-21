@@ -910,9 +910,10 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
 // (r11: the ISRCs tab is gone, the owner: "why is there an isrc tab on the pub tab do i need that ?". The finder is
 // To do's "N songs have no ISRC" row now, /dashboard/todo/isrc; the old /dashboard/catalog/isrc opens it there.)
 export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSongInfo, sub, onGo, onSub, chip = null }) {
-  // the money columns are the Founders' (Money access); so is the page the advance calculator moved to (Money access, and every artist: an account limited to its own has no EMPIRE page)
+  // the money columns are the Founders' (Money access); so is the page the advance calculator moved to, more strictly: Money access, every artist (an account limited to its own has
+  // no EMPIRE page) and the Founder role itself, since a Founder can switch Money on for someone else (the owner: "for founders")
   const seeMoney = canUse(db, "money"), own = !!db.access?.ownOnly;
-  const seeEmpire = seeMoney && !own;
+  const seeEmpire = seeMoney && !own && db.access?.role === "founder";
   const editSong = sub?.startsWith("edit:") ? db.placements.find((p) => p.id === sub.slice(5)) : null;
   // null clientId = the read-only Overview landing page, not "no selection"
   const [clientId, setClientIdOnly] = useState(sub?.startsWith("client:") ? sub.slice(7) : editSong ? editSong.clientId : null);

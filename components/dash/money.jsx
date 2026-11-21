@@ -14,7 +14,7 @@ import { MyPaymentsPage } from "./my-payments";
 import { PanelWait } from "./sections";
 
 // Money › EMPIRE deal (2026-11-21): the publishing-administration deal, the pot Defied gives producers advances from, the statements and the advance calculator. Its own chunk,
-// loaded the first time it opens; the dashboard gives it only to an account with Money access that sees every artist (the API refuses everyone else).
+// loaded the first time it opens; the dashboard gives it only to a Founder with Money access that sees every artist (the API refuses everyone else).
 const EmpireDeal = dynamic(() => import("./empire").then((m) => m.EmpireDeal), { ssr: false, loading: PanelWait });
 
 // "Nov", "Oct": this month and the one before, from the day the page is viewed
@@ -262,12 +262,13 @@ export function detailsDefaults(p, options) {
 // Nothing in the sheet is ever edited from here: problems are shown with a link to the row.
 const ACCT_SECS = [["overview", "Overview"], ["payments", "All payments"]];
 // myMoney: the login's own pay link's payments as a third tab, My money (2026-11-11, components/dash/my-payments.jsx)
-// empire (2026-11-21): the EMPIRE deal, first in the row and where Money opens (the owner: its card "at the top of Money"); the accounting Overview is /dashboard/money/overview then
+// empire (2026-11-21): the EMPIRE deal, the pill after Overview (/dashboard/money/empire), for the one account that has it (a Founder with Money and every artist: StaffDashboard
+// decides). Money still opens on the accounting Overview, as it always did (2026-11-21, review: /dashboard/money is the Overview, /dashboard/money/empire the deal).
 export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll = false, chip = null, myMoney = false, empire = false, db = null, onGo }) {
   // (2026-11-11, the owner: "lets do my money then all payments order")
   const base = myMoney ? [ACCT_SECS[0], ["mine", "My money"], ...ACCT_SECS.slice(1)] : ACCT_SECS;
-  const secs = empire && !part ? [["empire", "EMPIRE deal"], ...base] : base;
-  const home = secs[0][0]; // where Money opens: its address has no part
+  const secs = empire && !part ? [base[0], ["empire", "EMPIRE deal"], ...base.slice(1)] : base;
+  const home = "overview"; // where Money opens: its address has no part
   const sec = part || (secs.some(([k]) => k === sub) ? sub : home);
   const [d, setD] = useState(null);
   const [failed, setFailed] = useState(false);

@@ -75,27 +75,48 @@ export function timelineOf({ terms, rec, today }) {
   const place = (d) => Math.round(Math.min(Math.max(((ms(d) - t0) / (end - t0)) * 100, 0), 100) * 10) / 10;
   return { start: terms.effective, marks: marks.map((m) => ({ ...m, at: place(m.date), text: dayText(m.date) })), todayAt: place(today) };
 }
-// the line under the bar: when it is paid back at today's pace, or that it isn't
+// the line under the bar: when it is paid back at today's pace, or that it isn't. "Paid back" is only said when EMPIRE's own statements reach the total (rec.recouped); an estimate
+// that reaches it says so as an estimate (2026-11-21, review: statements come a quarter after the quarter ends)
 export function projectionText(rec) {
   if (!rec) return "";
   if (rec.estimateOff) return "The pub sheet's rates couldn't be read just now, so there's no projection. The statements typed in still count.";
   if (rec.recouped) return `Paid back: EMPIRE has earned back its ${usd0(rec.owed)}.`;
+  if (rec.estimatedRecouped) return "Estimated to be paid back — wait for EMPIRE's statement to confirm.";
   if (rec.never) return `Not at today's pace — the current songs top out near ${usd0(rec.reach)} of the ${usd0(rec.owed)}.`;
   if (rec.date) return `At today's pace it's paid back around ${monthYear(rec.date)} (in ${aboutMonths(rec.months)}).`;
   return "";
 }
-// one plain sentence of what the bar means, for each way it can stand
+// one plain sentence of what the bar means, for each way it can stand (the extra advance has its own line, additionalText)
 export function meaningText(rec, terms) {
   if (!rec) return "";
-  const owed = usd0(rec.owed), cut = pctText(terms.payout, 0), extra = usd0(terms.additional), by = dayText(terms.additionalBy);
+  const owed = usd0(rec.owed), cut = pctText(terms.payout, 0);
   if (rec.recouped) return `EMPIRE has earned back its ${owed}, so from here Defied's ${cut} of what EMPIRE collects is paid out to Defied.`;
+  if (rec.estimatedRecouped) return `By our estimate EMPIRE has earned back its ${owed}, but only its statements can say so, and they come a quarter after each quarter ends. Until one does, EMPIRE keeps Defied's ${cut} of what it collects.`;
   if (rec.estimateOff) return `Until the bar is full, EMPIRE keeps Defied's ${cut} of what it collects to earn back its ${owed}; the statements typed in are counted, the rest waits for the pub sheet's rates.`;
   const keeps = `Until the bar is full, EMPIRE keeps Defied's ${cut} of what it collects to earn back its ${owed}`;
-  switch (rec.additional?.state) {
-    case "yes": return `${keeps}; at today's pace that's around ${monthYear(rec.date)}, in time for EMPIRE's extra ${extra} advance (Defied asks for it in writing once the account is recouped).`;
-    case "late": return `${keeps}; at today's pace that's around ${monthYear(rec.date)}, after ${by}, so EMPIRE's extra ${extra} advance would be missed.`;
-    case "missed": return `${keeps}, and the ${terms.additionalMonths} months for EMPIRE's extra ${extra} advance ended on ${by} without it.`;
-    default: return `${keeps}, and at today's pace it never gets there, so Defied sees no cash from EMPIRE until more streams or more songs close the gap.`;
+  if (rec.never) return `${keeps}, and at today's pace it never gets there, so Defied sees no cash from EMPIRE until more streams or more songs close the gap.`;
+  return rec.date ? `${keeps}; at today's pace that's around ${monthYear(rec.date)}.` : `${keeps}.`;
+}
+// (2026-11-21, review) The extra advance EMPIRE can give once the account is paid back, in words: where the account stands against its last day. Only EMPIRE's statements can say "yes"
+// (or that it was missed); the rest is an estimate from today's pace, and says so (statements come a quarter after the quarter ends, so a projection is never a promise). Every
+// sentence that talks about the extra advance carries the one that says it is recouped too.
+export const EXTRA_NOTE = "If Defied takes it, EMPIRE adds it to what Defied owes, so it is paid back the same way.";
+export function additionalText(rec, terms) {
+  if (!rec) return "";
+  const a = rec.additional;
+  const adv = `EMPIRE's extra ${usd0(terms.additional)} advance`, by = dayText(terms.additionalBy), owed = usd0(rec.owed);
+  if (!a || rec.estimateOff) return `${adv} has a last day, ${by}, for the account to be paid back. ${EXTRA_NOTE}`; // (no pace to judge it by, so only what it is)
+  const ask = "Defied asks for it in writing once the account is recouped.";
+  const guide = "EMPIRE's statements come a quarter after each quarter ends, so this is a guide, not a promise.";
+  switch (a.state) {
+    case "yes": return `EMPIRE's statements show the ${owed} was earned back in time for ${adv} (Defied asks for it in writing). ${EXTRA_NOTE}`;
+    case "ontrack": return `On track (estimate) for ${adv}, whose last day is ${by}. ${ask} ${guide} ${EXTRA_NOTE}`;
+    case "close": return `Close (estimate) to ${by}, the last day for ${adv}. ${ask} ${guide} ${EXTRA_NOTE}`;
+    case "late": case "no": return `Not on this pace (estimate) for ${adv}, whose last day is ${by}. ${guide} ${EXTRA_NOTE}`;
+    case "missed": return rec.recouped
+      ? `EMPIRE's statements show the ${owed} was earned back only after ${by}, the last day for ${adv}, so it was missed. ${EXTRA_NOTE}`
+      : `The statements typed in don't show the ${owed} earned back by ${by}, the last day for ${adv}, so it may be missed (a statement still to come could change that). ${EXTRA_NOTE}`;
+    default: return "";
   }
 }
 // how much of the estimate is measured, and what it is made from
@@ -147,7 +168,8 @@ export function dealLine(deal) {
     if (p.months == null) return "No royalties at today's pace to pay it back from.";
     return `At today's pace the producer's royalties pay it back in ${aboutMonths(p.months)}.`;
   }
-  if (r.recouped) return `Paid back: the producer's royalties since ${dayText(r.since)} cover the whole ${usd(deal.advance)}.`;
+  // (2026-11-21, review) the royalties since the day it was given are an estimate (EMPIRE's statements are for the whole account), so this never says "paid back" outright
+  if (r.recouped) return `Estimated to be paid back: the producer's royalties since ${dayText(r.since)} should cover the whole ${usd(deal.advance)}, an estimate until EMPIRE's statements bear it out.`;
   const head = `${usd(r.royalties)} of ${usd(deal.advance)} paid back since ${dayText(r.since)} (${pctText(r.pct, 0)}), ${usd(r.remaining)} to go`;
   if (r.never) return `${head}. At today's pace the royalties never cover the rest.`;
   return r.date ? `${head}, around ${monthYear(r.date)} at today's pace.` : `${head}.`;

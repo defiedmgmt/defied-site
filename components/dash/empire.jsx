@@ -4,11 +4,11 @@ import { Field } from "./ui";
 import { useAct, useEmpire } from "./empire-api";
 import { EmpireCalc, SheetForecast } from "./empire-calc";
 import {
-  barOf, buyoutText, cutFromText, dayText, dealLine, dueWords, estimateNote, lateNote, meaningText, pctText, potBar,
+  additionalText, barOf, buyoutText, cutFromText, dayText, dealLine, dueWords, estimateNote, lateNote, meaningText, pctText, potBar,
   projectionText, quarterWords, scopeText, shareFromText, timelineOf, usd, usd0,
 } from "./empire-data";
 
-// Money › EMPIRE deal (2026-11-21), for an account with Money access (GET /api/empire refuses everyone else). The publishing-administration deal with EMPIRE: how much of
+// Money › EMPIRE deal (2026-11-21), for a Founder with Money access (GET /api/empire refuses everyone else). The publishing-administration deal with EMPIRE: how much of
 // EMPIRE's advance is paid back and when (the bar), the pot Defied gives its own producers advances out of, each producer deal with its own payback, the statements
 // EMPIRE sends, and the advance calculator (moved here from Clients; components/dash/empire-calc.jsx). The numbers and sentences come from lib/empire-deal.js through the
 // API and components/dash/empire-data.js: this file holds none of the contract's terms (the page's code is public; the contract is confidential).
@@ -48,18 +48,18 @@ const Err = ({ text }) => (text ? <p className="hint err-text" role="alert" data
 // ---------------------------------------------------------------- the bar
 function RecoupCard({ data, reload }) {
   const { recoupment: r, terms, levers, today } = data;
-  const bar = barOf(r), line = timelineOf({ terms, rec: r, today });
+  const bar = barOf(r), line = timelineOf({ terms, rec: r, today }), extra = additionalText(r, terms);
   const asOf = data.streamsOn ? `Streams as of ${dayText(data.streamsOn)}` : "";
   return (
     <section className="emp-card emp-hero" data-emp="recoup" aria-label="EMPIRE: how much is paid back">
       <div className="emp-head"><h3 className="emp-h">EMPIRE deal</h3>{asOf && <span className="emp-src">{asOf}</span>}</div>
       <div className="emp-big">
         <span className="emp-big-n" data-emp-credited title={usd(r.credited)}>{usd0(r.credited)}</span>
-        <span className="emp-big-of">of {usd0(r.owed)} paid back</span>
+        <span className="emp-big-of">of {usd0(r.owed)} {r.estimatedRecouped ? "estimated to be paid back" : "paid back"}</span>
         <span className="emp-chip" data-emp-pct>{pctText(r.pct, 1)}</span>
-        <span className="emp-left" data-emp-left>{usd0(r.remaining)} to go</span>
+        <span className="emp-left" data-emp-left>{r.estimatedRecouped ? `${usd0(r.owed - r.fromStatements)} not on a statement yet` : `${usd0(r.remaining)} to go`}</span>
       </div>
-      <div className="emp-bar" role="img" aria-label={`${pctText(r.pct, 1)} paid back: ${usd0(r.fromStatements)} from statements, ${usd0(r.estimated)} estimated`} data-emp-bar>
+      <div className="emp-bar" role="img" aria-label={`${pctText(r.pct, 1)} ${r.estimatedRecouped ? "estimated to be paid back" : "paid back"}: ${usd0(r.fromStatements)} from statements, ${usd0(r.estimated)} estimated`} data-emp-bar>
         <span className="emp-bar-solid" data-emp-solid style={{ width: `${bar.solid}%` }} />
         <span className="emp-bar-est" data-emp-striped style={{ width: `${bar.striped}%` }} />
       </div>
@@ -77,6 +77,7 @@ function RecoupCard({ data, reload }) {
       </ul>
       <p className="emp-proj" data-emp-projection role="status">{projectionText(r)}</p>
       <p className="emp-mean" data-emp-meaning>{meaningText(r, terms)}</p>
+      {extra && <p className="hint" data-emp-additional>{extra}</p>}
       <p className="hint" data-emp-estimate>{estimateNote(r)}{r.missing?.length > 0 && <> No statement is typed in for {r.missing.join(", ")}, so {r.missing.length === 1 ? "it is" : "they are"} estimated too.</>} {lateNote(terms)}</p>
       <p className="hint" data-emp-buyout>{buyoutText(r, terms)}</p>
       {!levers?.ok && <p className="hint err-text" role="note" data-emp-levers-off>Couldn't read the pub sheet's rates just now, so the estimate and the projection are paused. Statements still count.</p>}
@@ -87,7 +88,7 @@ function RecoupCard({ data, reload }) {
 
 // the share of whole-song publishing counted as Net Income: the standard, and a Founder's own
 function NetIncomeBox({ data, reload, init }) {
-  const { levers } = data;
+  const { levers, terms } = data;
   const [text, setText] = useState(() => init?.text ?? (levers?.ok ? String(Math.round(levers.niShare * 1000) / 10) : ""));
   const { busy, err, act } = useAct(reload);
   if (!levers?.ok) return null;
@@ -97,7 +98,7 @@ function NetIncomeBox({ data, reload, init }) {
     <details className="emp-how" data-emp="levers">
       <summary>How the estimate counts Net Income</summary>
       <div className="emp-how-body">
-        <p>Net Income is what EMPIRE actually receives: the mechanicals and the publisher's half of performance. The pub sheet's rate a stream (${+levers.blendedRate.toFixed(6)}) is for the whole song, writer and publisher, so the estimate counts {pctText(levers.niShare, 1)} of it{levers.niShareSet ? <>, a share a Founder set (the standard guess is {pctText(levers.niStandard, 1)})</> : <>, the standard guess</>}. The writer's own performance share isn't Net Income: it goes straight to Defied.</p>
+        <p>Net Income is what EMPIRE actually receives: the mechanicals and the publisher's half of performance. The pub sheet's rate a stream (${+levers.blendedRate.toFixed(6)}) is for the whole song, writer and publisher, so the estimate counts {pctText(levers.niShare, 1)} of it{levers.niShareSet ? <>, a share a Founder set (the standard guess is {pctText(levers.niStandard, 1)})</> : <>, the standard guess</>}. The writer's share of performance royalties isn't part of this: it's paid to the writer through their PRO, outside the deal. This is before EMPIRE's collection fees (the contract caps them at {pctText(terms.feeCap, 0)}). EMPIRE's statements replace this estimate.</p>
         <div className="emp-inline">
           <label className="fld"><span>Share counted as Net Income (%)</span>
             <input inputMode="decimal" autoComplete="off" value={text} onChange={(e) => setText(e.target.value)} aria-invalid={share == null ? "true" : "false"} data-f="niShare" /></label>
