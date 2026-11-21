@@ -250,7 +250,7 @@ the producer's own share of it. The owner's old file ("Defied Schedule A (Update
 - **Who is on it:** the clients on the roster whose role says Producer (`Producer`, `Producer / Artist`). Artist clients and anyone off the roster are not. A song
   under two producers is a row for each (each one's own share); the same song twice under ONE producer (the same Spotify track, else the same title and artists once
   case, punctuation and emoji are left out) is one row: the card with a share, then the one with more filled in, keeps its place.
-- **Columns:** A Writer · B Song Title · C Recording Artist(s) · D Client Publishing Share (%) (the client's own split on the song, found the way the pub sheet's push
+- **Columns:** A Writer · B Song Title · C Recording Artist(s) · D Writer's Pub Share (%) (the writer's own split on the song, found the way the pub sheet's push
   finds it, `findByName(splits, client.name)`; blank when there is none) · E Release Date · F ISRC · G Spotify Link · H Status (`Split % not yet specified`,
   `Assumed split, confirm` for a song the auto-add put on the site that nobody has OK'd, `Not on the site` for the kept rows below) · I Notes (the owner's own, kept) ·
   J Site ID (the song's id on the site, hidden: what a note is found by). Sorted by producer (roster order, then name) and title. The footer says `TOTAL SONGS: N` and
