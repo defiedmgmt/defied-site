@@ -45,6 +45,13 @@ export const store = {
   get(k, d) { try { const v = window.localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { window.localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
 };
+// (2026-11-20) the person view (ArDrawer) opens full screen; "Smaller" brings back the 480px drawer, and the choice is kept in this browser. Storage can be
+// blocked or empty (private mode, cleared data): then every read says "full" and a write does nothing, and the view still works.
+export const DRAWER_SIZE_KEY = "defied.ar.drawer";
+export const drawerSize = {
+  get() { return store.get(DRAWER_SIZE_KEY, "full") === "side" ? "side" : "full"; },
+  set(v) { store.set(DRAWER_SIZE_KEY, v === "side" ? "side" : "full"); },
+};
 
 // a mover's words, the same on A&R Home and the Dashboard's This week › A&R (r11 fix): its grey line names the number
 // short ("Spotify followers · 5,197 → 5,806"; a rounded reading "TikTok · about 72.1K → 72.0K") and the line under
