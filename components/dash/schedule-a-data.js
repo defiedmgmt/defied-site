@@ -13,6 +13,8 @@ export function scheduleAWords(out) {
     sum.removedArtistRows ? `${n(sum.removedArtistRows, "artist row", "artist rows")} removed.` : "",
     sum.added ? `${sum.added} added.` : "",
     sum.removed ? `${n(sum.removed, "row", "rows")} no longer on the site taken off.` : "",
+    sum.notesStashed ? `${n(sum.notesStashed, "note", "notes")} of ${sum.notesStashed === 1 ? "a row" : "rows"} that left the table ${sum.notesStashed === 1 ? "is" : "are"} kept, in case ${sum.notesStashed === 1 ? "it comes" : "they come"} back.` : "",
+    sum.notesRestored ? `${n(sum.notesRestored, "kept note", "kept notes")} came back with ${sum.notesRestored === 1 ? "its row" : "their rows"}.` : "",
     out.changed === false ? "Nothing had changed." : "",
   ].filter(Boolean).join(" ");
 }

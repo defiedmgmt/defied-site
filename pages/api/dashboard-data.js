@@ -23,7 +23,7 @@ import { reactToMessage } from "../../lib/clickup";
 import { readFlips } from "../../lib/submission-reactions";
 import { placementRow, upsertPlacement, deletePlacements, samePlacement } from "../../lib/placement-rows";
 import { knownOf, planRows } from "../../lib/known-ids";
-import { scheduleAAfterSave, clientsTouchSchedule } from "../../lib/schedule-a";
+import { scheduleAAfterSave, clientsTouchSchedule, settleWithin, SAVE_WAIT_MS } from "../../lib/schedule-a";
 
 // photos uploaded before list B #2 are data: URIs inside the rows (new ones are Blob links,
 // /api/upload-image), so Next's default 1 MB body cap turned every staff save into a 413 once ~5-8 had
@@ -351,10 +351,12 @@ async function handlePost(req, res, session) {
       console.error("client placements save failed:", err);
       return res.status(502).json({ error: "Save failed — your existing songs were not changed." });
     }
+    // (2026-11-20) the songs it wrote or took out are on the Schedule A sheet within seconds (lib/schedule-a.js: off with no SCHEDULE_A_SHEET_ID; at most one run every 2 minutes).
+    // Started now, beside the answer being made, and waited for 2 seconds at the most (SAVE_WAIT_MS): a slower run goes on by itself (the change is marked, so the Sync check or
+    // the nightly run finishes what a run cut short) and it never rejects, so it can't fail this save
+    const schedule = plan.write.length || plan.remove.length ? scheduleAAfterSave() : null;
     const answer = await savedAnswer({ placements: { plan, read: () => storedSongs(scope), view: (all) => all.map((r) => toPlacement(r, { redact: true })) } });
-    // (2026-11-20) the songs it wrote or took out are on the Schedule A sheet within seconds (lib/schedule-a.js: off with no SCHEDULE_A_SHEET_ID; at most one run every
-    // 2 minutes, and it never waits more than 6 seconds or fails this save: the answer above is already made)
-    if (plan.write.length || plan.remove.length) await scheduleAAfterSave();
+    if (schedule) await settleWithin(schedule, SAVE_WAIT_MS);
     return res.status(200).json(answer);
   }
 
@@ -670,13 +672,14 @@ async function handlePost(req, res, session) {
     }
   }
 
+  // (2026-11-20) a save that wrote or took out songs, or changed a client's name, roster place or order, brings the Schedule A sheet up to date (lib/schedule-a.js: off with no
+  // SCHEDULE_A_SHEET_ID; its own claim, one run in 2 minutes). Started now, beside the answer being made and the slower steps below, and waited for 2 seconds at the most (SAVE_WAIT_MS)
+  // just before the reply: a slower run goes on by itself (the change is marked, so the Sync check or the nightly run finishes what a run cut short), and it never rejects
+  const schedule = songs?.plan.write.length || songs?.plan.remove.length || clientsTouchSchedule(priorClients, body.clients, { ordered: !mine }) ? scheduleAAfterSave() : null;
+
   // (2026-11-18) the songs and notable releases it wrote, as the database holds them now, for the page to take in (read before the slower steps
   // below, and only when this save sent one of them)
   const answer = await savedAnswer({ ...(songs && { placements: songs }), ...(notables && { notableReleases: notables }) });
-  // (2026-11-20) a save that wrote or took out songs, or changed a client's name, roster place or order, brings the Schedule A sheet up to date (lib/schedule-a.js: off with no
-  // SCHEDULE_A_SHEET_ID; its own claim, one run in 2 minutes). Started here, once the answer is made, so it runs beside the slower steps below, and waited for (6 seconds at the
-  // most, it never rejects) just before the reply: the save is stored and answered whatever happens to it
-  const schedule = songs?.plan.write.length || songs?.plan.remove.length || clientsTouchSchedule(priorClients, body.clients, { ordered: !mine }) ? scheduleAAfterSave() : null;
 
   // (2026-11-16) the save is in: a website message it marked read gets a ✅ on its ClickUp post, one marked unread loses it. Best effort and
   // bounded (reactToMessage gives up after 4 seconds and never throws): nothing here changes this save's answer
@@ -703,7 +706,7 @@ async function handlePost(req, res, session) {
   // wait for the next Sync check or the nightly run; a team entry this account changed may change its login only with
   // Users (a Founder for a Founder's).
   if (role === "staff" && people.touched) await linkAfterSave({ users: can("users"), founder: a.role === "founder", staffChanges: people.staffChanges, addedClients: people.addedClients }, { sheet: false });
-  if (schedule) await schedule;
+  if (schedule) await settleWithin(schedule, SAVE_WAIT_MS);
 
   return res.status(200).json(answer);
 }

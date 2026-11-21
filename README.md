@@ -257,19 +257,30 @@ the producer's own share of it. The owner's old file ("Defied Schedule A (Update
   `Updated by the site: <New York time>`.
 - **Edit the site, not columns A to H and J:** the next sync writes them again. **Notes (I) are yours**, kept by Site ID whatever you sort or filter. A song that is
   not on the site yet can be typed by hand (no Site ID); it is kept under a separator row, `Only on this sheet (not on the site yet)`, and moves up into the table,
-  its note with it, once the site has the song. Rows of an Artist client are removed, and so are rows whose song the site no longer has.
+  its note with it, once the site has the song. Text typed in a row with no writer and no title (a remark under the table, next to the total) is kept there too,
+  cell for cell; it isn't counted as a song. Rows of an Artist client are removed, and so are rows whose song the site no longer has, but a removed row's **note**
+  is kept by Site ID (`app_state` `scheduleA:notes`, the newest 300, each cut at 2,000 characters) and comes back with the row if it returns: a producer back on the roster, a
+  song moved back.
+- **The header row:** the columns are found by their header name, never by their place. Row 1 must be the ten headers (any order: the site writes the table back in
+  the order above and finds each note by Site ID) or the old five, exactly (with F1:J1 blank); case and spaces don't count. Anything else (a column deleted or added
+  inside A:J, a header renamed) writes nothing, and the Sync check and the summary say "the header row changed" and what row 1 reads. A tab that reads empty after the
+  site has synced it is refused too (a read that went wrong would wipe the notes); to start from nothing, type the ten headers back into row 1. Columns after J are the
+  owner's and are never touched.
 - **The first sync** reads the old 5-column sheet (Writer, Song Title, Recording Artist(s) / Writer(s), Client Publishing Share (%), Notes) and carries each old note to
   its song by writer and title (the writer as the site names the client, case and punctuation aside, `Yellow` being prodyel1ow; the title with one letter off allowed for
   titles of 8 letters or more, so `Hellen Keller` is `Helen Keller`). A song the old sheet has twice becomes one row with both notes. Rows no site song matches are
-  kept under the separator (never dropped); the artists' rows are removed. A first row that isn't `Writer`, `Song Title`… stops it: nothing is written over a sheet it
-  doesn't know. An empty site never empties the sheet.
+  kept under the separator (never dropped); the artists' rows are removed. An empty site never empties the sheet.
 - **When it runs:** the daily cron's last step (after the auto-add, so a song it just added is on the sheet); right after a staff or client save that wrote or
   removed a song or changed a client's name, roster place or order (marked in `app_state` `scheduleA`.`dirtyAt`, run at most once every 2 minutes through the claim
-  `scheduleA:run`, waits at most 6 seconds and never fails the save); Site › Sync's **Sync Schedule A now** (and `POST /api/schedule-a`); and the Sync check itself,
-  when a change is waiting (a save inside the 2-minute gap) or the last run failed. `GET /api/schedule-a` is a dry run: where it stands and what a sync would do, one
-  read of the sheet, nothing written. Publishing access, every artist at once.
-- **Calls to Google:** one read of the tab; then, only when something differs, one write of the whole tab and one clear of the rows left under its new end. A sync that
-  changes nothing is the one read and leaves the footer's time alone. The first sync (and one that finds the header changed) also formats the tab: header dark and bold,
+  `scheduleA:run`; it starts beside the save's answer, the save waits 2 seconds for it at the most and never fails; a slower run goes on by itself); Site › Sync's
+  **Sync Schedule A now** (and `POST /api/schedule-a`); and the Sync check itself, when a change is waiting (a save inside the 2-minute gap, or a run that was busy) or
+  the last run failed. One run at a time, whoever asks: every run takes the claim `scheduleA:lock` (a 2-minute lease, given back when the run is over) and one that finds
+  it taken answers `busy` (the button says so, the nightly run marks the change as waiting). The nightly run has 12 seconds at most and never past the 42nd second of its
+  run (the report's save and the alert's 8 seconds still follow). `GET /api/schedule-a` is a dry run: where it stands and what a sync would do, one read of the sheet,
+  nothing written. Publishing access, every artist at once.
+- **Calls to Google:** one read of the tab; then, only when something differs, ONE write: the whole table, padded with blank rows down to the longer of what was read
+  and what is written (there is no separate clear: a second call could cut short a table another run had written). A sync that changes nothing is the one read and
+  leaves the footer's time alone. The first sync (and one that finds the header changed) also formats the tab: header dark and bold,
   first row frozen, Site ID hidden, D as a percent, a filter, column widths (a read of the tab list and one batchUpdate). A tab with too few rows or columns is grown once.
 - **Setting it up:** convert the file to a Google Sheet, name its tab `Schedule A`, share it with `GOOGLE_SHEETS_CLIENT_EMAIL` as Editor, and set `SCHEDULE_A_SHEET_ID` in
   Vercel's **Production** environment only (writes are on as soon as the id is set; a preview that shares the database and the id would write the sheet too).
