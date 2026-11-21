@@ -6,6 +6,7 @@
 // its own artists only theirs: signedClientsFor). When the sheet can't be read, the prospects come
 // from what it last said (stale) and saving pauses. ?check=1 is the read-only Sheet check. Writes go
 // through /api/ar-write.
+import { withSheetsQuick } from "../../lib/sheets";
 import { sql } from "../../lib/db";
 import { requireAccess } from "../../lib/access";
 import { seesNetStreams } from "../../lib/roles";
@@ -75,7 +76,8 @@ export default async function handler(req, res) {
     // the database's clock before the sheet is read: a save that overlapped this read is noticed
     const [{ t: readAtDb }] = await sql`SELECT now() AS t`;
     let read = null;
-    try { read = await readArSheet(); } catch (err) {
+    // (2026-11-20) quick: on Google's quota it falls back to the database's copy below at once instead of 28 s later
+    try { read = await withSheetsQuick(() => readArSheet()); } catch (err) {
       // Google's own wording ("Internal error encountered.") means nothing on the A&R tab: logged here
       console.error("ar-data sheet read failed:", err);
     }

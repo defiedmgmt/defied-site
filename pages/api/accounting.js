@@ -4,6 +4,7 @@
 // ?counts=1 is the sidebar badge only. POST {ok: key} marks one To check row as fine (kept until that
 // row changes). Clients get 401. Nothing here writes to the sheet: logging is /api/accounting-log,
 // behind ACCOUNTING_SHEET_WRITES.
+import { withSheetsQuick } from "../../lib/sheets";
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
 import { accountingState, markOk } from "../../lib/accounting-section";
@@ -14,7 +15,7 @@ export default async function handler(req, res) {
   const session = await requireAccess(req, res, "money");
   if (!session) return;
   try {
-    if (req.method === "GET") return res.status(200).json(await accountingState({ fresh: !!req.query.fresh, counts: !!req.query.counts }));
+    if (req.method === "GET") return res.status(200).json(await withSheetsQuick(() => accountingState({ fresh: !!req.query.fresh, counts: !!req.query.counts })));
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
     // Mark as OK: only a check that is on the list right now, keyed by the row's content

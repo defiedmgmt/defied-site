@@ -732,7 +732,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
     try {
       const { missing } = await fullSiteSync(dbNow.current, commit);
       reloadSongInfo?.(); // the pull re-checked the sheet tabs: the task counts and badge follow
-      const res2 = await fetch("/api/sheets-master");
+      const res2 = await fetch("/api/sheets-master?fresh=1"); // (2026-11-20) the pull wrote nothing to the sheet: read MASTER itself, not the saved copy
       const data2 = await res2.json();
       if (res2.ok) setState({ loading: false, error: null, data: data2 });
       setStreamSync({

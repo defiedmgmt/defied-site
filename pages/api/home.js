@@ -4,6 +4,7 @@
 // (the accounting sheet's 5). GET only; nothing here writes, except the two ClickUp tasks the dashboard
 // keeps (lib/money.js, at most once every 10 minutes). (r10, C6: Home's ClickUp rows come from /api/tasks,
 // so the one list this used to read on every load, and its ?list= switcher, are gone.)
+import { withSheetsQuick } from "../../lib/sheets";
 import { requireAccess } from "../../lib/access";
 import { moneyState, payerNamer, paymentRow, checkClickUpTasks } from "../../lib/money";
 import { logWritesOn } from "../../lib/accounting-log";
@@ -24,7 +25,8 @@ export default async function handler(req, res) {
       const off = { connected: false, hidden: true };
       return res.status(200).json({ money: off, payments: off, accounting: off, tasks: null });
     }
-    const { pay, acct, match } = await moneyState({ fresh });
+    // (2026-11-20) a page someone waits on: its reads don't sit out Google's quota (lib/sheets.js withSheetsQuick)
+    const { pay, acct, match } = await withSheetsQuick(() => moneyState({ fresh }));
     const nameOf = await payerNamer(match);
     const logged = match ? new Set([...match.matched, ...match.loggedTogether, ...(match.loggedHere || [])].map((p) => p.id)) : null;
 

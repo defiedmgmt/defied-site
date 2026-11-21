@@ -32,7 +32,7 @@ export function useSyncChecks(tab) {
   const load = (force = false) => {
     if (!force && syncCache.d && Date.now() - syncCache.at < 120000) { setData(syncCache.d); return Promise.resolve(); }
     setFailed(false); setBusy(true);
-    return fetch("/api/sync", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+    return fetch(force ? "/api/sync?fresh=1" : "/api/sync", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.checks) { syncCache.d = d; syncCache.at = Date.now(); setData(d); } else setFailed(true); }).catch(() => setFailed(true)).finally(() => setBusy(false));
   };
   // (any tab's first load reads them too: the sidebar's count and each tab's chip include the amber ones)
