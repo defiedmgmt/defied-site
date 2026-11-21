@@ -151,7 +151,10 @@ Net streams are for the spreadsheet (2026-11-13): an artist's page (the Net Stre
 and the Overview (the Net streams column) show them to no one, Founders included. The Advance calculator is the one place
 that still uses them, as the input of its estimate, so it and the data behind it (`/api/ar-data`'s signed clients, and the
 net columns of `/api/sheets-master`) are for an account with **Money** access, which is a Founder unless a Founder turns
-Money on for someone else (`lib/roles.js` `seesNetStreams`).
+Money on for someone else (`lib/roles.js` `seesNetStreams`). The calculator starts from today's pace, the streams a year the
+person earns now (`lib/advance-model.js` does the math): `/api/ar-data` sends each signed client's `pace` with those same
+clients and to the same accounts, worked out from real daily Spotify readings, with the sheet's run-rate (ASSUMPTIONS!B9)
+for songs that have none (`lib/advance-pace.js`).
 
 - A Founder can turn any section on or off for one person, on top of their role. In that list To do reads "Team to-do" (everyone's) and
   Money "All money" (Defied's books); a login's own **My to-do** (their ClickUp MGMT list) and **My payments** (their pay link) come with

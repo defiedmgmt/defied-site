@@ -2,8 +2,9 @@
 // snapshot, each row matched to the dashboard's permanent prospect id (lib/ar.js reconcile: it also
 // takes in prospects typed into the sheet by hand and notices rows sorted, renamed or cleared there,
 // and writes nothing to the sheet), plus the signed clients' Net Streams for the Advance
-// calculator (only to an account with Money access, which is who can open it, and to one limited to
-// its own artists only theirs: signedClientsFor). When the sheet can't be read, the prospects come
+// calculator, and each one's `pace` (the streams a year they earn today, lib/advance-pace.js): only to an
+// account with Money access, which is who can open it, and to one limited to its own artists only
+// theirs (signedClientsFor). When the sheet can't be read, the prospects come
 // from what it last said (stale) and saving pauses. ?check=1 is the read-only Sheet check. Writes go
 // through /api/ar-write.
 import { withSheetsQuick } from "../../lib/sheets";
@@ -17,6 +18,7 @@ import { getState } from "../../lib/app-state";
 import { tabLink, getSheetId } from "../../lib/sheets";
 import { readSheetFacts } from "../../lib/sheet-facts-store";
 import { netStreamsOf } from "../../lib/sheet-facts";
+import { readPaces } from "../../lib/advance-pace";
 
 // The same net streams a client's page shows (components/App.jsx SongManager): the sheet's own figure
 // from the last pull (MASTER's writer table, build G3), else the estimate — each placement's streams ×
@@ -53,6 +55,21 @@ export function signedClientsFor(access, list) {
   return list.filter((c) => mine.has(c.id));
 }
 
+// (2026-11-20) Each of those clients with `pace`: the streams a year they earn today, from real daily readings (lib/advance-pace.js), for the Advance
+// calculator (lib/advance-model.js) to start from. Run on the clients an account already gets (signedClientsFor), so no other artist's number goes
+// out; one more pair of reads per request. runRate: the sheet's ASSUMPTIONS!B9 for the songs without readings (0 when the sheet couldn't be read).
+// A failed read leaves `pace: null` and the calculator falls back to the sheet's rule: it still works.
+async function withPace(list, runRate) {
+  if (!list.length) return list;
+  try {
+    const paces = await readPaces({ sql, clients: list, runRate: Number(runRate) || 0 });
+    return list.map((c) => ({ ...c, pace: paces.get(c.id) ?? null }));
+  } catch (err) {
+    console.error("ar-data pace read failed:", err);
+    return list.map((c) => ({ ...c, pace: null }));
+  }
+}
+
 async function offBoard() {
   const rows = await sql`SELECT id, name, removed_at, removed_by FROM ar_prospects WHERE removed_at IS NOT NULL AND merged_into IS NULL ORDER BY removed_at DESC`;
   return rows.map((r) => ({ id: r.id, name: r.name, removedAt: r.removed_at, why: r.removed_by === "sheet" ? "gone from the sheet" : "removed" }));
@@ -82,7 +99,8 @@ export default async function handler(req, res) {
       console.error("ar-data sheet read failed:", err);
     }
     // (read only for an account that may have them)
-    const signedClients = seesNetStreams(req.access) ? signedClientsFor(req.access, await readSignedClientsWithNetStreams()) : [];
+    const signedClients = seesNetStreams(req.access)
+      ? await withPace(signedClientsFor(req.access, await readSignedClientsWithNetStreams()), read?.assumptions?.runRate) : [];
     // the one-time "found N prospects" card, until [Got it]
     const firstRun = async () => { const f = await getState("arFirstRun"); return f && !f.dismissed ? { found: f.found } : null; };
 
