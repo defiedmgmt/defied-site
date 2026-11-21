@@ -3,14 +3,15 @@
 // fills), a row of four numbers for that range (now, the change, the average per day, the biggest day), the chart, and its notes (dashed = no reading;
 // where the scale starts; which releases the dotted lines are). The chart: x placed by CALENDAR DAY (a missing day is a visible gap, never squeezed
 // out), y on 4 to 5 round numbers with the lowest one always labelled and the scale never starting at 0 when that would flatten the line, a faint dashed
-// connector wherever days have no reading, a strip of day-over-day bars (green up, red down) on the same x scale, dotted lines on release days, and a
-// crosshair that snaps to the nearest reading under a finger, a mouse or ← / → (Home / End too).
+// connector wherever days have no reading, a strip of bars (the change since the day before, the week before or the previous reading; green up, red down) on
+// the same x scale, dotted lines on release days, and a crosshair that snaps to the nearest reading under a finger, a mouse or ← / → (Home / End too).
 // Everything it works out is in lib/ar/chart.js (pure, tested); this file only turns that into shapes. Styles: components/ar/ar-grid.css (.bc-*).
 //   points   [[day, v]] or [{ d, v }] (see lib/ar/chart.js)          kind      "level" | "total" | "daily" (bars: a day's gain)
-//   step     1 daily, 7 weekly (Luminate)                              unit      "listeners", "streams": said after a number in the hover
+//   step     1 daily, 7 weekly, "auto" none (Luminate's weeks / its      unit      "listeners", "streams": said after a number in the hover
+//            all-time totals: readings whenever an export was made)
 //   releases [{ d, name }]                                             variant   "full" (340px tall; 240 on a phone) or "drawer" (200px)
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { buildChart, hitAt, moveIndex, normPoints, rangesFor, inRange, rangeLabel, summarize, tipOf, ariaSummary, compact, exact, signedText, pctText, shortDay } from "../../lib/ar/chart";
+import { buildChart, hitAt, moveIndex, normPoints, spacingOf, countWords, rangesFor, inRange, rangeLabel, summarize, tipOf, ariaSummary, compact, exact, signedText, pctText, shortDay } from "../../lib/ar/chart";
 
 const useIso = typeof window !== "undefined" ? useLayoutEffect : useEffect; // layout effects only where there is a page (the server prints without one)
 
@@ -47,7 +48,7 @@ const NONE = []; // (a stable empty list: the chart is rebuilt when its releases
 const dirOf = (n) => (n > 0 ? "up" : n < 0 ? "down" : "flat");
 const rangeText = (sel) => (sel === "all" ? "all readings" : `${sel} days`);
 // the row above the chart: [{ k, label, value, sub, dir }]
-function statsOf(sum, { kind, step, sel, unit }) {
+function statsOf(sum, { kind, sp, sel, unit }) {
   if (!sum) return [];
   if (kind === "daily") {
     return [
@@ -57,12 +58,13 @@ function statsOf(sum, { kind, step, sel, unit }) {
       { k: "best", label: "Best day", value: sum.best ? exact(sum.best.v) : "—", sub: sum.best ? shortDay(sum.best.d) : "no gain yet" },
     ];
   }
-  const word = step === 7 ? "week" : "day", one = sum.n < 2;
+  const word = sp.auto ? "" : sp.step === 7 ? "week" : "day", one = sum.n < 2;
   return [
     { k: "now", label: "Now", value: exact(sum.current.v), sub: [unit, shortDay(sum.current.d)].filter(Boolean).join(" · ") },
     { k: "change", label: `Change · ${rangeText(sel)}`, value: one ? "—" : signedText(sum.change), sub: one ? "needs a second reading" : `${sum.pct == null ? "" : `${pctText(sum.pct)} `}since ${shortDay(sum.since)}`, dir: one ? undefined : dirOf(sum.change) },
     { k: "perday", label: "Average per day", value: one || sum.perDay == null ? "—" : signedText(sum.perDay), sub: one ? "" : `over ${sum.days} ${sum.days === 1 ? "day" : "days"}`, dir: one || sum.perDay == null ? undefined : dirOf(sum.perDay) },
-    { k: "best", label: `Biggest ${word} gain`, value: sum.best ? signedText(sum.best.change) : "—", sub: sum.best ? shortDay(sum.best.d) : one ? "" : `no rise ${word} over ${word} yet`, dir: sum.best ? "up" : undefined },
+    { k: "best", label: sp.auto ? "Biggest single gain" : `Biggest ${word} gain`, value: sum.best ? signedText(sum.best.change) : "—",
+      sub: sum.best ? (sp.auto ? `${shortDay(sum.best.from)} → ${shortDay(sum.best.d)}` : shortDay(sum.best.d)) : one ? "" : sp.auto ? "no rise between readings yet" : `no rise ${word} over ${word} yet`, dir: sum.best ? "up" : undefined },
   ];
 }
 
@@ -71,18 +73,20 @@ export function BigChart({ points, label = "", kind = "level", step = 1, unit = 
   const wrap = useRef(null), svg = useRef(null);
   const w = useBoxWidth(wrap, variant === "drawer" ? 440 : 960);
   const h = phone ? 240 : variant === "drawer" ? 200 : 340;
-  const all = useMemo(() => normPoints(points), [points]);
-  const ranges = rangesFor(all, step);
+  // a day with nothing gained (0) is no reading: bars, numbers and hover all leave it out (the server leaves out a day on which every song read the same, too)
+  const all = useMemo(() => normPoints(points).filter((p) => kind !== "daily" || p.v !== 0), [points, kind]);
+  const sp = useMemo(() => spacingOf(all, step), [all, step]); // from the whole series, so a range pill never changes what a gap is
+  const ranges = rangesFor(all, sp.auto ? 7 : step);
   const [range, setRange] = useState(defaultRange);
-  const [act, setAct] = useState(defaultActive == null ? null : { type: "point", i: defaultActive });
+  const [act, setAct] = useState(defaultActive == null ? null : typeof defaultActive === "object" ? defaultActive : { type: "point", i: defaultActive }); // (a reading's index, or a hit)
   const [say, setSay] = useState(""); // what a screen reader is told when ← / → move (a mouse hover is only for eyes)
   const sel = ranges.includes(range) ? range : "all";
   const vis = useMemo(() => inRange(all, sel), [all, sel]);
-  const m = useMemo(() => buildChart({ points: vis, step, kind, releases, w, h }), [vis, step, kind, releases, w, h]);
-  const sum = useMemo(() => summarize(vis, { step, kind }), [vis, step, kind]);
-  const aria = useMemo(() => ariaSummary({ label, points: vis, step, kind, unit, releases }), [label, vis, step, kind, unit, releases]);
+  const m = useMemo(() => buildChart({ points: vis, step: sp.step, spacing: sp, kind, releases, w, h }), [vis, sp, kind, releases, w, h]);
+  const sum = useMemo(() => summarize(vis, { step: sp.step, gapOver: sp.gapOver, kind }), [vis, sp, kind]);
+  const aria = useMemo(() => ariaSummary({ label, points: vis, step: sp.step, gapOver: sp.gapOver, auto: sp.auto, kind, unit, releases }), [label, vis, sp, kind, unit, releases]);
   const a = act && (act.type === "gap" ? act.b < vis.length : act.i < vis.length) ? act : null;
-  const tip = a ? tipOf({ points: vis, hit: a, step, kind, unit, releases, songs }) : null;
+  const tip = a ? tipOf({ points: vis, hit: a, step: sp.step, kind, unit, releases, songs }) : null;
   const bottom = m.strip ? m.strip.y1 : m.plot.y1;
 
   const pick = (r) => { setRange(r); setAct(null); setSay(""); };
@@ -98,13 +102,15 @@ export function BigChart({ points, label = "", kind = "level", step = 1, unit = 
     e.preventDefault();
     const i = a && a.type === "gap" && (key === "left" || key === "right") ? (key === "left" ? a.a : a.b) : moveIndex(a && a.type === "point" ? a.i : null, key, vis.length);
     setAct({ type: "point", i });
-    setSay(tipOf({ points: vis, hit: { type: "point", i }, step, kind, unit, releases, songs }).text);
+    setSay(tipOf({ points: vis, hit: { type: "point", i }, step: sp.step, kind, unit, releases, songs }).text);
   };
 
   const tipW = Math.min(232, m.w - 16), ax = a ? (a.type === "gap" ? a.x : m.pts[a.i].x) : 0;
   const tipLeft = Math.max(8, Math.min(m.w - tipW - 8, ax < m.w / 2 ? ax + 14 : ax - 14 - tipW));
-  const stats = statsOf(sum, { kind, step, sel, unit });
+  const stats = statsOf(sum, { kind, sp, sel, unit });
   const relInView = m.releases.slice().reverse();
+  // the note under the chart names five releases at most (a day or a long gap can hold dozens), each cut at 40 characters, then "and N more"
+  const relLines = relInView.flatMap((r) => r.names.map((nm) => `${shortDay(r.d)} ${nm.length > 40 ? `${nm.slice(0, 39)}…` : nm}`));
   const gapText = m.gaps.slice(0, 2).map((g) => (g.from === g.to ? shortDay(g.from) : `${shortDay(g.from)} – ${shortDay(g.to)}`)).join("; ") + (m.gaps.length > 2 ? ` and ${m.gaps.length - 2} more` : "");
 
   if (!all.length) return null;
@@ -112,7 +118,7 @@ export function BigChart({ points, label = "", kind = "level", step = 1, unit = 
     <div className="bc" ref={wrap} data-bigchart data-kind={kind} data-variant={variant} data-step={step}>
       <div className="bc-top">
         <span className="bc-span" data-bc-span>
-          {shortDay(vis[0].d)}{vis.length > 1 ? ` – ${shortDay(vis[vis.length - 1].d)}` : ""} · {vis.length} {vis.length === 1 ? "reading" : "readings"}
+          {shortDay(vis[0].d)}{vis.length > 1 ? ` – ${shortDay(vis[vis.length - 1].d)}` : ""} · {countWords(vis.length, { kind, step: sp.step, auto: sp.auto })}
         </span>
         {ranges.length > 0 && (
           <div className="bc-range" role="group" aria-label="Range" data-bc-range>
@@ -160,8 +166,7 @@ export function BigChart({ points, label = "", kind = "level", step = 1, unit = 
             <g aria-hidden="true" data-bc-strip>
               <line x1={m.strip.x0} x2={m.strip.x1} y1={m.strip.zeroY} y2={m.strip.zeroY} className="bc-axis" />
               {m.stripBars.map((b) => <rect key={b.i} x={b.x} y={b.y} width={b.w} height={b.h} rx="1" className={b.up ? "bc-up" : "bc-down"} data-day-change={b.change} />)}
-              <text x={m.strip.x0 - 8} y={(m.strip.y0 + m.strip.y1) / 2 - 1} textAnchor="end" className="bc-tick bc-tick-s">{step === 7 ? "Week" : "Day"}</text>
-              <text x={m.strip.x0 - 8} y={(m.strip.y0 + m.strip.y1) / 2 + 9} textAnchor="end" className="bc-tick bc-tick-s">change</text>
+              <text x={m.strip.x0 + 8} y={m.strip.y0 - 5} className="bc-tick bc-tick-s" data-strip-label>{m.strip.label}</text>
             </g>
           )}
           {/* releases: a dotted line on the day, the name in its tooltip and in the note under the chart */}
@@ -198,7 +203,7 @@ export function BigChart({ points, label = "", kind = "level", step = 1, unit = 
             <b>{tip.title}</b>
             {tip.value ? <span className="bc-tip-v">{tip.value}</span> : null}
             {tip.lines.map((l) => <span key={l} className="bc-tip-l">{l}</span>)}
-            {tip.releases.length > 0 && <span className="bc-tip-r">Released: {tip.releases.join(", ")}</span>}
+            {tip.releases.length > 0 && <span className="bc-tip-r">Released: {tip.releases.join(", ")}{tip.more ? ` and ${tip.more} more` : ""}</span>}
           </div>
         )}
       </div>
@@ -209,7 +214,7 @@ export function BigChart({ points, label = "", kind = "level", step = 1, unit = 
           {m.gaps.length > 0 && (kind === "daily"
             ? <p data-bc-gaps>No daily gain {gapText}: a day's gain needs a reading on both days.</p>
             : <p data-bc-gaps><i className="bc-key bc-key-gap" aria-hidden="true" />No reading {gapText}: the dashed line only joins the days either side, it is not a measurement.</p>)}
-          {relInView.length > 0 && <p data-bc-releases-note><i className="bc-key bc-key-rel" aria-hidden="true" />Releases: {relInView.slice(0, 5).map((r) => `${shortDay(r.d)} ${r.names.join(", ")}`).join(" · ")}{relInView.length > 5 ? ` · and ${relInView.length - 5} more` : ""}</p>}
+          {relInView.length > 0 && <p data-bc-releases-note><i className="bc-key bc-key-rel" aria-hidden="true" />Releases: {relLines.slice(0, 5).join(" · ")}{relLines.length > 5 ? ` · and ${relLines.length - 5} more` : ""}</p>}
           {!m.zero && <p data-bc-scale>The vertical scale starts near {compact(m.dom.min)}, not 0, so small moves show.</p>}
         </div>
       )}

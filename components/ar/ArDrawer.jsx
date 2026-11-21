@@ -10,13 +10,14 @@ import { X, ExternalLink, RefreshCw, Maximize2, Minimize2 } from "lucide-react";
 import { n0, signed, pctText, dirOf, dayText, atText, post, spanText, typeOf, TYPE_LABEL, UNIT, drawerSize } from "./fmt";
 import { Photo, Links, DeltaCell, MetricCell, TypeChip } from "./ArGrid";
 import { BigChart, usePhone } from "./BigChart";
-import { CAPTION, momentumWords } from "../../lib/ar/chart";
+import { CAPTION, countWords, momentumWords, momentumHead } from "../../lib/ar/chart";
 
 const METRIC_NAME = { listeners: "Spotify monthly listeners", streams: "Spotify streams", spfollowers: "Spotify followers", tiktok: "TikTok followers", instagram: "Instagram followers", youtube: "YouTube subscribers", videos: "TikTok videos with this sound" };
 const useIso = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 const NONE = []; // (a stable empty list: BigChart redraws when its releases change)
 // a series' points are [day, v] from the server, except a roster artist's songs' daily streams ({ d, v, n })
 const dayOfPoint = (p) => (Array.isArray(p) ? p[0] : p.d);
+const valueOfPoint = (p) => (Array.isArray(p) ? p[1] : p.v);
 const kindOf = (key, s) => s.kind || (key === "streams" || key === "videos" ? "total" : "level");
 
 // the Luminate history (all platforms, read-only): the weekly streams (and the all-time total, one tap away) on the big chart, the all-time line, the last two weeks
@@ -41,7 +42,7 @@ function LumHistory({ series, releases, variant }) {
       )}
       {on && (
         <>
-          <BigChart key={on} points={on === "week" ? weekPts : atdPts} step={7} kind={on === "week" ? "level" : "total"} unit="streams" label={on === "week" ? "Luminate streams per week" : "Luminate all-time streams"} releases={releases} variant={variant} />
+          <BigChart key={on} points={on === "week" ? weekPts : atdPts} step={on === "week" ? 7 : "auto"} kind={on === "week" ? "level" : "total"} unit="streams" label={on === "week" ? "Luminate streams per week" : "Luminate all-time streams"} releases={releases} variant={variant} />
           <p className="hint" data-lum-what>{CAPTION[on === "week" ? "lumWeek" : "lumAtd"]}</p>
           <p className="hint" data-lum-n>{on === "week"
             ? `${weekPts.length} weeks with a number, ${dayText(weekPts[0].d)} to ${dayText(weekPts[weekPts.length - 1].d)}${weeks.length > weekPts.length ? ` · ${weeks.length - weekPts.length} with none` : ""}`
@@ -65,14 +66,16 @@ function LumHistory({ series, releases, variant }) {
   );
 }
 
-// how many readings, and over which days: "1 reading so far (Nov 4)", "2 readings, Nov 4, 7 AM → 7 PM (one day, so one point)", "17 readings, Nov 4 to Nov 20"
-// r10 fix: New York days; two readings on one day say so. The songs' daily streams are days of gains, not readings.
+// how much there is, and over which days: "12 days with a reading (13 readings), Nov 4 to Nov 20" (the chart's head says "12 days with a reading" in the same
+// words: it counts days, one point each), "1 reading so far (Nov 4)", "2 readings, Nov 4, 7 AM → 7 PM (one day, so one point)".
+// r10 fix: New York days; two readings on one day say so. The songs' daily streams are days with a gain, not readings (a day of 0 isn't one: the chart leaves it out).
 function readingsText(s) {
-  const pts = s.points;
-  if (s.kind === "daily") return `${pts.length} ${pts.length === 1 ? "day" : "days"} of gains, ${dayText(dayOfPoint(pts[0]))}${pts.length > 1 ? ` to ${dayText(dayOfPoint(pts[pts.length - 1]))}` : ""}, from ${s.songs} of their ${s.linked} ${s.linked === 1 ? "song" : "songs"}`;
-  return (s.reads || pts.length) === 1 ? `1 reading so far (${dayText(dayOfPoint(pts[0]))})`
-    : pts.length === 1 ? `${s.reads} readings, ${spanText(s.firstAt, s.lastAt)} (one day, so one point)`
-    : `${s.reads || pts.length} readings, ${dayText(dayOfPoint(pts[0]))} to ${dayText(dayOfPoint(pts[pts.length - 1]))}`;
+  const pts = s.kind === "daily" ? s.points.filter((p) => valueOfPoint(p) !== 0) : s.points;
+  if (!pts.length) return "No day with a gain yet";
+  const days = pts.length, raw = s.reads || days, first = dayText(dayOfPoint(pts[0])), last = dayText(dayOfPoint(pts[days - 1]));
+  if (s.kind === "daily") return `${countWords(days, { kind: "daily" })}, ${first}${days > 1 ? ` to ${last}` : ""}, from ${s.songs} of their ${s.linked} ${s.linked === 1 ? "song" : "songs"}`;
+  if (days === 1) return raw === 1 ? `1 reading so far (${first})` : `${raw} readings, ${spanText(s.firstAt, s.lastAt)} (one day, so one point)`;
+  return `${countWords(days)}${raw > days ? ` (${raw} readings)` : ""}, ${first} to ${last}`;
 }
 
 export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
@@ -118,6 +121,7 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
   const big = full || phone; // the big view (a phone is always it)
   const variant = big ? "full" : "drawer";
   const mw = r && d?.momentum ? momentumWords(d.momentum) : null;
+  const mh = r && r.kind === "artist" ? momentumHead(r.momentum, d?.momentum?.day) : null; // "Score 71, down 3.3 since yesterday"
 
   const secRole = r && r.kind === "artist" && r.trackedId && !r.roster ? (
     <section className="ard-sec ard-role" data-drawer-type>
@@ -263,7 +267,12 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
   const secMomentum = r && r.kind === "artist" && r.momentum?.score != null ? (
     <section className="ard-sec" data-drawer-momentum>
       <h4>Momentum</h4>
-      {r.momentum?.score != null ? <p><b>{Math.round(r.momentum.score)}</b> {r.momentum.trend || ""} · {r.momentum.why}</p> : <p className="hint">{r.momentum?.why || "Needs a second day of numbers."}</p>}
+      {mh ? (
+        <>
+          <p data-momentum-head><b>Score {mh.score}</b> · <span data-dir={mh.dir}>{mh.move}</span></p>
+          {r.momentum.why ? <p className="hint" data-momentum-why>What moved: {r.momentum.why}</p> : null}
+        </>
+      ) : <p className="hint">{r.momentum?.why || "Needs a second day of numbers."}</p>}
       {mw && (
         <div className="ard-mo" data-momentum-parts>
           {mw.items.map((x) => (
