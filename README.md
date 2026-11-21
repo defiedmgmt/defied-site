@@ -148,8 +148,8 @@ Every staff login has a role. Founders set roles in **Site › Users** (`lib/rol
 | Client | Their own portal. Unchanged. |
 
 Net streams are for the spreadsheet (2026-11-13): an artist's page (the Net Streams card and a song's Net streams row)
-and the Overview (the Net streams column) show them to no one, Founders included. The Advance calculator is the one place
-that still uses them, as the input of its estimate, so it and the data behind it (`/api/ar-data`'s signed clients, and the
+and the Overview (the Net streams column) show them to no one, Founders included. The Advance calculator (since 2026-11-21 on Money ›
+EMPIRE deal, below) is the one place that still uses them, as the input of its estimate, so it and the data behind it (`/api/ar-data`'s signed clients, and the
 net columns of `/api/sheets-master`) are for an account with **Money** access, which is a Founder unless a Founder turns
 Money on for someone else (`lib/roles.js` `seesNetStreams`). The calculator starts from today's pace, the streams a year the
 person earns now (`lib/advance-model.js` does the math): `/api/ar-data` sends each signed client's `pace` with those same
@@ -285,6 +285,28 @@ the producer's own share of it. The owner's old file ("Defied Schedule A (Update
 - **Setting it up:** convert the file to a Google Sheet, name its tab `Schedule A`, share it with `GOOGLE_SHEETS_CLIENT_EMAIL` as Editor, and set `SCHEDULE_A_SHEET_ID` in
   Vercel's **Production** environment only (writes are on as soon as the id is set; a preview that shares the database and the id would write the sheet too).
   To look first: set `SCHEDULE_A_WRITES=off`, open `/api/schedule-a` (or Site › Sync) while signed in, then take the switch off. The first sync is the owner's old sheet's migration.
+
+## Money › EMPIRE deal (2026-11-21)
+
+The publishing-administration deal with EMPIRE, as a Money sub-tab (first pill, and where Money opens). Money access, and an account that sees every
+artist (one limited to its own is refused): `GET`/`POST /api/empire` is the only way the page sees any of it. The contract is confidential, so its terms
+live in server code only (`lib/empire-terms.js`); the page's own code (`components/dash/empire*.jsx`, `empire-data.js`, `lib/empire-math.js`) holds none
+and takes every rate, amount and date from the answer, so none of them is in what a browser downloads.
+
+- **The bar**: how much of EMPIRE's advance is paid back. A statement a founder types in (quarter, Net Income, what EMPIRE credited Defied) counts for its
+  quarter; every other stretch up to today is an estimate: the streams each Schedule A song earned (Luminate's all-time total near the start and the
+  latest count where both exist, a song's lifetime count if it came out since, else today's pace × the days), × the pub sheet's rate a stream
+  (ASSUMPTIONS!B7) × the share of it EMPIRE receives as Net Income (a standard guess a Founder can change on the page) × what EMPIRE pays Defied. It says
+  how much of the estimate is measured, when the advance is paid back at today's pace (the slowdown is B8's), whether that is in time for EMPIRE's extra
+  advance, and what a buyout would cost on the day it opens.
+- **The pot** is what EMPIRE advanced that Defied gives its own producers advances from: received (yes and the day), given, planned, left.
+- **Producer deals** are a producer's advance for a song or a whole catalog, paid back from that producer's royalties (Net Income × EMPIRE's payout, less
+  Defied's cut, 20% unless the deal says another). Saved as planned from the calculator, marked given with a day, edited, deleted (asked in the page).
+  A given deal's own bar counts the royalties earned since its day.
+- **The Advance calculator** moved here from Clients (its old address opens this page). Same model as before (`lib/advance-model.js`), run on the producer's
+  royalties (`lib/empire-math.js`); pick a producer's whole catalog or some songs (each with its own pace), a prospect or someone new.
+- **Saved state**: the one `app_state` row "empireDeal", an entry per key (`received`, `levers`, `statement:<quarter>`, `deal:<id>`), each write one SQL
+  statement on its own key so two founders saving at once never overwrite each other. No migration. `lib/empire-store.js` checks everything typed.
 
 ## Environment variables
 

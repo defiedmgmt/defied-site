@@ -7,7 +7,7 @@ import { ArPasteBar } from "../ar/ArPasteBar";
 import { swrJson, peekJson } from "../ui/fetch-cache";
 import { ProspectForm } from "./advance";
 import { shortDay } from "./helpers";
-import { fmt, revealChip } from "./ui";
+import { revealChip } from "./ui";
 import { arPgCache } from "../shared/dash-caches";
 import { arSecOf } from "../shared/ar-routes";
 import { typeOf, endingWords } from "../ar/fmt";
@@ -243,13 +243,8 @@ const STAGE_OF_STATUS = { "Not Contacted": "reach", Researching: "reach", "": "r
 export const stageOfStatus = (s) => STAGE_OF_STATUS[String(s ?? "").trim()] || "other";
 // the status a move saves: "To reach out" keeps Researching when that's what it was
 export const statusForStage = (id, current) => (id === "passed" ? "Passed" : id === "reach" && String(current ?? "").trim() === "Researching" ? "Researching" : AR_STAGES.find((s) => s.id === id)?.status);
-export const wholeMoney = (n) => `$${fmt(Math.round(Number(n) || 0))}`;
-// stream counts in A&R, one rule everywhere (Board card, Producers tiles, panel, How we estimate): from a
-// million, up to two decimals rounded half-up (28.9M · 14.45M · 1.48M), from a thousand whole K (845K)
-export const bigNum = (n) => {
-  const a = Math.abs(Number(n) || 0), s = n < 0 ? "-" : "";
-  return a >= 1e6 ? `${s}${Math.round(a / 1e4) / 100}M` : a >= 1e3 ? `${s}${Math.round(a / 1e3)}K` : `${s}${fmt(Math.round(a))}`;
-};
+// (2026-11-21) wholeMoney, bigNum, pct1 and yearOne moved to components/dash/ar-fmt.js, so the Money tab's EMPIRE page can use them without A&R's code; still exported from here
+export { wholeMoney, bigNum, pct1, yearOne } from "./ar-fmt";
 // Everyone on the Board: producers (prospects, their stage from the sheet) and the tracked artists
 // put on the board (stage not null). Built the same way for Summary, the Board and the Watchlist.
 export function arCards(data, pg) {
@@ -295,15 +290,5 @@ export function followChip(f) {
   const days = (Date.parse(`${f.on}T12:00:00`) - Date.now()) / 864e5;
   return <span className="arb-chip">Follow up {days < 6 ? weekday(f.on) : shortDay(f.on)}</span>;
 }
-
-// The sheet's Year 1 is the run-rate (B9) less one year's decay (B8): H × B9 × (1 − I), so 30% and 25%
-// make 22.5%. Say that share, not B9 alone, or a hand check comes out a third too high. One decimal,
-// so 22.5% never shows as 23%. null when either lever is missing.
-export const pct1 = (x) => `${Math.round(x * 1000) / 10}%`;
-// "how" says it in words: "30% of all-time a year, less a quarter of that"
-const FRACTION_WORDS = { 0.5: "half", 0.25: "a quarter", 0.2: "a fifth", 0.1: "a tenth", 0.75: "three quarters" };
-const partWords = (x) => FRACTION_WORDS[Math.round(x * 1e6) / 1e6] || (Math.abs(x - 1 / 3) < 1e-6 ? "a third" : pct1(x));
-export const yearOne = (a) => (a?.runRate != null && a?.decayRate != null
-  ? { share: pct1(a.runRate * (1 - a.decayRate)), run: pct1(a.runRate), decay: pct1(a.decayRate), how: `${pct1(a.runRate)} of all-time a year, less ${partWords(a.decayRate)} of that` } : null);
 
 const weekday = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: "short" });

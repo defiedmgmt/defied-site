@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import dynamic from "next/dynamic";
 import { X, Plus, LayoutGrid, Folder, RefreshCw } from "lucide-react";
 import { splitWords, orderSplits } from "../../lib/splits";
 import { typedSplit, pctText } from "../../lib/split-fixes";
@@ -15,14 +14,11 @@ import { Avatar, DropNote, Field, PctInput, fmt, landOn, money, revealChip, spli
 import { NotOursAsk, SongManager, noSheetTab, pushShare, releaseDay } from "../portal/ClientPortal";
 import { AskCard } from "../portal/ask";
 import { ExtLink, Photo } from "../shared/ui";
-import { SectionWait } from "./sections";
 import { AddedSaid, syncEverywhere } from "./people-added";
 import { findByName, ownSplit } from "../site/data";
 import { normalizeTitle, splitsToConfirm, fullSiteSync } from "./catalog-data";
 import { dashCache } from "../shared/dash-caches";
 export { normalizeTitle, isSheetSyncStale, fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
-// the Advance calculator reads A&R's sheet (advance.jsx, with A&R's code): its own chunk, loaded when it opens (list B #11)
-const AdvanceTab = dynamic(() => import("./advance").then((m) => m.AdvanceTab), { ssr: false, loading: SectionWait });
 
 // a song's row on its client's tab, in the same order the sheet pull matches them (pullAndMergeSheetData):
 // its own Site Sync ID, then its Luminate ID, then a row with its title that no live song has claimed
@@ -908,15 +904,15 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   );
 }
 
-// Publishing: the clients, their songs and splits, the MASTER totals and the Advance calculator.
-// A Dashboard task can open it on a client ("client:<id>") or on the calculator ("advance").
+// Publishing: the clients, their songs and splits, and the MASTER totals. A Dashboard task can open it on a client ("client:<id>").
+// (2026-11-21) The Advance calculator moved to Money › EMPIRE deal (components/dash/empire-calc.jsx), where Defied's advances to producers are planned against the pot EMPIRE
+// advanced; its old address, /dashboard/catalog/advance, opens it there (StaffDashboard placeOf), and this page keeps one line saying so.
 // (r11: the ISRCs tab is gone, the owner: "why is there an isrc tab on the pub tab do i need that ?". The finder is
 // To do's "N songs have no ISRC" row now, /dashboard/todo/isrc; the old /dashboard/catalog/isrc opens it there.)
 export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSongInfo, sub, onGo, onSub, chip = null }) {
-  // the Advance calculator is money: the Founders' (Money access). It runs on net streams, which go with the money
-  // (lib/roles.js seesNetStreams), and /api/ar-data sends its clients' net streams only to an account with Money
+  // the money columns are the Founders' (Money access); so is the page the advance calculator moved to (Money access, and every artist: an account limited to its own has no EMPIRE page)
   const seeMoney = canUse(db, "money"), own = !!db.access?.ownOnly;
-  const [sec, setSec] = useState(seeMoney && (sub === "advance" || sub?.startsWith("advance:")) ? "advance" : "overview");
+  const seeEmpire = seeMoney && !own;
   const editSong = sub?.startsWith("edit:") ? db.placements.find((p) => p.id === sub.slice(5)) : null;
   // null clientId = the read-only Overview landing page, not "no selection"
   const [clientId, setClientIdOnly] = useState(sub?.startsWith("client:") ? sub.slice(7) : editSong ? editSong.clientId : null);
@@ -930,7 +926,7 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
   const openFix = (id, field = null) => {
     const p = db.placements.find((x) => x.id === id);
     if (!p) return;
-    setSec("overview"); setClientIdOnly(p.clientId); onSub?.(`client:${p.clientId}`); setFix({ id, n: ++fixN.current, field });
+    setClientIdOnly(p.clientId); onSub?.(`client:${p.clientId}`); setFix({ id, n: ++fixN.current, field });
   };
   const toFix = useMemo(() => splitsToConfirm(db, songInfo).all.reduce((a, x) => ({ ...a, [x.p.clientId]: (a[x.p.clientId] || 0) + 1 }), {}), [db, songInfo]);
   const client = db.clients.find((c) => c.id === clientId);
@@ -987,19 +983,14 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
   };
 
   // (a stale copy of the numbers catches up in the background: StaffDashboard starts it)
-  const pick = (id) => (e) => { setSec(id); revealChip(e.currentTarget); onSub?.(id === "advance" ? id : clientId ? `client:${clientId}` : null); };
   return (
     <div>
       <div className="admin-head">
         <h2>Clients</h2>{chip}
       </div>
       <AddedSaid said={addedSaid} onGo={onGo} />
-      {seeMoney && <div className="subnav">
-        <button className={sec === "overview" ? "subpill active" : "subpill"} onClick={pick("overview")}>Overview &amp; clients</button>
-        <button className={sec === "advance" ? "subpill active" : "subpill"} onClick={pick("advance")}>Advance<span className="pill-long"> calculator</span></button>
-      </div>}
-      {sec === "advance" && seeMoney && <AdvanceTab db={db} pick={sub?.startsWith("advance:") ? sub.slice(8) : null} />}
-      {sec === "overview" && <div className="catalog-wrap">
+      {seeEmpire && <p className="hint cat-empire-line" data-empire-link>The advance calculator moved to <button type="button" className="inline-link" data-empire-go onClick={() => onGo("money", "empire")}>Money › EMPIRE deal</button>.</p>}
+      <div className="catalog-wrap">
         <div className="catalog-clients" ref={chips}>
           <button className={clientId === null ? "cc active" : "cc"} onClick={() => setClientId(null)}>
             <span className="cc-overview-ic"><LayoutGrid size={16} /></span>
@@ -1026,7 +1017,7 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
               // deleted in another tab (this one's next save brought the news): their songs went with them
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
         </div>
-      </div>}
+      </div>
 
       {delAsk && (() => {
         const a = clientDeleteAsk(db, delAsk);

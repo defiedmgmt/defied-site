@@ -8,6 +8,7 @@ import "../styles/sections.css"; // list B #11: a dashboard section's placeholde
 // the site's and the dashboard's stylesheet (list B #11: was App's inline <style>); last, as it was
 import "../styles/app.css";
 import "../styles/share.css"; // the share card's button and window (2026-11-13): after app.css, whose dialog it builds on
+import "../styles/empire.css"; // Money › EMPIRE deal (2026-11-21): after app.css, whose dashboard tokens and Advance calculator classes it builds on
 
 // The app shell (components/app/AppRoot.jsx) is mounted once here, not per page: it holds the session,
 // the dashboard's data and its save queue in memory, so it must survive client-side route changes

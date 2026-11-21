@@ -24,12 +24,15 @@ import { InstallApp } from "../shared/install-app";
 const DASH_TABS = ["home", "todo", "mytodo", "mypay", "ar", "money", "catalog", "site"];
 function placeOf(t, s) {
   const sub = typeof s === "string" && s ? s : null;
-  if (t === "accounting") return sub === "log" || sub === "check" ? { tab: "todo", sub } : { tab: "money", sub: sub === "payments" ? "payments" : null };
+  // (2026-11-21) Money opens on the EMPIRE deal for an account that has it, so the old accounting address means the accounting Overview by name
+  if (t === "accounting") return sub === "log" || sub === "check" ? { tab: "todo", sub } : { tab: "money", sub: sub === "payments" ? "payments" : "overview" };
   if (t === "website") return { tab: "site", sub };
   if (t === "publishing") return placeOf("catalog", sub);
   if (t === "dashboard") return { tab: "home", sub: null }; // r11: Home is called Dashboard again (/dashboard/dashboard)
   if (t === "users") return { tab: "site", sub: "users" };
   if (t === "subs") return { tab: "site", sub: "messages" };
+  // (2026-11-21) the advance calculator moved to Money › EMPIRE deal: its old addresses (/dashboard/catalog/advance, ?tab=catalog&sub=advance, "advance:<id>") open it there
+  if (t === "catalog" && typeof sub === "string" && /^advance(:|$)/.test(sub)) return { tab: "money", sub: "empire" };
   // (r11: Publishing's ISRCs tab is gone; the finder opens inside To do, /dashboard/todo/isrc)
   if (t === "catalog" && ["splits", "update", "dupes", "isrc"].includes(sub)) return { tab: "todo", sub };
   // (list B #3: the Luminate tab is gone; r10: so is Numbers, whose sources and cost are in Site › Sync now.
@@ -197,7 +200,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} mine={pair("todo")} />}
         {at === "mytodo" && (paired("mytodo") ? <MyTodoPage title="To do" mine={pair("todo")} /> : <MyTodoPage />)}
         {at === "mypay" && !paired("mypay") && <MyPaymentsPage />}
-        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} myMoney={myMoney} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
+        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} myMoney={myMoney} empire={can("money") && !db.access?.ownOnly} db={db} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
         {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("site")} area="site" onGo={go} />} />}
         {at === "catalog" && <CatalogAdmin db={db} commit={commit} reloadDb={reloadDb} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}

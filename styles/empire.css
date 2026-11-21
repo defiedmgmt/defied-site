@@ -1,0 +1,150 @@
+/* Money › EMPIRE deal (2026-11-21): components/dash/empire.jsx and empire-calc.jsx. The dashboard's own tokens (--d-*, set in app.css); the calculator inside it keeps the
+   Advance calculator's classes (adv-*, cat-stat, form-card). Phone first: one column, nothing wider than the screen (min-width:0 on every grid child, long words may break). */
+.app:not(.pub) .emp-page{display:flex;flex-direction:column;gap:20px;min-width:0;max-width:1100px}
+.app:not(.pub) .emp-card{min-width:0;padding:18px 20px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}
+.app:not(.pub) .emp-hero{padding:22px 22px 20px;background:linear-gradient(180deg,var(--d-s2) 0%,var(--d-s1) 100%)}
+.app:not(.pub) .emp-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 16px;margin:0 0 6px}
+.app:not(.pub) .emp-h{margin:0;padding:0;font:400 14px/1.2 var(--d-display);font-synthesis:none;letter-spacing:.08em;text-transform:uppercase;color:var(--d-ink)}
+.app:not(.pub) .emp-src{font:400 12px/1.4 var(--d-body);color:var(--d-ink-4)}
+.app:not(.pub) .emp-sub{margin:0 0 14px;max-width:68ch;font-size:13.5px;line-height:1.55;color:var(--d-ink-3)}
+.app:not(.pub) .emp-empty{margin:0;padding:14px 16px;border:1px dashed var(--d-line-3);border-radius:var(--d-r-md);font-size:13.5px;color:var(--d-ink-3)}
+.app:not(.pub) .emp-card .hint{max-width:80ch;overflow-wrap:anywhere}
+
+/* the big figure over the bar */
+.app:not(.pub) .emp-big{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:6px 0 14px}
+.app:not(.pub) .emp-big-n{font-size:clamp(30px,9vw,46px);font-weight:600;line-height:1.05;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--d-ink)}
+.app:not(.pub) .emp-big-of{font-size:15px;color:var(--d-ink-3)}
+.app:not(.pub) .emp-chip{display:inline-flex;align-items:center;min-height:26px;padding:2px 11px;border:1px solid var(--d-line-3);border-radius:100px;font:600 13px/1.25 var(--d-body);font-variant-numeric:tabular-nums;color:var(--d-ink)}
+.app:not(.pub) .emp-left{margin-left:auto;font-size:15px;font-variant-numeric:tabular-nums;color:var(--d-ink-2)}
+@media (max-width:520px){ .app:not(.pub) .emp-left{margin-left:0;flex-basis:100%} }
+
+/* bars: the credited part solid, the estimated part striped; the pot's three parts; where a dollar goes */
+.app:not(.pub) .emp-bar{display:flex;width:100%;height:22px;overflow:hidden;background:var(--d-s3);border:1px solid var(--d-line-2);border-radius:100px}
+.app:not(.pub) .emp-bar-sm{height:10px;margin:8px 0 4px}
+.app:not(.pub) .emp-bar-solid{display:block;height:100%;flex:none;background:var(--d-pos)}
+.app:not(.pub) .emp-bar-est{display:block;height:100%;flex:none;background:repeating-linear-gradient(135deg,rgba(143,206,143,.62) 0 6px,rgba(143,206,143,.2) 6px 12px)}
+.app:not(.pub) .emp-seg{display:block;height:100%;flex:none}
+.app:not(.pub) .emp-seg-given{background:var(--d-pos)}
+.app:not(.pub) .emp-seg-planned{background:repeating-linear-gradient(135deg,rgba(224,180,143,.7) 0 6px,rgba(224,180,143,.25) 6px 12px)}
+.app:not(.pub) .emp-seg-empire{background:var(--d-ink-4)}
+.app:not(.pub) .emp-seg-cut{background:var(--d-warn)}
+.app:not(.pub) .emp-seg-prod{background:var(--d-pos)}
+.app:not(.pub) .emp-flow{height:16px}
+.app:not(.pub) .emp-legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin:10px 0 0;padding:0;list-style:none;font-size:13px;color:var(--d-ink-3)}
+.app:not(.pub) .emp-legend li{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0}
+.app:not(.pub) .emp-legend b{font-weight:600;font-variant-numeric:tabular-nums;color:var(--d-ink)}
+.app:not(.pub) .emp-legend em{font-style:normal;color:var(--d-ink-4)}
+.app:not(.pub) .emp-legend b[data-over]{color:var(--d-neg)}
+.app:not(.pub) .emp-sw{flex:none;display:inline-block;width:12px;height:12px;border-radius:4px;border:1px solid var(--d-line-3)}
+.app:not(.pub) .emp-sw-solid,.app:not(.pub) .emp-sw-given,.app:not(.pub) .emp-sw-prod{background:var(--d-pos);border-color:transparent}
+.app:not(.pub) .emp-sw-est{background:repeating-linear-gradient(135deg,rgba(143,206,143,.62) 0 3px,rgba(143,206,143,.2) 3px 6px);border-color:transparent}
+.app:not(.pub) .emp-sw-planned{background:repeating-linear-gradient(135deg,rgba(224,180,143,.7) 0 3px,rgba(224,180,143,.25) 3px 6px);border-color:transparent}
+.app:not(.pub) .emp-sw-left{background:var(--d-s3)}
+.app:not(.pub) .emp-sw-empire{background:var(--d-ink-4);border-color:transparent}
+.app:not(.pub) .emp-sw-cut{background:var(--d-warn);border-color:transparent}
+
+/* the timeline under the bar: today, paid back, the extra advance's last day, the buyout day */
+.app:not(.pub) .emp-line{position:relative;height:16px;margin:20px 6px 10px}
+.app:not(.pub) .emp-line::before{content:"";position:absolute;left:0;right:0;top:7px;height:2px;border-radius:2px;background:var(--d-line-3)}
+.app:not(.pub) .emp-line-done{position:absolute;left:0;top:7px;height:2px;border-radius:2px;background:var(--d-ink-3)}
+.app:not(.pub) .emp-tick{position:absolute;top:2px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:var(--d-bg);border:2px solid var(--d-ink-4)}
+.app:not(.pub) .emp-tick[data-mark="today"]{background:var(--d-ink);border-color:var(--d-ink)}
+.app:not(.pub) .emp-tick[data-mark="additional"]{border-color:var(--d-warn);border-radius:3px;transform:rotate(45deg)}
+.app:not(.pub) .emp-tick[data-mark="buyout"]{border-color:var(--d-ink-3);border-radius:3px}
+.app:not(.pub) .emp-tick[data-mark="payback"]{background:var(--d-pos);border-color:var(--d-pos)}
+.app:not(.pub) .emp-tick[data-mark="payback"][data-tone="warn"]{background:var(--d-warn);border-color:var(--d-warn)}
+.app:not(.pub) .emp-marks{display:flex;flex-direction:column;gap:6px;margin:0 0 14px;padding:0;list-style:none;font-size:13px;line-height:1.45;color:var(--d-ink-3)}
+.app:not(.pub) .emp-marks li{display:flex;align-items:flex-start;gap:10px;min-width:0;overflow-wrap:anywhere}
+.app:not(.pub) .emp-marks b{font-weight:600;color:var(--d-ink)}
+.app:not(.pub) .emp-dot{flex:none;width:10px;height:10px;margin-top:4px;border-radius:50%;background:var(--d-ink-4)}
+.app:not(.pub) .emp-marks li[data-mark="today"] .emp-dot{background:var(--d-ink)}
+.app:not(.pub) .emp-marks li[data-mark="additional"] .emp-dot{background:var(--d-warn);border-radius:2px;transform:rotate(45deg)}
+.app:not(.pub) .emp-marks li[data-mark="buyout"] .emp-dot{background:var(--d-ink-3);border-radius:2px}
+.app:not(.pub) .emp-marks li[data-mark="payback"] .emp-dot{background:var(--d-pos)}
+.app:not(.pub) .emp-marks li[data-mark="payback"][data-tone="warn"] .emp-dot{background:var(--d-warn)}
+.app:not(.pub) .emp-proj{margin:0 0 6px;font-size:16px;font-weight:500;line-height:1.45;color:var(--d-ink);overflow-wrap:anywhere}
+.app:not(.pub) .emp-mean{margin:0 0 12px;max-width:72ch;font-size:14px;line-height:1.55;color:var(--d-ink-2);overflow-wrap:anywhere}
+
+/* small forms and folds inside the cards */
+.app:not(.pub) .emp-how,.app:not(.pub) .emp-forecast{margin-top:12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-md);background:var(--d-s1)}
+.app:not(.pub) .emp-forecast{margin-top:0;border-radius:var(--d-r-card)}
+.app:not(.pub) .emp-how > summary,.app:not(.pub) .emp-forecast > summary{padding:12px 16px;min-height:44px;cursor:pointer;list-style-position:inside;font:600 13.5px/1.3 var(--d-body);color:var(--d-ink-2)}
+.app:not(.pub) .emp-how-body{padding:0 16px 16px;font-size:13.5px;line-height:1.55;color:var(--d-ink-3)}
+.app:not(.pub) .emp-forecast > .pub-sec{padding:0 16px 16px}
+.app:not(.pub) .emp-inline{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 12px;margin-top:10px;min-width:0}
+.app:not(.pub) .emp-inline .fld{margin:0;min-width:0;max-width:100%}
+.app:not(.pub) .emp-day input{max-width:100%}
+.app:not(.pub) .emp-received{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 14px;margin-top:14px;padding-top:14px;border-top:1px solid var(--d-line);font-size:13.5px;color:var(--d-ink-3)}
+.app:not(.pub) .emp-received .fld{margin:0}
+.app:not(.pub) .emp-yes{display:inline-flex;align-items:center;gap:8px;color:var(--d-pos)}
+.app:not(.pub) .emp-no{flex:1 1 240px;min-width:0}
+
+/* producer deals */
+.app:not(.pub) .emp-deals{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+@media (min-width:900px){ .app:not(.pub) .emp-deals{grid-template-columns:repeat(2,minmax(0,1fr))} }
+.app:not(.pub) .emp-deal{display:flex;flex-direction:column;gap:6px;min-width:0;padding:14px 16px;background:var(--d-s2);border:1px solid var(--d-line-2);border-radius:var(--d-r-md)}
+.app:not(.pub) .emp-deal-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px}
+.app:not(.pub) .emp-deal-name{font-size:15px;color:var(--d-ink);overflow-wrap:anywhere}
+.app:not(.pub) .emp-pill{display:inline-flex;align-items:center;min-height:22px;padding:2px 9px;border:1px solid var(--d-line-3);border-radius:100px;font:600 12px/1.25 var(--d-body);white-space:nowrap;color:var(--d-ink-2)}
+.app:not(.pub) .emp-pill[data-tone="pos"]{color:var(--d-pos);background:var(--d-pos-bg);border-color:var(--d-pos-line)}
+.app:not(.pub) .emp-deal p{margin:0;overflow-wrap:anywhere}
+.app:not(.pub) .emp-deal-what{font-size:13.5px;color:var(--d-ink-3)}
+.app:not(.pub) .emp-deal-nums{font-size:13.5px;color:var(--d-ink-3)}
+.app:not(.pub) .emp-deal-nums b{font-weight:600;font-variant-numeric:tabular-nums;color:var(--d-ink)}
+.app:not(.pub) .emp-deal-line{font-size:13.5px;line-height:1.5;color:var(--d-ink-2)}
+.app:not(.pub) .emp-deal-note{font-size:13px;color:var(--d-ink-4);font-style:italic}
+.app:not(.pub) .emp-deal-acts,.app:not(.pub) .emp-edit-acts,.app:not(.pub) .emp-confirm-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}
+.app:not(.pub) .emp-edit{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:8px}
+.app:not(.pub) .emp-edit .fld{margin:0;min-width:0}
+.app:not(.pub) .emp-edit > .fld:nth-last-child(2),.app:not(.pub) .emp-edit-acts{grid-column:1 / -1}
+@media (max-width:560px){ .app:not(.pub) .emp-edit{grid-template-columns:minmax(0,1fr)} }
+.app:not(.pub) .emp-confirm{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin-top:6px;padding:10px 12px;border:1px solid var(--d-neg-line);background:var(--d-neg-bg);border-radius:var(--d-r-md);font-size:13.5px;color:var(--d-ink-2)}
+.app:not(.pub) .emp-confirm > span:first-child{flex:1 1 220px;min-width:0}
+.app:not(.pub) .emp-confirm-acts{margin-top:0}
+.app:not(.pub) .emp-danger{border-color:var(--d-neg-line);color:var(--d-neg)}
+
+/* statements */
+.app:not(.pub) .emp-form{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(2,minmax(0,1fr)) auto;align-items:start;gap:12px;margin:0 0 6px}
+.app:not(.pub) .emp-form .fld{margin:0;min-width:0}
+.app:not(.pub) .emp-form-go{align-self:start;margin-top:22px}
+@media (max-width:900px){ .app:not(.pub) .emp-form{grid-template-columns:repeat(2,minmax(0,1fr))} .app:not(.pub) .emp-form > .fld:first-child{grid-column:1 / -1} .app:not(.pub) .emp-form-go{margin-top:0} }
+@media (max-width:560px){ .app:not(.pub) .emp-form{grid-template-columns:minmax(0,1fr)} }
+.app:not(.pub) .emp-list{display:flex;flex-direction:column;margin:12px 0 0;padding:0;list-style:none;border:1px solid var(--d-line-2);border-radius:var(--d-r-md);overflow:hidden}
+.app:not(.pub) .emp-list li{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;padding:11px 14px;border-top:1px solid var(--d-line);font-size:13.5px;color:var(--d-ink-3);min-width:0}
+.app:not(.pub) .emp-list li:first-child{border-top:0}
+.app:not(.pub) .emp-list b{font-weight:600;font-variant-numeric:tabular-nums;color:var(--d-ink)}
+.app:not(.pub) .emp-list em{font-style:normal;color:var(--d-ink-4)}
+.app:not(.pub) .emp-list-main{flex:1 1 180px;min-width:0}
+.app:not(.pub) .emp-list-nums{flex:2 1 260px;min-width:0;overflow-wrap:anywhere}
+.app:not(.pub) .emp-list-by{font-size:12px;color:var(--d-ink-4)}
+.app:not(.pub) .emp-confirm-row{flex:1 1 100%;margin-top:4px}
+
+/* the calculator's song list */
+.app:not(.pub) .emp-scope{margin:0;padding:0;border:0;min-width:0}
+.app:not(.pub) .emp-scope legend{padding:0;margin:0 0 6px;font:400 11px/1.3 var(--d-body);letter-spacing:.06em;text-transform:uppercase;color:var(--d-ink-4)}
+.app:not(.pub) .emp-radio{display:flex;align-items:flex-start;gap:10px;min-height:32px;padding:4px 0;font-size:14px;color:var(--d-ink-2);cursor:pointer}
+.app:not(.pub) .emp-radio input{flex:none;margin-top:3px}
+.app:not(.pub) .emp-songs-acts{margin:8px 0 6px;font-size:13px;color:var(--d-ink-4)}
+.app:not(.pub) .emp-songs{margin:0;padding:0;list-style:none;max-height:300px;overflow:auto;border:1px solid var(--d-line-2);border-radius:var(--d-r-md);background:var(--d-field)}
+.app:not(.pub) .emp-songs li{border-top:1px solid var(--d-line);min-width:0}
+.app:not(.pub) .emp-songs li:first-child{border-top:0}
+.app:not(.pub) .emp-songs label{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;align-items:start;padding:9px 12px;min-height:44px;cursor:pointer;font-size:13.5px;color:var(--d-ink-2)}
+.app:not(.pub) .emp-songs input{margin-top:3px}
+.app:not(.pub) .emp-song-t{min-width:0;overflow-wrap:anywhere}
+.app:not(.pub) .emp-song-t b{font-weight:500;color:var(--d-ink)}
+.app:not(.pub) .emp-song-t em{font-style:normal;color:var(--d-ink-4)}
+.app:not(.pub) .emp-song-n{grid-column:2;font-size:12px;font-variant-numeric:tabular-nums;color:var(--d-ink-4)}
+.app:not(.pub) .emp-calc .adv-cols{margin-top:6px}
+.app:not(.pub) .emp-calc .form-card{max-width:560px}
+.app:not(.pub) .emp-calc .cat-stat-val[data-over]{color:var(--d-neg)}
+.app:not(.pub) .emp-calc .hint[data-over]{color:var(--d-neg)}
+.app:not(.pub) .cat-empire-line{margin:-8px 0 16px;max-width:70ch}
+
+/* the calculator's ladder and save block on a phone: amounts stay on one line, the blocks give their padding back, the save form's fields have air between them */
+@media (max-width:560px){
+  .app:not(.pub) .emp-calc .adv-block{padding:12px}
+  .app:not(.pub) .emp-calc .adv-ladder th,.app:not(.pub) .emp-calc .adv-ladder td{padding-left:6px;padding-right:6px;white-space:nowrap}
+}
+.app:not(.pub) .emp-calc .adv-h{margin-bottom:8px}
+.app:not(.pub) .emp-calc [data-emp-save] .fld + .fld{margin-top:12px}
+.app:not(.pub) .emp-calc [data-emp-save] .btn{margin-top:12px}
