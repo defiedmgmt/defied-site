@@ -527,7 +527,7 @@ function AdvanceCalcPanel({ data, reload, pick = null }) {
               <li data-how="pace">{`Today's pace: ${fmt(Math.round(model.pace))} streams a year (all platforms, their share). ${pace.source}`}</li>
               <li data-how="rate">{`× ${rateText} a stream: the sheet's blended publishing rate (ASSUMPTIONS!B7) = ${money(model.theirNow)} a year at today's pace.`}</li>
               <li data-how="slowdown">{decay > 0
-                ? `Slows ${pct1(decay)} a year (ASSUMPTIONS!B8), so the next 12 months average ${pct1(model.year1Share)} of today's pace; each year after is ${pct1(1 - decay)} of the one before. (Our songs actually grew from August to October; ${pct1(decay)} is a careful assumption.)`
+                ? `Slows ${pct1(decay)} a year (ASSUMPTIONS!B8), so the next 12 months average ${pct1(model.year1Share)} of today's pace; each year after is ${pct1(1 - decay)} of the one before. ${pct1(decay)} is a careful assumption; check it again once there's more history.`
                 : "No slowdown (ASSUMPTIONS!B8 is 0%), so every year earns today's pace."}</li>
               <li data-how="fee">{`Our fee is ${pct1(fee)} (ASSUMPTIONS!B11) = ${money(model.feeNow)} a year at today's pace. Advances pay back from our fee only, not the writer's share.`}</li>
               <li data-how="advance">{`The advance is what our fee adds up to over the ${monthsText(R)} you picked, slowdown included: ${money(model.recommended)}.`}</li>
