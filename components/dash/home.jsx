@@ -10,6 +10,7 @@ import { SyncSources } from "./numbers";
 import { swrJson, peekJson } from "../ui/fetch-cache";
 import { CAL_SOURCES, CuTodoRow, TodoRow, WEEKDAY_SHORT, addDays } from "./todo";
 import { syncFix } from "./todo-data";
+import { syncScheduleANow } from "./schedule-a-data";
 import { DropNote, fmt, money, useEscape } from "./ui";
 import { ExtLink } from "../shared/ui";
 import { Marquee } from "../site/motion";
@@ -261,6 +262,12 @@ export function SyncView({ ctx }) {
   const [busy, setBusy] = useState(null);
   const [note, setNote] = useState(null);
   const d = sync.data;
+  // (2026-11-20) Schedule A's "Sync Schedule A now" (pages/api/schedule-a.js writes the sheet from the site), then the checks are read again. Here, not in syncFix: that
+  // one is todo-data.js's, which To do loads on every page, and this press has nothing to do with the pub sheet pull it does
+  const pressSchedule = async (id) => {
+    setBusy(id); setNote(null);
+    try { setNote(await syncScheduleANow()); await sync.load(true); } finally { setBusy(null); }
+  };
   return (
     <div className="sync-view">
       <p className="hint overview-subhint">{d ? <>Checked {clock(d.at)} · <button className="inline-link" disabled={sync.busy} onClick={() => sync.load(true)}>{sync.busy ? "Checking…" : "Check again"}</button></> : sync.failed ? <>Couldn't run the checks. <button className="inline-link" onClick={() => sync.load(true)}>Try again</button></> : "Checking…"}</p>
@@ -272,11 +279,12 @@ export function SyncView({ ctx }) {
               <i className="sync-dot" aria-hidden="true" />
               <span className="attn-main"><b>{c.text}</b>{c.detail && <em>{c.detail}</em>}{c.id === "people" && <PeopleBlock check={c} ctx={ctx} />}</span>
               {/* (2026-11-13) a "go" fix only opens a page, so it shows on a green line too (INFO's "Caden has no site login":
-                  Site › Users); "also" is a second link beside the fix (INFO's "Open the sheet ↗") */}
-              {(c.ok === false || c.fix?.kind === "go") && c.fix && (c.fix.kind === "url"
+                  Site › Users); "also" is a second link beside the fix (INFO's "Open the sheet ↗"). (2026-11-20) Schedule A's line has both on
+                  every state: its Sync button and its sheet's link */}
+              {(c.ok === false || c.fix?.kind === "go" || c.fix?.kind === "scheduleA") && c.fix && (c.fix.kind === "url"
                 ? <ExtLink className="btn ghost sm" href={c.fix.url}>{c.fix.label}</ExtLink>
-                : <button type="button" className="btn ghost sm" data-sync-fix={c.id} disabled={!!busy} onClick={() => syncFix(c, ctx, (b) => setBusy(b ? c.id : null), setNote)}>{busy === c.id ? "Working…" : c.fix.label}</button>)}
-              {c.ok === false && c.also?.kind === "url" && <ExtLink className="btn ghost sm" href={c.also.url}>{c.also.label}</ExtLink>}
+                : <button type="button" className="btn ghost sm" data-sync-fix={c.id} disabled={!!busy} onClick={() => (c.fix.kind === "scheduleA" ? pressSchedule(c.id) : syncFix(c, ctx, (b) => setBusy(b ? c.id : null), setNote))}>{busy === c.id ? "Working…" : c.fix.label}</button>)}
+              {(c.ok === false || c.id === "scheduleA") && c.also?.kind === "url" && <ExtLink className="btn ghost sm" href={c.also.url}>{c.also.label}</ExtLink>}
             </div>
           ))}
         </div>

@@ -239,6 +239,39 @@ There are no demo logins. Accounts are created in Site › Users.
   leaves out keeps its last number ("No plays this period, or not in the report yet"). A United States file is shown
   but can't be applied. Nothing here writes the sheet; the STREAM DATA writer reads the newest totals and ratios.
 
+## Schedule A (the producers' songs sheet, 2026-11-20)
+
+One tab, **Schedule A**, of its own Google spreadsheet (`SCHEDULE_A_SHEET_ID`), written from the site by `lib/schedule-a.js`: one row per producer and song, with
+the producer's own share of it. The owner's old file ("Defied Schedule A (Updated)") is converted to a Google Sheet once; the site takes it over from there.
+
+- **Who is on it:** the clients on the roster whose role says Producer (`Producer`, `Producer / Artist`). Artist clients and anyone off the roster are not. A song
+  under two producers is a row for each (each one's own share); the same song twice under ONE producer (the same Spotify track, else the same title and artists once
+  case, punctuation and emoji are left out) is one row: the card with a share, then the one with more filled in, keeps its place.
+- **Columns:** A Writer · B Song Title · C Recording Artist(s) · D Client Publishing Share (%) (the client's own split on the song, found the way the pub sheet's push
+  finds it, `findByName(splits, client.name)`; blank when there is none) · E Release Date · F ISRC · G Spotify Link · H Status (`Split % not yet specified`,
+  `Assumed split, confirm` for a song the auto-add put on the site that nobody has OK'd, `Not on the site` for the kept rows below) · I Notes (the owner's own, kept) ·
+  J Site ID (the song's id on the site, hidden: what a note is found by). Sorted by producer (roster order, then name) and title. The footer says `TOTAL SONGS: N` and
+  `Updated by the site: <New York time>`.
+- **Edit the site, not columns A to H and J:** the next sync writes them again. **Notes (I) are yours**, kept by Site ID whatever you sort or filter. A song that is
+  not on the site yet can be typed by hand (no Site ID); it is kept under a separator row, `Only on this sheet (not on the site yet)`, and moves up into the table,
+  its note with it, once the site has the song. Rows of an Artist client are removed, and so are rows whose song the site no longer has.
+- **The first sync** reads the old 5-column sheet (Writer, Song Title, Recording Artist(s) / Writer(s), Client Publishing Share (%), Notes) and carries each old note to
+  its song by writer and title (the writer as the site names the client, case and punctuation aside, `Yellow` being prodyel1ow; the title with one letter off allowed for
+  titles of 8 letters or more, so `Hellen Keller` is `Helen Keller`). A song the old sheet has twice becomes one row with both notes. Rows no site song matches are
+  kept under the separator (never dropped); the artists' rows are removed. A first row that isn't `Writer`, `Song Title`… stops it: nothing is written over a sheet it
+  doesn't know. An empty site never empties the sheet.
+- **When it runs:** the daily cron's last step (after the auto-add, so a song it just added is on the sheet); right after a staff or client save that wrote or
+  removed a song or changed a client's name, roster place or order (marked in `app_state` `scheduleA`.`dirtyAt`, run at most once every 2 minutes through the claim
+  `scheduleA:run`, waits at most 6 seconds and never fails the save); Site › Sync's **Sync Schedule A now** (and `POST /api/schedule-a`); and the Sync check itself,
+  when a change is waiting (a save inside the 2-minute gap) or the last run failed. `GET /api/schedule-a` is a dry run: where it stands and what a sync would do, one
+  read of the sheet, nothing written. Publishing access, every artist at once.
+- **Calls to Google:** one read of the tab; then, only when something differs, one write of the whole tab and one clear of the rows left under its new end. A sync that
+  changes nothing is the one read and leaves the footer's time alone. The first sync (and one that finds the header changed) also formats the tab: header dark and bold,
+  first row frozen, Site ID hidden, D as a percent, a filter, column widths (a read of the tab list and one batchUpdate). A tab with too few rows or columns is grown once.
+- **Setting it up:** convert the file to a Google Sheet, name its tab `Schedule A`, share it with `GOOGLE_SHEETS_CLIENT_EMAIL` as Editor, and set `SCHEDULE_A_SHEET_ID` in
+  Vercel's **Production** environment only (writes are on as soon as the id is set; a preview that shares the database and the id would write the sheet too).
+  To look first: set `SCHEDULE_A_WRITES=off`, open `/api/schedule-a` (or Site › Sync) while signed in, then take the switch off. The first sync is the owner's old sheet's migration.
+
 ## Environment variables
 
 Set them in Vercel (Project › Settings › Environment Variables) and in `.env.local` for local work. Names only here,
@@ -279,6 +312,7 @@ never values.
 | `DIGEST_PERSONAL` | Personal Monday digests (a ClickUp direct message each) are off unless this is `on`, `true`, `1` or `yes` (2026-11-18, the owner doesn't want them): off, a Monday run builds no personal digest, writes no `digest_runs` row for one, sends none and posts no alert for one, whoever `DIGEST_PERSONAL_TO` names. The team digest is not affected. |
 | `DIGEST_PERSONAL_TO` | Who gets a personal Monday digest when `DIGEST_PERSONAL` is on: `all`, or names or emails separated by commas. Unset, nobody does (opt-in since 2026-11-16; it used to start with Devin). |
 | `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | Site › Instagram (2026-11-16): the Meta app's "Instagram API with Instagram login" ID and secret, for Connect Instagram. Unset, the tab says what's missing and can only draft. See **Instagram** above. |
+| `SCHEDULE_A_SHEET_ID` | The Schedule A spreadsheet's id (2026-11-20, `lib/schedule-a.js`; see **Schedule A** above): its tab `Schedule A` is written from the site, the service account needs Editor. Unset, the feature is off: nothing is read or written and Site › Sync says it isn't set up. Set it in Production only. |
 | `PAID_WAIT_MS` | How long the paste box waits for a paid lookup (an Apify run) before answering, in milliseconds. 25000 by default; a run still going is picked up by the next lookup. |
 
 **Write switches (off unless set to `on`)**
@@ -296,6 +330,7 @@ never values.
 | `DATA_REFRESH` | Not a write, but it spends money: the daily data crons start Apify runs and read YouTube/Spotify. Off, nothing is fetched (Site › Sync shows what's there). |
 | `DIGEST_WRITES` | The Monday digests: the team post to `DIGEST_CHANNEL_ID` and (only with `DIGEST_PERSONAL` on) the personal messages. Off, a Monday run still builds each digest and logs it (`digest_runs`, status "off"), so the preview shows what would have gone out. |
 | `ALERTS` | On unless set to `off` (2026-11-17, `lib/alerts.js`): a nightly or weekly job that fails tells the founders with ONE short ClickUp message ("⚠️ Site check · Daily update: the pub sheet sync failed (…). Everything else ran. It tries again tomorrow."), instead of failing silently: a step of the daily update that went wrong, a data cron that threw, a Monday digest that ended "failed" (the team's, or a person's by name), the data refresh not having run for 26 hours, the Monday digest not having posted by Tuesday. At most one message per job and step per New York day (`app_state` `alertsSent`; Site › Sync lists the last 7 days, for an account with Money). With `CLICKUP_ALERTS=on` the older path (the nightly sync's failure and the pub sheet's rows, posted to the Dashboard Alerts channel) already says those two, so they are not posted twice; every other step still is. The data cron also says when the daily update's report hasn't been saved for 26 hours. It posts only with `DIGEST_WRITES=on` (the same "may write to ClickUp" switch as the digests), a `CLICKUP_API_TOKEN` and a channel (`ALERT_CHANNEL_ID`, else Dashboard Alerts, else `DIGEST_CHANNEL_ID`); otherwise the message is only in the logs. It never fails or slows a job (5 seconds at the most). |
+| `SCHEDULE_A_WRITES` | Not off by default, unlike the rest: Schedule A's writes are on as soon as `SCHEDULE_A_SHEET_ID` is set, and `off` (or `false`, `0`, `no`) is the kill switch for every one of them (the daily step, the save's, the button, the Sync check's catch-up). Reading for a dry run (`GET /api/schedule-a`) still works. |
 | `RADAR_SCANS` | Not a write, but it spends money: the TikTok radar's keyword scans and its risers' daily boost. Off, sounds added by link are still tracked one at a time. |
 | `INSTAGRAM_POSTS` | Site › Instagram's **Post to Instagram** (2026-11-16, `lib/instagram.js`): a post to the connected Instagram account. Off, the composer still looks songs up, drafts and previews; a post is refused (503) before anything reaches Instagram. Connecting the account doesn't need it. |
 | `CREDITS_SCAN` | On unless set to `off` (2026-11-18, `lib/credits/scan.js`): **Possible placements**. The data-collect cron (11:00 UTC, 25 seconds, one run at a time) reads the new releases of the artists our clients work with (the placements' artists, the roster, the A&R Watchlist) and each one's credits, Apple Music first, then YouTube, and a credit that names a roster client (exact name, or a staff alias in app_state `producerAliases`) is listed in To do as "N possible placements". **It never adds a song:** a Publishing staff member presses Add (the same add as the nightly auto-add, with the assumed split) or Not ours. `off` stops all of it. |

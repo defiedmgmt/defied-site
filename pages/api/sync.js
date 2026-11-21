@@ -15,7 +15,8 @@ export default async function handler(req, res) {
   try {
     // Stripe and the accounting sheet are Money's: an account without it gets the other checks, and the pub sheet's
     // line without its dollar figures (2026-11-13: the intern's Site › Sync showed the admin fee)
-    return res.status(200).json(await syncChecks({ money: req.access.sections.includes("money") }));
+    // (2026-11-20) and the Schedule A line (its Sync button writes that sheet) is Publishing's
+    return res.status(200).json(await syncChecks({ money: req.access.sections.includes("money"), publishing: req.access.sections.includes("publishing") }));
   } catch (err) {
     console.error("sync failed:", err);
     return res.status(500).json({ error: "Couldn't run the sync checks. Try again in a minute." });
