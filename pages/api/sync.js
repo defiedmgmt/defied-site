@@ -16,8 +16,9 @@ export default async function handler(req, res) {
   try {
     // Stripe and the accounting sheet are Money's: an account without it gets the other checks, and the pub sheet's
     // line without its dollar figures (2026-11-13: the intern's Site › Sync showed the admin fee)
-    // (2026-11-20) a page someone waits on: its reads don't sit out Google's quota (lib/sheets.js withSheetsQuick)
-    return res.status(200).json(await withSheetsQuick(() => syncChecks({ money: req.access.sections.includes("money"), fresh: req.query.fresh === "1" })));
+    // (2026-11-20) a page someone waits on: its reads don't sit out Google's quota (lib/sheets.js withSheetsQuick); the Schedule A line
+    // (its Sync button writes that sheet) is Publishing's
+    return res.status(200).json(await withSheetsQuick(() => syncChecks({ money: req.access.sections.includes("money"), publishing: req.access.sections.includes("publishing"), fresh: req.query.fresh === "1" })));
   } catch (err) {
     console.error("sync failed:", err);
     return res.status(500).json({ error: "Couldn't run the sync checks. Try again in a minute." });

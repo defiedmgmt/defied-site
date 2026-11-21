@@ -12,6 +12,7 @@
 // Nov 18 it used up the minute before the sheet pull and the managers read, which failed. The core steps get the quota first; whatever the
 // auto-add can't finish waits for tomorrow (lib/auto-add.js). A Sheets request that Google turns away for the quota waits and tries again
 // (lib/sheets.js), but never past 45 seconds into this run (the whole run has 60).
+// (2026-11-20) Schedule A (lib/schedule-a.js) is the very last step, after the auto-add, so a song it just put on the site is on the sheet the same night.
 import { sql } from "../../../lib/db";
 import { syncSiteFromSheet } from "../../../lib/site-sync";
 import { setState } from "../../../lib/app-state";
@@ -24,6 +25,7 @@ import { refreshManagers } from "../../../lib/access";
 import { keepRoom } from "../../../lib/sheet-rows";
 import { runPeopleLink } from "../../../lib/people-link";
 import { runAutoAdds } from "../../../lib/auto-add";
+import { runScheduleA, scheduleAOn } from "../../../lib/schedule-a";
 import { alert, alertDaily, plainWhy, WHOLE_RUN } from "../../../lib/alerts";
 
 // the sheet pull plus the Stripe read behind the ClickUp tasks (see pages/api/home.js)
@@ -123,6 +125,10 @@ async function run(req, res) {
   // pull. It stops at the first thing that goes wrong and says so in the report; whatever it does never keeps the report from being saved.
   // 15 s at most, and never past 50 s into the run (the whole cron has 60: what is left of it after the steps above)
   try { report.autoAdd = await runAutoAdds({ budgetMs: Math.min(15000, 50000 - (Date.now() - t0)) }); } catch (err) { report.autoAddError = err.message; }
+  // (2026-11-20) Schedule A, the sheet of every producer's songs and shares (lib/schedule-a.js; SCHEDULE_A_SHEET_ID names it, SCHEDULE_A_WRITES=off stops it): one read of the
+  // sheet and, when something changed, one write. In its own try, and it has until the 52nd second of the run (the report and its alerts still come after it); with
+  // little time left it is skipped and the next trigger (a save, the Sync check, tomorrow) does it. It never throws; its answer is in the report only when it is set up
+  try { if (scheduleAOn()) report.scheduleA = await runScheduleA({ source: "the nightly update", budgetMs: Math.min(12000, 52000 - (Date.now() - t0)) }); } catch (err) { report.scheduleAError = err.message; }
   await setState("cron", report);
   await alertDaily(report); // after the save, so a slow ClickUp can't cost the report; it never throws and waits 8 s at the most
   return res.status(200).json(report);
