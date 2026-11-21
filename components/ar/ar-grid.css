@@ -119,7 +119,7 @@
 
 /* ---------------------------------------------------------------- the drawer */
 .ard-bg { position: fixed; inset: 0; z-index: 70; background: var(--d-overlay, rgba(0,0,0,.45)); display: flex; justify-content: flex-end; }
-.ard { width: 480px; max-width: 100%; height: 100%; overflow-y: auto; background: var(--d-s1, #0b0b0c); border-left: 1px solid var(--d-line-2, #2a2a2c); display: flex; flex-direction: column; outline: none; }
+.ard { width: 480px; max-width: 100%; height: 100%; overflow-y: auto; overscroll-behavior: contain; background: var(--d-s1, #0b0b0c); border-left: 1px solid var(--d-line-2, #2a2a2c); display: flex; flex-direction: column; outline: none; }
 .ard-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--d-s1, #0b0b0c); border-bottom: 1px solid var(--d-line-2, #2a2a2c); }
 .ard-head .arg-ph { width: 44px; height: 44px; }
 .ard-title { flex: 1; min-width: 0; }
@@ -140,11 +140,6 @@
 .ard-nums th { text-align: left; font-size: 10.5px; font-weight: 500; color: var(--d-ink-4, #777); text-transform: uppercase; padding: 4px; border-bottom: 1px solid var(--d-line-2, #2a2a2c); }
 .ard-nums td { padding: 5px 4px; border-bottom: 1px solid var(--d-line, #1c1c1e); }
 .ard-nums .num { text-align: right; }
-.ard-chart { width: 100%; max-width: 300px; height: auto; display: block; }
-.ard-axis { stroke: var(--d-line-2, #2a2a2c); }
-.ard-line { fill: none; stroke: var(--d-ink-2, #d4d4d4); stroke-width: 1.6; }
-.ard-dot { fill: var(--d-ink-2, #d4d4d4); }
-.ard-tick { fill: var(--d-ink-4, #777); font-size: 9px; }
 .ard-switch { display: flex; gap: 4px; flex-wrap: wrap; }
 .ard-switch button { min-height: 30px; padding: 0 10px; border-radius: 100px; border: 1px solid var(--d-line-2, #2a2a2c); background: none; color: var(--d-ink-3, #a3a3a3); font: inherit; font-size: 12px; cursor: pointer; }
 .ard-switch button.on { color: var(--d-ink, #fff); border-color: var(--d-line-3, #444); }
@@ -359,3 +354,80 @@
 /* r11 fix: the confirmed old-list artists now show their numbers ("192,100 · Nov 4"), so the cells are 1px
    tighter at the sides and the default columns still fit 1440 with no sideways scroll */
 @media (max-width: 1600px) { .arg-table td, .arg-table th { padding-left: 5px; padding-right: 5px; } }
+
+/* ---- (2026-11-20) the person view opens FULL SCREEN, over the dashboard; "Smaller" (its head) brings back the 480px drawer above. Content is centred, at most
+   1200px wide; from 1000px the chart sits beside the rest (.ard-main / .ard-side), below that they stack, chart first (a phone too: full screen either way, no size button). ---- */
+.ard-bg-full { background: var(--d-s1, #0b0b0c); }
+.ard.ard-full { width: 100%; border-left: 0; }
+.ard-full .ard-head { padding: 14px max(16px, calc(50% - 600px)); }
+.ard-full .ard-title h3 { font-size: 20px; }
+.ard-full .ard-body { box-sizing: border-box; width: 100%; max-width: 1232px; margin: 0 auto; padding: 18px 16px 48px; }
+/* the Type picker (Watchlist artists): its label, the two choices and its hint on a row from the left, as the other sections start at the left; in the drawer it stays as it was
+   (.ard-sec is a column and .ard-role centres it) */
+.ard-full .ard-role { flex-direction: row; align-items: center; justify-content: flex-start; }
+.ard-size { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.ard-size span { font-size: 12.5px; }
+.ard-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.ard-main, .ard-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (min-width: 1000px) { .ard-grid { grid-template-columns: minmax(0, 1fr) 420px; gap: 20px 28px; } }
+
+/* momentum: each part of the score as a bar out of 100 (the tick is 50, "flat"), its weight, and what moved */
+.ard-mo { display: flex; flex-direction: column; gap: 8px; }
+.ard-mo-row { display: grid; grid-template-columns: minmax(96px, 128px) minmax(0, 1fr) 30px; gap: 2px 10px; align-items: center; font-size: 12.5px; }
+.ard-mo-l { display: flex; flex-direction: column; line-height: 1.2; }
+.ard-mo-l small { font-size: 11px; color: var(--d-ink-4, #8a8a8a); }
+.ard-mo-bar { position: relative; height: 10px; border-radius: 3px; background: var(--d-s3, #1e1e20); }
+.ard-mo-bar i { display: block; height: 100%; border-radius: 3px; background: var(--d-ink-3, #a3a3a3); }
+.ard-mo-bar::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--d-ink-4, #8a8a8a); }
+.ard-mo-row b { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ard-mo-row[data-counted] .ard-mo-bar i { background: var(--d-ink-2, #d4d4d6); }
+.ard-mo-t { grid-column: 2 / -1; font-size: 11.5px; color: var(--d-ink-4, #8a8a8a); overflow-wrap: anywhere; }
+
+/* ---- the big chart (components/ar/BigChart.jsx): the dates and range pills, four numbers, the chart, its notes ---- */
+.bc { position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0; container-type: inline-size; }
+.bc-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; min-width: 0; }
+.bc-span { font-size: 12.5px; color: var(--d-ink-4, #8a8a8a); font-variant-numeric: tabular-nums; }
+.bc-range { display: inline-flex; gap: 4px; }
+.bc-range button { min-height: 30px; min-width: 44px; padding: 0 12px; border-radius: 100px; border: 1px solid var(--d-line-2, #2a2a2c); background: none; color: var(--d-ink-3, #a3a3a3); font: inherit; font-size: 12px; cursor: pointer; }
+.bc-range button.on { color: var(--d-ink, #fff); border-color: var(--d-line-3, #444); background: var(--d-s2, #161618); }
+.bc-range button:focus-visible, .bc-svg:focus-visible { outline: 2px solid var(--d-ink-3, #a3a3a3); outline-offset: 2px; }
+.bc-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.bc-stat { min-width: 0; padding: 8px 10px; border: 1px solid var(--d-line-2, #2a2a2c); border-radius: 10px; }
+.bc-stat dt { font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; color: var(--d-ink-4, #8a8a8a); }
+.bc-stat dd { margin: 3px 0 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.bc-stat dd[data-dir="flat"] { color: var(--d-ink-3, #a3a3a3); }
+.bc-stat small { display: block; margin-top: 1px; font-size: 11.5px; color: var(--d-ink-4, #8a8a8a); overflow-wrap: anywhere; }
+@container (max-width: 560px) { .bc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.bc-plot { position: relative; min-width: 0; }
+.bc-svg { display: block; width: 100%; max-width: 100%; touch-action: pan-y; border-radius: 10px; cursor: crosshair; user-select: none; -webkit-tap-highlight-color: transparent; }
+.bc-svg:focus { outline: none; }
+.bc-svg:focus-visible { outline: 2px solid var(--d-ink-3, #a3a3a3); outline-offset: 2px; }
+.bc-grid { stroke: var(--d-line, #1c1c1e); stroke-width: 1; }
+.bc-vgrid { stroke: var(--d-line, #1c1c1e); stroke-width: 1; opacity: .55; }
+.bc-axis { stroke: var(--d-line-3, #3a3a3c); stroke-width: 1; }
+.bc-tick { fill: var(--d-ink-4, #8a8a8a); font-size: 11px; font-variant-numeric: tabular-nums; }
+.bc-tick-s { font-size: 9.5px; }
+.bc-line { fill: none; stroke: var(--d-ink-2, #d4d4d6); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.bc-gap { fill: none; stroke: var(--d-ink-4, #8a8a8a); stroke-width: 1.4; stroke-dasharray: 4 5; opacity: .8; }
+.bc-dot { fill: var(--d-ink-2, #d4d4d6); }
+.bc-now, .bc-dot-on { fill: var(--d-s1, #0b0b0c); stroke: var(--d-ink, #f5f5f5); stroke-width: 2; }
+.bc-cross { stroke: var(--d-ink-3, #a3a3a3); stroke-width: 1; stroke-dasharray: 2 3; }
+.bc-gap-fill { fill: var(--d-hover, rgba(255, 255, 255, .04)); }
+.bc-up { fill: var(--d-pos, #8fce8f); }
+.bc-down { fill: var(--d-neg, #ef8f8f); }
+.bc-bar { fill: var(--d-ink-2, #d4d4d6); opacity: .9; }
+.bc-bar.neg { fill: var(--d-neg, #ef8f8f); }
+.bc-rel-line { stroke: var(--d-info, #8ab4ff); stroke-width: 1.2; stroke-dasharray: 1 3; stroke-linecap: round; }
+.bc-rel-mark { fill: var(--d-info, #8ab4ff); }
+.bc-tip { position: absolute; top: 8px; z-index: 2; box-sizing: border-box; max-height: calc(100% - 16px); overflow: hidden; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--d-line-3, #3a3a3c); background: var(--d-s2, #111113); box-shadow: var(--d-shadow-pop, 0 12px 32px rgba(0, 0, 0, .5)); font-size: 12px; line-height: 1.35; pointer-events: none; overflow-wrap: anywhere; }
+.bc-tip b { font-weight: 600; }
+.bc-tip[data-gap] b { color: var(--d-warn, #e0b48f); }
+.bc-tip-v { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.bc-tip-l { color: var(--d-ink-3, #a3a3a3); font-variant-numeric: tabular-nums; }
+.bc-tip-r { color: var(--d-info, #8ab4ff); }
+.bc-notes { display: flex; flex-direction: column; gap: 3px; }
+.bc-notes p { margin: 0; font-size: 12px; color: var(--d-ink-4, #8a8a8a); }
+.bc-key { display: inline-block; width: 16px; height: 0; margin-right: 6px; vertical-align: 3px; border-top: 1.5px dashed var(--d-ink-4, #8a8a8a); }
+.bc-key-rel { border-top: 2px dotted var(--d-info, #8ab4ff); }
+.bc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 699px) { .bc-range button { min-height: 44px; } }
