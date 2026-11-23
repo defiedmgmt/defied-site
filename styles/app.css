@@ -94,6 +94,9 @@ button{font-family:inherit;cursor:pointer}
 .dg-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .dg-head h3{margin:0;font-size:15px}
 .dg-raw{min-height:44px}
+.dg-sec{padding-left:12px;border-left:3px solid var(--dg-c,var(--d-line-2,#2a2a2c))}
+.dg-sec[data-hue="green"]{--dg-c:var(--d-pos,#8fce8f)}.dg-sec[data-hue="blue"]{--dg-c:var(--d-info,#8ab4ff)}.dg-sec[data-hue="purple"]{--dg-c:var(--area-site,#a78bfa)}
+.dg-sec[data-hue="orange"]{--dg-c:var(--area-ar,#f59e0b)}.dg-sec[data-hue="red"]{--dg-c:var(--d-neg,#ef8f8f)}
 .dg-sec h4{margin:0;font-size:13.5px;font-weight:600}
 .dg-list{margin:8px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;counter-reset:dg}
 .dg-item{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:10px;background:var(--d-s1,#0b0b0c);min-width:0;counter-increment:dg}

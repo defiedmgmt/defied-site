@@ -59,7 +59,7 @@ function DigestBlock({ d, label }) {
     <section className="dg-block" data-dg={d.kind}>
       <div className="dg-head"><h3>{label}</h3><button type="button" className="inline-link dg-raw" onClick={() => setRaw(!raw)} aria-pressed={raw}>{raw ? "Show as cards" : "Show the ClickUp text"}</button></div>
       {raw ? <pre className="dg-text" data-dg-text>{d.text}</pre> : d.sections.map((s) => (
-        <div key={s.key} className="dg-sec" data-dg-sec={s.key}>
+        <div key={s.key} className="dg-sec" data-dg-sec={s.key} data-hue={s.hue}>
           <h4>{s.title}</h4>{s.note && <p className="hint">{s.note}</p>}
           {s.pending ? <p className="dg-pending" data-dg-pending>{s.pending}.</p> : s.error ? <p className="hint err-text">{s.error}</p>
             : !s.items.length ? <p className="hint" data-dg-empty>{s.empty}</p> : <ol className="dg-list">{s.items.map((it, i) => <DigestItem key={it.id || it.url || i} k={s.key} it={it} />)}</ol>}
