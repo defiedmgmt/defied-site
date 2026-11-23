@@ -1,10 +1,10 @@
-// Founders-only EMPIRE deal (lib/empire-deal.js): the publishing-administration deal's recoupment, the $75,000 Defied gives its producers advances from, each producer deal,
-// the statements EMPIRE sends, and the numbers behind the advance calculator. CONFIDENTIAL (the contract's terms stay between the parties): Money access, an account that sees
+// Founders-only EMPIRE deal (lib/empire-deal.js): the publishing-administration deal's recoupment (what EMPIRE's statements credited; the estimate is under `forecast`), the $75,000
+// Defied gives its producers advances from (what is spent), each producer deal, the statements EMPIRE sends, and the numbers behind the advance calculator. CONFIDENTIAL (the contract's terms stay between the parties): Money access, an account that sees
 // every artist (an account limited to its own is refused: the page works on the whole roster) and, since a Founder can switch Money on for anyone in Site › Users, the Founder
 // role itself (2026-11-21, review: the owner said "for founders"). Nothing here writes to a sheet.
-//   GET  -> { terms, defaults, levers, recoupment, pot, received, deals, statements, quarters, nextDue, producers, stats, streamsOn, today }
-//   POST { action: "saveDeal" | "setDealStatus" | "deleteDeal" | "addStatement" | "deleteStatement" | "setReceived" | "setLevers", ... } -> { ok, ... }
-//        400 with the sentence to show when something typed isn't right, 404 for a deal or statement that isn't there, 409 for a statement that quarter already has.
+//   GET  -> { terms, defaults, levers, recoupment, pot, received, deals, spends, statements, quarters, nextDue, producers, stats, streamsOn, today }
+//   POST { action: "saveDeal" | "setDealStatus" | "deleteDeal" | "addStatement" | "deleteStatement" | "addSpend" | "deleteSpend" | "setReceived" | "setLevers", ... } -> { ok, ... }
+//        400 with the sentence to show when something typed isn't right, 404 for a deal, statement or spending entry that isn't there, 409 for a statement that quarter already has.
 //   403 for everyone else (no Money, only their own artists, or not a Founder), GET and POST alike.
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";

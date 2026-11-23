@@ -18,7 +18,7 @@ const showVal = (f, v) => (v === "" || v == null ? "blank" : /\.share$/.test(f) 
 // the sheet computes them: Net Streams is the sum of each slot's own streams × its own writer %.
 // pipeline (A&R › Outreach, r10): the board's panel is a pipeline only: name, contact, stage, notes, last contact and
 // follow-up. The 5 song slots (streams + writer share, columns R–AA), the estimates and 'Advance given?' are hidden
-// and never sent from it. (2026-11-21: the Advance calculator that used to live in this file moved to Money › EMPIRE deal, components/dash/empire-calc.jsx; A&R's panel is this form alone.)
+// and never sent from it. (2026-11-21: the Advance calculator that used to live in this file moved to Money › Advance calculator, components/dash/empire-calc.jsx; A&R's panel is this form alone.)
 export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reload, onClose, onChanged, title, picker, extra, pipeline = false }) {
   const isNew = !prospect;
   const [base] = useState(prospect); // what this panel opened with: the `expect` of every Save

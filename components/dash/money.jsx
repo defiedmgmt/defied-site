@@ -13,9 +13,11 @@ import { typedMoney, checkEdit, sheetSplit, coShare, COMMISSION, GENERAL } from 
 import { MyPaymentsPage } from "./my-payments";
 import { PanelWait } from "./sections";
 
-// Money › EMPIRE deal (2026-11-21): the publishing-administration deal, the pot Defied gives producers advances from, the statements and the advance calculator. Its own chunk,
-// loaded the first time it opens; the dashboard gives it only to a Founder with Money access that sees every artist (the API refuses everyone else).
+// Money › EMPIRE recoupment (2026-11-21): the publishing-administration deal: the recoupment bar, the $75,000 Defied gives producers advances from, the producer deals and the statements.
+// Its own chunk, loaded the first time it opens; the dashboard gives it only to a Founder with Money access that sees every artist (the API refuses everyone else).
+// Money › Advance calculator (2026-11-23, the owner: "maybe the advance calculator can still be another section"): the calculator, a pill of its own with the same gate, its own chunk.
 const EmpireDeal = dynamic(() => import("./empire").then((m) => m.EmpireDeal), { ssr: false, loading: PanelWait });
+const AdvanceDeal = dynamic(() => import("./empire-calc").then((m) => m.AdvanceDeal), { ssr: false, loading: PanelWait });
 
 // "Nov", "Oct": this month and the one before, from the day the page is viewed
 const monthShort = (offset) => { const d = new Date(); d.setDate(15); d.setMonth(d.getMonth() + offset); return d.toLocaleDateString("en-US", { month: "short" }); };
@@ -261,13 +263,12 @@ export function detailsDefaults(p, options) {
 // opens the Log all preview at once) or part="check" (rows worth a look: Open row ↗ and Mark as OK).
 // Nothing in the sheet is ever edited from here: problems are shown with a link to the row.
 const ACCT_SECS = [["overview", "Overview"], ["payments", "All payments"]];
-// myMoney: the login's own pay link's payments as a third tab, My money (2026-11-11, components/dash/my-payments.jsx)
-// empire (2026-11-21): the EMPIRE deal, the pill after Overview (/dashboard/money/empire), for the one account that has it (a Founder with Money and every artist: StaffDashboard
-// decides). Money still opens on the accounting Overview, as it always did (2026-11-21, review: /dashboard/money is the Overview, /dashboard/money/empire the deal).
+// myMoney: the login's own pay link's payments as a third pill, My payments (2026-11-11, components/dash/my-payments.jsx; its address is still /dashboard/money/mine)
+// empire (2026-11-21): the EMPIRE pages, the last two pills (/dashboard/money/empire, /dashboard/money/advance), for the one account that has them (a Founder with Money and every artist:
+// StaffDashboard decides, and the one decision gates both). Money still opens on the accounting Overview, as it always did (2026-11-21, review: /dashboard/money is the Overview).
+// (2026-11-23, the owner: "move it so its overview, all payments, my payments, and empire recoupment", then the calculator as its own section after it)
 export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll = false, chip = null, myMoney = false, empire = false, db = null, onGo }) {
-  // (2026-11-11, the owner: "lets do my money then all payments order")
-  const base = myMoney ? [ACCT_SECS[0], ["mine", "My money"], ...ACCT_SECS.slice(1)] : ACCT_SECS;
-  const secs = empire && !part ? [base[0], ["empire", "EMPIRE deal"], ...base.slice(1)] : base;
+  const secs = [...ACCT_SECS, ...(myMoney ? [["mine", "My payments"]] : []), ...(empire && !part ? [["empire", "EMPIRE recoupment"], ["advance", "Advance calculator"]] : [])];
   const home = "overview"; // where Money opens: its address has no part
   const sec = part || (secs.some(([k]) => k === sub) ? sub : home);
   const [d, setD] = useState(null);
@@ -283,9 +284,10 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
     return (fresh ? fetch("/api/accounting?fresh=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then(got)
       : swrJson("/api/accounting", got, { keep: (x) => x?.connected !== undefined }).then((x) => { if (x?.connected === undefined) setFailed(true); })).catch(() => setFailed(true));
   };
-  // the accounting numbers are read when a part that shows them opens (not for the EMPIRE deal: it has its own read), once
+  // the accounting numbers are read when a part that shows them opens (not for the EMPIRE pages: they have their own read), once
   const asked = useRef(false);
-  useEffect(() => { if (sec === "empire" || asked.current) return; asked.current = true; load(); }, [sec]); // eslint-disable-line react-hooks/exhaustive-deps
+  const emp = sec === "empire" || sec === "advance";
+  useEffect(() => { if (emp || asked.current) return; asked.current = true; load(); }, [sec]); // eslint-disable-line react-hooks/exhaustive-deps
   // To do's Log all: the preview of every payment Log it can place, as soon as they're read
   const started = useRef(false);
   useEffect(() => {
@@ -308,7 +310,8 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
     await load(true); setOkBusy(null);
   };
   let body;
-  if (sec === "empire") body = <EmpireDeal db={db} />;
+  if (sec === "empire") body = <EmpireDeal onPlan={() => onSub("advance")} />;
+  else if (sec === "advance") body = <AdvanceDeal db={db} />;
   else if (sec === "mine") body = <MyPaymentsPage inMoney />;
   else if (!d) body = failed ? <p className="home-muted"><AlertTriangle size={15} /> <span>Couldn't load the accounting numbers. <button className="inline-link" onClick={() => load()}>Try again</button></span></p>
     : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>;
@@ -328,8 +331,8 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
   if (part) return <div className="acct-part" data-acct-part={part}>{body}{modals}</div>;
   return (
     <div className="acct-page">
-      <div className="admin-head"><h2>Money</h2>{chip}{sec !== "empire" && d?.readAt && <span className="home-src">Stripe and the {d.year} accounting sheet · read {clock(d.readAt)}</span>}
-        {sec !== "empire" && d?.sheetUrl && <ExtLink className="btn ghost sm acct-sheet-link" href={d.sheetUrl}>Open the sheet ↗</ExtLink>}</div>
+      <div className="admin-head"><h2>Money</h2>{chip}{!emp && d?.readAt && <span className="home-src">Stripe and the {d.year} accounting sheet · read {clock(d.readAt)}</span>}
+        {!emp && d?.sheetUrl && <ExtLink className="btn ghost sm acct-sheet-link" href={d.sheetUrl}>Open the sheet ↗</ExtLink>}</div>
       <div className="subnav" role="tablist" aria-label="Money">
         {secs.map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} data-acct-tab={k} className={sec === k ? "subpill active" : "subpill"} onClick={() => onSub(k === home ? null : k)}>{l}</button>)}
       </div>

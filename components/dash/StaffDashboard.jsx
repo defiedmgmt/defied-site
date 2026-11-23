@@ -30,9 +30,9 @@ function placeOf(t, s) {
   if (t === "dashboard") return { tab: "home", sub: null }; // r11: Home is called Dashboard again (/dashboard/dashboard)
   if (t === "users") return { tab: "site", sub: "users" };
   if (t === "subs") return { tab: "site", sub: "messages" };
-  // (2026-11-21) the advance calculator moved to Money › EMPIRE deal (the pill after Overview, /dashboard/money/empire): its old addresses (/dashboard/catalog/advance,
-  // ?tab=catalog&sub=advance, "advance:<id>") open it there
-  if (t === "catalog" && typeof sub === "string" && /^advance(:|$)/.test(sub)) return { tab: "money", sub: "empire" };
+  // (2026-11-21) the advance calculator moved to Money, and (2026-11-23) has its own pill there, Advance calculator (/dashboard/money/advance): its old addresses
+  // (/dashboard/catalog/advance, ?tab=catalog&sub=advance, "advance:<id>") open it there
+  if (t === "catalog" && typeof sub === "string" && /^advance(:|$)/.test(sub)) return { tab: "money", sub: "advance" };
   // (r11: Publishing's ISRCs tab is gone; the finder opens inside To do, /dashboard/todo/isrc)
   if (t === "catalog" && ["splits", "update", "dupes", "isrc"].includes(sub)) return { tab: "todo", sub };
   // (list B #3: the Luminate tab is gone; r10: so is Numbers, whose sources and cost are in Site › Sync now.
@@ -162,13 +162,13 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   // money in the same group and like tasks can be all tasks and my tasks grouped together") a login with To do or Money
   // finds its own list or payments inside it, not as a tab of their own: To do behind an All / Mine switch, Money as a
   // tab of its own row ("is there a reason this is a seperate page and not just a new tab": Overview · All payments ·
-  // My money, /dashboard/money/mine)
+  // My payments, /dashboard/money/mine)
   const paired = (id) => !!PAIRS[id] && tabs.some(([t]) => t === PAIRS[id]);
   const side = tabs.filter(([id]) => !paired(id));
   const home = paired(at) ? PAIRS[at] : at; // the sidebar tab that's lit
   const pair = (all) => { const mine = MINE_OF[all]; return tabs.some(([t]) => t === mine) && <PairSwitch all={all} mine={mine} at={at} setTab={setTab} />; };
   const myMoney = tabs.some(([t]) => t === "mypay");
-  // My payments' own address opens My money inside Money for a login that has Money
+  // My payments' own address opens it inside Money (as a pill) for a login that has Money
   useEffect(() => { if (at === "mypay" && paired("mypay")) { setAt({ tab: "money", sub: "mine" }); toUrl("money", "mine", "replace"); } }, [at]); // eslint-disable-line react-hooks/exhaustive-deps
   const [pwOpen, setPwOpen] = useState(false); // "Password": each login changes its own (components/dash/password.jsx)
   // (2026-11-11, the owner: "get rid of the · own artists on each co managers page")

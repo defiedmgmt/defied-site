@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import { swrJson, peekJson } from "../ui/fetch-cache";
 import { Field, money } from "./ui";
 import { bigNum, pct1, yearOne } from "./ar-fmt";
-import { useAct } from "./empire-api";
+import { useAct, useEmpire } from "./empire-api";
 import { findByName } from "../site/data";
 import { overlapOf, paceOfSongs, producerDeal } from "../../lib/empire-math";
 import { VERDICTS, yearFactor } from "../../lib/advance-model";
@@ -10,12 +11,13 @@ import {
   amountOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, paceSource, pctText, usd, usd0, verdictRule, verdictShown, verdictTone,
 } from "./empire-data";
 
-// The advance calculator (2026-11-21), moved here from Clients › Advance calculator into Money › EMPIRE deal, and rebuilt for how Defied now gives advances: out of the
+// The advance calculator (2026-11-21), moved here from Clients › Advance calculator into Money, and rebuilt for how Defied now gives advances: out of the
 // advance EMPIRE paid, to its own producers, for a single song or a whole catalog, paid back from that producer's royalties. Its math is lib/empire-math.js (the same
-// advance model as before, run on the producer's royalties: Net Income × EMPIRE's payout × (1 − Defied's cut)); its rates, pace and the pot come from GET /api/empire
+// advance model as before, run on the producer's royalties: Net Income × EMPIRE's payout × (1 − Defied's cut)); its rates, pace and the $75,000 come from GET /api/empire
 // (`data`). It starts from TODAY'S PACE (the streams a year the songs earn now): a producer's songs from real daily readings, song by song (lib/advance-pace.js), anyone else's
-// from the pub sheet's rule, lifetime streams × the run-rate (ASSUMPTIONS!B9). "Save as a planned deal" files the result in Producer deals.
-// The OUTREACH tab's own budget strip and its 'Advance given?' write left with the old screen: the pot and Producer deals above are the budget now.
+// from the pub sheet's rule, lifetime streams × the run-rate (ASSUMPTIONS!B9). "Save as a planned deal" files the result in Producer deals (Money › EMPIRE recoupment).
+// It is a planning tool, so its numbers are estimates and say so. The OUTREACH tab's own budget strip and its 'Advance given?' write left with the old screen.
+// (2026-11-23, the owner: "maybe the advance calculator can still be another section") It has its own Money pill, Advance calculator (/dashboard/money/advance), AdvanceDeal below.
 
 // A measured pace counts when at least half of it is measured (lib/empire-math.js REAL_PACE_MIN), as the calculator always did.
 const VerdictPill = ({ verdict }) => (verdict ? <span className="adv-pill" data-tone={verdictTone(verdict)} data-verdict={verdict}>{verdict.startsWith("Too high") ? "Too high" : verdict}</span> : null);
@@ -39,6 +41,7 @@ function useProspects(preset) {
 
 export function EmpireCalc({ data, reload, init = null }) {
   const { levers: lev, terms, producers, defaults, pot, deals = [] } = data;
+  const free = pot.free; // what is neither spent nor planned yet: the room a new deal is planned in
   const [who, setWho] = useState(init?.who ?? ""); // "" | "p:<client id>" | "o:<prospect id>" | "n" (someone new, typed)
   const [typed, setTyped] = useState(init?.typed ?? BLANK_NEW);
   const [scope, setScope] = useState(init?.scope ?? "catalog"); // a producer's: "catalog" | "songs"
@@ -68,8 +71,8 @@ export function EmpireCalc({ data, reload, init = null }) {
   }, [lev, producer, scope, picked, netStreams]); // eslint-disable-line react-hooks/exhaustive-deps
   const R = clampMonths(monthsIn), amount = amountOf(amountIn), cut = cutFromText(cutText);
   const m = useMemo(() => (lev?.ok && pace && cut != null
-    ? producerDeal({ pace: pace.perYear, ni: lev.niPerStream, payout: terms.payout, cut, decay: lev.decayRate, months: R, amount, pot })
-    : null), [lev, pace, cut, R, amount, terms, pot]);
+    ? producerDeal({ pace: pace.perYear, ni: lev.niPerStream, payout: terms.payout, cut, decay: lev.decayRate, months: R, amount, pot: { left: free } })
+    : null), [lev, pace, cut, R, amount, terms, free]);
   const checked = m ? checkSentence(m.check, m.ceiling) : null;
   const decay = lev?.decayRate ?? 0;
 
@@ -79,7 +82,7 @@ export function EmpireCalc({ data, reload, init = null }) {
   const existing = producer ? deals.filter((d) => overlapOf({ clientId: producer.id, scope, placementIds: picks.map((s) => s.id) }, d, live)) : [];
   const held = existing.reduce((a, d) => a + (Number(d.advance) || 0), 0), owing = existing.reduce((a, d) => a + (Number(d.owing ?? d.advance) || 0), 0);
   const adv = m ? Math.max(0, m.advance - owing) : 0; // the advance that is left for a new deal
-  const potAfter = m && m.pot ? pot.left - adv : null;
+  const potAfter = m && m.pot ? free - adv : null;
 
   // the deal to save: its advance is the one typed for it, else the amount being checked, else the advance shown
   const typedSave = amountOf(saveIn);
@@ -88,9 +91,9 @@ export function EmpireCalc({ data, reload, init = null }) {
   const canSave = !!m && cut != null && toSave > 0 && named;
   const save = () => {
     const body = dealPayload({ producer, prospectName: prospect ? prospect.name : typed.name.trim(), scope, songIds: picks.map((s) => s.id), advance: toSave, cut, note });
-    return act(body, () => { setSaid(`Saved: ${usd(toSave)} for ${producer ? producer.name : body.prospectName}, as a planned deal. It's in Producer deals above.`); setSaveIn(""); setNote(""); });
+    return act(body, () => { setSaid(`Saved: ${usd(toSave)} for ${producer ? producer.name : body.prospectName}, as a planned deal. It's in Producer deals on EMPIRE recoupment.`); setSaveIn(""); setNote(""); });
   };
-  const leftAfter = m && m.pot ? Math.round((pot.left - toSave) * 100) / 100 : null;
+  const leftAfter = m && m.pot ? Math.round((free - toSave) * 100) / 100 : null;
 
   const choose = (value) => {
     setWho(value); setSaid(null); clear(); setAmountIn(""); setSaveIn("");
@@ -101,7 +104,7 @@ export function EmpireCalc({ data, reload, init = null }) {
   return (
     <section className="emp-card emp-calc" data-emp="calc" aria-label="Advance calculator">
       <div className="emp-head"><h3 className="emp-h">Advance calculator</h3></div>
-      <p className="emp-sub">How big an advance one of our producers' royalties can pay back, worked out from the streams their songs earn today. It's paid back from the producer's royalties (what's left after Defied's cut), and it comes out of the pot above.</p>
+      <p className="emp-sub">How big an advance one of our producers' royalties can pay back, worked out from the streams their songs earn today. It's paid back from the producer's royalties (what's left after Defied's cut), and it comes out of the {usd0(terms.execution)} EMPIRE advanced.</p>
       <p className="hint adv-rate" data-emp-rate title="The rate is ASSUMPTIONS!B7 on the pub sheet">{lev?.ok ? `At $${+lev.blendedRate.toFixed(6)} a stream for the whole song (your pub sheet's rate).` : "At your pub sheet's rate a stream."}</p>
       {!lev?.ok && <p className="hint err-text" role="alert" data-emp-calc-off>Couldn't read the pub sheet's rates just now, so the calculator can't work out its numbers. Reload in a minute.</p>}
 
@@ -186,7 +189,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                   <div className="cat-stat" data-stat="cut"><span className="cat-stat-label">Defied's cut, next 12 months</span><span className="cat-stat-val">{money(m.next12.defiedCut)}</span><span className="adv-stat-sub">{`${pctText(cut, 2)} of Defied's ${pctText(terms.payout, 0)}`}</span></div>
                   <div className="cat-stat" data-stat="toEmpire"><span className="cat-stat-label">{producer ? `Counts toward EMPIRE's ${usd0(terms.owed)} (already on Schedule A), next 12 months` : `Adds to EMPIRE's ${usd0(terms.owed)}, next 12 months`}</span><span className="cat-stat-val">{money(m.toEmpire.next12)}</span><span className="adv-stat-sub">{`all of Defied's ${pctText(terms.payout, 0)}`}</span></div>
                   <div className="cat-stat" data-stat="pace"><span className="cat-stat-label">Today's pace</span><span className="cat-stat-val">{bigNum(m.pace)}</span><span className="adv-stat-sub">{pace.real ? "streams a year, from daily counts" : "streams a year, an estimate"}</span></div>
-                  <div className="cat-stat" data-stat="pot"><span className="cat-stat-label">Pot left after it</span><span className="cat-stat-val" data-over={potAfter < 0 ? "" : undefined}>{usd(potAfter)}</span><span className="adv-stat-sub">{`of ${usd0(terms.execution)}, ${usd0(pot.left)} left now`}</span></div>
+                  <div className="cat-stat" data-stat="pot"><span className="cat-stat-label">Left after it</span><span className="cat-stat-val" data-over={potAfter < 0 ? "" : undefined}>{usd(potAfter)}</span><span className="adv-stat-sub">{`of ${usd0(terms.execution)}, ${usd0(free)} left to plan now`}</span></div>
                 </div>
               </div>
 
@@ -285,8 +288,35 @@ export function EmpireCalc({ data, reload, init = null }) {
   );
 }
 
+// The Money › Advance calculator pill (2026-11-23): the calculator and, folded under it, the pub sheet's own forecast, on a page of their own (they were at the bottom of the EMPIRE
+// page). It reads GET /api/empire itself (the rates, each producer's songs, the deals and the $75,000 it plans against), kept for the tab like the EMPIRE page's read; a save is a planned
+// deal, which EMPIRE recoupment lists under Producer deals.
+export function AdvanceDeal({ db = null }) {
+  const { data, err, load, retry } = useEmpire();
+  if (!data) {
+    return err
+      ? <p className="home-muted" role="alert" data-emp-error><AlertTriangle size={15} /> <span>{err} <button type="button" className="inline-link" onClick={retry}>Try again</button></span></p>
+      : <p className="home-muted" data-emp-loading><RefreshCw size={15} className="spin" /> Loading…</p>;
+  }
+  return (
+    <>
+      {err && <p className="hint err-text" role="alert" data-emp-error>{err} <button type="button" className="inline-link" onClick={retry}>Try again</button></p>}
+      <AdvanceView data={data} reload={load} db={db} />
+    </>
+  );
+}
+// the page, drawn from the answer it was handed (init: the calculator's own presets, for the tests and the screenshots)
+export function AdvanceView({ data, reload, db = null, init = null }) {
+  return (
+    <div className="emp-page" data-empire-advance>
+      <EmpireCalc data={data} reload={reload} init={init} />
+      <SheetForecast db={db} />
+    </div>
+  );
+}
+
 // The pub sheet's own 3-year forecast of our fee (MASTER), for the roster and by writer (r7: it moved here from Publishing's Overview; 2026-11-21: it moved again, with the
-// calculator, to Money › EMPIRE deal). The sheet's Year 1 is the fee so far × B9 × (1 − B8), then B8 less each year: a rough guess, said so. It is the sheet's 30% rule for every
+// calculator, to Money; 2026-11-23: it sits with the calculator on the Advance calculator pill). The sheet's Year 1 is the fee so far × B9 × (1 − B8), then B8 less each year: a rough guess, said so. It is the sheet's 30% rule for every
 // writer, not the calculator's real pace, so it says it won't match. Kept shut until it's opened, so the page asks the sheet for it only then.
 export function SheetForecast({ db }) {
   const [open, setOpen] = useState(false);

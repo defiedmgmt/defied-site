@@ -905,8 +905,8 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
 }
 
 // Publishing: the clients, their songs and splits, and the MASTER totals. A Dashboard task can open it on a client ("client:<id>").
-// (2026-11-21) The Advance calculator moved to Money › EMPIRE deal (components/dash/empire-calc.jsx), where Defied's advances to producers are planned against the pot EMPIRE
-// advanced; its old address, /dashboard/catalog/advance, opens it there (StaffDashboard placeOf), and this page keeps one line saying so.
+// (2026-11-21) The Advance calculator moved to Money (components/dash/empire-calc.jsx), where Defied's advances to producers are planned against the advance EMPIRE gave;
+// (2026-11-23) it is the Money pill "Advance calculator". Its old address, /dashboard/catalog/advance, opens it there (StaffDashboard placeOf), and this page keeps one line saying so.
 // (r11: the ISRCs tab is gone, the owner: "why is there an isrc tab on the pub tab do i need that ?". The finder is
 // To do's "N songs have no ISRC" row now, /dashboard/todo/isrc; the old /dashboard/catalog/isrc opens it there.)
 export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSongInfo, sub, onGo, onSub, chip = null }) {
@@ -990,7 +990,7 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
         <h2>Clients</h2>{chip}
       </div>
       <AddedSaid said={addedSaid} onGo={onGo} />
-      {seeEmpire && <p className="hint cat-empire-line" data-empire-link>The advance calculator moved to <button type="button" className="inline-link" data-empire-go onClick={() => onGo("money", "empire")}>Money › EMPIRE deal</button>.</p>}
+      {seeEmpire && <p className="hint cat-empire-line" data-empire-link>The advance calculator moved to <button type="button" className="inline-link" data-empire-go onClick={() => onGo("money", "advance")}>Money › Advance calculator</button>.</p>}
       <div className="catalog-wrap">
         <div className="catalog-clients" ref={chips}>
           <button className={clientId === null ? "cc active" : "cc"} onClick={() => setClientId(null)}>

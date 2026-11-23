@@ -1,6 +1,8 @@
-// (2026-11-21) What the Money tab's EMPIRE page says and draws, as plain functions of what GET /api/empire sends (the screens are components/dash/empire.jsx and
-// empire-calc.jsx). Pure. This file is part of the page's code, which anyone can download, so it holds NO term of the contract: every rate, amount and date it speaks
+// (2026-11-21) What the Money tab's EMPIRE pages say and draw, as plain functions of what GET /api/empire sends (the screens are components/dash/empire.jsx, EMPIRE recoupment, and
+// empire-calc.jsx, Advance calculator). Pure. This file is part of the page's code, which anyone can download, so it holds NO term of the contract: every rate, amount and date it speaks
 // comes from the answer (its `terms`, `levers` and numbers), and nothing is worked out from a constant here.
+// (2026-11-23) The recoupment card is real money only: its bar, its headline and its status line are what EMPIRE's statements credited. Every sentence made from streams (the
+// estimate, the pace, the payback date, the extra advance, the buyout) is in forecastLines, which the card folds away under "Forecast (an estimate from streams, not money)".
 import { verdictFor, VERDICTS } from "../../lib/advance-model";
 import { NEW_SONGS_WARN } from "../../lib/empire-math";
 
@@ -56,18 +58,15 @@ export function checkSentence(check, ceil) {
 }
 
 // ---- the recoupment card
-// the bar: its solid part (statements) and striped part (the estimate), as percents of the whole, to a tenth (never past 100 together)
+// the bar: what EMPIRE's statements credited, as a percent of the whole, to a tenth (never past 100). There is no estimated part: the bar is money only.
 export function barOf(r) {
-  const solid = Math.min(Math.max(Number(r?.pctStatements) || 0, 0), 1) * 100, total = Math.min(Math.max(Number(r?.pct) || 0, 0), 1) * 100;
-  const s = Math.round(solid * 10) / 10, t = Math.round(total * 10) / 10;
-  return { solid: s, striped: Math.max(Math.round((t - s) * 10) / 10, 0), total: t };
+  return { solid: Math.round(Math.min(Math.max(Number(r?.pct) || 0, 0), 1) * 1000) / 10 };
 }
 const ms = (s) => Date.parse(`${String(s).slice(0, 10)}T00:00:00Z`);
-// The timeline under the bar, from the deal's first day to its last mark: where today, the day it is paid back at today's pace (when it is), the Additional Advance date and
-// the 3-year date fall, as percents along it. tone: how the payback date sits against the Additional Advance date.
-export function timelineOf({ terms, rec, today }) {
+// The timeline under the bar, from the deal's first day to its last mark: where today, the Additional Advance date and the 3-year date fall, as percents along it. Real dates only: nothing
+// projected (the day it would be paid back at today's pace is in the forecast, as words).
+export function timelineOf({ terms, today }) {
   const marks = [{ id: "today", label: "Today", date: today }];
-  if (rec?.date && !rec.recouped) marks.push({ id: "payback", label: "Paid back at today's pace", date: rec.date, tone: rec.date <= terms.additionalBy ? "pos" : "warn" });
   marks.push({ id: "additional", label: `Last day to be paid back for EMPIRE's extra ${usd0(terms.additional)} advance`, date: terms.additionalBy });
   marks.push({ id: "buyout", label: `Defied can buy out from here (repaying ${pctText(terms.buyout, 0)} of what's left)`, date: terms.threeYear });
   const t0 = ms(terms.effective), last = Math.max(...marks.map((m) => ms(m.date)));
@@ -75,79 +74,112 @@ export function timelineOf({ terms, rec, today }) {
   const place = (d) => Math.round(Math.min(Math.max(((ms(d) - t0) / (end - t0)) * 100, 0), 100) * 10) / 10;
   return { start: terms.effective, marks: marks.map((m) => ({ ...m, at: place(m.date), text: dayText(m.date) })), todayAt: place(today) };
 }
-// the line under the bar: when it is paid back at today's pace, or that it isn't. "Paid back" is only said when EMPIRE's own statements reach the total (rec.recouped); an estimate
-// that reaches it says so as an estimate (2026-11-21, review: statements come a quarter after the quarter ends)
+// the one line under the bar: what the statements have credited, and the statement still to come (the quarters and due dates are the API's own: statements = the view's list, oldest
+// first; nextDue = the quarter whose statement comes next)
+export function statusLine({ rec, statements = [], nextDue = null }) {
+  const n = statements.length;
+  if (!n) return nextDue ? `Nothing credited yet. EMPIRE's first statement (${dayShort(nextDue.start)} – ${dayText(nextDue.end)}) is due ${dayText(nextDue.due)}.` : "Nothing credited yet.";
+  const earned = rec?.recouped ? ` EMPIRE has earned back its ${usd0(rec.owed)}.` : "";
+  return `From ${n} ${n === 1 ? "statement" : "statements"}, through ${dayText(statements[n - 1].end)}.${earned}${nextDue ? ` Next statement due ${dayText(nextDue.due)}.` : ""}`;
+}
+// the one plain sentence of what the bar means (2026-11-23: it replaces the long explanations)
+export function meaningText(rec) {
+  return rec?.recouped ? "This bar is full, so EMPIRE has paid itself back and Defied gets paid." : "Until this bar is full, EMPIRE keeps Defied's share to pay itself back. After that, Defied gets paid.";
+}
+
+// ---- the forecast (everything below is an estimate from streams, never money: the card folds it away)
+// what today's pace would put on the next statement, and a year of it
+export function paceText(rec) {
+  const f = rec?.forecast;
+  if (!f || f.off) return "";
+  if (!(f.perYear > 0)) return "At today's pace nothing would be credited: there are no streams to count.";
+  const next = f.next ? `the next statement (${f.next.quarter}, due ${dayText(f.next.due)}) would credit about ${usd0(f.next.amount)}, and a year about ${usd0(f.perYear)}` : `a year would credit about ${usd0(f.perYear)}`;
+  return `At today's pace ${next}.`;
+}
+// when it is paid back at today's pace, or that it isn't. "Paid back" is only said by the statements (the status line), so here: the estimate that reaches the total says so as an estimate
+// (2026-11-21, review: statements come a quarter after the quarter ends)
 export function projectionText(rec) {
-  if (!rec) return "";
-  if (rec.estimateOff) return "The pub sheet's rates couldn't be read just now, so there's no projection. The statements typed in still count.";
-  if (rec.recouped) return `Paid back: EMPIRE has earned back its ${usd0(rec.owed)}.`;
-  if (rec.estimatedRecouped) return "Estimated to be paid back — wait for EMPIRE's statement to confirm.";
-  if (rec.never) return `Not at today's pace — the current songs top out near ${usd0(rec.reach)} of the ${usd0(rec.owed)}.`;
-  if (rec.date) return `At today's pace it's paid back around ${monthYear(rec.date)} (in ${aboutMonths(rec.months)}).`;
+  const f = rec?.forecast;
+  if (!rec || !f) return "";
+  if (f.off) return "The pub sheet's rates couldn't be read just now, so there's no forecast. The statements typed in still count.";
+  if (rec.recouped) return "";
+  if (f.estimatedRecouped) return "Estimated to be paid back — wait for EMPIRE's statement to confirm.";
+  if (f.never) return `Not at today's pace — the current songs top out near ${usd0(f.reach)} of the ${usd0(rec.owed)}.`;
+  if (f.date) return `At today's pace it's paid back around ${monthYear(f.date)} (in ${aboutMonths(f.months)}).`;
   return "";
 }
-// one plain sentence of what the bar means, for each way it can stand (the extra advance has its own line, additionalText)
-export function meaningText(rec, terms) {
-  if (!rec) return "";
-  const owed = usd0(rec.owed), cut = pctText(terms.payout, 0);
-  if (rec.recouped) return `EMPIRE has earned back its ${owed}, so from here Defied's ${cut} of what EMPIRE collects is paid out to Defied.`;
-  if (rec.estimatedRecouped) return `By our estimate EMPIRE has earned back its ${owed}, but only its statements can say so, and they come a quarter after each quarter ends. Until one does, EMPIRE keeps Defied's ${cut} of what it collects.`;
-  if (rec.estimateOff) return `Until the bar is full, EMPIRE keeps Defied's ${cut} of what it collects to earn back its ${owed}; the statements typed in are counted, the rest waits for the pub sheet's rates.`;
-  const keeps = `Until the bar is full, EMPIRE keeps Defied's ${cut} of what it collects to earn back its ${owed}`;
-  if (rec.never) return `${keeps}, and at today's pace it never gets there, so Defied sees no cash from EMPIRE until more streams or more songs close the gap.`;
-  return rec.date ? `${keeps}; at today's pace that's around ${monthYear(rec.date)}.` : `${keeps}.`;
-}
 // (2026-11-21, review) The extra advance EMPIRE can give once the account is paid back, in words: where the account stands against its last day. Only EMPIRE's statements can say "yes"
-// (or that it was missed); the rest is an estimate from today's pace, and says so (statements come a quarter after the quarter ends, so a projection is never a promise). Every
-// sentence that talks about the extra advance carries the one that says it is recouped too.
+// (or that it was missed); the rest is an estimate from today's pace, and says so. Every sentence that talks about the extra advance carries the one that says it is recouped too.
 export const EXTRA_NOTE = "If Defied takes it, EMPIRE adds it to what Defied owes, so it is paid back the same way.";
 export function additionalText(rec, terms) {
-  if (!rec) return "";
-  const a = rec.additional;
+  const f = rec?.forecast;
+  if (!f) return "";
+  const a = f.additional;
   const adv = `EMPIRE's extra ${usd0(terms.additional)} advance`, by = dayText(terms.additionalBy), owed = usd0(rec.owed);
-  if (!a || rec.estimateOff) return `${adv} has a last day, ${by}, for the account to be paid back. ${EXTRA_NOTE}`; // (no pace to judge it by, so only what it is)
+  if (!a || f.off) return `${adv} has a last day, ${by}, for the account to be paid back. ${EXTRA_NOTE}`; // (no pace to judge it by, so only what it is)
   const ask = "Defied asks for it in writing once the account is recouped.";
-  const guide = "EMPIRE's statements come a quarter after each quarter ends, so this is a guide, not a promise.";
   switch (a.state) {
     case "yes": return `EMPIRE's statements show the ${owed} was earned back in time for ${adv} (Defied asks for it in writing). ${EXTRA_NOTE}`;
-    case "ontrack": return `On track (estimate) for ${adv}, whose last day is ${by}. ${ask} ${guide} ${EXTRA_NOTE}`;
-    case "close": return `Close (estimate) to ${by}, the last day for ${adv}. ${ask} ${guide} ${EXTRA_NOTE}`;
-    case "late": case "no": return `Not on this pace (estimate) for ${adv}, whose last day is ${by}. ${guide} ${EXTRA_NOTE}`;
+    case "ontrack": return `On track (estimate) for ${adv}, whose last day is ${by}. ${ask} ${EXTRA_NOTE}`;
+    case "close": return `Close (estimate) to ${by}, the last day for ${adv}. ${ask} ${EXTRA_NOTE}`;
+    case "late": case "no": return `Not on this pace (estimate) for ${adv}, whose last day is ${by}. ${EXTRA_NOTE}`;
     case "missed": return rec.recouped
       ? `EMPIRE's statements show the ${owed} was earned back only after ${by}, the last day for ${adv}, so it was missed. ${EXTRA_NOTE}`
       : `The statements typed in don't show the ${owed} earned back by ${by}, the last day for ${adv}, so it may be missed (a statement still to come could change that). ${EXTRA_NOTE}`;
     default: return "";
   }
 }
-// how much of the estimate is measured, and what it is made from
-export function estimateNote(rec) {
-  const e = rec?.estimate;
-  if (!rec || rec.estimateOff) return "";
-  if (!e?.from) return "Every quarter so far has an EMPIRE statement, so nothing here is estimated.";
-  const songs = e.songs === 1 ? "1 song" : `${e.songs} songs`;
-  const how = e.songs ? `${pctText(e.measuredShare, 0)} of those streams are counted from Luminate's totals (or a song's lifetime count since it came out), the rest is today's pace over the days` : "";
-  return `Estimated from real streams since ${dayText(e.from)}: ${songs} on Schedule A${how ? `; ${how}` : ""}.${e.noShare ? ` ${e.noShare === 1 ? "1 song has" : `${e.noShare} songs have`} no split for the producer yet and ${e.noShare === 1 ? "isn't" : "aren't"} counted.` : ""}`;
-}
-// the first statements can be bigger than the estimate: EMPIRE also collects late payments for plays before the deal began (the letter of direction to the societies)
-export const lateNote = (terms) => `A real statement can come in higher than the estimate: EMPIRE also collects what the societies and platforms pay late for plays before ${dayText(terms.effective)}.`;
 export function buyoutText(rec, terms) {
-  const b = rec?.buyout;
+  const b = rec?.forecast?.buyout;
   if (!b) return "";
   if (rec.recouped || b.amount <= 0) return `From ${dayText(b.date)} Defied could buy out by repaying ${pctText(b.rate, 0)} of what's left. Nothing would be left at today's pace.`;
   return `From ${dayText(b.date)} Defied can buy out by repaying ${pctText(b.rate, 0)} of what's still unrecouped then: about ${usd0(b.amount)} at today's pace.`;
 }
+// the card's folded lines, in order: [id, text], the empty ones left out
+export function forecastLines(rec, terms) {
+  if (!rec?.forecast) return [];
+  return [["pace", paceText(rec)], ["projection", projectionText(rec)], ["additional", additionalText(rec, terms)], ["buyout", buyoutText(rec, terms)]].filter(([, text]) => text);
+}
+// how much of the estimate is measured, and what it is made from (inside the "How the estimate counts Net Income" fold)
+export function estimateNote(rec, streamsOn = "") {
+  const f = rec?.forecast, e = f?.estimate;
+  if (!rec || !f || f.off) return "";
+  if (!e?.from) return "Every quarter so far has an EMPIRE statement, so nothing here is estimated.";
+  const songs = e.songs === 1 ? "1 song" : `${e.songs} songs`;
+  const how = e.songs ? `${pctText(e.measuredShare, 0)} of those streams are counted from Luminate's totals (or a song's lifetime count since it came out), the rest is today's pace over the days` : "";
+  const asOf = streamsOn ? ` Streams as of ${dayText(streamsOn)}.` : "";
+  return `Estimated from real streams since ${dayText(e.from)}: about ${usd0(f.estimated)} for Defied, from ${songs} on Schedule A${how ? `; ${how}` : ""}.${e.noShare ? ` ${e.noShare === 1 ? "1 song has" : `${e.noShare} songs have`} no split for the producer yet and ${e.noShare === 1 ? "isn't" : "aren't"} counted.` : ""}${asOf}`;
+}
+// the quarters before the last statement that have none of their own: they are estimated too
+export const missingNote = (rec) => (rec?.missing?.length ? `No statement is typed in for ${rec.missing.join(", ")}, so ${rec.missing.length === 1 ? "it is" : "they are"} estimated too.` : "");
+// the first statements can be bigger than the estimate: EMPIRE also collects late payments for plays before the deal began (the letter of direction to the societies)
+export const lateNote = (terms) => `A real statement can come in higher than the estimate: EMPIRE also collects what the societies and platforms pay late for plays before ${dayText(terms.effective)}.`;
 // the statements: a quarter in words, and when its statement comes
 export const quarterWords = (q) => `${q.id}: ${dayShort(q.start)} – ${dayText(q.end)}`;
 export const dueWords = (q) => `due ${dayText(q.due)}`;
 
-// ---- the pot
-// the stacked bar: given, planned and left as percents of the $75,000 (when more than all of it is promised, the bar is all given + planned, scaled down to fit)
-export function potBar(pot) {
+// ---- the money spent out of EMPIRE's advance (2026-11-23: the $75,000 is a second bar, empty until a founder marks money spent)
+// the bar: what is spent (deals marked given + the entries marked spent) as a percent of the total, to a tenth, never past 100 (the part over is said in words, not drawn)
+export function spentBar(pot) {
   const total = Number(pot?.total) || 0;
-  if (!(total > 0)) return { given: 0, planned: 0, left: 0 };
-  const g = Math.max(pot.given, 0), p = Math.max(pot.planned, 0), spent = g + p, scale = spent > total ? total / spent : 1;
-  const r = (x) => Math.round(((x * scale) / total) * 1000) / 10;
-  return { given: r(g), planned: r(p), left: Math.max(Math.round((100 - r(g) - r(p)) * 10) / 10, 0) };
+  if (!(total > 0)) return { solid: 0 };
+  return { solid: Math.round(Math.min(Math.max(Number(pot.spent) || 0, 0) / total, 1) * 1000) / 10 };
+}
+// the one muted line under the bar for deals that are only planned: they are not money yet, so they are not in the bar
+export function plannedLine(pot) {
+  const n = Number(pot?.plannedCount) || 0;
+  return n > 0 ? `Planned, not spent yet: ${usd0(pot.planned)} (${n} ${n === 1 ? "deal" : "deals"})` : "";
+}
+// the list under the bar, newest first: every deal marked given ("Advance to <producer>", un-given from its deal row, so it can't be deleted from here) and every entry typed in
+// (kind "spend": it can be deleted). { key, kind, id, on, what, amount }
+export function spentRows({ deals = [], spends = [], producers = [] }) {
+  const names = new Map(producers.map((p) => [p.id, p.name]));
+  const who = (d) => (d.clientId ? names.get(d.clientId) || "a producer" : d.prospectName || "a prospect");
+  const rows = [
+    ...deals.filter((d) => d.status === "given").map((d) => ({ key: `deal:${d.id}`, kind: "advance", id: d.id, on: d.givenOn || "", what: `Advance to ${who(d)}`, amount: Number(d.advance) || 0 })),
+    ...spends.map((x) => ({ key: `spend:${x.id}`, kind: "spend", id: x.id, on: x.on || "", what: x.what, amount: Number(x.amount) || 0 })),
+  ];
+  return rows.sort((a, b) => String(b.on).localeCompare(String(a.on)) || a.key.localeCompare(b.key));
 }
 
 // ---- the deals
@@ -157,22 +189,23 @@ export function scopeText(deal) {
   if (deal.scope === "songs") return `${n} ${n === 1 ? "song" : "songs"}: ${names.join(", ")}${n > names.length ? ` and ${n - names.length} more` : ""}`;
   return `Whole catalog (${n} ${n === 1 ? "song" : "songs"})`;
 }
-// a deal's payback line: where a given deal is, or how fast a planned one would repay
+// a given deal's payback line (2026-11-23, real money only: what EMPIRE's statements have paid back, the producer's share of each, split by each song's streams; $0 until one covers
+// it). A planned deal repays nothing, so it says nothing.
 export function dealLine(deal) {
   const r = deal.recoup || {};
-  if (r.off) return "The pub sheet's rates couldn't be read just now, so there's no payback figure.";
+  if (deal.status !== "given") return "";
   if (r.none) return deal.clientId ? "None of its songs are on Schedule A right now, so there is nothing to count." : "Counting starts once they're a client with songs on Schedule A.";
-  if (deal.status !== "given") {
-    const p = r.payback || {};
-    if (p.never) return `The producer's royalties would never pay this back at today's pace; the most they could ever repay is ${usd0(p.ceiling)}.`;
-    if (p.months == null) return "No royalties at today's pace to pay it back from.";
-    return `At today's pace the producer's royalties pay it back in ${aboutMonths(p.months)}.`;
-  }
-  // (2026-11-21, review) the royalties since the day it was given are an estimate (EMPIRE's statements are for the whole account), so this never says "paid back" outright
-  if (r.recouped) return `Estimated to be paid back: the producer's royalties since ${dayText(r.since)} should cover the whole ${usd(deal.advance)}, an estimate until EMPIRE's statements bear it out.`;
-  const head = `${usd(r.royalties)} of ${usd(deal.advance)} paid back since ${dayText(r.since)} (${pctText(r.pct, 0)}), ${usd(r.remaining)} to go`;
-  if (r.never) return `${head}. At today's pace the royalties never cover the rest.`;
-  return r.date ? `${head}, around ${monthYear(r.date)} at today's pace.` : `${head}.`;
+  if (r.paid == null) return "";
+  return `Paid back ${usd(r.paid)} of ${usd(deal.advance)} (${pctText(r.pct, 0)}) from EMPIRE's statements, split by each song's streams. ${usd(r.remaining)} to go.${r.statements ? "" : " No statement covers it yet."}`;
+}
+// the small muted note on a given deal: when the royalties since its day would pay it back at today's pace (an estimate, said so), or that they never would
+export function dealForecast(deal) {
+  const r = deal.recoup || {}, f = r.forecast;
+  if (deal.status !== "given" || !f || r.recouped) return "";
+  if (f.recouped) return "forecast: the royalties so far should cover it, once a statement says so";
+  if (f.never) return "forecast: not at today's pace";
+  if (f.date) return `forecast: around ${monthYear(f.date)} at today's pace`;
+  return "";
 }
 
 // ---- the calculator's pace, in words
