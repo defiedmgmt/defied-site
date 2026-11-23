@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { Mail, X, Plus, Trash2, Check, AlertTriangle, CheckCircle2, Eye, EyeOff } from "lucide-react";
 import { songSplit, splitWords, orderSplits } from "../../lib/splits";
+import { roundPct, snapSplits } from "../../lib/pct";
 import { Photo, prefersReducedMotion, thumb } from "../shared/ui";
 import { findByName } from "../site/data";
 
@@ -306,7 +307,9 @@ export function splitColors(splits) {
   return out;
 }
 export const splitTotal = (splits) => (splits || []).reduce((a, s) => a + Number(s.percent || 0), 0);
-export const splitPct = (splits) => Math.round(splitTotal(splits) * 10) / 10;
+// (2026-11-23, the owner: "33 shld be 33.33 and 17 shld eb 16.66 ... its important to be exact") two decimals, half up, and a number, so it
+// prints with no trailing zeros: 33.33, 16.67, 50 (was one decimal: 33.3). lib/pct.js has the same rule for the words
+export const splitPct = (splits) => roundPct(splitTotal(splits));
 // the songs whose splits don't add up to 100%, by client: the clients whose songs have the most streams
 // first, and in each the biggest songs first (Publishing's Splits to fix list, its Next →, the chips)
 export function splitsToFix(db) {
@@ -381,12 +384,13 @@ export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, ow
   const update = (id, key, val) => onChange(rows.map((r) => r.id === id ? { ...r, [key]: val } : r));
   const add = () => onChange([...rows, { id: uid(), name: "", role: "", percent: 50 }]);
   const remove = (id) => onChange(rows.filter((r) => r.id !== id));
-  const total = splitTotal(shown);
+  // (what Save stores: 33.33 + 33.33 + 33.33 is three thirds and adds up to 100, lib/pct.js)
+  const counted = snapSplits(shown), total = splitTotal(counted);
   const mine = fill.status === "assumed" && owner?.name ? findByName(fill.splits, owner.name) : null;
   return (
     <div className="splits-ed" ref={box}>
-      {/* shown to one decimal like everywhere else (1/3 is 33.3%, not 33.333333333333336%); the saved % is unchanged */}
-      <div className="splits-ed-head"><span>Publishing splits</span><span className={total === 100 ? "split-ok" : "split-warn"}>{splitPct(shown)}%</span></div>
+      {/* shown to two decimals like everywhere else (1/3 is 33.33%, not 33.333333333333336%); the saved % is unchanged */}
+      <div className="splits-ed-head"><span>Publishing splits</span><span className={total === 100 ? "split-ok" : "split-warn"}>{splitPct(counted)}%</span></div>
       {list.map((r) => r.unnamed || r.shownOnly ? (
         <div key={r.key || r.id} className="splits-ed-row split-assumed" data-unnamed>
           {/* one box over the name and role columns: "Producer 2 (unnamed)" already says the role, and is never cut */}
@@ -401,7 +405,7 @@ export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, ow
           <input placeholder="Name" value={r.name} onChange={(e) => update(r.id, "name", e.target.value)} />
           <input placeholder="Role" value={r.role} onChange={(e) => update(r.id, "role", e.target.value)} />
           {/* a listed person with no share shows the even share they'll get, as a placeholder only */}
-          <span className={`pct-in${blankShare(r) ? " pct-blank" : ""}`}><input type="number" min="0" max="100" value={blankShare(r) ? "" : r.percent} placeholder={blankShare(r) ? String(splitPct([filled(r.id) || r])) : undefined} onChange={(e) => update(r.id, "percent", e.target.value === "" ? 0 : Number(e.target.value))} />%</span>
+          <span className={`pct-in${blankShare(r) ? " pct-blank" : ""}`}><input type="number" min="0" max="100" step="any" value={blankShare(r) ? "" : roundPct(r.percent)} placeholder={blankShare(r) ? String(splitPct([filled(r.id) || r])) : undefined} onChange={(e) => update(r.id, "percent", e.target.value === "" ? 0 : roundPct(Number(e.target.value)))} />%</span>
           <button type="button" className="split-del" onClick={() => remove(r.id)} aria-label="Remove"><Trash2 size={14} /></button>
         </div>
       ))}

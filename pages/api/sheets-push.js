@@ -10,7 +10,7 @@
 // a deploy, a hand-made request): lib/sheet-writes.js guardedPush reads the
 // tab with FORMULA before writing and refuses, naming the cell, a formula in
 // A, B, D or N, the Total row or below it, or a share that fails
-// pushShareProblem (the share saved on the site, one decimal, and with
+// pushShareProblem (the share saved on the site, two decimals or an exact fraction like a third, and with
 // check "confirm" a split of exactly 100%, "merge" at most 100%); then reads
 // the tab again and answers with a loud `alarm` if any formula changed.
 // A refusal is a 409 { error, refused, written }; a 502 says whether its

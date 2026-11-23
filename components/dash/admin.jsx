@@ -6,7 +6,7 @@ import { SECTIONS, ROLES, accessFor, cleanAccess, sameManager, roleOf, teamAccou
 import { changedFields, saveRow } from "../app/saves";
 import { canUse } from "./access";
 import { findTabClient, noTabNames, shortDay } from "./helpers";
-import { Area, Avatar, EmailButton, Field, PhotoUpload, SplitsEditor, splitTotal, uid } from "./ui";
+import { Area, Avatar, EmailButton, Field, PhotoUpload, SplitsEditor, splitPct, uid } from "./ui";
 import { AskCard } from "../portal/ask";
 import { nameTaken, deleteClientCascade, clientDeleteAsk, NAME_TAKEN, SpotifyFill } from "./clients";
 import { pctText, pctOk, SPLITS, splitOf, FOUNDER_LINE, founderNames, isFounderManager, clientCut, nowLine, refillChecklist, checklistChanges, checklistRows, checklistWhy, rowNote, changeWords, nearManager, artistsPart, sheetSteps, pickNote, pickRows, savedLine, notSavedLine, tickRow } from "./manager-artists";
@@ -553,7 +553,7 @@ function PlacementsAdmin({ db, commit }) {
     { key: "cover", label: "", w: "44px", render: (p) => p.cover ? <img className="rel-thumb" src={p.cover} alt="" loading="lazy" decoding="async" /> : <span className="rel-thumb rel-thumb-empty" /> },
     { key: "song", label: "Song", w: "1.3fr" },
     { key: "clientId", label: "Client", w: "1fr", render: (p) => clientName(p.clientId) },
-    { key: "splits", label: "Splits", w: "0.8fr", render: (p) => `${(p.splits || []).length} · ${splitTotal(p.splits)}%` },
+    { key: "splits", label: "Splits", w: "0.8fr", render: (p) => `${(p.splits || []).length} · ${splitPct(p.splits)}%` },
     { key: "notable", label: "Featured", w: "0.8fr", render: (p) => p.notable ? <span className="badge-yes"><Check size={12} /> Notable</span> : <span className="badge-no">—</span> },
   ];
   const save = async (o0) => {

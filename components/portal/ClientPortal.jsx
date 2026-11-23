@@ -3,6 +3,7 @@ import Link from "next/link";
 import { X, LogOut, Plus, Disc3, RefreshCw, AlertTriangle, CheckCircle2, Eye, PauseCircle, PlayCircle, KeyRound } from "lucide-react";
 import { PasswordCard } from "../dash/password";
 import { songSplit, splitWords, filledSplits, orderSplits } from "../../lib/splits";
+import { snapSplits } from "../../lib/pct";
 import { portalStreams, spotSongsOf, spotifyStandIn, streamsDay, trackKey } from "../../lib/portal-streams";
 import { ShareStats } from "./share";
 import { changedFields, goneText } from "../app/saves";
@@ -260,7 +261,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
     // typed. A client's Save fills it only on a song they're adding (2026-11-11, the owner: "when a client adds a song
     // on their page the splits rule should be there"); on a song already there it stays as typed, for the owner to
     // confirm in Splits to confirm, so a client fixing a link never writes an assumed share to their own sheet tab
-    const form = isStaff || !form0.id ? { ...form0, splits: filledSplits(form0.splits, { client, artist: form0.artist }) } : form0;
+    // (2026-11-23) either way the shares go in snapped (lib/pct.js): 16.67 + 83.33 is a sixth and five sixths, 33.33 x 3 is three thirds; the server does the same on every save
+    const form = isStaff || !form0.id ? { ...form0, splits: filledSplits(form0.splits, { client, artist: form0.artist }) } : { ...form0, splits: snapSplits(form0.splits) };
     // only what was changed in the form goes onto the song as it is now — streams the sync
     // brought in while it was open aren't put back (see Editor)
     const cur = form.id && db.placements.find((p) => p.id === form.id);
@@ -485,7 +487,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                 {/* an even split the rule can fill is the owner's to confirm, not a broken one (Splits to confirm says the same) */}
                 <em>{isStaff && splitTotal(p.splits) !== 100
                   ? (songSplit(p, client).status === "assumed" ? <span className="split-chip split-chip-even">{songSplit(p, client).rule ? "Default split assumed" : "Even split assumed"}</span> : <span className="split-chip">Splits {splitPct(p.splits)}%</span>)
-                  : <>Pub split · {(p.splits || []).length} {(p.splits || []).length === 1 ? "person" : "people"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitTotal(p.splits)}%</span></>}</em>
+                  : <>Pub split · {(p.splits || []).length} {(p.splits || []).length === 1 ? "person" : "people"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitPct(p.splits)}%</span></>}</em>
                 {/* its own line: on the splits line it was cut off by the card's width */}
                 {p.notable && <span className="song-public"><Eye size={12} aria-hidden="true" /> On public page</span>}
                 <GrowthChip g={growth?.[p.id]} />
@@ -548,7 +550,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                 {(() => { const hue = splitColors(activeEven ? activeEven.splits : active.splits); return orderSplits(activeEven ? activeEven.splits : active.splits || []).map((s, i) => (
                   <div key={s.unnamed ? `u${i}` : s.id} className="split-list-row">
                     <span className="split-name">{hue.get(s) && <i className="split-dot" style={{ background: hue.get(s) }} aria-hidden="true" />}{s.name || s.label || "—"}{s.role && !s.unnamed && <em> · {s.role}</em>}{activeEven && (s.unnamed || !(Number((active.splits || []).find((t) => t.id === s.id)?.percent) > 0)) && <em> · assumed</em>}</span>
-                    {/* one decimal, as the editor shows it (a third is 16.7%, not 16.666666666666668%); the saved % is unchanged */}
+                    {/* two decimals, as the editor shows it (a sixth is 16.67%, not 16.666666666666668%); the saved % is unchanged */}
                     <span className="split-pct">{splitPct([s])}%</span>
                   </div>
                 )); })()}

@@ -10,6 +10,8 @@ import { songInfoState } from "../../lib/song-info";
 import { lookupIsrc, cleanIsrc, ISRC_RE, SOURCES } from "../../lib/isrc";
 import { normalizeTitle } from "../../lib/sheets";
 import { afterAction } from "../../lib/area-tasks";
+import { scheduleAAfterSave, settleWithin, SAVE_WAIT_MS } from "../../lib/schedule-a";
+import { hitLink } from "../../lib/isrc-nightly";
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 // the ISRC finder can take a few seconds a song (four services, each at its own pace): a call does
@@ -23,6 +25,9 @@ const saveCandidates = (ids, p, list) => (list.length
   : [sql`DELETE FROM isrc_candidates WHERE item = ANY(${ids})`]);
 const clearCandidates = (ids) => sql`DELETE FROM isrc_candidates WHERE item = ANY(${ids})`.catch((err) => { if (err?.code !== "42P01") throw err; });
 const ids = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x).slice(0, 500) : []);
+// (2026-11-23) the Schedule A sheet shows each song's ISRC and link: a change to one is marked and run the way a save of the songs does it
+// (lib/schedule-a.js scheduleAAfterSave: off with no sheet, at most one run in 2 minutes, never throws), and waited for 2 seconds at the most
+const touchScheduleA = () => settleWithin(scheduleAAfterSave(), SAVE_WAIT_MS);
 const upsertTracking = (id, set) => sql`
   INSERT INTO song_tracking (placement_id, isrc, isrc_source, isrc_checked_at, updated_at)
   VALUES (${id}, ${set.isrc ?? ""}, ${set.isrc_source ?? ""}, ${set.isrc_checked_at ?? null}, now())
@@ -85,6 +90,7 @@ async function act(body, ctx) {
     if (isrc && !ISRC_RE.test(isrc)) return [400, { error: "An ISRC is 12 letters and numbers, like USUM72506269." }];
     await sql.transaction(ids(body.placementIds).map((id) => upsertTracking(id, { isrc, isrc_source: isrc ? "manual" : "", isrc_checked_at: new Date().toISOString() })));
     await clearCandidates(ids(body.placementIds));
+    await touchScheduleA();
     return [200, { ok: true, isrc }];
   }  if (action === "pickIsrc") {
     // one tap on a candidate the finder offered: saved with the source it came from
@@ -95,6 +101,7 @@ async function act(body, ctx) {
     if (!list.length) return [400, { error: "Pick the song first." }];
     await sql.transaction(list.map((id) => upsertTracking(id, { isrc, isrc_source: source, isrc_checked_at: new Date().toISOString() })));
     await clearCandidates(list);
+    await touchScheduleA();
     return [200, { ok: true, isrc, source }];
   }  if (action === "findIsrcs") {
     // groups: [[ids of one song across clients' pages], …]. A sure hit is saved (with its source); else
@@ -103,6 +110,7 @@ async function act(body, ctx) {
     const all = groups.flat();
     const songs = Object.fromEntries((await sql`SELECT id, song, artist, link FROM placements WHERE id = ANY(${all})`).map((p) => [p.id, p]));
     const results = {}, start = Date.now();
+    let saved = false;
     for (const g of groups) {
       const p = songs[g[0]];
       if (!p) continue;
@@ -114,11 +122,17 @@ async function act(body, ctx) {
       const at = new Date().toISOString();
       const q = g.map((id) => upsertTracking(id, r.hit ? { isrc: r.hit.isrc, isrc_source: r.hit.source, isrc_checked_at: at } : { isrc_checked_at: at }));
       await sql.transaction(q);
+      // (2026-11-23) a sure hit that is on Spotify is also the link of the songs of this group that have none (lib/isrc-nightly.js, as the nightly run does it)
+      const linkIds = g.filter((id) => songs[id] && !songs[id].link);
+      const link = r.hit && linkIds.length ? await hitLink({ hit: r.hit, song: p.song, artist: p.artist }) : "";
+      if (link) await sql`UPDATE placements SET link = ${link} WHERE id = ANY(${linkIds}) AND COALESCE(link, '') = ''`;
+      if (r.hit) saved = true;
       await Promise.all(saveCandidates(g, p, r.hit ? [] : r.candidates)).catch((err) => { if (err?.code !== "42P01") throw err; });
       results[g[0]] = r.hit
         ? { isrc: r.hit.isrc, match: "exact", source: r.hit.source, title: r.hit.title, artist: r.hit.artist, cover: r.hit.cover }
         : { notFound: !r.candidates.length, candidates: r.candidates };
     }
+    if (saved) await touchScheduleA();
     return [200, { results }];
   }  if (action === "notDuplicate") {
     // "Not the same song" on the merge card (build H1): the pair is kept in app_state so it's never asked about

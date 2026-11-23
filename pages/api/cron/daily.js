@@ -1,7 +1,7 @@
 // Runs once a day (vercel.json "crons"): pulls the sheet onto the site so a
 // change typed straight into the sheet shows up without anyone signed in,
 // gives a writer tab that's running out of song rows more of them (lib/sheet-rows.js),
-// looks up a few missing ISRCs (and the A&R artists' Deezer pages), keeps the ClickUp tasks the dashboard
+// looks up a few missing ISRCs and Spotify links (and the A&R artists' Deezer pages), keeps the ClickUp tasks the dashboard
 // owns ("Log new payments", one per area) up to date, reads each client's manager off the
 // accounting sheet's INFO tab (roles: a Co-manager limited to their own artists) and, LAST, puts a roster artist's
 // new releases on the site and the pub sheet with the assumed split (lib/auto-add.js). Vercel sends
@@ -13,10 +13,10 @@
 // auto-add can't finish waits for tomorrow (lib/auto-add.js). A Sheets request that Google turns away for the quota waits and tries again
 // (lib/sheets.js), but never past 45 seconds into this run (the whole run has 60).
 // (2026-11-20) Schedule A (lib/schedule-a.js) is the very last step, after the auto-add, so a song it just put on the site is on the sheet the same night.
-import { sql } from "../../../lib/db";
 import { syncSiteFromSheet } from "../../../lib/site-sync";
 import { setState } from "../../../lib/app-state";
 import { lookupIsrc } from "../../../lib/isrc";
+import { findNightly } from "../../../lib/isrc-nightly";
 import { refreshDeezer, refreshArIsrcs } from "../../../lib/ar-deezer";
 import { normalizeTitle, withSheetsDeadline } from "../../../lib/sheets";
 import { notifyClickUp } from "../../../lib/clickup";
@@ -69,39 +69,11 @@ async function run(req, res) {
   // (2026-11-13: 10 a night left a 178-song Spotify import for 17 nights. A song with a Spotify link is one free
   // Spotify call now, lib/isrc.js, spaced like the rest: the 25 s below still decides, and what doesn't fit waits for
   // tomorrow. The whole cron took 14 s with 10 of its 60)
+  // (2026-11-23, the owner: "we shld try and pull everything") lib/isrc-nightly.js: a sure hit on Spotify also fills the song's link, a song with an
+  // ISRC and no link is found on Spotify by its ISRC, and the songs marked "Not on streaming" are looked at again once a week (the mark comes off when
+  // Spotify has them). All inside the same 25 s and 45 s, and what it saves is marked for the Schedule A sheet, which the last step below writes
   try {
-    const rows = await sql`
-      SELECT p.id, p.song, p.artist, p.link FROM placements p LEFT JOIN song_tracking t ON t.placement_id = p.id
-      WHERE COALESCE(t.isrc, '') = '' AND NOT COALESCE(t.skip, false)
-        AND (t.isrc_checked_at IS NULL OR t.isrc_checked_at < now() - interval '14 days')
-      LIMIT 240
-    `;
-    const groups = new Map();
-    for (const r of rows) {
-      const k = `${normalizeTitle(r.song)}|${normalizeTitle(r.artist)}`;
-      groups.set(k, [...(groups.get(k) || []), r]);
-    }
-    report.isrc = { looked: 0, found: 0, offered: 0 };
-    const start = Date.now();
-    for (const g of [...groups.values()].slice(0, 60)) {
-      if (Date.now() - start > 25000 || Date.now() - t0 > 45000) break; // the rest tomorrow
-      const r = await lookupIsrc({ song: g[0].song, artist: g[0].artist, link: g[0].link || g.find((x) => x.link)?.link || "" }).catch(() => ({ failed: true }));
-      if (r.failed || r.retry) break; // the services are down (or Spotify didn't answer): tomorrow
-      report.isrc.looked++;
-      if (r.hit) report.isrc.found++; else if (r.candidates.length) report.isrc.offered++;
-      const at = new Date().toISOString();
-      await sql.transaction(g.map((x) => sql`
-        INSERT INTO song_tracking (placement_id, isrc, isrc_source, isrc_checked_at) VALUES (${x.id}, ${r.hit?.isrc || ""}, ${r.hit?.source || ""}, ${at})
-        ON CONFLICT (placement_id) DO UPDATE SET isrc = CASE WHEN song_tracking.isrc = '' THEN EXCLUDED.isrc ELSE song_tracking.isrc END,
-          isrc_source = CASE WHEN song_tracking.isrc = '' THEN EXCLUDED.isrc_source ELSE song_tracking.isrc_source END,
-          isrc_checked_at = EXCLUDED.isrc_checked_at, updated_at = now()
-      `));
-      const ids = g.map((x) => x.id);
-      await (r.hit || !r.candidates.length
-        ? sql`DELETE FROM isrc_candidates WHERE item = ANY(${ids})`
-        : sql.transaction(ids.map((id) => sql`INSERT INTO isrc_candidates (item, song, artist, candidates) VALUES (${id}, ${g[0].song}, ${g[0].artist}, ${JSON.stringify(r.candidates)})
-            ON CONFLICT (item) DO UPDATE SET candidates = EXCLUDED.candidates, checked_at = now()`))).catch((err) => { if (err?.code !== "42P01") throw err; });
-    }
+    await findNightly({ report, lookup: lookupIsrc, normalizeTitle, t0 });
   } catch (err) { report.isrcError = err.message; }
 
   // the A&R artists' Deezer pages (fans, and the tracks a songs-only artist is followed by): a few a night

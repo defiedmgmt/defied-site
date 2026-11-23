@@ -153,7 +153,7 @@ function ShareFix({ kind, ctx, viaCta = false }) {
       const r = await fetch("/api/split-fixes", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "setShare", placementId: x.p.id, share, row: x.row, from: x.sheet }) }).catch(() => null);
       const j = r ? await r.json().catch(() => ({})) : {};
       if (!r?.ok) { bad.push(`${name(x)}: ${j.error || "no answer"}`); continue; }
-      cells.push(`${j.tab} ${j.cell}: ${j.share}%`);
+      cells.push(`${j.tab} ${j.cell}: ${pctText(j.share)}%`);
       if (j.alarm) alarms.push(j.alarm);
       moved.set(x.p.id, { x, splits: ownAt(x.splits, x.client.name, j.share ?? share), share: j.share ?? share });
     }
@@ -168,8 +168,8 @@ function ShareFix({ kind, ctx, viaCta = false }) {
     flash({ warn: !!bad.length || !!alarms.length || (!!m.length && !done), text: [
       keep.length && done && `${keep.length === 1 ? `${name(keep[0])} has` : `${keep.length} songs have`} the sheet's split now (100%).`,
       m.length && `Written on the sheet (${cells.join(", ")}).`,
-      m.length && (!done ? `The site's split wasn't saved: set ${m.map((y) => `${y.x.client.name} to ${y.share}%`).join(", ")} on the song.`
-        : m.length === 1 ? `The site's split for ${m[0].x.client.name} is ${m[0].share}% now too.` : "The site's splits match too."),
+      m.length && (!done ? `The site's split wasn't saved: set ${m.map((y) => `${y.x.client.name} to ${pctText(y.share)}%`).join(", ")} on the song.`
+        : m.length === 1 ? `The site's split for ${m[0].x.client.name} is ${pctText(m[0].share)}% now too.` : "The site's splits match too."),
       bad.length && `Not saved: ${bad.join("; ").replace(/\.$/, "")}.`,
       ...alarms,
     ].filter(Boolean).join(" ") });
@@ -182,7 +182,7 @@ function ShareFix({ kind, ctx, viaCta = false }) {
       const j = r ? await r.json().catch(() => ({})) : {};
       if (!r?.ok) { bad.push(`"${x.p.song || "Untitled"}": ${j.error || "no answer"}`); continue; }
       const share = j.share ?? shares[x.p.id];
-      ok.push(`${j.tab} ${j.cell}: ${share}%`);
+      ok.push(`${j.tab} ${j.cell}: ${pctText(share)}%`);
       // the read-back after the write found a formula changed on the tab: said loudly, as it is
       if (j.alarm) alarms.push(j.alarm);
       // the site's split for that client follows the sheet (the same save as "Use the sheet's split")
@@ -194,8 +194,8 @@ function ShareFix({ kind, ctx, viaCta = false }) {
     // the sheet's new earnings come back with a pull (it reads every tab again, as Pull from the sheet does)
     if (ok.length) await fullSiteSync(saved || db, commit).catch(() => {});
     const m = [...moved.values()];
-    const site = !m.length ? null : !saved ? `The site's split wasn't saved: set ${m.map((x) => `${x.who} to ${x.share}%`).join(", ")} on the song.`
-      : m.length === 1 ? `The site's split for ${m[0].who} is ${m[0].share}% now too.` : `The site's splits match too.`;
+    const site = !m.length ? null : !saved ? `The site's split wasn't saved: set ${m.map((x) => `${x.who} to ${pctText(x.share)}%`).join(", ")} on the song.`
+      : m.length === 1 ? `The site's split for ${m[0].who} is ${pctText(m[0].share)}% now too.` : `The site's splits match too.`;
     flash({ warn: !!bad.length || !!alarms.length || (!!m.length && !saved), text: [ok.length && `Filled in on the sheet (${ok.join(", ")}).`, site, bad.length && `Not written: ${bad.join("; ").replace(/\.$/, "")}.`, ...alarms].filter(Boolean).join(" ") });
   };
   return (
@@ -203,7 +203,7 @@ function ShareFix({ kind, ctx, viaCta = false }) {
       {items.map((x) => (
         <div key={x.p.id} className="fix-row" data-song={x.p.id}>
           <span className="fix-song"><span className="fix-who">{x.client.name} · </span>{x.p.song || "Untitled"}</span>
-          <span className="fix-mid"><span className="fix-sheet" data-sheet-change={kind}>{kind === "shareSite" ? `no split here → ${x.client.name} 100%, as on the sheet` : `sheet blank (D${x.row}): type the share, ${x.site ?? 100}% here`}</span></span>
+          <span className="fix-mid"><span className="fix-sheet" data-sheet-change={kind}>{kind === "shareSite" ? `no split here → ${x.client.name} 100%, as on the sheet` : `sheet blank (D${x.row}): type the share, ${pctText(x.site ?? 100)}% here`}</span></span>
         </div>
       ))}
       {!items.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every share matches the sheet.</p>

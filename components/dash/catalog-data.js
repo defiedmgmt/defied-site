@@ -1,5 +1,6 @@
 import { songSplit } from "../../lib/splits";
 import { shareFixes, shareDiffers } from "../../lib/split-fixes";
+import { importShare, snapSplits } from "../../lib/pct";
 import { dupeIds } from "./helpers";
 import { splitsToFix, uid } from "./ui";
 
@@ -36,9 +37,8 @@ export const isSheetSyncStale = (db) => {
 // placements or claim rows back to the sheet; fullSiteSync layers that on
 // top using rowsByClient.
 // stored the way the live site's pull stores them (the sheet's shown values): money to the cent, a new
-// card's share to one decimal (33.3, as the tab shows 1/3), the same as lib/site-sync.js
+// card's share as the sheet holds it (33.33 stays 33.33: lib/pct.js importShare), the same as lib/site-sync.js
 const toCents = (n) => Math.round((Number(n) || 0) * 100 + (n >= 0 ? 1e-9 : -1e-9)) / 100;
-const toShare1 = (n) => Math.round((Number(n) || 0) * 10 + 1e-9) / 10;
 async function pullAndMergeSheetData(db, clients, { background = false } = {}) {
   const res = await fetch("/api/sheets-pull", {
     method: "POST",
@@ -168,7 +168,7 @@ export async function fullSiteSync(tabDb, commit, { background = false } = {}) {
         releaseDate: "", link: "", cover: "", notable: false,
         luminateId: row.luminateId || "",
         // a blank Writer Share on the sheet comes in as 0%, never an invented 100%: the splits task flags it
-        splits: [{ id: uid(), name: c.name, role: c.role || "", percent: toShare1(row.writerShare) }],
+        splits: snapSplits([{ id: uid(), name: c.name, role: c.role || "", percent: importShare(row.writerShare) }]),
         streams: row.grossStreams, revenue: toCents(row.grossRevenue), adminFee: toCents(row.adminFee),
       });
       const tabName = c.sheetTabName || c.name;
