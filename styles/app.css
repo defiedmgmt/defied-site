@@ -2184,6 +2184,37 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .song-detail-public{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12.5px;color:var(--d-ink-3)}
 .app:not(.pub) p.hint.song-sheet-warn{display:flex;align-items:flex-start;gap:8px;margin:14px 0 4px;padding:10px 12px;border:1px solid var(--d-warn-line);border-radius:var(--d-r-md);background:var(--d-warn-bg);color:var(--d-ban-warn-ink);font-size:13px;line-height:1.5}
 .app:not(.pub) p.hint.song-sheet-warn svg{flex:none;margin-top:3px;color:var(--d-warn)}
+/* ============================================================================================================================================================
+   ROSTER CLEAN-UP (2026-11-24, the owner: "make that section more intuitive and cleaned up ... catalog and releases look better visually"). ONE block:
+   Catalog's "New releases" strip (.nr-new, .nr-strip, .nr-card, .nr-tag: components/dash/roster-views.jsx), the cover beside each song in Catalog's table (.nr-song, .nr-thumb),
+   and the Founders' stat rows with one tile left (.pub-tiles on the Roster overview, .portal-tiles on a client's page: the old Pub earnings and Potential admin fee tiles are gone).
+   Defied's own classes and tokens: a card is a .song-card (its .song-cover, .song-info and their hover and focus rings), the letter for a song with no cover is the .avatar-ph placeholder,
+   the heading is .fix-head. The strip scrolls sideways INSIDE itself (data-m-scroll, the one thing mobile.css lets scroll sideways); the page never does.
+   ============================================================================================================================================================ */
+.app:not(.pub) .nr-new{margin:0 0 24px}
+.app:not(.pub) .nr-new .fix-head{margin-bottom:12px}
+.app:not(.pub) .nr-strip{display:flex;gap:16px;margin:0 -2px;padding:2px 2px 12px;list-style:none;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin;scrollbar-color:var(--d-line-3) transparent}
+.app:not(.pub) .nr-strip > li{flex:none;width:150px;min-width:0}
+.app:not(.pub) .nr-card{width:100%}
+.app:not(.pub) .nr-card .song-cover{position:relative;display:block}
+.app:not(.pub) .nr-card .song-cover .avatar-ph{width:100%;height:100%;border-radius:0;font-size:44px}
+.app:not(.pub) .nr-tag{position:absolute;top:8px;left:8px;display:inline-flex;align-items:center;height:22px;padding:0 9px;border:1px solid var(--d-line-3);border-radius:100px;background:var(--d-s1);color:var(--d-ink);font:600 11px/1 var(--d-body);letter-spacing:.02em;white-space:nowrap}
+/* the table's first cell: the cover, then the song's name (inline, so the row's › still follows the name on its line) */
+.app:not(.pub) .nr-song{display:inline-flex;align-items:center;gap:12px;max-width:100%;vertical-align:middle}
+.app:not(.pub) .nr-thumb{flex:none;display:block;width:32px;height:32px;border-radius:var(--d-r-xs);overflow:hidden;background:var(--d-s3)}
+.app:not(.pub) .nr-thumb img{display:block;width:100%;height:100%;object-fit:cover}
+.app:not(.pub) .nr-thumb .avatar-ph{width:100%;height:100%;border-radius:0;font-size:14px}
+/* a stat row with one tile is that tile's width, not the whole row's (phones: the whole row, as every odd last tile is); a row with a cover keeps the table's 44px */
+@media (min-width:640px){
+  .app:not(.pub) :is(.pub-tiles,.portal-tiles):has(> .cat-stat:only-child){max-width:320px}
+  .app:not(.pub) tr:has(.nr-thumb) > td{padding-top:6px;padding-bottom:6px}
+}
+@media (max-width:639px){
+  .app:not(.pub) .nr-strip{margin:0 -16px;padding:2px 16px 12px;scroll-padding-inline:16px}
+  .app:not(.pub) .nr-strip > li{width:132px}
+  .app:not(.pub) .nr-thumb{width:40px;height:40px}
+  .app:not(.pub) td:has(> .nr-song){align-items:center}   /* the card's title row: the cover, the name and the › on one middle line (the cards' rows are baseline-aligned) */
+}
 @media (max-width:700px){
   .app:not(.pub) .subpill .pill-long{display:none}  /* the phone pill reads "Advance" */
   .app:not(.pub) .fix-row{grid-template-columns:minmax(0,1fr) auto;row-gap:6px}
@@ -2477,7 +2508,6 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   color:var(--d-ink);background:none;-webkit-text-fill-color:currentColor}
 .app:not(.pub) .cat-stat-label:has(.cat-stat-note){white-space:normal}
 .app:not(.pub) .cat-stat-note{display:block;margin-top:2px;font:400 11px/1.35 var(--d-body);letter-spacing:0;text-transform:none;color:var(--d-ink-4)}
-.app:not(.pub) .money-hint{max-width:80ch}
 /* A&R board (spec 8 / 14): status columns of cards, the panel, off-the-board list, Sheet check */
 .app:not(.pub) .arb-head-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .app:not(.pub) .arb-head-actions .gainer-tabs{margin-left:0}

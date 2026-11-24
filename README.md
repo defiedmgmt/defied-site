@@ -290,26 +290,36 @@ the producer's own share of it. The owner's old file ("Defied Schedule A (Update
   Vercel's **Production** environment only (writes are on as soon as the id is set; a preview that shares the database and the id would write the sheet too).
   To look first: set `SCHEDULE_A_WRITES=off`, open `/api/schedule-a` (or Site › Sync) while signed in, then take the switch off. The first sync is the owner's old sheet's migration.
 
-## Roster › Catalog and Releases (2026-11-23)
+## Roster › Catalog (2026-11-23, 2026-11-24)
 
-The Clients tab is **Roster** now (same section, same address `/dashboard/catalog`, same access: Publishing in `lib/roles.js`, shown as Roster). Its pill row is **Clients** (the page
-it always was, the default), **Catalog** (`/dashboard/catalog/songs`) and **Releases** (`/dashboard/catalog/releases`). Both new pages are read only: a click on a song opens it in its
-client's own page and editor (the same `openFix` To do's Update uses), and nothing here saves anything. The rules are pure and tested (`lib/roster-catalog.js`,
-`components/dash/roster-views.jsx`).
+The Clients tab is **Roster** now (same section, same address `/dashboard/catalog`, same access: Publishing in `lib/roles.js`, shown as Roster). Its pill row is **Roster** (the page the
+Clients pill always was, the default) and **Catalog** (`/dashboard/catalog/songs`). Catalog is read only: a click on a song opens it in its client's own page and editor (the same
+`openFix` To do's Update uses), and nothing here saves anything. The rules are pure and tested (`lib/roster-catalog.js`, `components/dash/roster-views.jsx`).
+There was a **Releases** pill too until 2026-11-24 (the owner: "maybe we dont need releases if we have catalog"): its address, `/dashboard/catalog/releases` (and `release-desk` or
+`releasedesk` under `/dashboard/catalog/` or on their own), opens Catalog now (`placeOf` in `StaffDashboard.jsx`; Catalog also takes `releases` as its own sub), and its dates are the strip below.
 
-- **Catalog**: every song of the roster, one row each. A song on more than one client's page is one row naming all of them (the ISRC finder's rule: the same Spotify track, or the
-  same title and artist, so "N songs with no ISRC" in To do and the No ISRC songs here are the same songs). The big number is the streams of the songs listed (the pub sheet's lifetime
-  streams, the figure a client's page shows for a song; never net streams) with "N songs" beside it and the day they are from (`db.streamsOn`, as the portal says "Streams as of").
-  A song on two clients' tabs carries the same streams on both, so it is counted once, and a line says so. A song the sheet has no streams for yet shows "-" and is said to be
-  "not on Luminate yet". It follows the search, the filter and the account: a Co-manager limited to their own artists sees only theirs (`db` already has only those).
-  Columns: song, artist, client(s), released, streams, sources and status. A source badge (Spotify, Apple, YouTube, SoundCloud) is there only when the song has a link on that site
-  (`placements.link` is the one place a song keeps one: today all of them are Spotify). Status chips are the app's own gaps: No ISRC (the finder's), No link and No release date
-  (`lib/sheet-facts.js` SONG_GAPS), Split to confirm (`splitsToConfirm`, the list To do and the client chips use), and a gray Not on streaming (`song_tracking.skip`). A song marked
-  Not on streaming is not asked for a date, link or ISRC. Search is instant over title, artist and client; the chips are All, Missing info (any chip but the gray one) and
-  Not on streaming; the sort is Most streams (default) or Newest release. A phone shows 25 cards, then "Show more".
-- **Releases**: the same songs by release date: Coming up (after today in New York, the soonest first), Out in the last 30 days (the newest first, today included) and No release date
-  yet (the biggest first, each with an Add date button that opens the editor on the date; a song marked Not on streaming isn't listed, a line says how many). Older releases
-  are in Catalog. Each section says in plain words when it is empty.
+- **Catalog** (top to bottom): the **New releases** strip, the headline, the search and filters, the table.
+  - The strip is the songs coming up (a release date after today in New York, tagged "Coming up") and the ones out in the last 30 days (today included), in one row of cover cards, the
+    newest release first (so the furthest date leads): the cover, the title, the artist and the date. It scrolls sideways inside itself (the page never does, a phone included). A card opens
+    the song as a table row does. With none to show it says so in a line; with no songs at all it isn't drawn. It is not filtered by the search or the filters below it.
+  - The cover is `placements.cover` (the link stored on the song: a Spotify image today, `i.scdn.co`; the site's own photo links and uploads work too), the first copy that has one when a
+    song is on two clients' pages. It goes through the same resizer the client photos use (`thumb()`); a song with no cover shows the first letter of its title in the app's own placeholder
+    (`.avatar-ph`). Nothing is looked up: no Spotify call is made for a cover.
+  - The big number is the streams of the songs listed (the pub sheet's lifetime streams, the figure a client's page shows for a song; never net streams) with "N songs" beside it and the day
+    they are from (`db.streamsOn`, as the portal says "Streams as of"). A song on two clients' tabs carries the same streams on both, so it is counted once, and a line says so. A song the
+    sheet has no streams for yet shows "-" and is said to be "not on Luminate yet".
+  - The table: every song of the roster, one row each, with its cover beside the title. A song on more than one client's page is one row naming all of them (the ISRC finder's rule: the same
+    Spotify track, or the same title and artist, so "N songs with no ISRC" in To do and the No ISRC songs here are the same songs). It follows the search, the filter and the account: a
+    Co-manager limited to their own artists sees only theirs (`db` already has only those).
+    Columns: song, artist, client(s), released, streams and status (no Sources column: today every link is Spotify; `sourceOf` and each row's `sources` are still in `lib/roster-catalog.js`).
+    Status chips are the app's own gaps: No ISRC (the finder's), No link and No release date (`lib/sheet-facts.js` SONG_GAPS), Split to confirm (`splitsToConfirm`, the list To do and the
+    client chips use), and a gray Not on streaming (`song_tracking.skip`). A song marked Not on streaming is not asked for a date, link or ISRC. Search is instant over title, artist and
+    client; the chips are All, Missing info (any chip but the gray one) and Not on streaming; the sort is Most streams (default) or Newest release. A phone shows 25 cards, then "Show more".
+- **Roster** (the clients' page): the Overview (the streams total, "Streams (all time)", and the table: client, songs, this week, streams; Founders also get "More columns": Pub earnings and
+  the % of the roster's fee) and a client's page (their name and role, the Campaign numbers, Gross Streams, the songs with their covers, splits and "+N this week"). The old pub sheet's
+  estimates are not on these pages: no Pub earnings or Potential admin fee tile, no "Estimates: streams × the writer's share × $0.00092" line, no Potential admin fee column, no "Sheet tab: <name>"
+  under a client's name (a tab the sheet doesn't have is still said, as a warning), and a song's card says nothing about its split unless it is missing or doesn't add up to 100%
+  (a client's own portal still says "Pub split · N people · 100%"). A song's window still has its Pub earnings and Potential admin fee rows (Money access).
 - **Each song's ISRC and "Not on streaming"** are the two facts the dashboard's own data doesn't carry for every account. `GET /api/songs` has them, but it is for every artist at
   once (an account limited to its own artists is refused), so for that account the pages read `GET /api/roster-catalog`: `{ tracking: { [placementId]: { isrc?, skip? } } }`, its own
   artists' songs only (`requireAccess(..., "publishing")`, `limited`/`ownSet`), read only, `Cache-Control: no-store`, no migration. Every other account uses the copy it has.

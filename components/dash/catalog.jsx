@@ -18,7 +18,7 @@ import { AddedSaid, syncEverywhere } from "./people-added";
 import { findByName, ownSplit } from "../site/data";
 import { normalizeTitle, splitsToConfirm, fullSiteSync } from "./catalog-data";
 import { dashCache } from "../shared/dash-caches";
-import { RosterCatalog, RosterReleases } from "./roster-views";
+import { RosterCatalog } from "./roster-views";
 export { normalizeTitle, isSheetSyncStale, fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
 
 // a song's row on its client's tab, in the same order the sheet pull matches them (pullAndMergeSheetData):
@@ -689,12 +689,12 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
   );
 }
 
-// The Overview table's columns, [id, label], in order: what every account sees, then with Money access the money columns
-// (some behind "More columns"). (2026-11-13, the owner: "u can hide net streams for founders too") No Net streams column,
-// for anyone
+// The Overview table's columns, [id, label], in order: what every account sees (2026-11-24, the owner: "just the key information": client, songs, this week, streams), then with Money
+// access, behind "More columns", Pub earnings and the % of the roster's fee. (2026-11-13, the owner: "u can hide net streams for founders too") No Net streams column, for anyone.
+// (2026-11-24) No Potential admin fee column any more, nor on the Overview's tiles or a client's page: the old pub sheet's estimates (streams x share x the sheet's rate) are not shown
 export const overviewCols = ({ more = false, seeMoney = false } = {}) => [
-  ["writer", "Writer"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"],
-  ...(seeMoney ? [...(more ? [["earn", "Pub earnings"]] : []), ["fee", "Potential admin fee"], ...(more ? [["share", "% of roster fee"]] : [])] : []),
+  ["writer", "Client"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"],
+  ...(seeMoney && more ? [["earn", "Pub earnings"], ["share", "% of roster fee"]] : []),
 ];
 
 // (Splits to confirm, Songs to update and the merge card are To do's now, r7: PubFix there shows them)
@@ -754,7 +754,6 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   };
 
   const links = state.data?.links || {};
-  const rate = state.data?.rate;
   // the writers' table: This week first (each writer's songs that have both weeks, added up, as
   // lib/weekly.js sumWeeks), biggest % first; any column head re-sorts. Writer, Songs, This week, Streams and
   // Our fee show; Their earnings and the share of the roster's fee wait behind "More columns"
@@ -791,8 +790,8 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   // without Money "More columns" has nothing to add (2026-11-13), so it isn't offered
   const hasMore = overviewCols({ more: true, seeMoney }).length > overviewCols({ more: false, seeMoney }).length;
   const cols = overviewCols({ more, seeMoney });
-  const val = { songs: (x) => x.songs, gross: (x) => x.r.grossStreams, earn: (x) => x.r.grossRevenue, fee: (x) => x.r.adminFee, share: (x) => Number(x.r.pctOfRoster) };
-  const cell = { writer: null, songs: (r) => r.songs, gross: (r) => fmt(r.grossStreams), earn: (r) => money(r.grossRevenue), fee: (r) => money(r.adminFee), share: (r) => `${r.pctOfRoster}%` };
+  const val = { songs: (x) => x.songs, gross: (x) => x.r.grossStreams, earn: (x) => x.r.grossRevenue, share: (x) => Number(x.r.pctOfRoster) };
+  const cell = { writer: null, songs: (r) => r.songs, gross: (r) => fmt(r.grossStreams), earn: (r) => money(r.grossRevenue), share: (r) => `${r.pctOfRoster}%` };
   // Songs = the songs on the site for that writer (the client list's count beside it); the sheet's own
   // count, when it differs, is said under it (a song the site has that isn't on the writer's tab yet)
   const siteSongs = (client, r) => (client ? db.placements.filter((p) => p.clientId === client.id).length : r.songs);
@@ -843,18 +842,12 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
       {state.data && (
         <>
           <div className="cat-summary">
-            {/* three numbers (r7): the roster's streams, what they earned, and our fee so far (MASTER's own totals,
-                in the words of each client's page and the Advance calculator); the 3-year forecast is on the calculator */}
+            {/* (2026-11-24, the owner: "just the key information") one number: the roster's streams, MASTER's own total. The pub earnings and the potential admin fee (the old pub
+                sheet's estimates) and the line explaining them are not shown */}
             <div className="cat-summary-grid pub-tiles">
               {/* MASTER adds each writer's gross up: a song two roster writers share is in it twice */}
-              <div className="cat-stat" data-stat="streams" title="Added up by writer: a song two writers share counts once for each"><span className="cat-stat-label">Gross streams</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
-              {seeMoney && <div className="cat-stat" data-stat="earnings"><span className="cat-stat-label">Pub earnings</span><span className="cat-stat-val">{money(state.data.totals.grossRevenuePool)}</span></div>}
-              {seeMoney && <div className="cat-stat" data-stat="fee"><span className="cat-stat-label">Potential admin fee</span><span className="cat-stat-val">{money(state.data.totals.catalogToDate)}</span></div>}
+              <div className="cat-stat" data-stat="streams" title="Added up by writer: a song two writers share counts once for each"><span className="cat-stat-label">Streams (all time)</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
             </div>
-            {/* the one place the money's explained: everything below (and each client's page) is the same estimate */}
-            {seeMoney && <p className="hint cat-asof money-hint" title="The rate is ASSUMPTIONS!B7 on the pub sheet">
-              Estimates: streams × the writer's share × {rate ? `$${+rate.toFixed(6)} a stream` : "the sheet's rate"}.
-            </p>}
           </div>
 
           {hasMore && <div className="master-tools">
@@ -906,18 +899,16 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
 }
 
 // Roster (was Clients, 2026-11-23: the same section, address /dashboard/catalog and id "catalog"): the clients, their songs and splits, and the MASTER totals. A Dashboard task can open it on a client ("client:<id>").
-// Its pills (the one pill row every section has): Clients (this page, the default), Catalog (every client's songs in one list, /dashboard/catalog/songs) and Releases (the same songs by release date,
-// /dashboard/catalog/releases): components/dash/roster-views.jsx, rules in lib/roster-catalog.js. A song in either list opens in its client's page and editor (openFix below).
-// (2026-11-21) The Advance calculator moved to Money (components/dash/empire-calc.jsx), where Defied's advances to producers are planned against the advance EMPIRE gave;
-// (2026-11-23) it is the Deals pill "Advance calculator" (Deals is its own section, Founders only). Its old address, /dashboard/catalog/advance, opens it there (StaffDashboard placeOf), and this page keeps one line saying so.
+// Its pills (the one pill row every section has): Roster (the clients' page, the default: it was the Clients pill) and Catalog (every client's songs in one list, with the "New releases" strip on top,
+// /dashboard/catalog/songs): components/dash/roster-views.jsx, rules in lib/roster-catalog.js. A song in Catalog opens in its client's page and editor (openFix below).
+// (2026-11-24, the owner: "maybe we dont need releases if we have catalog") There is no Releases pill: its address, /dashboard/catalog/releases, opens Catalog (StaffDashboard placeOf).
+// The Advance calculator (components/dash/empire-calc.jsx: Defied's advances to producers, planned against the advance EMPIRE gave) is not on this page. It is a Founders' page elsewhere in the
+// dashboard, and its old address, /dashboard/catalog/advance, opens it there (StaffDashboard placeOf); this page no longer has a line pointing to it (2026-11-24: "just the key information").
 // (r11: the ISRCs tab is gone, the owner: "why is there an isrc tab on the pub tab do i need that ?". The finder is
 // To do's "N songs have no ISRC" row now, /dashboard/todo/isrc; the old /dashboard/catalog/isrc opens it there.)
-const ROSTER_PILLS = [["clients", "Clients"], ["songs", "Catalog"], ["releases", "Releases"]];
+const ROSTER_PILLS = [["clients", "Roster"], ["songs", "Catalog"]];
 export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSongInfo, sub, onGo, onSub, chip = null }) {
-  // the money columns are the Founders' (Money access); so is the page the advance calculator moved to, more strictly: Money access, every artist (an account limited to its own has
-  // no EMPIRE page) and the Founder role itself, since a Founder can switch Money on for someone else (the owner: "for founders")
-  const seeMoney = canUse(db, "money"), own = !!db.access?.ownOnly;
-  const seeEmpire = seeMoney && !own && db.access?.role === "founder";
+  const own = !!db.access?.ownOnly;
   const editSong = sub?.startsWith("edit:") ? db.placements.find((p) => p.id === sub.slice(5)) : null;
   // null clientId = the read-only Overview landing page, not "no selection"
   const [clientId, setClientIdOnly] = useState(sub?.startsWith("client:") ? sub.slice(7) : editSong ? editSong.clientId : null);
@@ -933,11 +924,11 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
     if (!p) return;
     setClientIdOnly(p.clientId); onSub?.(`client:${p.clientId}`); setFix({ id, n: ++fixN.current, field });
   };
-  // the pill that's lit: Catalog and Releases have their own address (/dashboard/catalog/songs, /releases); a client's page (client:<id>, edit:<id>) and the Overview are Clients'.
-  // Back to the Clients pill shows what was open there (the client picked, or the Overview), and the address says so
-  const view = sub === "songs" ? "songs" : sub === "releases" ? "releases" : "clients";
+  // the pill that's lit: Catalog has its own address (/dashboard/catalog/songs; the old Releases one, /releases, is Catalog's too); a client's page (client:<id>, edit:<id>) and the Overview are Roster's.
+  // Back to the Roster pill shows what was open there (the client picked, or the Overview), and the address says so
+  const view = sub === "songs" || sub === "releases" ? "songs" : "clients";
   const toView = (k) => onSub?.(k === "clients" ? (clientId ? `client:${clientId}` : null) : k);
-  // a song in Catalog or Releases opens in its client's own page and editor (openFix); with a field (Releases' Add date) the editor starts on it
+  // a song in Catalog opens in its client's own page and editor (openFix); with a field the editor starts on it
   const openSong = (r, field) => openFix(r.open, field || null);
   const toFix = useMemo(() => splitsToConfirm(db, songInfo).all.reduce((a, x) => ({ ...a, [x.p.clientId]: (a[x.p.clientId] || 0) + 1 }), {}), [db, songInfo]);
   const client = db.clients.find((c) => c.id === clientId);
@@ -1003,10 +994,8 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
         {ROSTER_PILLS.map(([k, l]) => <button key={k} role="tab" aria-selected={view === k} data-roster-tab={k} className={view === k ? "subpill active" : "subpill"} onClick={() => toView(k)}>{l}</button>)}
       </div>
       {view === "songs" && <RosterCatalog db={db} songInfo={songInfo} onOpen={openSong} />}
-      {view === "releases" && <RosterReleases db={db} songInfo={songInfo} onOpen={openSong} />}
       {view === "clients" && <>
       <AddedSaid said={addedSaid} onGo={onGo} />
-      {seeEmpire && <p className="hint cat-empire-line" data-empire-link>The advance calculator moved to <button type="button" className="inline-link" data-empire-go onClick={() => onGo("deals", "advance")}>Deals › Advance calculator</button>.</p>}
       <div className="catalog-wrap">
         <div className="catalog-clients" ref={chips}>
           <button className={clientId === null ? "cc active" : "cc"} onClick={() => setClientId(null)}>
