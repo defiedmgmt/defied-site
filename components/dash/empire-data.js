@@ -3,6 +3,8 @@
 // comes from the answer (its `terms`, `levers` and numbers), and nothing is worked out from a constant here.
 // (2026-11-23) The recoupment card is real money only: its bar, its headline and its status line are what EMPIRE's statements credited. Every sentence made from streams (the
 // estimate, the pace, the payback date, the extra advance, the buyout) is in forecastLines, which the card folds away under "Forecast (an estimate from streams, not money)".
+// (2026-11-24, the owner: "just the key information") The page opens on three tiles (paid back, left to give out, next statement) and one short line of dates (datesLine, nextLine below);
+// the timeline, the status line and the sentence about the bar, which they replace, are gone.
 import { verdictFor, VERDICTS } from "../../lib/advance-model";
 import { NEW_SONGS_WARN } from "../../lib/empire-math";
 
@@ -62,29 +64,19 @@ export function checkSentence(check, ceil) {
 export function barOf(r) {
   return { solid: Math.round(Math.min(Math.max(Number(r?.pct) || 0, 0), 1) * 1000) / 10 };
 }
-const ms = (s) => Date.parse(`${String(s).slice(0, 10)}T00:00:00Z`);
-// The timeline under the bar, from the deal's first day to its last mark: where today, the Additional Advance date and the 3-year date fall, as percents along it. Real dates only: nothing
-// projected (the day it would be paid back at today's pace is in the forecast, as words).
-export function timelineOf({ terms, today }) {
-  const marks = [{ id: "today", label: "Today", date: today }];
-  marks.push({ id: "additional", label: `Last day to be paid back for EMPIRE's extra ${usd0(terms.additional)} advance`, date: terms.additionalBy });
-  marks.push({ id: "buyout", label: `Defied can buy out from here (repaying ${pctText(terms.buyout, 0)} of what's left)`, date: terms.threeYear });
-  const t0 = ms(terms.effective), last = Math.max(...marks.map((m) => ms(m.date)));
-  const end = t0 + (last - t0) * 1.04;
-  const place = (d) => Math.round(Math.min(Math.max(((ms(d) - t0) / (end - t0)) * 100, 0), 100) * 10) / 10;
-  return { start: terms.effective, marks: marks.map((m) => ({ ...m, at: place(m.date), text: dayText(m.date) })), todayAt: place(today) };
+// The line under the three tiles (it replaces the timeline, the status line and the sentence about the bar): the last day to be paid back (for EMPIRE's extra advance) and the day Defied
+// can buy out, both from the terms (real dates only, nothing projected: the day it would be paid back at today's pace is in the forecast, as words), and what being paid back means.
+export function datesLine({ terms, rec }) {
+  return {
+    payBy: { text: dayText(terms.additionalBy), title: `The last day to be paid back for EMPIRE's extra ${usd0(terms.additional)} advance` },
+    buyout: { text: dayText(terms.threeYear), title: `Defied can buy out from here, repaying ${pctText(terms.buyout, 0)} of what's left` },
+    paid: rec?.recouped ? "EMPIRE is paid back, so Defied gets paid" : "Defied gets paid once EMPIRE is paid back",
+  };
 }
-// the one line under the bar: what the statements have credited, and the statement still to come (the quarters and due dates are the API's own: statements = the view's list, oldest
-// first; nextDue = the quarter whose statement comes next)
-export function statusLine({ rec, statements = [], nextDue = null }) {
-  const n = statements.length;
-  if (!n) return nextDue ? `Nothing credited yet. EMPIRE's first statement (${dayShort(nextDue.start)} – ${dayText(nextDue.end)}) is due ${dayText(nextDue.due)}.` : "Nothing credited yet.";
-  const earned = rec?.recouped ? ` EMPIRE has earned back its ${usd0(rec.owed)}.` : "";
-  return `From ${n} ${n === 1 ? "statement" : "statements"}, through ${dayText(statements[n - 1].end)}.${earned}${nextDue ? ` Next statement due ${dayText(nextDue.due)}.` : ""}`;
-}
-// the one plain sentence of what the bar means (2026-11-23: it replaces the long explanations)
-export function meaningText(rec) {
-  return rec?.recouped ? "This bar is full, so EMPIRE has paid itself back and Defied gets paid." : "Until this bar is full, EMPIRE keeps Defied's share to pay itself back. After that, Defied gets paid.";
+// the "Next EMPIRE statement" tile: the day it is due (the quarters and due dates are the API's own: nextDue = the quarter whose statement comes next) and the quarter it is for
+export function nextLine(nextDue) {
+  if (!nextDue) return { big: "—", sub: "none due" };
+  return { big: dayText(nextDue.due), sub: `due, for ${dayShort(nextDue.start)} – ${dayText(nextDue.end)}` };
 }
 
 // ---- the forecast (everything below is an estimate from streams, never money: the card folds it away)
@@ -96,7 +88,7 @@ export function paceText(rec) {
   const next = f.next ? `the next statement (${f.next.quarter}, due ${dayText(f.next.due)}) would credit about ${usd0(f.next.amount)}, and a year about ${usd0(f.perYear)}` : `a year would credit about ${usd0(f.perYear)}`;
   return `At today's pace ${next}.`;
 }
-// when it is paid back at today's pace, or that it isn't. "Paid back" is only said by the statements (the status line), so here: the estimate that reaches the total says so as an estimate
+// when it is paid back at today's pace, or that it isn't. "Paid back" is only said by the statements (the first tile and its bar), so here: the estimate that reaches the total says so as an estimate
 // (2026-11-21, review: statements come a quarter after the quarter ends)
 export function projectionText(rec) {
   const f = rec?.forecast;
@@ -158,7 +150,7 @@ export const lateNote = (terms) => `A real statement can come in higher than the
 export const quarterWords = (q) => `${q.id}: ${dayShort(q.start)} – ${dayText(q.end)}`;
 export const dueWords = (q) => `due ${dayText(q.due)}`;
 
-// ---- the money spent out of EMPIRE's advance (2026-11-23: the $75,000 is a second bar, empty until a founder marks money spent)
+// ---- the money spent out of EMPIRE's advance (2026-11-23: it starts at zero and fills only as a founder marks money spent; 2026-11-24: the "Left to give out" tile says what is left, so the section keeps the bar and the list)
 // the bar: what is spent (deals marked given + the entries marked spent) as a percent of the total, to a tenth, never past 100 (the part over is said in words, not drawn)
 export function spentBar(pot) {
   const total = Number(pot?.total) || 0;
@@ -170,7 +162,7 @@ export function plannedLine(pot) {
   const n = Number(pot?.plannedCount) || 0;
   return n > 0 ? `Planned, not spent yet: ${usd0(pot.planned)} (${n} ${n === 1 ? "deal" : "deals"})` : "";
 }
-// the list under the bar, newest first: every deal marked given ("Advance to <producer>", un-given from its deal row, so it can't be deleted from here) and every entry typed in
+// the Spent list, newest first: every deal marked given ("Advance to <producer>", un-given from its deal row, so it can't be deleted from here) and every entry typed in
 // (kind "spend": it can be deleted). { key, kind, id, on, what, amount }
 export function spentRows({ deals = [], spends = [], producers = [] }) {
   const names = new Map(producers.map((p) => [p.id, p.name]));

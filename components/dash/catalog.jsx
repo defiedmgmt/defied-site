@@ -909,7 +909,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
 // Its pills (the one pill row every section has): Clients (this page, the default), Catalog (every client's songs in one list, /dashboard/catalog/songs) and Releases (the same songs by release date,
 // /dashboard/catalog/releases): components/dash/roster-views.jsx, rules in lib/roster-catalog.js. A song in either list opens in its client's page and editor (openFix below).
 // (2026-11-21) The Advance calculator moved to Money (components/dash/empire-calc.jsx), where Defied's advances to producers are planned against the advance EMPIRE gave;
-// (2026-11-23) it is the Deals pill "Advance calculator" (Deals is its own section, Founders only). Its old address, /dashboard/catalog/advance, opens it there (StaffDashboard placeOf), and this page keeps one line saying so.
+// (2026-11-23, 2026-11-24) it is the Money pill "Advance calculator" (Founders only; it was in Deals for a day). Its old address, /dashboard/catalog/advance, opens it there (StaffDashboard placeOf), and this page keeps one line saying so.
 // (r11: the ISRCs tab is gone, the owner: "why is there an isrc tab on the pub tab do i need that ?". The finder is
 // To do's "N songs have no ISRC" row now, /dashboard/todo/isrc; the old /dashboard/catalog/isrc opens it there.)
 const ROSTER_PILLS = [["clients", "Clients"], ["songs", "Catalog"], ["releases", "Releases"]];
@@ -1006,7 +1006,7 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
       {view === "releases" && <RosterReleases db={db} songInfo={songInfo} onOpen={openSong} />}
       {view === "clients" && <>
       <AddedSaid said={addedSaid} onGo={onGo} />
-      {seeEmpire && <p className="hint cat-empire-line" data-empire-link>The advance calculator moved to <button type="button" className="inline-link" data-empire-go onClick={() => onGo("deals", "advance")}>Deals › Advance calculator</button>.</p>}
+      {seeEmpire && <p className="hint cat-empire-line" data-empire-link>The advance calculator moved to <button type="button" className="inline-link" data-empire-go onClick={() => onGo("money", "advance")}>Money › Advance calculator</button>.</p>}
       <div className="catalog-wrap">
         <div className="catalog-clients" ref={chips}>
           <button className={clientId === null ? "cc active" : "cc"} onClick={() => setClientId(null)}>

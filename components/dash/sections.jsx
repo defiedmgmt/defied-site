@@ -14,7 +14,6 @@ export const SECTION_CODE = {
   todo: () => import("./todo"),
   catalog: () => import("./catalog"),
   money: () => import("./money"),
-  deals: () => import("./deals"),
   ar: () => import("./ar"),
   site: () => import("./site"),
 };
@@ -50,6 +49,5 @@ export const HomeDashboard = section(SECTION_CODE.home, "HomeDashboard");
 export const TodoPage = section(SECTION_CODE.todo, "TodoPage");
 export const CatalogAdmin = section(SECTION_CODE.catalog, "CatalogAdmin");
 export const AccountingAdmin = section(SECTION_CODE.money, "AccountingAdmin");
-export const DealsAdmin = section(SECTION_CODE.deals, "DealsAdmin");
 export const ARAdmin = section(SECTION_CODE.ar, "ARAdmin");
 export const SiteAdmin = section(SECTION_CODE.site, "SiteAdmin");

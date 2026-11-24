@@ -2,7 +2,6 @@
    calculator keeps the Advance calculator's classes (adv-*, cat-stat, form-card). Phone first: one column, nothing wider than the screen (min-width:0 on every grid child, long words may break). */
 .app:not(.pub) .emp-page{display:flex;flex-direction:column;gap:20px;min-width:0;max-width:1100px}
 .app:not(.pub) .emp-card{min-width:0;padding:18px 20px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}
-.app:not(.pub) .emp-hero{padding:22px 22px 20px;background:linear-gradient(180deg,var(--d-s2) 0%,var(--d-s1) 100%)}
 .app:not(.pub) .emp-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 16px;margin:0 0 6px}
 .app:not(.pub) .emp-h{margin:0;padding:0;font:400 14px/1.2 var(--d-display);font-synthesis:none;letter-spacing:.08em;text-transform:uppercase;color:var(--d-ink)}
 .app:not(.pub) .emp-src{font:400 12px/1.4 var(--d-body);color:var(--d-ink-4)}
@@ -15,8 +14,6 @@
 .app:not(.pub) .emp-big-n{font-size:clamp(30px,9vw,46px);font-weight:600;line-height:1.05;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--d-ink)}
 .app:not(.pub) .emp-big-of{font-size:15px;color:var(--d-ink-3)}
 .app:not(.pub) .emp-chip{display:inline-flex;align-items:center;min-height:26px;padding:2px 11px;border:1px solid var(--d-line-3);border-radius:100px;font:600 13px/1.25 var(--d-body);font-variant-numeric:tabular-nums;color:var(--d-ink)}
-.app:not(.pub) .emp-left{margin-left:auto;font-size:15px;font-variant-numeric:tabular-nums;color:var(--d-ink-2)}
-@media (max-width:520px){ .app:not(.pub) .emp-left{margin-left:0;flex-basis:100%} }
 
 /* bars: the recoupment bar and the spent bar (solid: money only, nothing striped); where a dollar goes (the calculator) */
 .app:not(.pub) .emp-bar{display:flex;width:100%;height:22px;overflow:hidden;background:var(--d-s3);border:1px solid var(--d-line-2);border-radius:100px}
@@ -32,30 +29,11 @@
 .app:not(.pub) .emp-legend b{font-weight:600;font-variant-numeric:tabular-nums;color:var(--d-ink)}
 .app:not(.pub) .emp-legend em{font-style:normal;color:var(--d-ink-4)}
 .app:not(.pub) .emp-legend b[data-over]{color:var(--d-neg)}
-.app:not(.pub) .emp-left[data-over]{color:var(--d-warn)}
 .app:not(.pub) .emp-sw{flex:none;display:inline-block;width:12px;height:12px;border-radius:4px;border:1px solid var(--d-line-3)}
 .app:not(.pub) .emp-sw-prod{background:var(--d-pos);border-color:transparent}
 .app:not(.pub) .emp-sw-empire{background:var(--d-ink-4);border-color:transparent}
 .app:not(.pub) .emp-sw-cut{background:var(--d-warn);border-color:transparent}
 
-/* the timeline under the bar: today, the extra advance's last day, the buyout day (dates from the terms; nothing projected) */
-.app:not(.pub) .emp-line{position:relative;height:16px;margin:20px 6px 10px}
-.app:not(.pub) .emp-line::before{content:"";position:absolute;left:0;right:0;top:7px;height:2px;border-radius:2px;background:var(--d-line-3)}
-.app:not(.pub) .emp-line-done{position:absolute;left:0;top:7px;height:2px;border-radius:2px;background:var(--d-ink-3)}
-.app:not(.pub) .emp-tick{position:absolute;top:2px;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:var(--d-bg);border:2px solid var(--d-ink-4)}
-.app:not(.pub) .emp-tick[data-mark="today"]{background:var(--d-ink);border-color:var(--d-ink)}
-.app:not(.pub) .emp-tick[data-mark="additional"]{border-color:var(--d-warn);border-radius:3px;transform:rotate(45deg)}
-.app:not(.pub) .emp-tick[data-mark="buyout"]{border-color:var(--d-ink-3);border-radius:3px}
-.app:not(.pub) .emp-marks{display:flex;flex-direction:column;gap:6px;margin:0 0 14px;padding:0;list-style:none;font-size:13px;line-height:1.45;color:var(--d-ink-3)}
-.app:not(.pub) .emp-marks li{display:flex;align-items:flex-start;gap:10px;min-width:0;overflow-wrap:anywhere}
-.app:not(.pub) .emp-marks b{font-weight:600;color:var(--d-ink)}
-.app:not(.pub) .emp-dot{flex:none;width:10px;height:10px;margin-top:4px;border-radius:50%;background:var(--d-ink-4)}
-.app:not(.pub) .emp-marks li[data-mark="today"] .emp-dot{background:var(--d-ink)}
-.app:not(.pub) .emp-marks li[data-mark="additional"] .emp-dot{background:var(--d-warn);border-radius:2px;transform:rotate(45deg)}
-.app:not(.pub) .emp-marks li[data-mark="buyout"] .emp-dot{background:var(--d-ink-3);border-radius:2px}
-/* the one status line under the bar, and the one sentence of what the bar means */
-.app:not(.pub) .emp-status{margin:12px 0 0;max-width:72ch;font-size:16px;font-weight:500;line-height:1.45;color:var(--d-ink);overflow-wrap:anywhere}
-.app:not(.pub) .emp-mean{margin:0 0 12px;max-width:72ch;font-size:14px;line-height:1.55;color:var(--d-ink-2);overflow-wrap:anywhere}
 
 /* small forms and folds inside the cards; the Forecast fold closes the recoupment card (the estimate's own explanation is a fold inside it) */
 .app:not(.pub) .emp-how,.app:not(.pub) .emp-forecast,.app:not(.pub) .emp-fc{margin-top:12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-md);background:var(--d-s1)}
@@ -72,8 +50,6 @@
 .app:not(.pub) .emp-received{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:16px;padding-top:14px;border-top:1px solid var(--d-line);font-size:13.5px;color:var(--d-ink-3)}
 .app:not(.pub) .emp-received .fld{flex-direction:row;align-items:center;gap:8px;margin:0}
 .app:not(.pub) .emp-received .fld > span:first-child{white-space:nowrap}
-.app:not(.pub) .emp-yes{display:inline-flex;align-items:center;gap:8px;color:var(--d-pos)}
-.app:not(.pub) .emp-no{flex:0 1 auto;min-width:0}
 
 /* producer deals */
 .app:not(.pub) .emp-deals{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}

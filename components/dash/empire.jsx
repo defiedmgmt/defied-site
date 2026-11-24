@@ -3,14 +3,17 @@ import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import { Field } from "./ui";
 import { useAct, useEmpire } from "./empire-api";
 import {
-  amountOf, barOf, cutFromText, dayText, dealForecast, dealLine, dueWords, estimateNote, forecastLines, lateNote, meaningText, missingNote, pctText, plannedLine,
-  quarterWords, scopeText, shareFromText, spentBar, spentRows, statusLine, timelineOf, usd, usd0,
+  amountOf, barOf, cutFromText, datesLine, dayText, dealForecast, dealLine, dueWords, estimateNote, forecastLines, lateNote, missingNote, nextLine, pctText, plannedLine,
+  quarterWords, scopeText, shareFromText, spentBar, spentRows, usd, usd0,
 } from "./empire-data";
 
-// Money › EMPIRE recoupment (2026-11-21, then the owner's "clean up the estimated money tab also start us at zero ... this shld be based on real"), for a Founder with Money access (GET
-// /api/empire refuses everyone else). The publishing-administration deal with EMPIRE, in the order the owner gave: how much of EMPIRE's advance is paid back (the bar: ONLY what EMPIRE's
-// statements credited, so $0 until one is typed in; everything worked out from streams is folded under "Forecast"), the $75,000 EMPIRE advanced (a second bar: only money marked spent),
-// each producer deal with what the statements have paid back of it, and the statements EMPIRE sends. The advance calculator is its own Money pill (components/dash/empire-calc.jsx).
+// Money › EMPIRE (2026-11-21, then the owner's "clean up the estimated money tab also start us at zero ... this shld be based on real"), for a Founder with Money access (GET
+// /api/empire refuses everyone else). The publishing-administration deal with EMPIRE: how much of EMPIRE's advance is paid back (ONLY what EMPIRE's statements credited, so $0 until one is
+// typed in; everything worked out from streams is folded under "Forecast"), the advance EMPIRE gave Defied to hand out (only money marked spent), each producer deal with what the
+// statements have paid back of it, and the statements EMPIRE sends. The advance calculator is its own Money pill (components/dash/empire-calc.jsx).
+// (2026-11-24, the owner: "this is still a bit complicated ... i wanna know like just the key information") It opens on three tiles (paid back, left to give out, next statement) and one line of
+// dates; the two forms (Mark money spent, Add EMPIRE statement) are behind their buttons, the advance's received state is a small chip with its button. Only layout and words changed: every
+// save below sends what it always sent, and asks what it always asked.
 // The numbers and sentences come from lib/empire-deal.js through the API and components/dash/empire-data.js: this file holds none of the contract's terms (the page's code is public; the
 // contract is confidential). A save never uses window.confirm (it blocks automation): a delete asks in the page.
 
@@ -43,33 +46,44 @@ export function EmpireView({ data, reload, init = null, onPlan = null }) {
 
 const Err = ({ text }) => (text ? <p className="hint err-text" role="alert" data-emp-err>{text}</p> : null);
 
-// ---------------------------------------------------------------- the bar: real money only
+// ---------------------------------------------------------------- the top: three tiles and one line, real money only
 function RecoupCard({ data, reload, init }) {
-  const { recoupment: r, terms, today, statements, nextDue } = data;
-  const bar = barOf(r), line = timelineOf({ terms, today });
-  const pct = pctText(r.pct, 1);
+  const { recoupment: r, pot, terms, nextDue } = data;
+  const bar = barOf(r), pct = pctText(r.pct, 1), next = nextLine(nextDue), dates = datesLine({ terms, rec: r });
   return (
-    <section className="emp-card emp-hero" data-emp="recoup" aria-label="EMPIRE: how much is paid back">
-      <div className="emp-head"><h3 className="emp-h">EMPIRE recoupment</h3></div>
-      <div className="emp-big">
-        <span className="emp-big-n" data-emp-credited title={usd(r.credited)}>{usd0(r.credited)}</span>
-        <span className="emp-big-of">of {usd0(r.owed)} paid back</span>
-        <span className="emp-chip" data-emp-pct>{pct}</span>
-        <span className="emp-left" data-emp-left>{usd0(r.remaining)} to go</span>
+    <section className="emp-top" data-emp="recoup" aria-label="EMPIRE: how much is paid back">
+      <div className="cat-summary emp-tiles" data-emp-tiles>
+        <div className="cat-summary-grid">
+          <div className="cat-stat" data-stat="paid">
+            <span className="cat-stat-label">Paid back to EMPIRE</span>
+            <span className="cat-stat-val" data-emp-credited title={usd(r.credited)}>{usd0(r.credited)}</span>
+            <span className="adv-stat-sub" data-emp-of>{`of ${usd0(r.owed)}`}</span>
+            <div className="emp-bar emp-bar-sm" role="img" aria-label={`${pct} paid back: ${usd0(r.credited)} of ${usd0(r.owed)}, from EMPIRE's statements`} data-emp-bar>
+              <span className="emp-bar-solid" data-emp-solid style={{ width: `${bar.solid}%` }} />
+            </div>
+          </div>
+          <div className="cat-stat" data-stat="left">
+            <span className="cat-stat-label">Left to give out</span>
+            {pot.over > 0
+              ? <span className="cat-stat-val" data-emp-left data-over="" title={usd(pot.left)}>{`Over by ${usd0(pot.over)}`}</span>
+              : <span className="cat-stat-val" data-emp-left title={usd(pot.left)}>{usd0(pot.left)}</span>}
+            <span className="adv-stat-sub">{`of the ${usd0(pot.total)}`}</span>
+          </div>
+          <div className="cat-stat" data-stat="next">
+            <span className="cat-stat-label">Next EMPIRE statement</span>
+            <span className="cat-stat-val" data-emp-next>{next.big}</span>
+            <span className="adv-stat-sub">{next.sub}</span>
+          </div>
+        </div>
       </div>
-      <div className="emp-bar" role="img" aria-label={`${pct} paid back: ${usd0(r.credited)} of ${usd0(r.owed)}, from EMPIRE's statements`} data-emp-bar>
-        <span className="emp-bar-solid" data-emp-solid style={{ width: `${bar.solid}%` }} />
-      </div>
-      <p className="emp-status" data-emp-status role="status">{statusLine({ rec: r, statements, nextDue })}</p>
-      {/* the timeline: today, the last day for EMPIRE's extra advance and the day Defied can buy out (dates from the terms; nothing projected) */}
-      <div className="emp-line" data-emp-timeline aria-hidden="true">
-        <span className="emp-line-done" style={{ width: `${line.todayAt}%` }} />
-        {line.marks.map((m) => <i key={m.id} className="emp-tick" data-mark={m.id} style={{ left: `${m.at}%` }} />)}
-      </div>
-      <ul className="emp-marks" data-emp-marks>
-        {line.marks.map((m) => <li key={m.id} data-mark={m.id}><i className="emp-dot" aria-hidden="true" /><span><b>{m.text}</b> {m.label}</span></li>)}
-      </ul>
-      <p className="emp-mean" data-emp-meaning>{meaningText(r)}</p>
+      {/* where the timeline was: the last day to be paid back and the day Defied can buy out (dates from the terms; nothing projected), and what being paid back means */}
+      <p className="emp-dates" data-emp-dates>
+        <span data-emp-dates-payby title={dates.payBy.title}>Pay back by <b>{dates.payBy.text}</b></span>
+        <i className="emp-dates-dot" aria-hidden="true">·</i>
+        <span data-emp-dates-buyout title={dates.buyout.title}>Buyout from <b>{dates.buyout.text}</b></span>
+        <i className="emp-dates-dot" aria-hidden="true">·</i>
+        <span data-emp-dates-paid>{dates.paid}</span>
+      </p>
       <ForecastBox data={data} reload={reload} init={init} />
     </section>
   );
@@ -117,31 +131,25 @@ function NetIncomeBox({ data, reload, init }) {
   );
 }
 
-// ---------------------------------------------------------------- the $75,000: a second bar, only what is spent
+// ---------------------------------------------------------------- the advance EMPIRE gave Defied: what is spent (the second tile says what is left)
 function SpentCard({ data, reload, init }) {
   const { pot, terms, today, deals, spends = [], producers } = data;
   const bar = spentBar(pot), rows = spentRows({ deals, spends, producers }), planned = plannedLine(pot);
   const pct = pctText(pot.pct, 1);
+  const [open, setOpen] = useState(init?.open ?? false); // the Mark money spent form: there after its button is pressed
   const [f, setF] = useState(() => init?.form ?? { amount: "", what: "", on: today });
   const [ask, setAsk] = useState(init?.ask ?? null); // the entry whose Delete is being asked about
   const { busy, err, act } = useAct(reload);
   const ok = amountOf(f.amount) != null && f.what.trim() !== "" && !!f.on;
-  const add = () => act({ action: "addSpend", amount: f.amount, what: f.what, on: f.on }, () => setF({ amount: "", what: "", on: today }));
+  const add = () => act({ action: "addSpend", amount: f.amount, what: f.what, on: f.on }, () => { setF({ amount: "", what: "", on: today }); setOpen(false); });
   return (
     <section className="emp-card" data-emp="spent" aria-label="The advance EMPIRE gave Defied: what is spent">
-      <div className="emp-head"><h3 className="emp-h">The {usd0(pot.total)} advance</h3></div>
-      <p className="emp-sub">What EMPIRE advanced Defied to give out (the {usd0(terms.legal)} that went to the lawyer isn't part of it). It fills as money is marked spent.</p>
-      <div className="emp-big">
-        <span className="emp-big-n" data-emp-spent title={usd(pot.spent)}>{usd0(pot.spent)}</span>
-        <span className="emp-big-of">of {usd0(pot.total)} spent</span>
-        <span className="emp-chip" data-emp-spent-pct>{pct}</span>
-        {pot.over > 0
-          ? <span className="emp-left emp-over" data-emp-left data-over="">Over by {usd0(pot.over)}</span>
-          : <span className="emp-left" data-emp-left>{usd0(pot.left)} left</span>}
-      </div>
-      <div className="emp-bar" role="img" aria-label={`${pct} spent: ${usd0(pot.spent)} of ${usd0(pot.total)}${pot.over > 0 ? `, over by ${usd0(pot.over)}` : ""}`} data-emp-spent-bar>
+      <div className="emp-head"><h3 className="emp-h">The {usd0(pot.total)} advance</h3><span className="emp-src" data-emp-spent title={usd(pot.spent)}>{usd0(pot.spent)} spent</span></div>
+      <p className="emp-sub">What EMPIRE advanced Defied to give out (the {usd0(terms.legal)} that went to the lawyer isn't part of it).</p>
+      <div className="emp-bar emp-bar-sm" role="img" aria-label={`${pct} spent: ${usd0(pot.spent)} of ${usd0(pot.total)}${pot.over > 0 ? `, over by ${usd0(pot.over)}` : ""}`} data-emp-spent-bar>
         <span className="emp-bar-solid" data-emp-spent-solid style={{ width: `${bar.solid}%` }} />
       </div>
+      <ReceivedRow pot={pot} today={today} terms={terms} reload={reload} />
       {planned && <p className="emp-planned" data-emp-planned>{planned}</p>}
 
       <h4 className="emp-list-h">Spent</h4>
@@ -166,20 +174,26 @@ function SpentCard({ data, reload, init }) {
         </ul>
       )}
 
-      <p className="emp-form-title" data-emp-spend-title>Mark money spent</p>
-      <div className="emp-spend-form" data-emp-spend-form>
-        <Field label="Amount ($)" inputMode="decimal" autoComplete="off" placeholder="2,500" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} data-f="spendAmount" />
-        <Field label="What for" maxLength={120} autoComplete="off" placeholder="Short, like: mix for a producer's single" value={f.what} onChange={(e) => setF({ ...f, what: e.target.value })} data-f="spendWhat" />
-        <label className="fld emp-day"><span>Date</span><input type="date" min={terms.effective} max={today} value={f.on} onChange={(e) => setF({ ...f, on: e.target.value })} data-f="spendOn" /></label>
-        <button type="button" className="btn sm emp-form-go" data-emp-add-spend onClick={add} disabled={busy || !ok}>{busy ? "Adding…" : "Add"}</button>
-      </div>
+      {open ? (
+        <>
+          <p className="emp-form-title" data-emp-spend-title>Mark money spent</p>
+          <div className="emp-spend-form" data-emp-spend-form>
+            <Field label="Amount ($)" inputMode="decimal" autoComplete="off" placeholder="2,500" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} data-f="spendAmount" />
+            <Field label="What for" maxLength={120} autoComplete="off" placeholder="Short, like: mix for a producer's single" value={f.what} onChange={(e) => setF({ ...f, what: e.target.value })} data-f="spendWhat" />
+            <label className="fld emp-day"><span>Date</span><input type="date" min={terms.effective} max={today} value={f.on} onChange={(e) => setF({ ...f, on: e.target.value })} data-f="spendOn" /></label>
+            <span className="emp-form-acts">
+              <button type="button" className="btn sm emp-form-go" data-emp-add-spend onClick={add} disabled={busy || !ok}>{busy ? "Adding…" : "Add"}</button>
+              <button type="button" className="btn ghost sm" data-emp-cancel-spend onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
+            </span>
+          </div>
+        </>
+      ) : <button type="button" className="btn ghost sm emp-open" data-emp-open-spend onClick={() => setOpen(true)}>Mark money spent</button>}
       <Err text={err} />
-      <ReceivedRow pot={pot} today={today} terms={terms} reload={reload} />
     </section>
   );
 }
 
-// one small line: has the advance reached the bank (and the day)
+// one small chip: has the advance reached the bank (and the day), with its one button
 function ReceivedRow({ pot, today, terms, reload, init }) {
   const [day, setDay] = useState(init?.day ?? today);
   const { busy, err, act } = useAct(reload);
@@ -187,12 +201,12 @@ function ReceivedRow({ pot, today, terms, reload, init }) {
     <div className="emp-received" data-emp="received">
       {pot.received.on ? (
         <>
-          <span className="emp-yes"><CheckCircle2 size={15} aria-hidden="true" /> Received from EMPIRE{pot.received.at ? ` on ${dayText(pot.received.at)}` : ""}</span>
+          <span className="emp-chip" data-state="yes" data-emp-received-chip><CheckCircle2 size={14} aria-hidden="true" /> {`Received${pot.received.at ? ` ${dayText(pot.received.at)}` : ""}`}</span>
           <button type="button" className="quiet-act" data-emp-unreceive onClick={() => act({ action: "setReceived", on: false })} disabled={busy}>Not received after all</button>
         </>
       ) : (
         <>
-          <span className="emp-no">Not received yet</span>
+          <span className="emp-chip" data-state="no" data-emp-received-chip>Not received yet</span>
           <label className="fld emp-day"><span>Arrived on</span><input type="date" min={terms.effective} max={today} value={day} onChange={(e) => setDay(e.target.value)} data-f="receivedOn" /></label>
           <button type="button" className="btn ghost sm" data-emp-receive onClick={() => act({ action: "setReceived", on: true, at: day })} disabled={busy || !day}>{busy ? "Saving…" : "Mark as received"}</button>
         </>
@@ -208,12 +222,15 @@ function DealsCard({ data, reload, init, onPlan = null }) {
   const names = new Map(producers.map((p) => [p.id, p.name]));
   return (
     <section className="emp-card" data-emp="deals" aria-label="Producer deals">
-      <div className="emp-head"><h3 className="emp-h">Producer deals</h3><span className="emp-src">{deals.length === 0 ? "none yet" : `${deals.length} ${deals.length === 1 ? "deal" : "deals"}`}</span></div>
-      <p className="emp-sub" data-emp-plan-line>An advance to one of our producers, for a single song or a whole catalog, paid back from that producer's royalties.
-        {onPlan && <> <button type="button" className="inline-link" data-emp-plan onClick={onPlan}>Plan a new one in Advance calculator →</button></>}</p>
+      <div className="emp-head"><h3 className="emp-h">Producer deals</h3>{deals.length > 0 && <span className="emp-src">{`${deals.length} ${deals.length === 1 ? "deal" : "deals"}`}</span>}</div>
       {deals.length === 0
-        ? <p className="emp-empty" data-emp-no-deals>No producer deals yet.</p>
-        : <div className="emp-deals">{deals.map((d) => <DealRow key={d.id} deal={d} who={names.get(d.clientId)} data={data} reload={reload} init={init?.[d.id]} />)}</div>}
+        ? <p className="emp-empty" data-emp-no-deals>No producer deals yet.{onPlan && <> <button type="button" className="inline-link" data-emp-plan onClick={onPlan}>Plan one in Advance calculator →</button></>}</p>
+        : (
+          <>
+            {onPlan && <p className="emp-sub" data-emp-plan-line><button type="button" className="inline-link" data-emp-plan onClick={onPlan}>Plan a new one in Advance calculator →</button></p>}
+            <div className="emp-deals">{deals.map((d) => <DealRow key={d.id} deal={d} who={names.get(d.clientId)} data={data} reload={reload} init={init?.[d.id]} />)}</div>
+          </>
+        )}
     </section>
   );
 }
@@ -294,6 +311,7 @@ function DealRow({ deal, who, data, reload, init }) {
 function StatementsCard({ data, reload, init }) {
   const { statements, quarters, nextDue, terms, today } = data;
   const open = quarters.filter((q) => q.over && !q.statement);
+  const [formOpen, setFormOpen] = useState(init?.open ?? false); // the add form: there after Add EMPIRE statement is pressed
   const [f, setF] = useState(() => init?.form ?? { quarter: "", ni: "", credited: "" });
   const [ask, setAsk] = useState(init?.ask ?? null); // the quarter whose Delete is being asked about
   const { busy, err, act } = useAct(reload);
@@ -302,12 +320,12 @@ function StatementsCard({ data, reload, init }) {
   const ni = Number(String(f.ni).replace(/[$,\s]/g, "")), credited = Number(String(f.credited).replace(/[$,\s]/g, ""));
   const ok = !!quarter && f.ni !== "" && f.credited !== "" && Number.isFinite(ni) && ni >= 0 && Number.isFinite(credited) && credited >= 0;
   const usual = Math.round(ni * terms.payout * 100) / 100;
-  const add = () => act({ action: "addStatement", quarter, netIncome: f.ni, credited: f.credited }, () => setF({ quarter: "", ni: "", credited: "" }));
+  const add = () => act({ action: "addStatement", quarter, netIncome: f.ni, credited: f.credited }, () => { setF({ quarter: "", ni: "", credited: "" }); setFormOpen(false); });
   return (
     <section className="emp-card" data-emp="statements" aria-label="EMPIRE statements">
       <div className="emp-head"><h3 className="emp-h">Statements from EMPIRE</h3>{nextDue && <span className="emp-src" data-emp-next-due>{nextDue.over ? `${nextDue.id} statement ${dueWords(nextDue)}` : `${nextDue.id} ends ${dayText(nextDue.end)}, statement ${dueWords(nextDue)}`}</span>}</div>
-      <p className="emp-sub">Every quarter EMPIRE sends a statement: what it received (Net Income) and what it credited to Defied. Type each one in: it's what the bar at the top counts.</p>
-      {open.length === 0 ? <p className="emp-empty" data-emp-no-open>No finished quarter is waiting for a statement.</p> : (
+      <p className="emp-sub">Every quarter EMPIRE sends a statement: what it received (Net Income) and what it credited to Defied. Type each one in: it's what the first tile counts.</p>
+      {open.length === 0 ? <p className="emp-empty" data-emp-no-open>No finished quarter is waiting for a statement.</p> : formOpen ? (
         <div className="emp-form" data-emp-statement-form>
           <label className="fld"><span>Quarter</span>
             <select value={quarter} onChange={(e) => setF({ ...f, quarter: e.target.value })} data-f="quarter">
@@ -317,9 +335,12 @@ function StatementsCard({ data, reload, init }) {
           <Field label="Net Income ($)" inputMode="decimal" autoComplete="off" placeholder="what EMPIRE received" value={f.ni} onChange={(e) => setF({ ...f, ni: e.target.value })} data-f="netIncome" />
           <Field label="Credited to Defied ($)" inputMode="decimal" autoComplete="off" placeholder="what it credited" value={f.credited} onChange={(e) => setF({ ...f, credited: e.target.value })} data-f="credited"
             hint={ni > 0 ? <>Usually {pctText(terms.payout, 0)} of Net Income: {usd(usual)}. <button type="button" className="inline-link" data-emp-fill onClick={() => setF({ ...f, credited: String(usual) })}>Use that</button></> : `Usually ${pctText(terms.payout, 0)} of Net Income.`} />
-          <button type="button" className="btn sm emp-form-go" data-emp-add-statement onClick={add} disabled={busy || !ok}>{busy ? "Adding…" : "Add statement"}</button>
+          <span className="emp-form-acts">
+            <button type="button" className="btn sm emp-form-go" data-emp-add-statement onClick={add} disabled={busy || !ok}>{busy ? "Adding…" : "Add statement"}</button>
+            <button type="button" className="btn ghost sm" data-emp-cancel-statement onClick={() => setFormOpen(false)} disabled={busy}>Cancel</button>
+          </span>
         </div>
-      )}
+      ) : <button type="button" className="btn ghost sm emp-open" data-emp-open-statement onClick={() => setFormOpen(true)}>Add EMPIRE statement</button>}
       <Err text={err} />
       {statements.length > 0 && (
         <ul className="emp-list" data-emp-statements>

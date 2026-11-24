@@ -5,7 +5,7 @@ One Next.js 14 app (pages router) on Vercel:
 - **The public site**: home, about, team, roster, contact (`pages/*.jsx`, `components/site/`; about, team, roster and
   contact are rendered on the server).
 - **The staff dashboard** (`/dashboard`, one address per section: `/dashboard/todo`, `/dashboard/catalog` (Roster),
-  `/dashboard/money`, `/dashboard/deals`, `/dashboard/ar`, `/dashboard/site`…): Dashboard, To do, A&R, Money, Deals (Founders only),
+  `/dashboard/money`, `/dashboard/ar`, `/dashboard/site`…): Dashboard, To do, A&R, Money (with EMPIRE and Advance calculator pills for Founders),
   Roster (it was Clients) and Site.
 - **The client portal** (`/portal`): each client's own songs and splits.
 
@@ -150,7 +150,7 @@ Every staff login has a role. Founders set roles in **Site › Users** (`lib/rol
 
 Net streams are for the spreadsheet (2026-11-13): an artist's page (the Net Streams card and a song's Net streams row)
 and the Overview (the Net streams column) show them to no one, Founders included. The Advance calculator (since 2026-11-21 on Money ›
-EMPIRE deal, below) is the one place that still uses them, as the input of its estimate, so it and the data behind it (`/api/ar-data`'s signed clients, and the
+Advance calculator, below) is the one place that still uses them, as the input of its estimate, so it and the data behind it (`/api/ar-data`'s signed clients, and the
 net columns of `/api/sheets-master`) are for an account with **Money** access, which is a Founder unless a Founder turns
 Money on for someone else (`lib/roles.js` `seesNetStreams`). The calculator starts from today's pace, the streams a year the
 person earns now (`lib/advance-model.js` does the math): `/api/ar-data` sends each signed client's `pace` with those same
@@ -313,51 +313,61 @@ client's own page and editor (the same `openFix` To do's Update uses), and nothi
 - **Each song's ISRC and "Not on streaming"** are the two facts the dashboard's own data doesn't carry for every account. `GET /api/songs` has them, but it is for every artist at
   once (an account limited to its own artists is refused), so for that account the pages read `GET /api/roster-catalog`: `{ tracking: { [placementId]: { isrc?, skip? } } }`, its own
   artists' songs only (`requireAccess(..., "publishing")`, `limited`/`ownSet`), read only, `Cache-Control: no-store`, no migration. Every other account uses the copy it has.
-- **Deals** (Founders only, after Money in the sidebar and in the phone bar) is the next section: it has the two pages that were Money's last pills.
 
-## Deals › EMPIRE recoupment and Advance calculator (2026-11-21, 2026-11-23)
+## Money › EMPIRE and Advance calculator (2026-11-21, 2026-11-23, 2026-11-24)
 
-The publishing-administration deal with EMPIRE, in **Deals**, a section of its own after Money (`/dashboard/deals`): the pills **EMPIRE recoupment** (the default, `/dashboard/deals`
-or `/dashboard/deals/empire`) and **Advance calculator** (`/dashboard/deals/advance`). They were Money's last two pills until 2026-11-23, and their old addresses (`/dashboard/money/empire`,
-`/dashboard/money/advance`, `/dashboard/catalog/advance`, `advance:<id>`) open them here; Money is Overview, All payments, My payments again.
+The publishing-administration deal with EMPIRE, as Money's last two pills, for a Founder: **EMPIRE** (`/dashboard/money/empire`) and **Advance calculator** (`/dashboard/money/advance`).
+They were Money's last two pills until 2026-11-23, then a **Deals** section of its own for a day; the owner (2026-11-24: "maybe that whole deals tab can go in with money to make things less
+cluttered") put them back in Money, so there is no Deals tab. Deals' addresses (`/dashboard/deals`, `/dashboard/deals/empire`: the EMPIRE pill; `/dashboard/deals/advance`: the calculator) and the
+calculator's first ones (`/dashboard/catalog/advance`, `advance:<id>`) open the pills (`placeOf` in `StaffDashboard.jsx`). Each page is its own chunk with its own read of `GET /api/empire`
+(`next/dynamic` in `money.jsx`, loaded the first time its pill opens). Money's other pills are Overview, All payments and My payments, and it opens on the Overview.
 Founders only: Money access, an account that sees every artist (one limited to its own is refused) and the Founder role itself, since a Founder can switch
-Money on for an intern or co-manager in Site › Users and that must not open these pages (403 "Only Founders can see the EMPIRE deal.", the Deals tab and Roster's
-pointer hidden; one decision, `seeDeals` in `StaffDashboard.jsx`, gates the section): `GET`/`POST /api/empire` is the only way the pages see any of it. The contract is confidential, so its terms
+Money on for an intern or co-manager in Site › Users and that must not open these pages (403 "Only Founders can see the EMPIRE deal.", the two pills and Roster's
+pointer hidden; one decision, `seeDeals` in `StaffDashboard.jsx`, gates both pills). Any other account that opens those addresses gets Money's Overview, or its first tab without Money.
+`GET`/`POST /api/empire` is the only way the pages see any of it. The contract is confidential, so its terms
 live in server code only (`lib/empire-terms.js`); the pages' own code (`components/dash/empire*.jsx`, `empire-data.js`, `lib/empire-math.js`) holds none
 and takes every rate, amount and date from the answer, so none of them is in what a browser downloads.
 
-**EMPIRE recoupment shows real money only** (the owner: "start us at zero since we havent made nothing yet ... this shld be based on real"). EMPIRE's money never
+**Shown simple** (2026-11-24, the owner: "this is still a bit complicated like idk what all that means ... i wanna know like just the key information"): only layout and words changed;
+every save sends what it always sent and asks what it always asked.
+
+**The EMPIRE pill shows real money only** (the owner: "start us at zero since we havent made nothing yet ... this shld be based on real"). EMPIRE's money never
 passes through Stripe (while unrecouped it pays Defied nothing), so "real" here is what the founders type in from EMPIRE's quarterly statements, and what they
 mark: money spent, a deal given, the advance received. Nothing estimated counts as money. The page, in order:
 
-- **The bar**: how much of EMPIRE's advance is paid back = the sum of what the statements typed in credited ($0 until one is typed in; nothing estimated is drawn in it).
-  One status line says how many statements that is from, through which quarter, and when the next one is due (or when the first is). One sentence says what the bar
-  means. The timeline has only real dates (today, the extra advance's last day, the day Defied can buy out). It is "paid back" only when the statements alone reach
-  the total (they come a quarter after the quarter ends). In the API: `recoupment.credited / remaining / pct / recouped` are statements only.
-- **Forecast (an estimate from streams, not money)**, a fold at the bottom of that card (in the API, everything under `recoupment.forecast`): what today's pace would put on
+- **Three tiles and one line**: Paid back to EMPIRE (what the statements credited, of the total, with its bar), Left to give out (of the advance EMPIRE gave Defied; "Over by $X" when
+  more than that is marked spent) and Next EMPIRE statement (the day it is due and the quarter it is for); under them one line with the last day to be paid back (for EMPIRE's extra advance),
+  the day Defied can buy out (both from the terms, nothing projected) and "Defied gets paid once EMPIRE is paid back". The timeline, the status line and the sentence about the bar are gone.
+
+- **The first tile's bar**: how much of EMPIRE's advance is paid back = the sum of what the statements typed in credited ($0 until one is typed in; nothing estimated is drawn in it).
+  It is "paid back" only when the statements alone reach the total (they come a quarter after the quarter ends). In the API: `recoupment.credited / remaining / pct / recouped` are statements only.
+- **Forecast (an estimate from streams, not money)**, a fold (closed) under the line of dates (in the API, everything under `recoupment.forecast`): what today's pace would put on
   the next statement and a year of it; when it is paid back at today's pace, or that the current songs top out short of the total; whether that is in time for EMPIRE's extra
   advance (yes or missed only from statements; on track, close (within 6 months of its last day) or not on this pace from the estimate; every mention says it is recouped
   too); and what a buyout would cost on the day it opens. Inside it, "How the estimate counts Net Income": the streams each Schedule A song earned (Luminate's all-time total
   near the start and the latest count where both exist, a song's lifetime count if it came out since, else today's pace x the days), x the pub sheet's rate a stream
   (ASSUMPTIONS!B7) x the share of it EMPIRE receives as Net Income (a standard guess a Founder can change there) x what EMPIRE pays Defied. It is before EMPIRE's collection fees
   (the contract caps them); a statement replaces it.
-- **The advance EMPIRE gave Defied**, a second bar: "$ spent of the total spent", a percent and "$ left". It starts at $0 and fills only with money marked spent: the deals marked
-  given plus the entries a founder types in under "Mark money spent" (amount, what for, the day; saved as `spend:<id>`, Delete asks in the page). A planned deal is one muted line
-  under the bar, not part of it. Going over is allowed and says "Over by $X". One small line holds whether it has been received (and the day).
+- **The advance EMPIRE gave Defied**, a second bar. It starts at $0 and fills only with money marked spent: the deals marked
+  given plus the entries a founder types in under "Mark money spent" (a button; its form, amount, what for and the day, appears when it is pressed; saved as `spend:<id>`, Delete asks in the page).
+  A planned deal is one muted line under the bar, not part of it. Going over is allowed and says "Over by $X". Whether it has been received (and the day) is a small chip with its button.
 - **Producer deals**: a producer's advance for a song or a whole catalog, paid back from that producer's royalties (Net Income x EMPIRE's payout, less Defied's cut, 20% unless
-  the deal says another). Saved as planned from the Advance calculator (a link at the top of the card goes there), marked given with a day, edited, deleted (asked in the page).
+  the deal says another). Saved as planned from the Advance calculator (the card's one line, empty or not, links there), marked given with a day, edited, deleted (asked in the page).
   A given deal's "paid back so far" is real: the producer's share of what each statement credited (what is left after Defied's cut), split by each song's streams (the deal's
   songs' share of that quarter's Net Income, estimated from the streams), counted from the day it was given, $0 until a statement covers it. Its estimated payback day is a small
   muted "forecast:" note. A planned deal repays nothing and shows no repayment. One producer's deals never share a song, or its royalties would repay two advances: a whole catalog
   overlaps everything of that producer's, two deals on songs overlap when they share one, a prospect's deal overlaps nothing, and a save that would overlap is refused with a sentence
   that says to edit or delete the other deal. An edit writes only the fields it sent, so one made from an old copy of a deal can't undo a status or advance someone else changed
   meanwhile, and an edit that leaves the producer and songs alone still goes through for a producer who has since left Schedule A.
-- **Statements from EMPIRE**: type in each quarter's Net Income and what EMPIRE credited Defied; the bar counts it.
-- **Advance calculator** (its own pill in Deals: its old addresses, /dashboard/catalog/advance and Roster's line, open it; founders only like the recoupment pill). A planning tool, so its
-  numbers are estimates and say so. Same model as before (`lib/advance-model.js`), run on the producer's royalties (`lib/empire-math.js`); pick a producer's whole catalog or some
-  songs (each with its own pace), a prospect or someone new. For a producer who already has a deal on those songs it says so and takes what is still to pay back on that deal (an
-  estimate) off the advance it recommends, never below 0, and it plans against what is neither spent nor planned. Saving it files a planned deal (listed under Producer deals on
-  EMPIRE recoupment). The pub sheet's own forecast is folded under it.
+- **Statements from EMPIRE**: type in each quarter's Net Income and what EMPIRE credited Defied (the "Add EMPIRE statement" button opens the form); the first tile counts it.
+- **Advance calculator** (its own pill: its old addresses, /dashboard/catalog/advance and Roster's line, open it; founders only like the EMPIRE pill). A planning tool, so its
+  numbers are estimates and say so. Same model as before (`lib/advance-model.js`), run on the producer's royalties (`lib/empire-math.js`). In: the producer (one of ours, or someone new
+  whose streams are typed; the A&R prospects are not in the picker any more), their whole catalog or some songs (each with its own pace), how long to pay it back (chips: 6, 12, 18, 24, 36 months; it
+  starts on the model's default) and Defied's cut (a small field, "usually 20%" from the defaults). Out: one headline, "Up to $X", with "paid back in N months" and the verdict, and three tiles (their
+  royalties and Defied's cut over the next 12 months, and what is left of the advance EMPIRE gave Defied after this), then Check an amount and Save as a planned deal. For a producer who already has a
+  deal on those songs it says so and takes what is still to pay back on that deal (an estimate) off the advance it recommends, never below 0, and it plans against what is neither spent nor planned.
+  Saving it files a planned deal (listed under Producer deals on the EMPIRE pill). Everything else is one closed fold, "Show the math": what counts toward EMPIRE's total, today's pace and where it
+  comes from, the rate, where each dollar of Net Income goes, the payback ladder, the 3-year ledgers and every step. The pub sheet's own forecast that used to sit under it is gone.
 - **Saved state**: the one `app_state` row "empireDeal", an entry per key (`received`, `levers`, `statement:<quarter>`, `deal:<id>`, `spend:<id>`), each write one SQL
   statement on its own key so two founders saving at once never overwrite each other. No migration. `lib/empire-store.js` checks everything typed.
 

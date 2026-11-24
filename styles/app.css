@@ -3772,3 +3772,85 @@ img.ig-thumb,video.ig-thumb{padding:0}
 .ig-recent ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px;font-size:13px}
 @media (max-width:1000px){.ig-page{grid-template-columns:minmax(0,1fr)}.ig-side{position:static}}
 @media (max-width:560px){.ig-person{grid-template-columns:minmax(0,1fr)}.ig-pp{grid-template-columns:28px minmax(0,1fr) auto}.ig-pp-what{display:none}.ig-slot,.ig-thumb{width:100%;height:auto;aspect-ratio:1/1}}
+
+/* ===== Money's two deal pages and the Advance calculator, shown simple (2026-11-24) =====
+   The owner: "this is still a bit complicated like idk what all that means can we make all of it intuitive ... i wanna know like just the key information". ONE block, last in this file, so its
+   rules win where they meet an older one (the deal pages' own stylesheet loads after this file: every selector here carries one class more than the rule it overrides). The
+   dashboard's own classes and tokens only (cat-summary, cat-stat, subpill, emp-*, adv-*): no new colour, no new font. Phone first: one column, nothing wider than the screen. */
+
+/* the deal page's top: three tiles, one line of dates, and the closed Forecast fold */
+.app:not(.pub) .emp-top{display:flex;flex-direction:column;min-width:0}
+.app:not(.pub) .emp-tiles{margin:0 0 12px}
+.app:not(.pub) .emp-tiles .cat-stat{justify-content:flex-start;gap:6px}
+.app:not(.pub) .emp-tiles .cat-stat-val{font-size:clamp(24px,13cqi,34px);font-weight:600;line-height:1.1;letter-spacing:-.02em;white-space:normal;overflow:visible;overflow-wrap:anywhere}
+.app:not(.pub) .emp-tiles .cat-stat-val[data-over]{color:var(--d-warn)}
+.app:not(.pub) .emp-tiles .emp-bar-sm{margin:8px 0 0}
+.app:not(.pub) .emp-dates{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:0 0 14px;font-size:13.5px;line-height:1.5;color:var(--d-ink-3)}
+.app:not(.pub) .emp-dates b{font-weight:600;font-variant-numeric:tabular-nums;color:var(--d-ink)}
+.app:not(.pub) .emp-dates-dot{font-style:normal;color:var(--d-ink-4)}
+.app:not(.pub) .emp-top > .emp-fc{margin-top:0}
+@media (max-width:599px){
+  .app:not(.pub) .emp-tiles .cat-stat-val{font-size:clamp(22px,7.5vw,28px)}
+  .app:not(.pub) .emp-dates{flex-direction:column;gap:2px}
+  .app:not(.pub) .emp-dates-dot{display:none}
+}
+
+/* the advance's section: its bar under the one line, the received state as a small chip with its button, and the two forms behind their buttons */
+.app:not(.pub) .emp-card .emp-sub{max-width:80ch}
+.app:not(.pub) .emp-card > .emp-bar-sm{margin:4px 0 12px}
+.app:not(.pub) .emp-card .emp-received{margin:4px 0 14px;padding:0;border:0}
+.app:not(.pub) .emp-chip[data-state="yes"]{gap:6px;color:var(--d-pos);background:var(--d-pos-bg);border-color:var(--d-pos-line)}
+.app:not(.pub) .emp-open{margin-top:14px}
+.app:not(.pub) .emp-form-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.app:not(.pub) .emp-spend-form .emp-form-acts,.app:not(.pub) .emp-form .emp-form-acts{margin-top:28px;min-height:var(--d-field-h,44px)}
+.app:not(.pub) .emp-spend-form .emp-form-acts .emp-form-go,.app:not(.pub) .emp-form .emp-form-acts .emp-form-go{margin-top:0}
+@media (max-width:900px){
+  .app:not(.pub) .emp-spend-form .emp-form-acts{grid-column:1 / -1;grid-row:3;justify-self:start;margin-top:0;min-height:0}
+  .app:not(.pub) .emp-form .emp-form-acts{justify-self:start;margin-top:0;min-height:0}
+}
+@media (max-width:560px){
+  .app:not(.pub) .emp-spend-form .emp-form-acts{grid-column:1;grid-row:auto}
+}
+
+/* the calculator's inputs: Pay back in as chips (the Money pills' own look), Defied's cut as a small field */
+.app:not(.pub) .emp-chipfld{gap:8px}
+.app:not(.pub) .emp-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.app:not(.pub) .emp-chips .subpill{min-width:48px;padding:0 14px;border-color:var(--d-line-2);font-size:12px}
+.app:not(.pub) .emp-chips .subpill.active{border-color:var(--d-line-3)}
+.app:not(.pub) .emp-chips-unit{margin-left:4px;font-size:13px;letter-spacing:0;color:var(--d-ink-4)}
+.app:not(.pub) .emp-unit-l{display:none;font-size:inherit;letter-spacing:inherit;color:inherit}
+@media (max-width:599px){
+  .app:not(.pub) .emp-unit-l{display:inline}
+  .app:not(.pub) .emp-chips-unit{display:none}
+}
+.app:not(.pub) .fld input.adv-cut{max-width:120px}
+
+/* the calculator's answer: one headline, three tiles, then Check an amount and Save as a planned deal, compact */
+.app:not(.pub) .adv-headline{margin:0 0 16px;min-width:0}
+.app:not(.pub) .adv-headline p{margin:0}
+.app:not(.pub) .adv-head-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 10px}
+.app:not(.pub) .adv-head-up{font-size:15px;color:var(--d-ink-3)}
+.app:not(.pub) .adv-head-n{font-size:clamp(30px,8.5vw,46px);font-weight:600;line-height:1.1;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--d-ink);overflow-wrap:anywhere}
+.app:not(.pub) .adv-head-sub{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:8px;font-size:14px;color:var(--d-ink-3)}
+.app:not(.pub) .adv-head-sub .adv-pill{align-self:center}
+.app:not(.pub) .adv-headline .adv-stat-sub{margin-top:4px}
+.app:not(.pub) .adv-out > .adv-headline + .cat-summary{margin:0}
+.app:not(.pub) .adv-out .cat-stat-val{white-space:normal;overflow-wrap:anywhere}
+.app:not(.pub) .adv-block.adv-compact{margin-top:16px;padding:12px 14px}
+.app:not(.pub) .adv-block.adv-compact .adv-h{margin-bottom:8px}
+.app:not(.pub) .adv-block.adv-compact p.adv-check-out{margin-top:10px;padding:8px 12px;font-size:13.5px}
+.app:not(.pub) .adv-save-fields{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);align-items:start;gap:12px}
+.app:not(.pub) .emp-calc [data-emp-save] .adv-save-fields .fld + .fld{margin-top:0}
+@media (max-width:560px){
+  .app:not(.pub) .adv-save-fields{grid-template-columns:minmax(0,1fr)}
+  .app:not(.pub) .emp-calc [data-emp-save] .adv-save-fields .fld + .fld{margin-top:12px}
+}
+
+/* "Show the math": the one closed fold under the calculator (the Forecast fold's own look) */
+.app:not(.pub) .adv-math{margin-top:20px}
+.app:not(.pub) .adv-math-body{display:flex;flex-direction:column;gap:14px}
+.app:not(.pub) .adv-math-body > *{margin:0}
+.app:not(.pub) .adv-math-body .adv-block{margin:0;background:var(--d-s2)}
+.app:not(.pub) .adv-math-body .adv-ledgers > .split-list{background:var(--d-s2)}
+.app:not(.pub) .adv-math-body .adv-how{padding:14px 16px}
+.app:not(.pub) .adv-math-body .adv-how-list{padding:10px 0 0}
