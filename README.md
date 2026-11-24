@@ -212,6 +212,9 @@ for songs that have none (`lib/advance-pace.js`).
   `users.staff_role` and the per-person changes are `users.access` (migration 010).
 - The Founders are Devin, Burny and Hank. Every other staff login is a Co-manager.
 - There's always at least one Founder. Only a Founder can change roles, or another Founder's login.
+- The sidebar's foot says who is signed in: their name (`users.name`, the session's: `pages/dashboard/[[...section]].jsx` hands it to `StaffDashboard`) beside their role, on one line
+  ("Devin · Founder"; a name too long for the line is cut with "…", never the role; no name, the role alone). A Founder's label has a soft light that sweeps across it every few seconds
+  (`.dash-role` in `styles/app.css`); it stays still for anyone whose device asks for reduced motion. The phone's top bar has no label.
 
 There are no demo logins. Accounts are created in Site › Users.
 

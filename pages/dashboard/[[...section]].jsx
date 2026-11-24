@@ -21,7 +21,7 @@ export default function DashboardPage() {
       <PageShell title={dashTitle(section)} description="Defied Management staff dashboard." path="/dashboard" noindex />
       {/* session undefined = /api/auth/me hasn't answered: the same "Loading…" as the data load after it */}
       {(session === undefined || session?.role === "staff") && (
-        db ? <StaffDashboard db={db} commit={commit} reloadDb={reloadDb} logout={logout} signingOut={signingOut} /> : <p className="muted page">Loading…</p>
+        db ? <StaffDashboard db={db} commit={commit} reloadDb={reloadDb} logout={logout} signingOut={signingOut} name={session?.name} /> : <p className="muted page">Loading…</p>
       )}
     </>
   );

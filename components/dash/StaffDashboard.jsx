@@ -54,7 +54,7 @@ const dashPlaceOf = (q) => {
   const [t, ...rest] = [].concat(q?.section || []);
   return t ? placeOf(t, rest.length ? rest.join("/") : null) : placeOf(q?.tab, q?.sub);
 };
-export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
+export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name }) {
   // sub = where a link points inside the tab it opens ("advance", "client:<id>", To do's item or area):
   // read once as the tab mounts, so the sidebar always opens a tab on its usual start
   // Each section has its own address (list B #11): /dashboard/<tab>[/<sub>] (/dashboard/deals/advance,
@@ -181,6 +181,9 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const [pwOpen, setPwOpen] = useState(false); // "Password": each login changes its own (components/dash/password.jsx)
   // (2026-11-11, the owner: "get rid of the · own artists on each co managers page")
   const roleWord = db.access ? ROLES[db.access.role]?.label || "Staff" : "Staff — full edit access";
+  // (2026-11-23, the owner: "name next to the role as well at the bottom") the signed-in person's name (users.name: the session's, pages/dashboard/[[...section]].jsx passes it) beside
+  // their role, on the one line. No name known (or the old no-roles label above, too long to share the line): the role alone, drawn exactly as before. A Founder's label also shines (styles/app.css)
+  const who = db.access ? String(name ?? "").trim() : "";
   return (
     <div className="dash">
       <aside className="dash-side">
@@ -196,7 +199,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
           <NavMore tabs={side.filter(([id]) => PHONE_MORE.has(id))} tab={home} badge={0} setTab={setTab} />
         </nav>
         <div className="dash-side-foot">
-          <div className="dash-role" data-role={db.access?.role}>{roleWord}</div>
+          <div className={who ? "dash-role dash-role-named" : "dash-role"} data-role={db.access?.role}>{who ? <><span className="dash-who" title={who}>{who}</span><span className="dash-role-dot" aria-hidden="true">·</span><span className="dash-role-word">{roleWord}</span></> : roleWord}</div>
           <button className="dash-out dash-pw" onClick={() => setPwOpen(true)} aria-label="Change your password" data-change-password><KeyRound size={16} /> <span className="dash-pw-label">Password</span></button>
           <button className="dash-out" onClick={logout} disabled={signingOut}>{signingOut ? <><RefreshCw size={16} className="spin" /> Signing out…</> : <><LogOut size={16} /> Sign out</>}</button>
         </div>
