@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 import { Mail, X, Plus, Trash2, Check, AlertTriangle, CheckCircle2, Eye, EyeOff } from "lucide-react";
 import { songSplit, splitWords, orderSplits } from "../../lib/splits";
-import { roundPct, snapSplits } from "../../lib/pct";
+import { roundPct, snapSplits, boxShare } from "../../lib/pct";
 import { Photo, prefersReducedMotion, thumb } from "../shared/ui";
 import { findByName } from "../site/data";
 
@@ -382,6 +382,14 @@ export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, ow
     setFocusRow(row.id);
   };
   const update = (id, key, val) => onChange(rows.map((r) => r.id === id ? { ...r, [key]: val } : r));
+  // (2026-11-23) a share's box takes two decimals, as To do's boxes do (lib/pct.js boxShare): a third decimal that is a fraction the site keeps (16.666667, a
+  // sixth, pasted from a formula) is kept as that fraction, any other (12.345) is refused in the same words and the box keeps what it had, not rounded behind the person's back
+  const [boxWhy, setBoxWhy] = useState(null);
+  const setShare = (id, text) => {
+    const v = boxShare(text);
+    setBoxWhy(v.reason || null);
+    if (!v.reason) update(id, "percent", v.n);
+  };
   const add = () => onChange([...rows, { id: uid(), name: "", role: "", percent: 50 }]);
   const remove = (id) => onChange(rows.filter((r) => r.id !== id));
   // (what Save stores: 33.33 + 33.33 + 33.33 is three thirds and adds up to 100, lib/pct.js)
@@ -405,10 +413,11 @@ export function SplitsEditor({ splits, onChange, focusPct = 0, assume = true, ow
           <input placeholder="Name" value={r.name} onChange={(e) => update(r.id, "name", e.target.value)} />
           <input placeholder="Role" value={r.role} onChange={(e) => update(r.id, "role", e.target.value)} />
           {/* a listed person with no share shows the even share they'll get, as a placeholder only */}
-          <span className={`pct-in${blankShare(r) ? " pct-blank" : ""}`}><input type="number" min="0" max="100" step="any" value={blankShare(r) ? "" : roundPct(r.percent)} placeholder={blankShare(r) ? String(splitPct([filled(r.id) || r])) : undefined} onChange={(e) => update(r.id, "percent", e.target.value === "" ? 0 : roundPct(Number(e.target.value)))} />%</span>
+          <span className={`pct-in${blankShare(r) ? " pct-blank" : ""}`}><input type="number" min="0" max="100" step="any" value={blankShare(r) ? "" : roundPct(r.percent)} placeholder={blankShare(r) ? String(splitPct([filled(r.id) || r])) : undefined} onChange={(e) => setShare(r.id, e.target.value)} />%</span>
           <button type="button" className="split-del" onClick={() => remove(r.id)} aria-label="Remove"><Trash2 size={14} /></button>
         </div>
       ))}
+      {boxWhy && <p className="split-hint" data-share-why>{boxWhy}</p>}
       <button type="button" className="btn ghost sm" onClick={add}><Plus size={14} /> Add split</button>
       {fill.status === "assumed" && (forClient
         ? <p className="split-hint split-even" data-even>{fill.rule ? "Default split" : "Even split"}: {splitWords(fill.splits, rows)}. Type a different % if yours isn't {mine ? splitPct([mine]) : 50}%, or add the others on the song.</p>

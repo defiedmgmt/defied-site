@@ -71,7 +71,9 @@ async function run(req, res) {
   // tomorrow. The whole cron took 14 s with 10 of its 60)
   // (2026-11-23, the owner: "we shld try and pull everything") lib/isrc-nightly.js: a sure hit on Spotify also fills the song's link, a song with an
   // ISRC and no link is found on Spotify by its ISRC, and the songs marked "Not on streaming" are looked at again once a week (the mark comes off when
-  // Spotify has them). All inside the same 25 s and 45 s, and what it saves is marked for the Schedule A sheet, which the last step below writes
+  // Spotify has them). All inside the same 25 s and 45 s, and what it saves is marked for the Schedule A sheet, which the last step below writes.
+  // (2026-11-23, review) The two new steps (the link by ISRC, the weekly look at the marked songs) end by t0 + 30 s whatever the loop has left, and each Spotify
+  // call in them is cut at 5 s (lib/isrc-nightly.js laterMs, callMs): they must not spend the seconds the Schedule A step at the end of this run needs (about 3 of the 60)
   try {
     await findNightly({ report, lookup: lookupIsrc, normalizeTitle, t0 });
   } catch (err) { report.isrcError = err.message; }

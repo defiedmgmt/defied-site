@@ -3,7 +3,7 @@ import Link from "next/link";
 import { X, LogOut, Plus, Disc3, RefreshCw, AlertTriangle, CheckCircle2, Eye, PauseCircle, PlayCircle, KeyRound } from "lucide-react";
 import { PasswordCard } from "../dash/password";
 import { songSplit, splitWords, filledSplits, orderSplits } from "../../lib/splits";
-import { snapSplits } from "../../lib/pct";
+import { snapSplits, ROUNDING_GAP } from "../../lib/pct";
 import { portalStreams, spotSongsOf, spotifyStandIn, streamsDay, trackKey } from "../../lib/portal-streams";
 import { ShareStats } from "./share";
 import { changedFields, goneText } from "../app/saves";
@@ -150,11 +150,12 @@ export async function pushOwnShare(saved, client, liveIds, keepPercent = null) {
   return r.error ? [r.error, r.alarm].filter(Boolean).join(" ") : r.alarm || null;
 }
 
-// the song editor's Save keeps the sheet's exact share (its sheet facts) when the site's whole percent only rounds it
-// (33.33 is 33 on the site, 12.5 is 12): writing 0.33 over 0.3333 moved the row's net streams with nothing changed.
-// More than half a point apart is a real change, and the site's percent goes. null: send the site's percent
+// the song editor's Save keeps the sheet's exact share (its sheet facts) when the site's percent only rounds it
+// (the sheet holds 33.3333 and the site the third): writing 0.33 over 0.3333 moved the row's net streams with nothing changed.
+// (2026-11-23) "Only rounds it" is lib/pct.js ROUNDING_GAP, 0.05 of a point (it was half a point, which kept the sheet's 17 over a saved 16.67): a share more than
+// that apart is a real change, and the site's exact share goes. null: send the site's percent
 export const sheetShareToKeep = (fact, mine) =>
-  fact?.share != null && mine && Math.abs(Number(fact.share) - Number(mine.percent)) <= 0.5 ? Number(fact.share) : null;
+  fact?.share != null && mine && Math.abs(Number(fact.share) - Number(mine.percent)) <= ROUNDING_GAP ? Number(fact.share) : null;
 
 // (a placement's Spotify track as the numbers' entity key, trackKey, is lib/portal-streams.js's: the share card's too)
 

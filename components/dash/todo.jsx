@@ -14,6 +14,7 @@ import { ExtLink } from "../shared/ui";
 import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 import { syncFix } from "./todo-data";
 import { ownAt, typedShare, pctText } from "../../lib/split-fixes";
+import { shareChanged } from "../../lib/pct";
 import { PanelWait } from "./sections";
 export { useCuTasks, useSyncChecks, todoItems, useSplitFixes, useAutoConfirm, syncFix, useSeeds } from "./todo-data";
 
@@ -147,7 +148,8 @@ function ShareFix({ kind, ctx, viaCta = false }) {
     const keep = [], moved = new Map(), cells = [], bad = [], alarms = [];
     for (const x of items) {
       const share = shares[x.p.id] ?? x.sheet;
-      if (!(Math.abs(share - x.sheet) >= 0.05)) { keep.push(x); continue; }
+      // (2026-11-23) the exact share, not "within 0.05": 33.33 typed over the sheet's 33.3 is a change (a third), 33.33 over 33.3333 is not (lib/pct.js shareChanged)
+      if (!shareChanged(share, x.sheet)) { keep.push(x); continue; }
       // one at a time, each checked on the server just before its cell is written (still no split here, the row
       // the dialog named, the sheet's share still the one it showed, the cell not a formula)
       const r = await fetch("/api/split-fixes", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "setShare", placementId: x.p.id, share, row: x.row, from: x.sheet }) }).catch(() => null);
@@ -186,7 +188,7 @@ function ShareFix({ kind, ctx, viaCta = false }) {
       // the read-back after the write found a formula changed on the tab: said loudly, as it is
       if (j.alarm) alarms.push(j.alarm);
       // the site's split for that client follows the sheet (the same save as "Use the sheet's split")
-      if (Math.abs(share - x.site) >= 0.05) moved.set(x.p.id, { splits: ownAt(x.p.splits, x.client.name, share), who: x.client.name, share });
+      if (shareChanged(share, x.site)) moved.set(x.p.id, { splits: ownAt(x.p.splits, x.client.name, share), who: x.client.name, share });
     }
     setAsk(false);
     // the fetches took a while: the save is worked out from the copy this started from (commit's base)
@@ -222,7 +224,7 @@ function UseSheetAsk({ items, tabOf, writes, sheetUrl, go, onClose }) {
   const [typed, setTyped] = useState(() => Object.fromEntries(items.map((x) => [x.p.id, pctText(x.sheet)])));
   const rows = items.map((x) => {
     const t = typedShare(typed[x.p.id] ?? pctText(x.sheet));
-    const moves = t.share != null && Math.abs(t.share - x.sheet) >= 0.05;
+    const moves = t.share != null && shareChanged(t.share, x.sheet);
     const total = moves ? ownAt(x.splits, x.client.name, t.share).reduce((a, r) => a + (Number(r.percent) || 0), 0) : 100;
     return { x, t, moves, short: Math.abs(total - 100) >= 0.05 ? total : null, cell: `${tabOf(x.client)} tab, D${x.row}` };
   });
@@ -274,7 +276,7 @@ function FillShareAsk({ items, tabOf, writes, sheetUrl, go, onClose }) {
             <span className="ask-share-in"><input data-share-in={x.p.id} inputMode="decimal" autoComplete="off" value={typed[x.p.id] ?? ""} aria-invalid={t.share == null} aria-label={`${x.client.name}'s share of ${x.p.song || "Untitled"}, in percent`}
               onFocus={(e) => e.target.select()} onChange={(e) => setTyped((v) => ({ ...v, [x.p.id]: e.target.value }))} />%</span>
             {t.share == null ? <span className="hint warn-text" data-share-why>{t.reason}</span>
-              : Math.abs(t.share - x.site) >= 0.05 && <span className="hint" data-share-site>The site's split for {x.client.name} changes to {pctText(t.share)}% too, so both match.</span>}
+              : shareChanged(t.share, x.site) && <span className="hint" data-share-site>The site's split for {x.client.name} changes to {pctText(t.share)}% too, so both match.</span>}
           </label>
         </div>
       ))}
