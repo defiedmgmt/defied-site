@@ -472,11 +472,13 @@ html:has(.app:not(.pub) .dash),html:has(.app:not(.pub) .portal){scrollbar-gutter
 .app:not(.pub) .dash-role-dot{flex:none}
 .app:not(.pub) .dash-role-word{flex:none;white-space:nowrap}
 /* (2026-11-23, the owner: "for founders can u make it like have a cool animation maybe make it like shine") a Founder's label has a soft light that sweeps across it every few seconds, then rests.
-   Only where motion is welcome and the page's own colours show: anyone who asked their device for less motion (or for forced colours) gets the plain text above */
+   Only where motion is welcome and the page's own colours show: anyone who asked their device for less motion (or for forced colours) gets the plain text above.
+   (2026-11-24, the owner: "make the shine only for the founder role so thats like a special role") with a name beside it, only the word Founder shines; the name and the dot stay plain */
 @keyframes dash-shine{0%{background-position:90% 0}50%,100%{background-position:10% 0}}
 @media (prefers-reduced-motion:no-preference) and (forced-colors:none){
-  .app:not(.pub) .dash-role[data-role="founder"]{
-    align-self:flex-start;max-width:100%;   /* as wide as its text, so the light crosses the text and not the empty line after it */
+  .app:not(.pub) .dash-role[data-role="founder"]:not(.dash-role-named){align-self:flex-start;max-width:100%} /* as wide as its text, so the light crosses the text and not the empty line after it */
+  .app:not(.pub) .dash-role[data-role="founder"]:not(.dash-role-named),
+  .app:not(.pub) .dash-role-named[data-role="founder"] .dash-role-word{
     -webkit-text-fill-color:transparent;
     background:linear-gradient(100deg,var(--d-ink-4) 42%,var(--d-ink) 50%,var(--d-ink-4) 58%) 90% 0/300% 100% no-repeat;
     -webkit-background-clip:text;background-clip:text;
