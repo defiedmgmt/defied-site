@@ -167,22 +167,11 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   // (2026-11-10) the money is the Founders' (Money access): a Co-manager sees streams, songs and splits
   const seeMoney = isStaff && (!db.access || db.access.sections.includes("money"));
   // the stat row's Songs tile: a client's, and staff's when there's no money to show, so Gross Streams never stands alone
-  // stretched across the row (2026-11-13); where it shows, the song list's heading leaves its own count out
+  // stretched across the row (2026-11-13); where it shows, the song list's heading leaves its own count out. (2026-11-24) A Founder's
+  // row is the Gross Streams tile alone now (the pub earnings and potential admin fee tiles are gone), kept to one tile's width by styles/app.css, and the count stays in the heading
   const songsTile = !isStaff || !seeMoney;
   const songs = useMemo(() => db.placements.filter((p) => p.clientId === clientId), [db.placements, clientId]);
-  // MASTER-tab-style rollup across this client's whole catalog. The $ figures
-  // come straight off each placement — the sheet's own Gross Revenue/Admin Fee
-  // columns are already this person's share, not the whole song's, since they
-  // cascade from Net Streams (Gross × their own Writer Share %).
   // (Gross streams are lib/portal-streams.js's, below.)
-  const summary = useMemo(() => {
-    let revenue = 0, adminFee = 0;
-    for (const p of songs) {
-      revenue += p.revenue || 0;
-      adminFee += p.adminFee || 0;
-    }
-    return { revenue, adminFee };
-  }, [songs]);
   const growth = useGrowth();
   // this week = Spotify streams this week (the automated numbers, lib/data/growth.js), the songs whose week
   // ends last, as the Publishing table says
@@ -357,7 +346,6 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   const spotifyOnly = (p) => spotifyStandIn(p, growth, spotSongs);
   const streamsNow = useMemo(() => portalStreams(songs, { growth, spotSongs }), [songs, growth, spotSongs]);
   const spotifyFill = streamsNow.spotifyFill;
-  const notOnLuminate = `${spotifyFill.n} ${spotifyFill.n === 1 ? "song" : "songs"} not on Luminate yet`;
   // (2026-11-15) a client's "as of" lines say the day their streams are from, as the share card does (lib/portal-streams.js
   // streamsDay): the sheet's (Luminate's, numbersOn) unless Spotify's plays are all there is, then theirs. No day: the last pull's
   const asOfWords = (day) => new Date(day ? `${day}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -379,19 +367,11 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               {spotifyFill.n > 0 && <span className="cat-stat-note" data-gross-spotify={spotifyFill.n}>incl. Spotify plays for {spotifyFill.n} {spotifyFill.n === 1 ? "song" : "songs"} not on Luminate yet</span>}</div>
             {/* (2026-11-13, the owner: "u can hide net streams for founders too lets keep it simple thats just for spreadsheet
                 calculation") no Net Streams card for anyone, and no Net streams row in a song's window: the net is the sheet's
-                working number and the Advance calculator's input, not one a page shows. What's left is 2 or 3 cards, which
-                styles/app.css lays out in equal columns: Gross + Pub earnings + Potential admin fee (Money), Gross + Songs
-                (staff without Money), Gross + Songs + This Week (a client; Gross + Songs until there's a week) */}
-            {isStaff ? (seeMoney ? (
-              <>
-                {/* estimates, not cash we hold: clients are paid their publishing directly, our commission is billed through Stripe */}
-                {/* (2026-11-13) the money is the pub sheet's songs only: the ones Spotify stands in for earn nothing there yet */}
-                <div className="cat-stat"><span className="cat-stat-label">Pub earnings <span className="cat-stat-note">(est., paid to them directly)</span></span><span className="cat-stat-val">{money(summary.revenue)}</span>
-                  {spotifyFill.n > 0 && <span className="cat-stat-note" data-money-sheet-only>leaves out the {notOnLuminate}</span>}</div>
-                <div className="cat-stat"><span className="cat-stat-label">Potential admin fee <span className="cat-stat-note">(est.)</span></span><span className="cat-stat-val">{money(summary.adminFee)}</span>
-                  {spotifyFill.n > 0 && <span className="cat-stat-note" data-money-sheet-only>leaves out the {notOnLuminate}</span>}</div>
-              </>
-            ) : (
+                working number and the Advance calculator's input, not one a page shows. (2026-11-24, the owner: "the old pub sheet
+                stuff can go... just the key information") And no Pub earnings or Potential admin fee card on a staff page: those were
+                the sheet's estimates. What's left: Gross alone (a Founder), Gross + Songs (staff without Money), Gross + Songs + This Week
+                (a client; Gross + Songs until there's a week), laid out by styles/app.css */}
+            {isStaff ? (!seeMoney && (
               <div className="cat-stat" data-songs-tile><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
             )) : (
               <>
@@ -413,15 +393,16 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   );
   return (
     <>
-      {/* read-only: shows staff which sheet tab this client's numbers come from (Stack!e reads tab Stackie) */}
+      {/* read-only: the client's name and role (2026-11-24: not the sheet tab their numbers come from any more) */}
       {isStaff && client && !editorOnly && (
         <div className="client-head">
           <Avatar src={client.photo} name={client.name} size={40} />
           <div className="client-head-text">
             <div className="client-head-name">{client.name}</div>
-            <div className="client-head-meta">{client.role || "Client"} · {!songs.length ? "No songs yet. Their pub sheet tab is made with their first song."
-              : noSheetTab(songInfo, client) ? <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span>
-              : `Sheet tab: ${client.sheetTabName?.trim() || client.name}`}</div>
+            {/* (2026-11-24) no "Sheet tab: <name>" line: the role alone, and only when there's something to say after it: no songs yet, or a tab the sheet doesn't have (a warning) */}
+            <div className="client-head-meta">{client.role || "Client"}{!songs.length ? " · No songs yet. Their pub sheet tab is made with their first song."
+              : noSheetTab(songInfo, client) ? <> · <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span></>
+              : null}</div>
           </div>
           {(onDeleteClient || moreItems.length > 0) && <ClientMore onDelete={onDeleteClient ? () => onDeleteClient(client) : undefined} items={moreItems} />}
         </div>
@@ -485,10 +466,11 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               <div className="song-info">
                 <strong>{p.song || "Untitled"}</strong>
                 <span>{p.artist}</span>
-                {/* an even split the rule can fill is the owner's to confirm, not a broken one (Splits to confirm says the same) */}
-                <em>{isStaff && splitTotal(p.splits) !== 100
-                  ? (songSplit(p, client).status === "assumed" ? <span className="split-chip split-chip-even">{songSplit(p, client).rule ? "Default split assumed" : "Even split assumed"}</span> : <span className="split-chip">Splits {splitPct(p.splits)}%</span>)
-                  : <>Pub split · {(p.splits || []).length} {(p.splits || []).length === 1 ? "person" : "people"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitPct(p.splits)}%</span></>}</em>
+                {/* (2026-11-24, the owner: "just the key information") staff see a split line only when the split is missing or doesn't add up to 100%: a short chip (an even split the
+                    rule can fill is the owner's to confirm, not a broken one: Splits to confirm says the same). A complete split says nothing; a client's own page still says "Pub split · N people · 100%" */}
+                {isStaff
+                  ? splitTotal(p.splits) !== 100 && <em>{songSplit(p, client).status === "assumed" ? <span className="split-chip split-chip-even">{songSplit(p, client).rule ? "Default split assumed" : "Even split assumed"}</span> : <span className="split-chip">Splits {splitPct(p.splits)}%</span>}</em>
+                  : <em>Pub split · {(p.splits || []).length} {(p.splits || []).length === 1 ? "person" : "people"} · <span className={splitTotal(p.splits) === 100 ? undefined : "split-warn"}>{splitPct(p.splits)}%</span></em>}
                 {/* its own line: on the splits line it was cut off by the card's width */}
                 {p.notable && <span className="song-public"><Eye size={12} aria-hidden="true" /> On public page</span>}
                 <GrowthChip g={growth?.[p.id]} />

@@ -39,6 +39,8 @@ function placeOf(t, s) {
   if (t === "catalog" && typeof sub === "string" && /^advance(:|$)/.test(sub)) return { tab: "money", sub: "advance" };
   // (r11: Publishing's ISRCs tab is gone; the finder opens inside To do, /dashboard/todo/isrc)
   if (t === "catalog" && ["splits", "update", "dupes", "isrc"].includes(sub)) return { tab: "todo", sub };
+  // (2026-11-24, the owner: "maybe we dont need releases if we have catalog") Roster has no Releases pill: its address, /dashboard/catalog/releases, and any release desk name for it open Catalog (/dashboard/catalog/songs)
+  if (/^(releases?|release[-_ ]?desk)$/i.test(String(t === "catalog" ? sub : t))) return { tab: "catalog", sub: "songs" };
   // (list B #3: the Luminate tab is gone; r10: so is Numbers, whose sources and cost are in Site › Sync now.
   // Their old links, /dashboard/numbers and ?tab=numbers or ?tab=luminate, open Site › Sync)
   if (t === "luminate" || t === "numbers") return { tab: "site", sub: "sync" };

@@ -4,10 +4,12 @@ import { peekJson, swrJson } from "../ui/fetch-cache";
 import { splitsToConfirm } from "./catalog-data";
 import { streamsAsOf, fmt } from "./ui";
 import { useMedia } from "./helpers";
-import { FILTERS, SOURCE_LABEL, catalogRows, filterCounts, filterRows, releaseGroups, searchRows, sortRows, summary, todayNY } from "../../lib/roster-catalog";
+import { Photo, thumb } from "../shared/ui";
+import { FILTERS, catalogRows, filterCounts, filterRows, newReleases, searchRows, sortRows, summary, todayNY } from "../../lib/roster-catalog";
 
-// Roster › Catalog and Roster › Releases (2026-11-23, the owner: a catalog and a release desk under the roster, "i dont wanna change it up too bad"): the same songs as the Clients pages,
-// every client's in one list, and by release date. Read only: a click opens the song in its client's own page and editor (CatalogAdmin's openFix); nothing here saves anything.
+// Roster › Catalog (2026-11-23, the owner: a catalog and a release desk under the roster, "i dont wanna change it up too bad"; 2026-11-24: "maybe we dont need releases if we have catalog yk", so the
+// Releases pill is gone and its dates are the "New releases" strip on top of Catalog): the same songs as the Clients pages, every client's in one list. Read only: a click opens the song in
+// its client's own page and editor (CatalogAdmin's openFix); nothing here saves anything.
 // The rows come from the dashboard's own data (db.clients, db.placements: an account limited to its own artists already has only theirs), the rules are lib/roster-catalog.js's.
 const TRACKING_URL = "/api/roster-catalog";
 const PHONE_ROWS = 25; // a phone shows this many cards, then "Show more" (as the ISRC finder does: 136 cards were 25,000px)
@@ -42,8 +44,9 @@ const OpenSong = ({ r }) => (
   <button type="button" className="rl-open" data-rl-open={r.open} title={`Opens ${r.openClient}'s page${r.clients.length > 1 ? `. Also on ${r.clients.filter((c) => c.name !== r.openClient).map((c) => c.name).join(", ")}.` : "."}`}>{r.title}</button>
 );
 const Clients = ({ r }) => r.clients.map((c) => c.name).join(", ") || "—";
-// a source badge only for a source the song really has a link on (lib/roster-catalog.js sourceOf)
-const Sources = ({ r }) => (r.sources.length ? <span className="upd-gaps">{r.sources.map((s) => <span key={s} className="upd-gap upd-off" data-src={s}>{SOURCE_LABEL[s]}</span>)}</span> : null);
+// a song's cover: the link it holds (placements.cover), through the resizer the client photos use; with none, the letter the app's own placeholder draws for a client with no photo (.avatar-ph)
+const initialOf = (title) => (/[\p{L}\p{N}]/u.exec(String(title ?? ""))?.[0] || "?").toUpperCase();
+const Cover = ({ r, w }) => (r.cover ? <Photo src={thumb(r.cover, w)} alt="" /> : <span className="avatar avatar-ph" aria-hidden="true">{initialOf(r.title)}</span>);
 // the app's own gap chips: a gap in the warning colour, "Split to confirm" and "Not on streaming" neutral (nothing is wrong with them)
 const Chips = ({ r }) => (r.chips.length ? <span className="upd-gaps">{r.chips.map((c) => <span key={c.k} className={`upd-gap${c.k === "off" || c.k === "confirm" ? " upd-off" : ""}`} data-gap={c.k}>{c.label}</span>)}</span> : null);
 
@@ -51,6 +54,32 @@ function Waiting({ loading, failed, retry }) {
   if (loading) return <p className="home-muted" aria-busy="true" data-rl-wait>Loading…</p>;
   if (failed) return <p className="hint err-text" role="alert" data-rl-failed>Couldn't read which songs have an ISRC or aren't on streaming just now, so those two aren't shown. <button type="button" className="inline-link" onClick={retry}>Try again</button></p>;
   return null;
+}
+
+// "New releases", on top of Catalog: the songs coming up (a release date after today, tagged "Coming up") and the ones out in the last 30 days, the newest first (lib/roster-catalog.js
+// newReleases), as cover cards in a row that scrolls sideways inside itself. A card opens the song in its client's page and editor, as the table's rows do.
+function NewReleases({ rows, onOpen }) {
+  const today = useMemo(() => todayNY(), []);
+  const list = useMemo(() => newReleases(rows, today), [rows, today]);
+  const soon = list.filter((r) => r.coming).length, out = list.length - soon;
+  const counts = [soon > 0 && `${fmt(soon)} coming up`, out > 0 && `${fmt(out)} out in the last 30 days`].filter(Boolean).join(" · ");
+  return (
+    <section className="nr-new" data-rl-new aria-labelledby="nr-new-h">
+      <div className="fix-head"><h3 id="nr-new-h">New releases</h3>{counts && <span className="hint" data-rl-new-count>{counts}</span>}</div>
+      {list.length === 0
+        ? <p className="hint" data-rl-empty="new">No song is coming up, and none came out in the last 30 days.</p>
+        : <ul className="nr-strip" data-m-scroll>
+          {list.map((r) => (
+            <li key={r.key}>
+              <button type="button" className="song-card nr-card" data-nr-card={r.open} data-nr-coming={r.coming ? "" : undefined} title={`Opens ${r.openClient}'s page`} onClick={() => onOpen(r)}>
+                <span className="song-cover"><Cover r={r} w={384} />{r.coming && <span className="nr-tag">Coming up</span>}</span>
+                <span className="song-info"><strong>{r.title}</strong><span>{r.artist || "—"}</span><em>{dayWords(r.releaseDate)}</em></span>
+              </button>
+            </li>
+          ))}
+        </ul>}
+    </section>
+  );
 }
 
 export function RosterCatalog({ db, songInfo, onOpen }) {
@@ -70,16 +99,16 @@ export function RosterCatalog({ db, songInfo, onOpen }) {
   const asOf = db.streamsOn ? `Streams as of ${dayWords(db.streamsOn)}` : db.sheetSync?.lastSyncedAt ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt }) : "";
   const several = shown.some((r) => r.clients.length > 1);
   const cols = [
-    { id: "song", label: "Song", className: "rl-song", render: (r) => <OpenSong r={r} /> },
+    { id: "song", label: "Song", className: "rl-song", render: (r) => <span className="nr-song"><span className="nr-thumb"><Cover r={r} w={96} /></span><OpenSong r={r} /></span> },
     { id: "artist", label: "Artist", render: (r) => r.artist || "—" },
     { id: "client", label: "Client", className: "rl-client", render: (r) => <Clients r={r} /> },
     { id: "released", label: "Released", className: "rl-day", render: (r) => (r.releaseDate ? dayWords(r.releaseDate) : "—") },
     { id: "streams", label: "Streams", className: "rl-n", render: (r) => (r.streams > 0 ? fmt(r.streams) : "—") },
-    { id: "sources", label: "Sources", render: (r) => <Sources r={r} /> },
     { id: "status", label: "Status", className: "rl-chips", render: (r) => <Chips r={r} /> },
   ];
   return (
     <div className="rl-page" data-rl-page="songs">
+      {rows.length > 0 && <NewReleases rows={rows} onOpen={onOpen} />}
       <div className="emp-big" data-rl-total>
         <span className="emp-big-n" data-rl-streams={sum.streams}>{fmt(sum.streams)}</span>
         <span className="emp-big-of" data-rl-songs={sum.songs}>{sum.streams === 1 ? "stream" : "streams"} · {fmt(sum.songs)} {sum.songs === 1 ? "song" : "songs"}</span>
@@ -101,40 +130,6 @@ export function RosterCatalog({ db, songInfo, onOpen }) {
         ? <p className="hint" data-rl-empty>{rows.length === 0 ? "There are no songs on the roster yet." : q.trim() ? `No song matches “${q.trim()}”.` : filter === "off" ? "No song is marked Not on streaming." : "Every song has what it needs."}</p>
         : <CardTable cols={cols} rows={list} rowKey={(r) => r.key} onRow={(r) => onOpen(r)} className="rl-table" data-rl-table="" />)}
       {!loading && phone && shown.length > list.length && <button type="button" className="btn ghost sm rl-more" data-rl-more onClick={() => setLimit((n) => n + PHONE_ROWS)}>Show {Math.min(PHONE_ROWS, shown.length - list.length)} more ({fmt(shown.length - list.length)} left)</button>}
-    </div>
-  );
-}
-
-export function RosterReleases({ db, songInfo, onOpen }) {
-  const { rows, loading, failed, retry } = useRosterRows(db, songInfo);
-  const today = useMemo(() => todayNY(), []);
-  const g = useMemo(() => releaseGroups(rows, today), [rows, today]);
-  // a release has its date in the table; a song with no date has none to show, and a button to add one instead
-  const cols = (add) => [
-    { id: "song", label: "Song", className: "rl-song", render: (r) => <OpenSong r={r} /> },
-    ...(add ? [] : [{ id: "released", label: "Released", className: "rl-day", render: (r) => dayWords(r.releaseDate) }]),
-    { id: "artist", label: "Artist", render: (r) => r.artist || "—" },
-    { id: "client", label: "Client", className: "rl-client", render: (r) => <Clients r={r} /> },
-    { id: "sources", label: "Sources", render: (r) => <Sources r={r} /> },
-    ...(add ? [{ id: "add", label: "", cardLabel: "", className: "rl-act", render: (r) => <button type="button" className="btn ghost sm" data-rl-add-date={r.open} onClick={(e) => { e.stopPropagation(); onOpen(r, "releaseDate"); }}>Add date</button> }] : []),
-  ];
-  const sections = [
-    { id: "coming", title: "Coming up", rows: g.coming, empty: "Nothing is coming up: no song has a release date after today." },
-    { id: "recent", title: "Out in the last 30 days", rows: g.recent, empty: "No song came out in the last 30 days." },
-    { id: "none", title: "No release date yet", rows: g.none, add: true, empty: g.off > 0 ? "Every song that's on streaming has a release date." : "Every song has a release date.",
-      note: g.off > 0 ? `${fmt(g.off)} ${g.off === 1 ? "song is" : "songs are"} marked Not on streaming and ${g.off === 1 ? "isn't" : "aren't"} listed: no date to find.` : null },
-  ];
-  return (
-    <div className="rl-page" data-rl-page="releases">
-      <Waiting loading={false} failed={failed} retry={retry} />
-      {loading ? <Waiting loading /> : sections.map((s) => (
-        <div className="fix-panel rl-section" key={s.id} data-rel={s.id}>
-          <div className="fix-head"><h3>{s.rows.length ? `${s.title} (${fmt(s.rows.length)})` : s.title}</h3>{s.note && <span className="hint">{s.note}</span>}</div>
-          {s.rows.length === 0
-            ? <p className="hint" data-rl-empty={s.id}>{s.empty}</p>
-            : <CardTable cols={cols(s.add)} rows={s.rows} rowKey={(r) => r.key} onRow={(r) => onOpen(r, s.add ? "releaseDate" : undefined)} className="rl-table" data-rl-table={s.id} />}
-        </div>
-      ))}
     </div>
   );
 }

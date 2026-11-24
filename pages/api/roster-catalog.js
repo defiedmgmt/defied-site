@@ -1,4 +1,4 @@
-// Roster › Catalog and Releases (components/dash/roster-views.jsx): the two facts about a song that the dashboard's own data doesn't carry for every account, its ISRC and
+// Roster › Catalog (components/dash/roster-views.jsx; it had a Releases page too until 2026-11-24): the two facts about a song that the dashboard's own data doesn't carry for every account, its ISRC and
 // "Not on streaming" (song_tracking, lib/song-info.js). GET /api/songs has them, but it works on every artist at once, so an account limited to its own artists is refused;
 // this gives each account its own artists' songs only, the same rule the Clients page follows (db.placements is already filtered that way). GET only, reads two columns, writes
 // nothing, and the answer is never cached.
