@@ -1,5 +1,6 @@
-// (2026-11-16) Instagram sends the Founder back here after "Allow" (lib/instagram.js finishConnect): the code becomes a
-// 60-day sign-in, kept locked in app_state; then back to Site › Instagram, which says whether it worked
+// (2026-11-16) Facebook sends the Founder back here after "Continue" in the login dialog (lib/instagram.js finishConnect): the code
+// becomes a system-user sign-in that never expires (2026-11-24, Unified Login), kept locked in app_state with the account it is
+// for; then back to Site › Instagram, which says whether it worked
 import { requireAccess } from "../../../lib/access";
 import { finishConnect, scrub, KEYS } from "../../../lib/instagram";
 import { setState } from "../../../lib/app-state";

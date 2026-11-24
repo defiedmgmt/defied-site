@@ -1,8 +1,10 @@
 // (2026-11-16) Site › Instagram (components/dash/instagram.jsx, lib/instagram.js): staff with Site, every artist at once.
 //   GET                                   { connected, username, expiresAt, missing, postsOn, canConnect, uploads, roster, posts, pending, last }
+//                                         (reads only what the site keeps: no call to Meta, and nothing renews. The system-user sign-in never expires)
 //   POST { action: "lookup", url }        a Spotify song or album link → title, artists (with handles), cover, tracks, producer guess
-//   POST { action: "publish", post }      posts it (INSTAGRAM_POSTS=on only) → { mediaId, permalink }; 202 { pending } while a
-//                                         video is still being readied; { action: "publish", resume: true } carries on with it
+//   POST { action: "publish", post }      posts it (INSTAGRAM_POSTS=on only) → { mediaId, permalink, warning? }; 202 { pending } while a
+//                                         video is still being readied; { action: "publish", resume: true } carries on with it.
+//                                         warning: it posted, but Instagram left the caption or the tags off (media_publish's config_issue)
 //   POST { action: "discard" }            forgets the post that's waiting on Instagram (nothing was posted)
 //   POST { action: "disconnect" }         Founders: forgets the Instagram sign-in
 // The sign-in itself never leaves the server; every error line is scrubbed of it.
@@ -10,7 +12,7 @@ import { requireAccess } from "../../lib/access";
 import { requireSameOrigin } from "../../lib/session";
 import { blobConfigured } from "../../lib/images";
 import { offText } from "../../lib/preview";
-import { IgError, scrub, igStatus, liveConn, publish, checkPost, discardPending, pendingInfo, recentPosts, disconnect } from "../../lib/instagram";
+import { IgError, scrub, igStatus, publish, checkPost, discardPending, pendingInfo, recentPosts, disconnect } from "../../lib/instagram";
 import { lookup, rosterHandles } from "../../lib/ig-lookup";
 
 // a post with a video can wait ~42 s on Instagram (lib/instagram.js BUDGET_MS), then publishes
@@ -24,9 +26,7 @@ export default async function handler(req, res) {
   const by = session.user.name || session.user.email || "";
   try {
     if (req.method === "GET") {
-      let status = await igStatus();
-      // opening the tab renews a sign-in more than a day old, so it doesn't run out between posts (best effort)
-      if (status.connected) { await liveConn().catch(() => null); status = await igStatus(); }
+      const status = await igStatus();
       const [roster, posts, pending] = await Promise.all([rosterHandles(), recentPosts(10), pendingInfo()]);
       return res.status(200).json({ ...status, canConnect: founder, uploads: blobConfigured(), roster, posts, pending });
     }

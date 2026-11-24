@@ -79,25 +79,51 @@ Drafts and posts to the company's Instagram (@defiedmgmt) in its exact caption f
 or album link, tick the tracks Defied worked on, pick the producers and the credit, check the handles, and the preview
 shows the slides and the exact caption. Staff with Site use it; only a Founder connects or disconnects the account.
 
+It uses Meta's **Instagram API with Unified Login** (2026-11-24: Facebook Login for Business, `graph.facebook.com`). The
+company's Meta app is a new one, and Meta doesn't let a new app use "Instagram API with Instagram Login". No Facebook Page
+is needed.
+
 **Setting it up (once, the owner)**
 
-1. In the Instagram app, make @defiedmgmt a **Professional** account (Creator or Business), if it isn't already.
-2. At developers.facebook.com, create a Meta app of the **Business** type and add the product
-   **Instagram API with Instagram login** (not the Facebook Login one: no Facebook Page is needed).
-3. In that product's settings (Business login settings), add the redirect URI
-   `https://www.defiedmgmt.com/api/instagram/callback`. A preview deploy only connects if its own
-   `https://<preview address>/api/instagram/callback` is added too; otherwise connect on the live site.
-4. While the app is in development mode, add yourself (the @defiedmgmt login) as an **Instagram tester** (App roles ›
-   Roles › Instagram testers) and accept the invite in the Instagram app (Settings › Apps and websites › Tester invites).
-5. In Vercel, add `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET` (the Instagram app ID and secret from that product's
-   page) and `INSTAGRAM_POSTS=on`, then redeploy.
-6. In the dashboard, open **Site › Instagram** and press **Connect Instagram** (Founders only), then Allow.
+1. In the Instagram app, make @defiedmgmt a **Professional** account (Creator or Business), if it isn't already, and
+   have it in the company's Meta business portfolio (Defied Management) at business.facebook.com.
+2. At developers.facebook.com, create a Meta app of the **Business** type with the use case **Manage messaging & content on
+   Instagram**, owned by that business portfolio. (The **API setup with Unified login** tab only shows for an app a business
+   portfolio owns.)
+3. Make the **Facebook Login for Business** configuration (Facebook Login for Business › Configurations › Create
+   configuration; choose it in Use cases › Manage messaging & content on Instagram › Customize › API setup with Unified
+   login):
+   - login variation **General**, access token **System-user access token**, token expiration **Never**;
+   - assets: the **Instagram account** (@defiedmgmt);
+   - permissions: `instagram_basic` and `instagram_content_publish` (also `instagram_manage_messages`, which Meta always
+     includes).
+
+   Copy the configuration's **ID**. It isn't a secret, and it isn't the Login URL: the site builds its own login link.
+4. Add the redirect URL `https://www.defiedmgmt.com/api/instagram/callback` (the configuration's **Redirect URL**, and Facebook
+   Login for Business › Settings › Valid OAuth redirect URIs if the app lists them there). A preview deploy only connects if
+   its own `https://<preview address>/api/instagram/callback` is added too; otherwise connect on the live site.
+5. In Vercel, add `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET` (the **Meta app's** ID and secret, from App settings › Basic;
+   not an Instagram app ID), `INSTAGRAM_CONFIG_ID` (the configuration's ID) and `INSTAGRAM_POSTS=on`, then redeploy.
+6. In the dashboard, open **Site › Instagram** and press **Connect Instagram** (Founders only). Meta's login opens: log in with
+   Instagram or Facebook, pick the business portfolio and @defiedmgmt, and approve. While the app is in Development mode, the
+   Founder who presses it needs a role on the Meta app and full control of the business portfolio. Saving the configuration
+   gives Standard Access, which covers people with a role on the app; App Review is only for connecting other businesses.
 
 **How it works**
 
-- The sign-in lasts 60 days and is renewed by itself (before a post, and when the tab opens, once it's a day old). It's
-  kept in `app_state` (`instagram:conn`) locked with AES-256-GCM under a key made from `SESSION_SECRET`: it never reaches
-  a browser or a log. Changing `SESSION_SECRET` means pressing Connect Instagram again.
+- The sign-in is a Business Integration System User token: it belongs to the business portfolio, not to the person who logged
+  in. With the configuration's expiration on **Never** it doesn't expire and **is never renewed**. There is no refresh call,
+  so nothing happens before a post or when the tab opens. If Meta ever stops accepting it (the app is removed under Business
+  Settings › Integrations › Connected apps, or the account moves to another portfolio), the next post says "Instagram
+  disconnected: a Founder presses Connect Instagram again" and the site doesn't retry.
+- It's kept in `app_state` (`instagram:conn`) locked with AES-256-GCM under a key made from `SESSION_SECRET`: it never reaches
+  a browser or a log, and goes out only as an `Authorization: Bearer` header. The app secret goes in one call only, the
+  server-to-server code exchange when a Founder connects. Changing `SESSION_SECRET` means pressing Connect Instagram again.
+  Disconnect only makes the site forget the token; Meta's side is cut in Business Settings › Integrations › Connected apps.
+- Which account: the one in `/me/assigned_instagram_accounts` whose username is `defiedmgmt`; if only one account was shared,
+  that one; otherwise the connect fails and names the usernames Meta sent.
+- If `media_publish` says it dropped the caption or the tags (`config_issue`), the post is up and the page says what to fix
+  in the Instagram app; it is never posted a second time.
 - Images (a replaced cover, a tracklist) are made a square JPEG in the browser and stored through `/api/upload-image`;
   videos (MP4/MOV, up to 300 MB) go straight from the browser to Vercel Blob (`/api/instagram/upload`). Instagram
   fetches those public links. Both need `BLOB_READ_WRITE_TOKEN`; the Spotify cover works without it.
@@ -420,7 +446,7 @@ never values.
 | `ALERT_CHANNEL_ID` | The ClickUp Chat channel a failed nightly or weekly job's alert posts to (2026-11-17, `lib/alerts.js`; see `ALERTS` below). Unset, it's the Dashboard Alerts channel (`CLICKUP_ALERTS_CHANNEL_ID`, else the one built into `lib/clickup.js`); `DIGEST_CHANNEL_ID` is only a last resort. An alert never goes to the Weekly Digest channel while there is another. |
 | `DIGEST_PERSONAL` | Personal Monday digests (a ClickUp direct message each) are off unless this is `on`, `true`, `1` or `yes` (2026-11-18, the owner doesn't want them): off, a Monday run builds no personal digest, writes no `digest_runs` row for one, sends none and posts no alert for one, whoever `DIGEST_PERSONAL_TO` names. The team digest is not affected. |
 | `DIGEST_PERSONAL_TO` | Who gets a personal Monday digest when `DIGEST_PERSONAL` is on: `all`, or names or emails separated by commas. Unset, nobody does (opt-in since 2026-11-16; it used to start with Devin). |
-| `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` | Site › Instagram (2026-11-16): the Meta app's "Instagram API with Instagram login" ID and secret, for Connect Instagram. Unset, the tab says what's missing and can only draft. See **Instagram** above. |
+| `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_CONFIG_ID` | Site › Instagram (2026-11-16, Unified Login since 2026-11-24): the **Meta app's** ID and secret (App settings › Basic; not an Instagram app ID) and the Facebook Login for Business configuration's ID (public, not a secret), for Connect Instagram. Any unset, the tab says what's missing and can only draft. See **Instagram** above. |
 | `SCHEDULE_A_SHEET_ID` | The Schedule A spreadsheet's id (2026-11-20, `lib/schedule-a.js`; see **Schedule A** above): its tab `Schedule A` is written from the site, the service account needs Editor. Unset, the feature is off: nothing is read or written and Site › Sync says it isn't set up. Set it in Production only. |
 | `PAID_WAIT_MS` | How long the paste box waits for a paid lookup (an Apify run) before answering, in milliseconds. 25000 by default; a run still going is picked up by the next lookup. |
 

@@ -147,12 +147,17 @@ function FileButton({ accept, onFile, children, disabled }) {
 // ---- the connection line: who it's connected as, what's missing, Connect / Disconnect for Founders
 const SAID = {
   connected: "Instagram is connected.", cancelled: "Instagram wasn't connected (cancelled).", founders: "Only a Founder can connect Instagram.",
-  expired: "That link ran out or was used already. Press Connect Instagram again.", setup: "Instagram isn't set up yet: INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET go in Vercel first.",
+  expired: "That link ran out or was used already. Press Connect Instagram again.",
+};
+// the "not set up" line names what's missing in Vercel (the server's list), all three until it's known
+const setupWords = (missing) => {
+  const m = missing?.length ? missing : ["INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET", "INSTAGRAM_CONFIG_ID"];
+  return `Instagram isn't set up yet: ${m.length > 1 ? `${m.slice(0, -1).join(", ")} and ${m[m.length - 1]} go` : `${m[0]} goes`} in Vercel first.`;
 };
 function ConnLine({ st, said, reload }) {
   const [asking, setAsking] = useState(false), [err, setErr] = useState(null);
   const last = st.last?.result || said;
-  const words = last === "failed" ? `Instagram didn't connect.${st.last?.why ? ` ${st.last.why}` : ""} Try again.` : SAID[last];
+  const words = last === "failed" ? `Instagram didn't connect.${st.last?.why ? ` ${st.last.why}` : ""} Try again.` : last === "setup" ? setupWords(st.missing) : SAID[last];
   const connectBtn = st.canConnect && (st.missing?.length
     ? <button type="button" className="btn sm" disabled title="Add the app's keys in Vercel first"><Instagram size={14} /> Connect Instagram</button>
     : <a className="btn sm" href="/api/instagram/connect" data-ig-connect><Instagram size={14} /> {st.connected ? "Reconnect" : "Connect Instagram"}</a>);
@@ -160,7 +165,7 @@ function ConnLine({ st, said, reload }) {
     <div className="ig-conn" data-ig-conn={st.connected ? "on" : "off"}>
       <p className="ig-conn-line">
         <Instagram size={15} />{" "}
-        {st.connected ? <span>Connected as <b>@{st.username}</b> · renews automatically</span>
+        {st.connected ? <span>Connected as <b>@{st.username}</b></span>
           : st.expired ? <span>The Instagram sign-in ran out.{st.canConnect ? "" : " A Founder connects it again."}</span>
           : st.unreadable ? <span>The saved Instagram sign-in can't be read any more.{st.canConnect ? "" : " A Founder connects it again."}</span>
           : <span>Not connected.{st.missing?.length ? ` Missing in Vercel: ${st.missing.join(", ")}.` : st.canConnect ? "" : " A Founder connects it."}</span>}
@@ -302,7 +307,7 @@ export function InstagramPanel() {
   const setPick = (n, patch) => setPicks((p) => ({ ...p, [n]: { ...p[n], ...patch, guessed: false } }));
   const reset = () => { setLink(""); setFound(null); setTyped({}); setProds([]); setCredit("co"); setPicks({}); setCover(null); dropSlide2(); if (video?.local) URL.revokeObjectURL(video.local); setVideo(null); setOrder(null); setCollab(null); setCaption(null); setDone(null); setPubErr(null); };
   const answer = (r, after) => {
-    if (r.ok && r.mediaId) { setDone({ permalink: r.permalink || null, rules: after }); setPubErr(null); }
+    if (r.ok && r.mediaId) { setDone({ permalink: r.permalink || null, rules: after, warning: r.warning || null }); setPubErr(null); }
     else if (r.status === 202 && r.pending) setPubErr(null);
     else setPubErr(r.error || "Instagram didn't take the post. Try again.");
     load();
@@ -336,6 +341,7 @@ export function InstagramPanel() {
         <div className="ig-done" role="status" data-ig-done>
           <p><Check size={16} /> Posted to Instagram.{" "}
             {done.permalink ? <a className="inline-link" href={done.permalink} target="_blank" rel="noreferrer">Open the post <ExternalLink size={12} /></a> : "Instagram didn't give its link yet; it's on the profile."}</p>
+          {done.warning && <p className="hint ig-warn" role="alert" data-ig-warning>{done.warning}</p>}
           {done.rules.length > 0 && <p className="hint">Now: {done.rules[0]}</p>}
           <button type="button" className="btn sm" onClick={reset}>Make another post</button>
         </div>
