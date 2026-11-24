@@ -10,7 +10,7 @@ import { changedFields, goneText } from "../app/saves";
 import { ClientMore, SpotifyFill } from "../dash/clients";
 import { normalizeTitle, splitsToConfirm } from "../dash/catalog-data";
 import { GrowthChip, Sparkline, dayRange, shortDay, signed, songsPost, songsToUpdate, useGrowth } from "../dash/helpers";
-import { Avatar, DropNote, Field, PhotoUpload, SplitsEditor, SplitsPie, Wordmark, fmt, money, splitColors, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "../dash/ui";
+import { Avatar, DropNote, Field, PhotoUpload, SplitsEditor, SplitsPie, Wordmark, fmt, splitColors, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "../dash/ui";
 import { ROUTE_TO_PATH } from "../shared/routes";
 import { ExtLink, Photo } from "../shared/ui";
 import { LumHistory } from "../dash/lum-history";
@@ -507,8 +507,9 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               {isStaff && activeEven && (
                 <p className="hint song-even" data-song-even>Even split assumed: {splitWords(activeEven.splits, active.splits)}. Edit and Save confirms it (or Confirm in To do).</p>
               )}
-              {/* the numbers before the pie (build I3): at 1440x900 the streams (and the money, with Money access) are in view without
-                  scrolling, the warning above them too. (2026-11-13) No Net streams row: the net isn't shown on the site */}
+              {/* the numbers before the pie (build I3): at 1440x900 the streams are in view without scrolling, the warning above them too.
+                  (2026-11-13) No Net streams row: the net isn't shown on the site. (2026-11-24, the owner: "just the key information") No Pub earnings or
+                  Potential admin fee row either, for anyone: those were the old pub sheet's estimates */}
               {db.sheetSync?.lastSyncedAt && (
                 <div className="split-list song-nums">
                   {/* no streams from the sheet yet: Spotify's plays stand in */}
@@ -516,12 +517,6 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                     const sp = spotifyOnly(active);
                     return <div className="split-list-row" data-song-streams={sp ? (sp.under1k ? "spotify-under-1k" : "spotify") : "sheet"}><span className="split-name">Streams{sp && <em> (Spotify, until Luminate has it)</em>}</span><span className="split-pct">{sp?.under1k ? "Under 1,000" : fmt(sp?.n ?? active.streams)}</span></div>;
                   })()}
-                  {seeMoney && (
-                    <>
-                      <div className="split-list-row"><span className="split-name">Pub earnings <em>(est., paid to them directly)</em></span><span className="split-pct">{money(active.revenue)}</span></div>
-                      <div className="split-list-row"><span className="split-name">Potential admin fee <em>(est.)</em></span><span className="split-pct">{money(active.adminFee)}</span></div>
-                    </>
-                  )}
                   <p className="hint song-asof">{isStaff ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt })
                     : `as of ${asOfWords(streamsDay(active.streams, spotifyOnly(active)?.on, numbersOn))}`}</p>
                 </div>

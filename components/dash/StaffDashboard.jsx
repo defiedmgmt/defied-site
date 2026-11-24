@@ -156,7 +156,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
     // (2026-11-11) My payments: what came in through this login's own pay link and what they keep (my-payments.jsx)
     ["mypay", "My payments", Wallet, 0, "money"],
     ["ar", "A&R", Handshake, 0, "ar"], ["money", "Money", Receipt, 0, "money"],
-    // (2026-11-23, the owner: "Deals, Catalog, Release desk, Clients → Roster") Roster, the Clients tab renamed: its pills are Clients, Catalog and Releases
+    // (2026-11-23, the owner: "Deals, Catalog, Release desk, Clients → Roster") Roster, the Clients tab renamed: its pills are Roster and Catalog
     ["catalog", "Roster", ListMusic, 0, "roster"], ["site", "Site", Globe, 0, "site"],
   ];
   // the tabs this account may use: Site holds Users too. Any other address opens the first of them.

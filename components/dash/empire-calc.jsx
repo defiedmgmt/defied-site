@@ -76,7 +76,7 @@ export function EmpireCalc({ data, reload, init = null }) {
   const canSave = !!m && cut != null && toSave > 0 && named;
   const save = () => {
     const body = dealPayload({ producer, prospectName: typed.name.trim(), scope, songIds: picks.map((s) => s.id), advance: toSave, cut, note });
-    return act(body, () => { setSaid(`Saved: ${usd(toSave)} for ${producer ? producer.name : body.prospectName}, as a planned deal. It's in Producer deals on EMPIRE recoupment.`); setSaveIn(""); setNote(""); });
+    return act(body, () => { setSaid(`Saved: ${usd(toSave)} for ${producer ? producer.name : body.prospectName}, as a planned deal. It's in Producer deals on the EMPIRE page.`); setSaveIn(""); setNote(""); });
   };
   const leftAfter = m && m.pot ? Math.round((free - toSave) * 100) / 100 : null;
 

@@ -56,8 +56,8 @@ function Waiting({ loading, failed, retry }) {
   return null;
 }
 
-// "New releases", on top of Catalog: the songs coming up (a release date after today, tagged "Coming up") and the ones out in the last 30 days, the newest first (lib/roster-catalog.js
-// newReleases), as cover cards in a row that scrolls sideways inside itself. A card opens the song in its client's page and editor, as the table's rows do.
+// "New releases", on top of Catalog: the songs coming up (a release date after today, tagged "Coming up") first, the soonest first, then the ones out in the last 30 days, the newest first
+// (lib/roster-catalog.js newReleases), as cover cards in a row that scrolls sideways inside itself. A card opens the song in its client's page and editor, as the table's rows do.
 function NewReleases({ rows, onOpen }) {
   const today = useMemo(() => todayNY(), []);
   const list = useMemo(() => newReleases(rows, today), [rows, today]);

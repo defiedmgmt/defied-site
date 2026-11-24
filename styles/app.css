@@ -2973,7 +2973,6 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .lm-port-old{color:var(--d-warn)}
 .app:not(.pub) .website-main .admin-head:not(.website-head) h2{margin:0;padding:0;font:400 14px/1.2 var(--d-display);font-synthesis:none;letter-spacing:.08em;text-transform:uppercase;color:var(--d-ink);background:none;-webkit-text-fill-color:currentColor}
 /* Publishing overview: the This week column (pill over streams) and sortable heads */
-.app:not(.pub) .master-tools{display:flex;justify-content:flex-end;margin:0 0 8px}
 .app:not(.pub) .master-table th .ar-sort{text-align:inherit;white-space:nowrap}
 .app:not(.pub) .master-table td.master-week{height:auto;padding-block:8px;white-space:nowrap}
 .app:not(.pub) .master-week em{display:block;margin-top:3px;font-style:normal;font-size:12px;color:var(--d-ink-4)}

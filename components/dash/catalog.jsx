@@ -10,7 +10,7 @@ import { NAME_TAKEN, clientDeleteAsk, deleteClientCascade, nameTaken } from "./c
 import { WowPill } from "./chips";
 import { GAP_WORDS, WEEK_PCT_MIN, autoAddedOf, dayRange, dupeName, possibleOf, shortDay, songsPost, songsToUpdate, useGrowthState } from "./helpers";
 import { canUse } from "./access";
-import { Avatar, DropNote, Field, PctInput, fmt, landOn, money, revealChip, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "./ui";
+import { Avatar, DropNote, Field, PctInput, fmt, landOn, revealChip, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "./ui";
 import { NotOursAsk, SongManager, noSheetTab, pushShare, releaseDay } from "../portal/ClientPortal";
 import { AskCard } from "../portal/ask";
 import { ExtLink, Photo } from "../shared/ui";
@@ -689,13 +689,10 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
   );
 }
 
-// The Overview table's columns, [id, label], in order: what every account sees (2026-11-24, the owner: "just the key information": client, songs, this week, streams), then with Money
-// access, behind "More columns", Pub earnings and the % of the roster's fee. (2026-11-13, the owner: "u can hide net streams for founders too") No Net streams column, for anyone.
-// (2026-11-24) No Potential admin fee column any more, nor on the Overview's tiles or a client's page: the old pub sheet's estimates (streams x share x the sheet's rate) are not shown
-export const overviewCols = ({ more = false, seeMoney = false } = {}) => [
-  ["writer", "Client"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"],
-  ...(seeMoney && more ? [["earn", "Pub earnings"], ["share", "% of roster fee"]] : []),
-];
+// The Overview table's columns, [id, label], in order: just the key information (2026-11-24, the owner: "just the key information"), the same for every account: client, songs, this week, streams.
+// (2026-11-13, the owner: "u can hide net streams for founders too") No Net streams column, for anyone. (2026-11-24) No Pub earnings or % of roster fee column behind a "More columns" button
+// (the button went with them), no Potential admin fee column, nor on the Overview's tiles or a client's page: the old pub sheet's estimates (streams x share x the sheet's rate) are not shown
+const OVERVIEW_COLS = [["writer", "Client"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"]];
 
 // (Splits to confirm, Songs to update and the merge card are To do's now, r7: PubFix there shows them)
 function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient }) {
@@ -755,9 +752,8 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
 
   const links = state.data?.links || {};
   // the writers' table: This week first (each writer's songs that have both weeks, added up, as
-  // lib/weekly.js sumWeeks), biggest % first; any column head re-sorts. Writer, Songs, This week, Streams and
-  // Our fee show; Their earnings and the share of the roster's fee wait behind "More columns"
-  // (r7: the 3-year forecast lives on the Advance calculator)
+  // lib/weekly.js sumWeeks), biggest % first; any column head re-sorts. Client, Songs, This week and Streams are
+  // all it shows (2026-11-24: no more columns behind a button) (r7: the 3-year forecast lives on the Advance calculator)
   const { growth } = useGrowthState();
   // r11 fix: until there's a week of daily Spotify numbers, This week is Luminate's newest week, the same one the
   // Dashboard's This week › Artists shows (GET /api/growth?top=1, shared through dashCache), named on the column
@@ -770,7 +766,6 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   }, [lumTop]);
   // auto: the opening order (This week); with no weekly numbers at all it falls back to Streams (list A 1)
   const [sort, setSort] = useState({ col: "week", dir: -1, auto: true });
-  const [more, setMore] = useState(false);
   const weekOf = (client) => {
     let ws = client && growth ? db.placements.filter((p) => p.clientId === client.id).map((p) => growth[p.id]).filter((w) => w && w.thisWeek != null && w.lastWeek != null) : [];
     // one real week, as on the Dashboard (lib/weekly.js sameWeek): the songs whose week ends last
@@ -784,14 +779,10 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
     // under 1,000 streams this week a % says little (1 → 2 is "▲ 100%"): streams only, as on the Dashboard
     return { thisWeek: t, wowPct: l > 0 && t >= WEEK_PCT_MIN ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null };
   };
-  const MORE_COLS = ["earn", "share"];
-  // (2026-11-10) the money columns are the Founders' (Money access); a Co-manager sees streams only
+  // (2026-11-10) Refresh numbers and the pub sheet's Drive folder are the Founders' (Money access); the table is the same for everyone
   const seeMoney = canUse(db, "money");
-  // without Money "More columns" has nothing to add (2026-11-13), so it isn't offered
-  const hasMore = overviewCols({ more: true, seeMoney }).length > overviewCols({ more: false, seeMoney }).length;
-  const cols = overviewCols({ more, seeMoney });
-  const val = { songs: (x) => x.songs, gross: (x) => x.r.grossStreams, earn: (x) => x.r.grossRevenue, share: (x) => Number(x.r.pctOfRoster) };
-  const cell = { writer: null, songs: (r) => r.songs, gross: (r) => fmt(r.grossStreams), earn: (r) => money(r.grossRevenue), share: (r) => `${r.pctOfRoster}%` };
+  const val = { songs: (x) => x.songs, gross: (x) => x.r.grossStreams };
+  const cell = { writer: null, songs: (r) => r.songs, gross: (r) => fmt(r.grossStreams) };
   // Songs = the songs on the site for that writer (the client list's count beside it); the sheet's own
   // count, when it differs, is said under it (a song the site has that isn't on the writer's tab yet)
   const siteSongs = (client, r) => (client ? db.placements.filter((p) => p.clientId === client.id).length : r.songs);
@@ -850,16 +841,13 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
             </div>
           </div>
 
-          {hasMore && <div className="master-tools">
-            <button className="btn ghost sm" data-more-cols aria-pressed={more} onClick={() => { setMore((f) => !f); if (more && MORE_COLS.includes(sort.col)) setSort({ col: "week", dir: -1, auto: true }); }}>{more ? "Fewer columns" : "More columns"}</button>
-          </div>}
           {/* phones: the table is a stack of cards (components/ui), so its sort is a picker */}
-          <PhoneSort cols={cols.map(([id, label]) => ({ id, label }))} sort={by} onSort={(id) => setSort(() => ({ col: id, dir: by.col === id ? -by.dir : id === "writer" ? 1 : -1 }))} />
+          <PhoneSort cols={OVERVIEW_COLS.map(([id, label]) => ({ id, label }))} sort={by} onSort={(id) => setSort(() => ({ col: id, dir: by.col === id ? -by.dir : id === "writer" ? 1 : -1 }))} />
           <div className="master-table-wrap m-cards-wrap">
             <table className="master-table m-cards">
               <thead>
                 <tr>
-                  {cols.map(([id, label]) => (
+                  {OVERVIEW_COLS.map(([id, label]) => (
                     <th key={id} data-col={id} aria-sort={by.col === id ? (by.dir < 0 ? "descending" : "ascending") : undefined}>
                       <button className={by.col === id ? "ar-sort on" : "ar-sort"} onClick={() => setSort(() => ({ col: id, dir: by.col === id ? -by.dir : id === "writer" ? 1 : -1 }))}>{label}{by.col === id ? (by.dir < 0 ? "\u00a0▼" : "\u00a0▲") : ""}</button>
                       {/* which week it is, right on the column */}
@@ -876,7 +864,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
                     onClick={client ? () => onSelectClient(client.id) : undefined}
                     title={client ? `Open ${client.name}` : "Not linked to a client on the site"}
                   >
-                    {cols.map(([id, label]) => (id === "writer" ? <td key={id}>{client ? client.name : r.writer}</td>
+                    {OVERVIEW_COLS.map(([id, label]) => (id === "writer" ? <td key={id}>{client ? client.name : r.writer}</td>
                       : id === "songs" ? <td key={id} data-label={label} className="master-songs">{songs}{client && songs !== r.songs && <em data-sheet-songs={r.songs} title={`The pub sheet's ${client.name} tab has ${r.songs} song${r.songs === 1 ? "" : "s"}; the site has ${songs}`}>{songs > r.songs ? `${songs - r.songs} not on the sheet` : `sheet has ${r.songs}`}</em>}</td>
                       : id === "week" ? <td key={id} data-label={label} className="master-week">{wk ? <><WowPill pct={wk.wowPct} /><em>{fmt(wk.thisWeek)}</em></> : <span className="muted-dash" title="No last week to compare">—</span>}</td>
                       : <td key={id} data-label={label}>{cell[id](r)}</td>))}
@@ -886,7 +874,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
               {state.data.rosterTotal && (
                 <tfoot>
                   <tr className="master-total-row">
-                    {cols.map(([id, label]) => <td key={id} data-label={label}>{id === "writer" ? "Roster total" : id === "week" ? null : id === "songs" ? songsTotal : cell[id](state.data.rosterTotal)}</td>)}
+                    {OVERVIEW_COLS.map(([id, label]) => <td key={id} data-label={label}>{id === "writer" ? "Roster total" : id === "week" ? null : id === "songs" ? songsTotal : cell[id](state.data.rosterTotal)}</td>)}
                   </tr>
                 </tfoot>
               )}

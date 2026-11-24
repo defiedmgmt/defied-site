@@ -299,9 +299,9 @@ There was a **Releases** pill too until 2026-11-24 (the owner: "maybe we dont ne
 `releasedesk` under `/dashboard/catalog/` or on their own), opens Catalog now (`placeOf` in `StaffDashboard.jsx`; Catalog also takes `releases` as its own sub), and its dates are the strip below.
 
 - **Catalog** (top to bottom): the **New releases** strip, the headline, the search and filters, the table.
-  - The strip is the songs coming up (a release date after today in New York, tagged "Coming up") and the ones out in the last 30 days (today included), in one row of cover cards, the
-    newest release first (so the furthest date leads): the cover, the title, the artist and the date. It scrolls sideways inside itself (the page never does, a phone included). A card opens
-    the song as a table row does. With none to show it says so in a line; with no songs at all it isn't drawn. It is not filtered by the search or the filters below it.
+  - The strip is the songs coming up (a release date after today in New York, tagged "Coming up") and the ones out in the last 30 days (today included), in one row of cover cards: the
+    songs coming up first, the soonest first, then the ones already out, the newest first (`newReleases` in `lib/roster-catalog.js`); each card has the cover, the title, the artist and the
+    date. It scrolls sideways inside itself (the page never does, a phone included). A card opens the song as a table row does. With none to show it says so in a line; with no songs at all it isn't drawn. It is not filtered by the search or the filters below it.
   - The cover is `placements.cover` (the link stored on the song: a Spotify image today, `i.scdn.co`; the site's own photo links and uploads work too), the first copy that has one when a
     song is on two clients' pages. It goes through the same resizer the client photos use (`thumb()`); a song with no cover shows the first letter of its title in the app's own placeholder
     (`.avatar-ph`). Nothing is looked up: no Spotify call is made for a cover.
@@ -311,15 +311,15 @@ There was a **Releases** pill too until 2026-11-24 (the owner: "maybe we dont ne
   - The table: every song of the roster, one row each, with its cover beside the title. A song on more than one client's page is one row naming all of them (the ISRC finder's rule: the same
     Spotify track, or the same title and artist, so "N songs with no ISRC" in To do and the No ISRC songs here are the same songs). It follows the search, the filter and the account: a
     Co-manager limited to their own artists sees only theirs (`db` already has only those).
-    Columns: song, artist, client(s), released, streams and status (no Sources column: today every link is Spotify; `sourceOf` and each row's `sources` are still in `lib/roster-catalog.js`).
+    Columns: song, artist, client(s), released, streams and status (no Sources column, and no per-link source rule in `lib/roster-catalog.js` any more: today every link is Spotify).
     Status chips are the app's own gaps: No ISRC (the finder's), No link and No release date (`lib/sheet-facts.js` SONG_GAPS), Split to confirm (`splitsToConfirm`, the list To do and the
     client chips use), and a gray Not on streaming (`song_tracking.skip`). A song marked Not on streaming is not asked for a date, link or ISRC. Search is instant over title, artist and
     client; the chips are All, Missing info (any chip but the gray one) and Not on streaming; the sort is Most streams (default) or Newest release. A phone shows 25 cards, then "Show more".
-- **Roster** (the clients' page): the Overview (the streams total, "Streams (all time)", and the table: client, songs, this week, streams; Founders also get "More columns": Pub earnings and
-  the % of the roster's fee) and a client's page (their name and role, the Campaign numbers, Gross Streams, the songs with their covers, splits and "+N this week"). The old pub sheet's
-  estimates are not on these pages: no Pub earnings or Potential admin fee tile, no "Estimates: streams × the writer's share × $0.00092" line, no Potential admin fee column, no "Sheet tab: <name>"
-  under a client's name (a tab the sheet doesn't have is still said, as a warning), and a song's card says nothing about its split unless it is missing or doesn't add up to 100%
-  (a client's own portal still says "Pub split · N people · 100%"). A song's window still has its Pub earnings and Potential admin fee rows (Money access).
+- **Roster** (the clients' page): the Overview (the streams total, "Streams (all time)", and the table: client, songs, this week, streams, the same for every account: no "More columns" button)
+  and a client's page (their name and role, the Campaign numbers, Gross Streams, the songs with their covers, splits and "+N this week"). The old pub sheet's estimates are not on these pages
+  or in a song's window: no Pub earnings or Potential admin fee tile, row or column (not behind "More columns" either, which is gone), no "Estimates: streams × the writer's share × $0.00092"
+  line, no "Sheet tab: <name>" under a client's name (a tab the sheet doesn't have is still said, as a warning), and a song's card says nothing about its split unless it is missing or doesn't
+  add up to 100% (a client's own portal still says "Pub split · N people · 100%"). A song's window keeps its streams, its splits and everything else, and every write it had.
 - **Each song's ISRC and "Not on streaming"** are the two facts the dashboard's own data doesn't carry for every account. `GET /api/songs` has them, but it is for every artist at
   once (an account limited to its own artists is refused), so for that account the pages read `GET /api/roster-catalog`: `{ tracking: { [placementId]: { isrc?, skip? } } }`, its own
   artists' songs only (`requireAccess(..., "publishing")`, `limited`/`ownSet`), read only, `Cache-Control: no-store`, no migration. Every other account uses the copy it has.
@@ -376,7 +376,7 @@ mark: money spent, a deal given, the advance received. Nothing estimated counts 
   starts on the model's default) and Defied's cut (a small field, "usually 20%" from the defaults). Out: one headline, "Up to $X", with "paid back in N months" and the verdict, and three tiles (their
   royalties and Defied's cut over the next 12 months, and what is left of the advance EMPIRE gave Defied after this), then Check an amount and Save as a planned deal. For a producer who already has a
   deal on those songs it says so and takes what is still to pay back on that deal (an estimate) off the advance it recommends, never below 0, and it plans against what is neither spent nor planned.
-  Saving it files a planned deal (listed under Producer deals on the EMPIRE pill). Everything else is one closed fold, "Show the math": what counts toward EMPIRE's total, today's pace and where it
+  Saving it files a planned deal (listed under Producer deals on the EMPIRE pill; the confirmation says "It's in Producer deals on the EMPIRE page."). Everything else is one closed fold, "Show the math": what counts toward EMPIRE's total, today's pace and where it
   comes from, the rate, where each dollar of Net Income goes, the payback ladder, the 3-year ledgers and every step. The pub sheet's own forecast that used to sit under it is gone.
 - **Saved state**: the one `app_state` row "empireDeal", an entry per key (`received`, `levers`, `statement:<quarter>`, `deal:<id>`, `spend:<id>`), each write one SQL
   statement on its own key so two founders saving at once never overwrite each other. No migration. `lib/empire-store.js` checks everything typed.

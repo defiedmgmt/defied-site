@@ -134,7 +134,6 @@
 .app:not(.pub) .emp-calc .form-card{max-width:560px}
 .app:not(.pub) .emp-calc .cat-stat-val[data-over]{color:var(--d-neg)}
 .app:not(.pub) .emp-calc .hint[data-over]{color:var(--d-neg)}
-.app:not(.pub) .cat-empire-line{margin:-8px 0 16px;max-width:70ch}
 
 /* the calculator's ladder and save block on a phone: amounts stay on one line, the blocks give their padding back, the save form's fields have air between them */
 @media (max-width:560px){
