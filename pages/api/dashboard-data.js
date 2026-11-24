@@ -403,7 +403,7 @@ async function handlePost(req, res, session) {
     // artist (their songs go with them) needs Publishing
     if (mine && body.clients.some((c) => !mine.has(c.id))) return res.status(403).json({ error: NOT_YOURS });
     const gone = priorClients.filter((c) => (mine ? mine.has(c.id) : true) && !sent.has(c.id) && deletable(c));
-    if (gone.length && (mine || !can("publishing"))) return res.status(403).json({ error: "Deleting an artist needs Clients for every artist, so nothing was saved." });
+    if (gone.length && (mine || !can("publishing"))) return res.status(403).json({ error: "Deleting an artist needs Roster for every artist, so nothing was saved." });
   }
   if ("placements" in body) {
     if (!Array.isArray(body.placements)) return res.status(400).json({ error: "placements[] is required." });

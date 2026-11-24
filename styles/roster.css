@@ -1,0 +1,23 @@
+/* Roster › Catalog and Releases (2026-11-23): components/dash/roster-views.jsx. Only what the two lists need; the table is the dashboard's own (CardTable: a table, cards on a phone),
+   the chips are Songs to update's (.upd-gap, .upd-filter), the search box is A&R's (.arg-search), the sort switch is To do's (.gainer-tabs) and the big figure is the Deals page's (.emp-big). */
+.app:not(.pub) .rl-tools{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin:0 0 16px}
+.app:not(.pub) .rl-tools .upd-filters{margin:0}
+.app:not(.pub) .rl-tools .rl-sort{margin-left:auto}
+@media (max-width:599px){ .app:not(.pub) .rl-tools .rl-sort{margin-left:0} }
+/* text columns on the left (the dashboard's tables right-align every column after the first, for numbers) and allowed to wrap, so the seven columns fit 1280px without a scroll */
+.app:not(.pub) .rl-table{min-width:0}
+.app:not(.pub) .rl-table th,.app:not(.pub) .rl-table td{text-align:left}
+.app:not(.pub) .rl-table th.rl-n,.app:not(.pub) .rl-table td.rl-n{text-align:right}
+.app:not(.pub) .rl-table td{height:auto;min-height:44px;padding-top:8px;padding-bottom:8px;white-space:normal}
+.app:not(.pub) .rl-table td.rl-day,.app:not(.pub) .rl-table td.rl-n{white-space:nowrap}
+.app:not(.pub) .rl-table .upd-gaps{display:inline-flex;flex-wrap:wrap;gap:4px 6px}
+/* the song's name is a real button (the keyboard's way into the row), drawn as the table's own bold first cell */
+.app:not(.pub) .rl-open{margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.app:not(.pub) .rl-open:focus-visible{outline:2px solid var(--d-ink-3);outline-offset:3px;border-radius:4px}
+.app:not(.pub) .rl-section .rl-table td.rl-act{text-align:right;white-space:nowrap}
+.app:not(.pub) .rl-section .master-table-wrap{border:0;background:none}
+.app:not(.pub) .rl-more{margin:10px 0 0}
+/* the song's column keeps room for its name (and the row's ›) and the client's for two names, so the artist column doesn't take it */
+@media (min-width:640px){ .app:not(.pub) .rl-table th.rl-song,.app:not(.pub) .rl-table td.rl-song{width:27%;min-width:240px} .app:not(.pub) .rl-table th.rl-client,.app:not(.pub) .rl-table td.rl-client{min-width:176px} }
+/* a phone's rows are cards already: Releases' panels don't draw a second box around them */
+@media (max-width:639px){ .app:not(.pub) .rl-section{padding:0;border:0;background:none} .app:not(.pub) .rl-section .fix-head{margin-bottom:10px} }

@@ -4,8 +4,9 @@ One Next.js 14 app (pages router) on Vercel:
 
 - **The public site**: home, about, team, roster, contact (`pages/*.jsx`, `components/site/`; about, team, roster and
   contact are rendered on the server).
-- **The staff dashboard** (`/dashboard`, one address per section: `/dashboard/todo`, `/dashboard/catalog` (Publishing),
-  `/dashboard/money`, `/dashboard/ar`, `/dashboard/site`…): Home, To do, Publishing, Money, A&R and Site.
+- **The staff dashboard** (`/dashboard`, one address per section: `/dashboard/todo`, `/dashboard/catalog` (Roster),
+  `/dashboard/money`, `/dashboard/deals`, `/dashboard/ar`, `/dashboard/site`…): Dashboard, To do, A&R, Money, Deals (Founders only),
+  Roster (it was Clients) and Site.
 - **The client portal** (`/portal`): each client's own songs and splits.
 
 Data lives in Neon Postgres (`lib/db.js`). The dashboard also reads and writes the pub master sheet and reads the
@@ -122,7 +123,7 @@ shows the slides and the exact caption. Staff with Site use it; only a Founder c
   doesn't arrive just leaves its tile. A picture next/og can't decode is left out, not the whole card.
 - The numbers are the ones the portal shows as Gross Streams and per song, worked out by the same code
   (`lib/portal-streams.js`). Nothing about net streams, splits or money is on it.
-- A client gets only their own card. Staff need Clients access, and a Co-manager limited to their own artists gets
+- A client gets only their own card. Staff need Roster access, and a Co-manager limited to their own artists gets
   only theirs. An artist with no streams yet gets "No streams to share yet." instead of a card.
 - A long song title gets smaller, then goes onto two lines; only past that does it end in "…". All the titles on a card
   are one size, the biggest at which each of them fits (the smallest any one needs): one line where it fits, two where
@@ -187,7 +188,7 @@ for songs that have none (`lib/advance-pace.js`).
   login is never checked The list has a "Sort by" control (Role by default: Founder, Co-manager, Intern, Client, then name; Name;
   Last sign-in) and sortable heads, remembered in the browser.
 - Adding someone puts them everywhere at once, hidden. After a save that ADDS a person (Site › Users › Add, Website › Roster › Add,
-  the Clients tab's Add client, Website › Team › Add) the dashboard runs the people link at once (`POST /api/people-sync { action:
+  the Roster tab's Add client, Website › Team › Add) the dashboard runs the people link at once (`POST /api/people-sync { action:
   "link", after: true }`: an automatic run, so until a person has pressed Site › Sync's Sync people now once (the first run, which sends
   no `after`) it answers `{ waiting: true }` and does nothing, and the line says so; never for an account limited to its own artists):
   the account (no login), INFO (the manager on L, or the client's
@@ -286,13 +287,39 @@ the producer's own share of it. The owner's old file ("Defied Schedule A (Update
   Vercel's **Production** environment only (writes are on as soon as the id is set; a preview that shares the database and the id would write the sheet too).
   To look first: set `SCHEDULE_A_WRITES=off`, open `/api/schedule-a` (or Site › Sync) while signed in, then take the switch off. The first sync is the owner's old sheet's migration.
 
-## Money › EMPIRE recoupment and Advance calculator (2026-11-21, 2026-11-23)
+## Roster › Catalog and Releases (2026-11-23)
 
-The publishing-administration deal with EMPIRE, as the last two Money pills: **EMPIRE recoupment** (`/dashboard/money/empire`) and **Advance calculator**
-(`/dashboard/money/advance`). The row is Overview, All payments, My payments, EMPIRE recoupment, Advance calculator, and Money still opens on Overview.
+The Clients tab is **Roster** now (same section, same address `/dashboard/catalog`, same access: Publishing in `lib/roles.js`, shown as Roster). Its pill row is **Clients** (the page
+it always was, the default), **Catalog** (`/dashboard/catalog/songs`) and **Releases** (`/dashboard/catalog/releases`). Both new pages are read only: a click on a song opens it in its
+client's own page and editor (the same `openFix` To do's Update uses), and nothing here saves anything. The rules are pure and tested (`lib/roster-catalog.js`,
+`components/dash/roster-views.jsx`).
+
+- **Catalog**: every song of the roster, one row each. A song on more than one client's page is one row naming all of them (the ISRC finder's rule: the same Spotify track, or the
+  same title and artist, so "N songs with no ISRC" in To do and the No ISRC songs here are the same songs). The big number is the streams of the songs listed (the pub sheet's lifetime
+  streams, the figure a client's page shows for a song; never net streams) with "N songs" beside it and the day they are from (`db.streamsOn`, as the portal says "Streams as of").
+  A song on two clients' tabs carries the same streams on both, so it is counted once, and a line says so. A song the sheet has no streams for yet shows "-" and is said to be
+  "not on Luminate yet". It follows the search, the filter and the account: a Co-manager limited to their own artists sees only theirs (`db` already has only those).
+  Columns: song, artist, client(s), released, streams, sources and status. A source badge (Spotify, Apple, YouTube, SoundCloud) is there only when the song has a link on that site
+  (`placements.link` is the one place a song keeps one: today all of them are Spotify). Status chips are the app's own gaps: No ISRC (the finder's), No link and No release date
+  (`lib/sheet-facts.js` SONG_GAPS), Split to confirm (`splitsToConfirm`, the list To do and the client chips use), and a gray Not on streaming (`song_tracking.skip`). A song marked
+  Not on streaming is not asked for a date, link or ISRC. Search is instant over title, artist and client; the chips are All, Missing info (any chip but the gray one) and
+  Not on streaming; the sort is Most streams (default) or Newest release. A phone shows 25 cards, then "Show more".
+- **Releases**: the same songs by release date: Coming up (after today in New York, the soonest first), Out in the last 30 days (the newest first, today included) and No release date
+  yet (the biggest first, each with an Add date button that opens the editor on the date; a song marked Not on streaming isn't listed, a line says how many). Older releases
+  are in Catalog. Each section says in plain words when it is empty.
+- **Each song's ISRC and "Not on streaming"** are the two facts the dashboard's own data doesn't carry for every account. `GET /api/songs` has them, but it is for every artist at
+  once (an account limited to its own artists is refused), so for that account the pages read `GET /api/roster-catalog`: `{ tracking: { [placementId]: { isrc?, skip? } } }`, its own
+  artists' songs only (`requireAccess(..., "publishing")`, `limited`/`ownSet`), read only, `Cache-Control: no-store`, no migration. Every other account uses the copy it has.
+- **Deals** (Founders only, after Money in the sidebar and in the phone bar) is the next section: it has the two pages that were Money's last pills.
+
+## Deals › EMPIRE recoupment and Advance calculator (2026-11-21, 2026-11-23)
+
+The publishing-administration deal with EMPIRE, in **Deals**, a section of its own after Money (`/dashboard/deals`): the pills **EMPIRE recoupment** (the default, `/dashboard/deals`
+or `/dashboard/deals/empire`) and **Advance calculator** (`/dashboard/deals/advance`). They were Money's last two pills until 2026-11-23, and their old addresses (`/dashboard/money/empire`,
+`/dashboard/money/advance`, `/dashboard/catalog/advance`, `advance:<id>`) open them here; Money is Overview, All payments, My payments again.
 Founders only: Money access, an account that sees every artist (one limited to its own is refused) and the Founder role itself, since a Founder can switch
-Money on for an intern or co-manager in Site › Users and that must not open these pages (403 "Only Founders can see the EMPIRE deal.", both pills and Clients'
-pointer hidden; one decision gates both pills): `GET`/`POST /api/empire` is the only way the pages see any of it. The contract is confidential, so its terms
+Money on for an intern or co-manager in Site › Users and that must not open these pages (403 "Only Founders can see the EMPIRE deal.", the Deals tab and Roster's
+pointer hidden; one decision, `seeDeals` in `StaffDashboard.jsx`, gates the section): `GET`/`POST /api/empire` is the only way the pages see any of it. The contract is confidential, so its terms
 live in server code only (`lib/empire-terms.js`); the pages' own code (`components/dash/empire*.jsx`, `empire-data.js`, `lib/empire-math.js`) holds none
 and takes every rate, amount and date from the answer, so none of them is in what a browser downloads.
 
@@ -323,7 +350,7 @@ mark: money spent, a deal given, the advance received. Nothing estimated counts 
   that says to edit or delete the other deal. An edit writes only the fields it sent, so one made from an old copy of a deal can't undo a status or advance someone else changed
   meanwhile, and an edit that leaves the producer and songs alone still goes through for a producer who has since left Schedule A.
 - **Statements from EMPIRE**: type in each quarter's Net Income and what EMPIRE credited Defied; the bar counts it.
-- **Advance calculator** (its own pill: its old addresses, /dashboard/catalog/advance and the Clients line, open it; founders only like the recoupment pill). A planning tool, so its
+- **Advance calculator** (its own pill in Deals: its old addresses, /dashboard/catalog/advance and Roster's line, open it; founders only like the recoupment pill). A planning tool, so its
   numbers are estimates and say so. Same model as before (`lib/advance-model.js`), run on the producer's royalties (`lib/empire-math.js`); pick a producer's whole catalog or some
   songs (each with its own pace), a prospect or someone new. For a producer who already has a deal on those songs it says so and takes what is still to pay back on that deal (an
   estimate) off the advance it recommends, never below 0, and it plans against what is neither spent nor planned. Saving it files a planned deal (listed under Producer deals on

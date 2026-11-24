@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { LogOut, ListMusic, RefreshCw, Handshake, LayoutDashboard, ListChecks, Receipt, MoreHorizontal, Globe, KeyRound, ClipboardList, Wallet } from "lucide-react";
+import { LogOut, ListMusic, RefreshCw, Handshake, LayoutDashboard, ListChecks, Receipt, MoreHorizontal, Globe, KeyRound, ClipboardList, Wallet, FileSignature } from "lucide-react";
 import { MyTodoPage } from "./my-todo";
 import { MyPaymentsPage } from "./my-payments";
 import { ROLES, TAB_SECTION, AREA_SECTION } from "../../lib/roles";
 import { fullSiteSync, isSheetSyncStale } from "./catalog-data";
 import { useArSummary } from "./home-data";
 import { TodoChip } from "./chips";
-import { SECTION_CODE, HomeDashboard, TodoPage, CatalogAdmin, AccountingAdmin, ARAdmin, SiteAdmin } from "./sections";
+import { SECTION_CODE, HomeDashboard, TodoPage, CatalogAdmin, AccountingAdmin, DealsAdmin, ARAdmin, SiteAdmin } from "./sections";
 import { todoItems, useAutoConfirm, useCuTasks, useSeeds, useSplitFixes, useSyncChecks } from "./todo-data";
 import { Wordmark, revealChip } from "./ui";
 import { useTrueUp, trueUpTodoItems } from "../trueup-data"; // TRUEUP-HOOK: the monthly Luminate true-up
@@ -21,7 +21,8 @@ import { InstallApp } from "../shared/install-app";
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
 // r11: the order the owner asked for (Dashboard, To do, A&R, Money, Publishing, Site); "home" is the Dashboard
-const DASH_TABS = ["home", "todo", "mytodo", "mypay", "ar", "money", "catalog", "site"];
+// (2026-11-23, the owner: "Deals, Catalog, Release desk, Clients → Roster"): Deals follows Money, for Founders; Clients is called Roster (its id and address, /dashboard/catalog, are what they were)
+const DASH_TABS = ["home", "todo", "mytodo", "mypay", "ar", "money", "deals", "catalog", "site"];
 function placeOf(t, s) {
   const sub = typeof s === "string" && s ? s : null;
   if (t === "accounting") return sub === "log" || sub === "check" ? { tab: "todo", sub } : { tab: "money", sub: sub === "payments" ? "payments" : null };
@@ -30,9 +31,11 @@ function placeOf(t, s) {
   if (t === "dashboard") return { tab: "home", sub: null }; // r11: Home is called Dashboard again (/dashboard/dashboard)
   if (t === "users") return { tab: "site", sub: "users" };
   if (t === "subs") return { tab: "site", sub: "messages" };
-  // (2026-11-21) the advance calculator moved to Money, and (2026-11-23) has its own pill there, Advance calculator (/dashboard/money/advance): its old addresses
-  // (/dashboard/catalog/advance, ?tab=catalog&sub=advance, "advance:<id>") open it there
-  if (t === "catalog" && typeof sub === "string" && /^advance(:|$)/.test(sub)) return { tab: "money", sub: "advance" };
+  // (2026-11-21) the advance calculator moved to Money, and (2026-11-23) the two EMPIRE pages left it for Deals, a section of their own (/dashboard/deals: EMPIRE recoupment, and
+  // /dashboard/deals/advance: Advance calculator). Their old addresses open them there: /dashboard/money/empire, /dashboard/money/advance, and the calculator's first ones,
+  // /dashboard/catalog/advance, ?tab=catalog&sub=advance and "advance:<id>"
+  if (t === "money" && (sub === "empire" || sub === "advance")) return { tab: "deals", sub };
+  if (t === "catalog" && typeof sub === "string" && /^advance(:|$)/.test(sub)) return { tab: "deals", sub: "advance" };
   // (r11: Publishing's ISRCs tab is gone; the finder opens inside To do, /dashboard/todo/isrc)
   if (t === "catalog" && ["splits", "update", "dupes", "isrc"].includes(sub)) return { tab: "todo", sub };
   // (list B #3: the Luminate tab is gone; r10: so is Numbers, whose sources and cost are in Site › Sync now.
@@ -54,9 +57,9 @@ const dashPlaceOf = (q) => {
 export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   // sub = where a link points inside the tab it opens ("advance", "client:<id>", To do's item or area):
   // read once as the tab mounts, so the sidebar always opens a tab on its usual start
-  // Each section has its own address (list B #11): /dashboard/<tab>[/<sub>] (/dashboard/catalog/advance,
+  // Each section has its own address (list B #11): /dashboard/<tab>[/<sub>] (/dashboard/deals/advance,
   // Home is plain /dashboard), so the browser's Back and Forward step through sections instead of leaving
-  // the dashboard, and a reload stays where it was. An old address (/dashboard?tab=catalog&sub=advance,
+  // the dashboard, and a reload stays where it was. An old address (/dashboard?tab=money&sub=advance,
   // or an old tab's name) opens the same place and is rewritten to its new one.
   const router = useRouter();
   const [{ tab, sub }, setAt] = useState(() => dashPlaceOf(router.query));
@@ -139,6 +142,9 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
   const todoN = todo.length + cuDue.length;
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
   const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou, can, seeds };
+  // (2026-11-23) Deals: EMPIRE recoupment and the Advance calculator, for the one kind of account that has them: a Founder with Money access and every artist (the API refuses everyone else).
+  // The Roster page's pointer line (catalog.jsx seeEmpire) is the same decision
+  const seeDeals = can("money") && !db.access?.ownOnly && db.access?.role === "founder";
   // r11: Home is "Dashboard" again, in the owner's order (the phone bar has the same order)
   const allTabs = [
     ["home", "Dashboard", LayoutDashboard], ["todo", "To do", ListChecks, todoN],
@@ -147,11 +153,13 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
     // (2026-11-11) My payments: what came in through this login's own pay link and what they keep (my-payments.jsx)
     ["mypay", "My payments", Wallet, 0, "money"],
     ["ar", "A&R", Handshake, 0, "ar"], ["money", "Money", Receipt, 0, "money"],
-    ["catalog", "Clients", ListMusic, 0, "roster"], ["site", "Site", Globe, 0, "site"],
+    ["deals", "Deals", FileSignature, 0, "money"],
+    // (2026-11-23, the owner: "Deals, Catalog, Release desk, Clients → Roster") Roster, the Clients tab renamed: its pills are Clients, Catalog and Releases
+    ["catalog", "Roster", ListMusic, 0, "roster"], ["site", "Site", Globe, 0, "site"],
   ];
-  // the tabs this account may use: Site holds Users too. Any other address opens the first of them.
-  const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : id === "mytodo" ? !!db.access?.mgmtList : id === "mypay" ? !!db.access?.payLink : can(TAB_SECTION[id])));
-  // (2026-11-11, the owner: "make clients the first thing the co managers see") a Co-manager opens on Clients
+  // the tabs this account may use: Site holds Users too. Any other address opens the first of them (a Deals address too, for an account without Deals).
+  const tabs = allTabs.filter(([id]) => (id === "site" ? can("site") || can("users") : id === "mytodo" ? !!db.access?.mgmtList : id === "mypay" ? !!db.access?.payLink : id === "deals" ? seeDeals : can(TAB_SECTION[id])));
+  // (2026-11-11, the owner: "make clients the first thing the co managers see") a Co-manager opens on Roster (it was Clients)
   if (db.access?.role === "comanager") tabs.sort(([a], [b]) => (b === "catalog") - (a === "catalog"));
   const at = tabs.some(([id]) => id === tab) ? tab : tabs[0]?.[0];
   // a page's own pickers (Publishing's client, Site's tab) update the address in place: one Back
@@ -200,7 +208,8 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut }) {
         {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} mine={pair("todo")} />}
         {at === "mytodo" && (paired("mytodo") ? <MyTodoPage title="To do" mine={pair("todo")} /> : <MyTodoPage />)}
         {at === "mypay" && !paired("mypay") && <MyPaymentsPage />}
-        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} myMoney={myMoney} empire={can("money") && !db.access?.ownOnly && db.access?.role === "founder"} db={db} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
+        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} myMoney={myMoney} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
+        {at === "deals" && <DealsAdmin sub={sub} onSub={setSub} db={db} />}
         {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("site")} area="site" onGo={go} />} />}
         {at === "catalog" && <CatalogAdmin db={db} commit={commit} reloadDb={reloadDb} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}

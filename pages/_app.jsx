@@ -9,6 +9,7 @@ import "../styles/sections.css"; // list B #11: a dashboard section's placeholde
 import "../styles/app.css";
 import "../styles/share.css"; // the share card's button and window (2026-11-13): after app.css, whose dialog it builds on
 import "../styles/empire.css"; // Money › EMPIRE recoupment and Advance calculator (2026-11-21): after app.css, whose dashboard tokens and Advance calculator classes it builds on
+import "../styles/roster.css"; // Roster › Catalog and Releases (2026-11-23): the few rules the two lists need, on top of the dashboard's own table, chip and search styles
 
 // The app shell (components/app/AppRoot.jsx) is mounted once here, not per page: it holds the session,
 // the dashboard's data and its save queue in memory, so it must survive client-side route changes

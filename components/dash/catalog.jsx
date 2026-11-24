@@ -18,6 +18,7 @@ import { AddedSaid, syncEverywhere } from "./people-added";
 import { findByName, ownSplit } from "../site/data";
 import { normalizeTitle, splitsToConfirm, fullSiteSync } from "./catalog-data";
 import { dashCache } from "../shared/dash-caches";
+import { RosterCatalog, RosterReleases } from "./roster-views";
 export { normalizeTitle, isSheetSyncStale, fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
 
 // a song's row on its client's tab, in the same order the sheet pull matches them (pullAndMergeSheetData):
@@ -904,11 +905,14 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   );
 }
 
-// Publishing: the clients, their songs and splits, and the MASTER totals. A Dashboard task can open it on a client ("client:<id>").
+// Roster (was Clients, 2026-11-23: the same section, address /dashboard/catalog and id "catalog"): the clients, their songs and splits, and the MASTER totals. A Dashboard task can open it on a client ("client:<id>").
+// Its pills (the one pill row every section has): Clients (this page, the default), Catalog (every client's songs in one list, /dashboard/catalog/songs) and Releases (the same songs by release date,
+// /dashboard/catalog/releases): components/dash/roster-views.jsx, rules in lib/roster-catalog.js. A song in either list opens in its client's page and editor (openFix below).
 // (2026-11-21) The Advance calculator moved to Money (components/dash/empire-calc.jsx), where Defied's advances to producers are planned against the advance EMPIRE gave;
-// (2026-11-23) it is the Money pill "Advance calculator". Its old address, /dashboard/catalog/advance, opens it there (StaffDashboard placeOf), and this page keeps one line saying so.
+// (2026-11-23) it is the Deals pill "Advance calculator" (Deals is its own section, Founders only). Its old address, /dashboard/catalog/advance, opens it there (StaffDashboard placeOf), and this page keeps one line saying so.
 // (r11: the ISRCs tab is gone, the owner: "why is there an isrc tab on the pub tab do i need that ?". The finder is
 // To do's "N songs have no ISRC" row now, /dashboard/todo/isrc; the old /dashboard/catalog/isrc opens it there.)
+const ROSTER_PILLS = [["clients", "Clients"], ["songs", "Catalog"], ["releases", "Releases"]];
 export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSongInfo, sub, onGo, onSub, chip = null }) {
   // the money columns are the Founders' (Money access); so is the page the advance calculator moved to, more strictly: Money access, every artist (an account limited to its own has
   // no EMPIRE page) and the Founder role itself, since a Founder can switch Money on for someone else (the owner: "for founders")
@@ -929,6 +933,12 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
     if (!p) return;
     setClientIdOnly(p.clientId); onSub?.(`client:${p.clientId}`); setFix({ id, n: ++fixN.current, field });
   };
+  // the pill that's lit: Catalog and Releases have their own address (/dashboard/catalog/songs, /releases); a client's page (client:<id>, edit:<id>) and the Overview are Clients'.
+  // Back to the Clients pill shows what was open there (the client picked, or the Overview), and the address says so
+  const view = sub === "songs" ? "songs" : sub === "releases" ? "releases" : "clients";
+  const toView = (k) => onSub?.(k === "clients" ? (clientId ? `client:${clientId}` : null) : k);
+  // a song in Catalog or Releases opens in its client's own page and editor (openFix); with a field (Releases' Add date) the editor starts on it
+  const openSong = (r, field) => openFix(r.open, field || null);
   const toFix = useMemo(() => splitsToConfirm(db, songInfo).all.reduce((a, x) => ({ ...a, [x.p.clientId]: (a[x.p.clientId] || 0) + 1 }), {}), [db, songInfo]);
   const client = db.clients.find((c) => c.id === clientId);
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;
@@ -987,10 +997,16 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
   return (
     <div>
       <div className="admin-head">
-        <h2>Clients</h2>{chip}
+        <h2>Roster</h2>{chip}
       </div>
+      <div className="subnav" role="tablist" aria-label="Roster">
+        {ROSTER_PILLS.map(([k, l]) => <button key={k} role="tab" aria-selected={view === k} data-roster-tab={k} className={view === k ? "subpill active" : "subpill"} onClick={() => toView(k)}>{l}</button>)}
+      </div>
+      {view === "songs" && <RosterCatalog db={db} songInfo={songInfo} onOpen={openSong} />}
+      {view === "releases" && <RosterReleases db={db} songInfo={songInfo} onOpen={openSong} />}
+      {view === "clients" && <>
       <AddedSaid said={addedSaid} onGo={onGo} />
-      {seeEmpire && <p className="hint cat-empire-line" data-empire-link>The advance calculator moved to <button type="button" className="inline-link" data-empire-go onClick={() => onGo("money", "advance")}>Money › Advance calculator</button>.</p>}
+      {seeEmpire && <p className="hint cat-empire-line" data-empire-link>The advance calculator moved to <button type="button" className="inline-link" data-empire-go onClick={() => onGo("deals", "advance")}>Deals › Advance calculator</button>.</p>}
       <div className="catalog-wrap">
         <div className="catalog-clients" ref={chips}>
           <button className={clientId === null ? "cc active" : "cc"} onClick={() => setClientId(null)}>
@@ -1019,6 +1035,7 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
               : <p className="hint err-text">That client was deleted somewhere else.</p>)}
         </div>
       </div>
+      </>}
 
       {delAsk && (() => {
         const a = clientDeleteAsk(db, delAsk);
