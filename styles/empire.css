@@ -53,7 +53,7 @@
 
 /* producer deals */
 .app:not(.pub) .emp-deals{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
-@media (min-width:900px){ .app:not(.pub) .emp-deals{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (min-width:900px) and (min-height:501px),(min-width:900px) and (pointer:fine),(min-width:900px) and (pointer:none){ .app:not(.pub) .emp-deals{grid-template-columns:repeat(2,minmax(0,1fr))} }
 .app:not(.pub) .emp-deal{display:flex;flex-direction:column;gap:6px;min-width:0;padding:14px 16px;background:var(--d-s2);border:1px solid var(--d-line-2);border-radius:var(--d-r-md)}
 .app:not(.pub) .emp-deal-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px}
 .app:not(.pub) .emp-deal-name{font-size:15px;color:var(--d-ink);overflow-wrap:anywhere}
@@ -86,7 +86,7 @@
 .app:not(.pub) .emp-spend-form{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2.2fr) minmax(0,1fr) auto;align-items:start;gap:12px;margin:0 0 6px}
 .app:not(.pub) .emp-spend-form .fld{margin:0;min-width:0}
 .app:not(.pub) .emp-spend-form .emp-form-go{margin-top:22px}
-@media (max-width:900px){
+@media (max-width:900px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .emp-spend-form{grid-template-columns:repeat(2,minmax(0,1fr))}
   .app:not(.pub) .emp-spend-form > .fld:nth-child(1){grid-column:1;grid-row:1}
   .app:not(.pub) .emp-spend-form > .fld:nth-child(3){grid-column:2;grid-row:1}
@@ -103,7 +103,7 @@
 .app:not(.pub) .emp-form{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(2,minmax(0,1fr)) auto;align-items:start;gap:12px;margin:0 0 6px}
 .app:not(.pub) .emp-form .fld{margin:0;min-width:0}
 .app:not(.pub) .emp-form-go{align-self:start;margin-top:22px}
-@media (max-width:900px){ .app:not(.pub) .emp-form{grid-template-columns:repeat(2,minmax(0,1fr))} .app:not(.pub) .emp-form > .fld:first-child{grid-column:1 / -1} .app:not(.pub) .emp-form-go{margin-top:0} }
+@media (max-width:900px),(pointer:coarse) and (max-height:500px){ .app:not(.pub) .emp-form{grid-template-columns:repeat(2,minmax(0,1fr))} .app:not(.pub) .emp-form > .fld:first-child{grid-column:1 / -1} .app:not(.pub) .emp-form-go{margin-top:0} }
 @media (max-width:560px){ .app:not(.pub) .emp-form{grid-template-columns:minmax(0,1fr)} }
 .app:not(.pub) .emp-list{display:flex;flex-direction:column;margin:12px 0 0;padding:0;list-style:none;border:1px solid var(--d-line-2);border-radius:var(--d-r-md);overflow:hidden}
 .app:not(.pub) .emp-list li{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;padding:11px 14px;border-top:1px solid var(--d-line);font-size:13.5px;color:var(--d-ink-3);min-width:0}

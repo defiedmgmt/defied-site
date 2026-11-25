@@ -8,7 +8,7 @@
 //   3. Every control is at least 44px tall (and 44px wide) on a phone or touch screen: mobile.css does this for
 //      buttons, a.btn, fields, selects and tabs inside .dash-main / .portal-main / .modal. Something custom that
 //      is tapped gets className="m-tap".
-//   4. The bottom nav: under 900px the dashboard's nav is a bar fixed to the bottom. A new top-level tab is one
+//   4. The bottom nav: under 900px, or on a phone held sideways (PHONE_SIDEWAYS: an iPhone Pro Max is 932px wide sideways), the dashboard's nav is a bar fixed to the bottom. A new top-level tab is one
 //      more row in Dashboard's `tabs` (components/App.jsx); a sub-page is one more pill in its .subnav.
 //   5. Cell data: GET reads go through swrJson() (components/ui/fetch-cache.js) so a screen opened again draws
 //      its last answer at once; a heavy block below the fold goes in <LazySection>; images get loading="lazy".

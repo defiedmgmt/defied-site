@@ -11,7 +11,7 @@
 .art-pill { height: 36px; padding: 0 14px; border-radius: 100px; border: 1px solid var(--d-line-2, #2a2a2c); background: none; color: var(--d-ink-3, #a3a3a3); font: inherit; font-size: 13px; cursor: pointer; }
 .art-pill.on { color: var(--d-ink, #fff); border-color: var(--d-line-3, #444); background: var(--d-s2, #161618); }
 .art-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
-@media (min-width: 900px) { .art-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 900px) and (min-height: 501px), (min-width: 900px) and (pointer: fine), (min-width: 900px) and (pointer: none) { .art-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .art-card { position: relative; margin: 0 !important; padding: 12px !important; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .art-card.is-expired { opacity: .72; }
 .art-top { display: flex; align-items: center; gap: 10px; min-width: 0; }

@@ -72,8 +72,8 @@
 @media (max-width:639px),(pointer:coarse) and (max-height:500px){ .m-desk{display:none !important} }
 @media (min-width:640px) and (min-height:501px),(min-width:640px) and (pointer:fine),(min-width:640px) and (pointer:none){ .m-phone{display:none !important} }
 
-/* 5. THE BOTTOM NAV is the dashboard's own nav (.dash-side nav in components/App.jsx): under 900px it is a
-      fixed bar at the bottom with every tab at least 44px tall; tabs in PHONE_MORE go into its "More" menu.
+/* 5. THE BOTTOM NAV is the dashboard's own nav (.dash-side nav in components/App.jsx): under 900px, or on a phone held sideways
+      ((pointer:coarse) and (max-height:500px), lib/phone.js PHONE_SIDEWAYS, any width), it is a fixed bar at the bottom with every tab at least 44px tall; tabs in PHONE_MORE go into its "More" menu.
       A new top-level tab is one more row in Dashboard's `tabs` list (and PHONE_MORE if the bar is full). */
 
 /* 6. A REASON THAT LIVES ONLY IN A HOVER TITLE (2026-11-25): a touch screen has no hover, so the same words go in a .m-why element

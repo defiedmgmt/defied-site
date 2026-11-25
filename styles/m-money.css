@@ -20,7 +20,7 @@
   .app:not(.pub) .adv-math-body [data-adv-math-tiles] .cat-summary-grid{grid-template-columns:minmax(0,1fr)}
 }
 /* the 3-year ledgers: an amount never breaks in the middle ("$2,200.1" / "5"); its label wraps instead */
-@media (max-width:899px){
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .adv-ledgers .split-pct,.app:not(.pub) .adv-ledgers .split-list-total > span:last-child{flex:none;white-space:nowrap;overflow-wrap:normal}
 }
 
@@ -39,7 +39,7 @@
       uppercase, 10px) go to 11px, as the shared tiles did in m-global.css; the body-font labels that say what a thing is go to the micro size
       (12px): "Spent", "Mark money spent", "Which songs", "$2.00 paid", a test payment's chip, My payments' "made" / "you keep" and its
       "Recent payments" line when held sideways. */
-@media (max-width:899px){
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) :is(.acct-tiles,.emp-page,.my-pay) .cat-stat-label{font-size:11px;letter-spacing:.08em}
   .app:not(.pub) .emp-calc .adv-ladder th{font-size:11px}
   .app:not(.pub) :is(.emp-list-h,.emp-form-title,.emp-scope legend){font-size:var(--d-fs-micro)}

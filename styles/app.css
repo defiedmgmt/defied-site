@@ -460,7 +460,7 @@ html:has(.app:not(.pub) .dash),html:has(.app:not(.pub) .portal){scrollbar-gutter
 .app:not(.pub) .dash-side nav button.active{background:var(--d-active);color:var(--d-ink)}
 .app:not(.pub) .dash-side nav button.active svg{color:var(--d-ink)}
 /* a ring tells the selected tab from a hovered one (same as the selected client) */
-@media (min-width:900px){ .app:not(.pub) .dash-side nav button.active{box-shadow:inset 0 0 0 1px var(--d-line-2)} }
+@media (min-width:900px) and (min-height:501px),(min-width:900px) and (pointer:fine),(min-width:900px) and (pointer:none){ .app:not(.pub) .dash-side nav button.active{box-shadow:inset 0 0 0 1px var(--d-line-2)} }
 .app:not(.pub) .nav-badge{height:18px;min-width:18px;padding:0 6px;border-radius:100px;background:#f5f5f5;color:#000;-webkit-text-fill-color:#000;
   font:700 11px/1 var(--d-body);font-variant-numeric:tabular-nums}
 .app:not(.pub) .dash-side-foot{display:flex;flex-direction:column;gap:4px;margin-top:12px;padding-top:12px;border-top:1px solid var(--d-line)}
@@ -556,7 +556,7 @@ html:has(.app:not(.pub) .dash),html:has(.app:not(.pub) .portal){scrollbar-gutter
 .app:not(.pub) .admin-table:has(.admin-row-link) .admin-row{grid-template-columns:minmax(0,1.2fr) minmax(0,1fr) repeat(3,minmax(0,1fr)) minmax(0,.6fr) 144px}
 .app:not(.pub) .admin-table:has(.cell-name):has(.badge-yes,.badge-no) .admin-row{grid-template-columns:minmax(0,1.7fr) minmax(64px,.8fr) minmax(0,1.1fr) 84px calc(var(--d-icon) * 4 + 6px)}
 .app:not(.pub) .admin-table:has(.cell-name):has(.badge-yes,.badge-no) .admin-row:has(> :nth-child(4):last-child){grid-template-columns:minmax(0,1.7fr) minmax(64px,1.9fr) 84px calc(var(--d-icon) * 4 + 6px)}   /* no Credit column */
-@media (min-width:900px) and (max-width:1199px){
+@media (min-width:900px) and (max-width:1199px) and (min-height:501px),(min-width:900px) and (max-width:1199px) and (pointer:fine),(min-width:900px) and (max-width:1199px) and (pointer:none){
   /* half-screen: Outreach drops Gross Streams + Songs (as the phone list does) so the numbers stay readable */
   .app:not(.pub) .admin-table:has(.admin-row-link) .admin-row{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) repeat(2,minmax(88px,1fr)) 144px}
   .app:not(.pub) .admin-table:has(.admin-row-link) .admin-row > :is(:nth-child(3),:nth-child(6)){display:none}
@@ -570,7 +570,7 @@ html:has(.app:not(.pub) .dash),html:has(.app:not(.pub) .portal){scrollbar-gutter
 .app:not(.pub) .admin-act button svg{width:16px;height:16px}
 .app:not(.pub) .admin-act button:disabled{opacity:.5;color:var(--d-ink-off)}
 /* tablets: the inline 72px actions track would shrink two 44px targets to 35px; let them run into the column gap */
-@media (pointer:coarse) and (min-width:900px){ .app:not(.pub) .admin-act button{flex:none} }
+@media (pointer:coarse) and (min-width:900px) and (min-height:501px){ .app:not(.pub) .admin-act button{flex:none} }
 @media (hover:hover){
   .app:not(.pub) .admin-act button:hover{background:var(--d-active);color:var(--d-ink)}
   .app:not(.pub) .admin-act button:last-child:hover{background:var(--d-neg-bg);color:var(--d-neg)}
@@ -987,7 +987,9 @@ html:has(.app:not(.pub) .modal){overflow:hidden}
   .app:not(.pub) .cc-row{align-items:flex-start}
   .app:not(.pub) .catalog-clients p.hint.err-text{order:-1;flex:0 0 min(320px,calc(100% - 12px));white-space:normal}
 }
-@media (max-width:899px){
+/* (2026-11-25, final review RUX-1) the phone shell: under 900px, or a phone held sideways at any width (lib/phone.js PHONE_SIDEWAYS: an iPhone Pro Max is
+   932px wide sideways with viewport-fit=cover). The desktop-only rules (min-width:900px) leave the same short touch screens out. */
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   /* top bar (static) */
   .app:not(.pub) .dash{flex-direction:column}
   .app:not(.pub) .dash-side,.app:not(.pub):has(> .storage-warn) .dash-side{position:static;top:auto;width:auto;height:auto;flex-direction:row;align-items:center;justify-content:space-between;
@@ -2359,7 +2361,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .nums-song-t{grid-column:1/-1}
   .app:not(.pub) .nums-song > span[data-l]::before{content:attr(data-l);display:block;font-size:10.5px;color:var(--d-ink-4)}
 }
-@media (max-width:899px){
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .lm-steps{grid-template-columns:minmax(0,1fr)}
 }
 @media (max-width:599px){
@@ -2405,14 +2407,14 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .ar-tolum-group{margin-top:14px} .app:not(.pub) .ar-tolum-group h4{margin:0 0 6px;font-size:13.5px}
 .app:not(.pub) .ar-tolum-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid var(--d-line-2);flex-wrap:wrap}
 .app:not(.pub) .ar-tolum-acts{display:flex;gap:6px;flex:none}
-@media (max-width:899px){
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .home-pair{grid-template-columns:minmax(0,1fr)}
   /* 6 tabs (5 + More): each as wide as its label plus an even share of what's left (never under 44px), so the
      long labels ("Dashboard", "Publishing") get their room and a gap, instead of equal slices */
   .app:not(.pub) .dash-side nav{grid-auto-columns:minmax(44px,auto)}
 }
 .app:not(.pub) .dash-side nav .nav-short{display:none}
-@media (min-width:900px){ .app:not(.pub) .dash-side nav .nav-more{display:none} }
+@media (min-width:900px) and (min-height:501px),(min-width:900px) and (pointer:fine),(min-width:900px) and (pointer:none){ .app:not(.pub) .dash-side nav .nav-more{display:none} }
 @media (max-width:420px){
   /* phones: iOS-size labels (10px), so all 6 stay whole and well apart down to 360px ("Accounting" reads Money) */
   .app:not(.pub) .dash-side nav{padding-left:2px;padding-right:2px}
@@ -2484,7 +2486,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .acct-blank{color:var(--d-ink-4)}
 .app:not(.pub) .acct-need{align-self:center;font-size:12.5px;color:var(--d-warn);white-space:nowrap}
 .app:not(.pub) .log-for{margin:0 0 8px;font-size:13.5px;color:var(--d-ink)}
-@media (max-width:899px){
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .acct-mrow{grid-template-columns:minmax(0,1fr) repeat(3,auto);row-gap:4px}
   .app:not(.pub) .acct-mrow .acct-why{grid-column:1 / -1}
   .app:not(.pub) .acct-mhead span:last-child{display:none}
@@ -2715,7 +2717,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .home-row > .home-card{align-self:stretch}
 .app:not(.pub) .home-money-card{margin:0 0 12px}
 .app:not(.pub) .home-more{display:flex;margin:10px auto 12px}
-@media (min-width:900px){
+@media (min-width:900px) and (min-height:501px),(min-width:900px) and (pointer:fine),(min-width:900px) and (pointer:none){
   .app:not(.pub) .home-row > .home-card{max-height:452px}   /* the taller card sets the row, never past 452 */
   .app:not(.pub) .home-money-card{max-height:380px}
   .app:not(.pub) .home-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#3a3a3c transparent}
@@ -2726,7 +2728,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .home-more{display:none}
   .app:not(.pub) .home-money-card .acct-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 }
-@media (max-width:899px){
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .home-row{grid-template-columns:minmax(0,1fr)}
   .app:not(.pub) .home-scroll-foot{display:none}   /* phones list N rows and "Show N more" instead */
   .app:not(.pub) .home-scroll:not(.open) .over{display:none}   /* a scroll box inside a scrolling page traps the thumb */
@@ -2740,7 +2742,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .home-money-row{position:relative}
 .app:not(.pub) .home-money-info{display:none}
 .app:not(.pub) .home-scroll [data-cut]{visibility:hidden}   /* a label in the foot's fade waits until it's fully in view */
-@media (min-width:900px){
+@media (min-width:900px) and (min-height:501px),(min-width:900px) and (pointer:fine),(min-width:900px) and (pointer:none){
   /* the strip's note: an (i) at its top right that shows the line on hover or keyboard focus */
   .app:not(.pub) .home-money-row .cat-stat{gap:4px;padding:10px 18px 11px}
   .app:not(.pub) .home-money-row .cat-stat-val{font-size:clamp(18px,8cqi,22px)}
@@ -2822,7 +2824,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .home .home-week[data-empty] .hw-empty-line{left:16px;right:16px;padding:12px 16px;border:1px dashed var(--d-line-2);border-radius:var(--d-r-md);background:var(--d-s1);color:var(--d-ink-3)}
 }
 /* the same one-line head on phones, so the Money card stays inside its phone cap with the list under it */
-@media (min-width:900px) and (max-height:820px), (max-width:599px){
+@media (min-width:900px) and (max-height:820px) and (min-height:501px),(min-width:900px) and (max-height:820px) and (pointer:fine),(min-width:900px) and (max-height:820px) and (pointer:none),(max-width:599px){
   .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head{flex-wrap:nowrap}
   .app:not(.pub) .home-money-card .acct-unlogged-top .acct-unlogged-head > span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .app:not(.pub) .acct-hd-w{display:none}
@@ -2894,7 +2896,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .home-pay .attn-head .gainer-tabs{margin-left:0;order:3}
   .app:not(.pub) .home-acct{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
-@media (max-width:899px){ .app:not(.pub) .home > :is(.home-week,.home-pay){margin:0 0 12px} }
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){ .app:not(.pub) .home > :is(.home-week,.home-pay){margin:0 0 12px} }
 /* To do: caps labels in each area's colour, a 3px bar on each row */
 .app:not(.pub) .todo .attn-head svg{color:var(--d-warn)}
 .app:not(.pub) .todo.clear .attn-head svg{color:var(--d-pos)}
@@ -3095,7 +3097,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 @media (max-width:699px){ .app:not(.pub) .ar-totals .cat-summary-grid.ar-totals-grid:has(> .cat-stat){grid-template-columns:repeat(2,minmax(0,1fr))} }
 .app:not(.pub) .ar-how-nums{display:flex;flex-wrap:wrap;gap:4px 18px} .app:not(.pub) .ar-how-nums b{font-weight:600;color:var(--d-ink-2)}
 .app:not(.pub) .ar-kind{display:flex;margin:0 0 16px} .app:not(.pub) .ar-kind button{flex:1;height:32px;padding:0 16px;font-size:13px}
-@media (min-width:700px) and (max-width:899px){
+@media (min-width:700px) and (max-width:899px),(min-width:700px) and (pointer:coarse) and (max-height:500px){
   /* the generic phone list rows start at 899; these tables keep their columns down to 700 */
   .app:not(.pub) .ar-table .admin-hd{display:grid}
   .app:not(.pub) .ar-table .admin-row:not(.admin-hd){display:grid;min-height:52px;padding:8px 12px 8px 16px;column-gap:16px}
@@ -3279,7 +3281,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .lum-hist-more{align-self:flex-start;margin-top:6px;min-height:32px}
 .app:not(.pub) .lum-hist-row.lum-hist-older{color:var(--d-ink-4)} /* (2026-11-25, polish) a week on Luminate's older count (before Sep 8, 2026), muted */
 .app:not(.pub) .lum-hist .nums-mode{margin-top:10px}
-@media (max-width:899px){ .app:not(.pub) .home > .home-side > .home-card{margin:0 0 12px} }
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){ .app:not(.pub) .home > .home-side > .home-card{margin:0 0 12px} }
 .app:not(.pub) .home-all{margin-left:auto;font-size:12.5px;text-decoration:none;color:var(--d-ink-3)}
 .app:not(.pub) .home-top{overflow:visible}
 .app:not(.pub) .home-top .attn-head{display:flex;align-items:center;gap:8px}
@@ -3420,7 +3422,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 }
 /* r10 fix: on a laptop the (i)'s note opens to its left over the head's own line (two lines, centred on it), so it
    never covers the ticker, This week's switch or any button (list A 4) */
-@media (min-width:900px){
+@media (min-width:900px) and (min-height:501px),(min-width:900px) and (pointer:fine),(min-width:900px) and (pointer:none){
   .app:not(.pub) .home-head .home-money-line .home-money-note{top:50%;bottom:auto;left:auto;right:34px;transform:translateY(-50%);width:max-content;max-width:min(640px,calc(100vw - 560px));padding:4px 10px;font-size:12.5px;line-height:1.35}
 }
 /* r10 fix: the narrowest phones (360) keep the money line inside the screen: a little smaller, and it may wrap */
@@ -3703,7 +3705,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .admin-group.admin-fold:last-child{border-bottom:0}
 .app:not(.pub) .admin-sort{display:flex;align-items:center;gap:10px;margin:0 0 12px;font-size:13px;color:var(--d-ink-4)}
 .app:not(.pub) .admin-sort .gainer-tabs{margin-left:0}
-@media (max-width:899px){ .app:not(.pub) .admin-group.admin-fold{padding:2px 8px 2px 14px} }   /* the list rows' padding under 900px */
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){ .app:not(.pub) .admin-group.admin-fold{padding:2px 8px 2px 14px} }   /* the list rows' padding under 900px */
 @media (max-width:599px){ .app:not(.pub) .admin-sort{flex-wrap:wrap;gap:6px 10px} .app:not(.pub) .admin-sort .gainer-tabs{flex:1 1 100%;width:auto} .app:not(.pub) .admin-sort .gainer-tabs button{min-height:44px} }
 .app:not(.pub) .admin-hd .ar-sort{display:inline-flex;align-items:center;gap:5px;min-height:28px;cursor:pointer}
 .app:not(.pub) .admin-hd .ar-sort:not(.on)::after{content:"\2195";font-size:11px;opacity:.45}
@@ -3859,7 +3861,7 @@ img.ig-thumb,video.ig-thumb{padding:0}
 .app:not(.pub) .emp-form-acts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .app:not(.pub) .emp-spend-form .emp-form-acts,.app:not(.pub) .emp-form .emp-form-acts{margin-top:28px;min-height:var(--d-field-h,44px)}
 .app:not(.pub) .emp-spend-form .emp-form-acts .emp-form-go,.app:not(.pub) .emp-form .emp-form-acts .emp-form-go{margin-top:0}
-@media (max-width:900px){
+@media (max-width:900px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .emp-spend-form .emp-form-acts{grid-column:1 / -1;grid-row:3;justify-self:start;margin-top:0;min-height:0}
   .app:not(.pub) .emp-form .emp-form-acts{justify-self:start;margin-top:0;min-height:0}
 }

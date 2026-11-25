@@ -6,7 +6,7 @@
 
 /* 1. SMALL LABELS (Site only): nothing under 11px on a phone, and the labels that say something 12px. The wide display caps stay
       (Live / Hidden, a message's subject); only the size changes, and a long subject wraps inside its pill instead of ending in "…". */
-@media (max-width:899px){
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .site-page :is(.badge-yes,.badge-no){height:24px;font-size:12px}
   /* a message's subject (Site › Messages, and the same cards in To do's Messages panel) */
   .app:not(.pub) .sub-top-info .tag{height:auto;min-height:24px;padding-block:4px;font-size:12px;line-height:1.25;white-space:normal;text-overflow:clip;overflow-wrap:anywhere}
@@ -22,14 +22,14 @@
 
 /* 2. USERS: the last sign-in gets a line of its own under the role, so "Last in Nov 14 · password set Nov 13" reads in one piece instead of
       wrapping beside the role with its "·" left hanging. */
-@media (max-width:899px){
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .site-page .admin-row:not(.admin-hd):not(.admin-row-link) > .cell:has(> [data-user-signin]){flex:1 1 100%;max-width:none}
   .app:not(.pub) .site-page .admin-row:not(.admin-hd):not(.admin-row-link) > .cell:has(> [data-user-signin])::before{content:none}
 }
 
 /* 3. WEBSITE › TEAM: an email gets a line of its own under Role · Live (it was squeezed into what was left beside them, 80px at 375,
       and broke mid-word or ended in "…"); Role keeps the line's spare room, so the Live / Hidden chip stays on the right. */
-@media (max-width:899px){
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .site-page .admin-row:not(.admin-hd):not(.admin-row-link) > .cell:has(> .team-email){order:4;flex:1 1 100%;max-width:none;margin-left:42px}
   .app:not(.pub) .site-page .admin-row:not(.admin-hd):not(.admin-row-link) > .cell:has(> .team-email)::before{content:none}
   .app:not(.pub) .site-page .admin-row:not(.admin-hd):not(.admin-row-link):has(.team-email) > .cell:nth-child(2){flex:1 1 0rem;max-width:none}
@@ -39,7 +39,7 @@
       separate flex item, so it wrapped as a block under the icon). A card's head: the name (and the unread dot) beside Mark read, then
       the subject on a row of its own as wide as the card, so "Artist Management" at 12px stays on one line instead of being squeezed
       into the space left beside the button. */
-@media (max-width:899px){
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) p.dropbox-line{display:block}
   .app:not(.pub) p.dropbox-line > svg{display:inline-block;vertical-align:-2px;margin-right:2px}
   .app:not(.pub) .sub-top{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;column-gap:10px;row-gap:12px}
@@ -70,6 +70,6 @@
 
 /* 7. SYNC › SCHEDULE A: a link on the Founders' copy line under it ("Open the … copy ↗") stays in one piece on a phone, one target on one
       line, the text wrapping before it rather than through it. */
-@media (max-width:899px){
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .sync-row[data-check=scheduleA] .attn-main > em > a{white-space:nowrap}
 }
