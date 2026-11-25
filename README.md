@@ -383,7 +383,9 @@ mark: money spent, a deal given, the advance received. Nothing estimated counts 
   too); and what a buyout would cost on the day it opens. Inside it, "How the estimate counts Net Income": the streams each Schedule A song earned (Luminate's all-time total
   near the start and the latest count where both exist, a song's lifetime count if it came out since, else today's pace x the days), x the pub sheet's rate a stream
   (ASSUMPTIONS!B7) x the share of it EMPIRE receives as Net Income (a standard guess a Founder can change there) x what EMPIRE pays Defied. It is before EMPIRE's collection fees
-  (the contract caps them); a statement replaces it.
+  (the contract caps them); a statement replaces it. (2026-11-25) The words follow the share saved: at 60% or under they say Net Income is the mechanical royalties only (EMPIRE isn't
+  registered to collect PRO money, so both halves of performance go to the writers through their PRO) with about 3% collection fees already taken out; above 60%, the mechanicals and
+  the publisher's half of performance, before the fees (`components/dash/empire-data.js` netIncomeText / netIncomeHow, on the EMPIRE page and in the calculator's Show the math).
 - **The advance EMPIRE gave Defied**, a second bar. It starts at $0 and fills only with money marked spent: the deals marked
   given plus the entries a founder types in under "Mark money spent" (a button; its form, amount, what for and the day, appears when it is pressed; saved as `spend:<id>`, Delete asks in the page).
   A planned deal is one muted line under the bar, not part of it. Going over is allowed and says "Over by $X". Whether it has been received (and the day) is a small chip with its button.
@@ -404,6 +406,11 @@ mark: money spent, a deal given, the advance received. Nothing estimated counts 
   deal on those songs it says so and takes what is still to pay back on that deal (an estimate) off the advance it recommends, never below 0, and it plans against what is neither spent nor planned.
   Saving it files a planned deal (listed under Producer deals on the EMPIRE pill; the confirmation says "It's in Producer deals on the EMPIRE page."). Everything else is one closed fold, "Show the math": what counts toward EMPIRE's total, today's pace and where it
   comes from, the rate, where each dollar of Net Income goes, the payback ladder, the 3-year ledgers and every step. The pub sheet's own forecast that used to sit under it is gone.
+  (2026-11-24, accuracy) Today's pace is song by song: a song with daily readings at its measured pace, one without by the sheet's rule (lifetime x B9), summed (no switch to the
+  rule for everything below half measured); "from daily counts" only when all of it is measured, else "partly from daily counts (N%)". A song whose daily counts are from its first
+  90 days plans on the lower of its 28-day pace and its latest 7 days of readings (the launch spike drops out), never above its measured pace, with a "New song, so this estimate is rough" note (`lib/advance-pace.js`
+  songPace `forward`; the estimate of what was already earned still fills at today's measured rate). Check an amount is stacked on what the producer's deals still owe, like the headline.
+  Someone new is typed as lifetime streams (all platforms). The calculator's estimates are shown to the nearest $10; Show the math keeps the cents.
 - **Saved state**: the one `app_state` row "empireDeal", an entry per key (`received`, `levers`, `statement:<quarter>`, `deal:<id>`, `spend:<id>`), each write one SQL
   statement on its own key so two founders saving at once never overwrite each other. No migration. `lib/empire-store.js` checks everything typed.
 

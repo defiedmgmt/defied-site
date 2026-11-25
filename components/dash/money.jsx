@@ -20,8 +20,12 @@ import { PanelWait } from "./sections";
 const EmpireDeal = dynamic(() => import("./empire").then((m) => m.EmpireDeal), { ssr: false, loading: PanelWait });
 const AdvanceDeal = dynamic(() => import("./empire-calc").then((m) => m.AdvanceDeal), { ssr: false, loading: PanelWait });
 
-// "Nov", "Oct": this month and the one before, from the day the page is viewed
-const monthShort = (offset) => { const d = new Date(); d.setDate(15); d.setMonth(d.getMonth() + offset); return d.toLocaleDateString("en-US", { month: "short" }); };
+// "Nov", "Oct": this month and the one before, from the day the page is viewed, on New York's clock: the totals are counted by New York month (lib/stripe.js
+// commissionTotals), so near midnight at a month's end the viewer's own clock would name the wrong months (2026-11-24, audit)
+const monthShort = (offset) => {
+  const at = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric" }).formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return new Date(Date.UTC(Number(at.year), Number(at.month) - 1 + offset, 15)).toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+};
 export function MoneyRow({ money: m, failed, retry }) {
   if (!m || !m.connected || m.error) {
     return (
@@ -240,7 +244,9 @@ function LogEditRow({ r, v, why, opts, year, off, busy, onTick, onField }) {
         </>}
       </fieldset>
       {co ? amt != null && share != null && share <= amt && <p className="logedit-split" data-split>DEFIED SHARE: {money((amt - share) / 100)}. The sheet works it out (Gross Commission less Manager Share).</p>
-        : split && <p className="logedit-split" data-split>{split.manager ? <>The sheet works out the rest: Manager {split.manager}, Manager Share {money(split.share / 100)}, DEFIED SHARE {money(split.defied / 100)}.</>
+        : split && <p className="logedit-split" data-split>{split.odd != null
+          ? <span className="warn-text" data-split-odd>{`INFO's Manager Gets % for ${v.client} reads ${split.odd}, which isn't a fraction from 0 to 1 (66.7% is 0.667 there), so the sheet would work out a wrong Manager Share. Fix it on INFO first.`}</span>
+          : split.manager ? <>The sheet works out the rest: Manager {split.manager}, Manager Share {money(split.share / 100)}, DEFIED SHARE {money(split.defied / 100)}.</>
           : <>The sheet works out the rest: no manager, so DEFIED SHARE is the full {money(amt / 100)}.</>}</p>}
       {amt != null && r.stripe && amt !== centsOf(r.stripe.amount) && <p className="logedit-diff" data-diff>Stripe says {money(r.stripe.amount)}; the sheet will say {money(amt / 100)}. It still counts as logged. To check may list the difference: Mark as OK there if it's right.</p>}
     </div>

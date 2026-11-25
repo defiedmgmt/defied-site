@@ -6,7 +6,7 @@ import { useAct, useEmpire } from "./empire-api";
 import { overlapOf, paceOfSongs, producerDeal } from "../../lib/empire-math";
 import { yearFactor } from "../../lib/advance-model";
 import {
-  amountOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, paceSource, pctText, usd, usd0, verdictRule, verdictShown, verdictTone,
+  amountOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, netIncomeHow, paceSource, partPct, pctText, round10, usd, usd0, usd10, verdictRule, verdictShown, verdictTone,
 } from "./empire-data";
 
 // The advance calculator (2026-11-21), moved here from Clients › Advance calculator into Money, and rebuilt for how Defied now gives advances: out of the
@@ -19,7 +19,7 @@ import {
 // just the key information") Shown simple: who (a producer of ours, or someone new), how long to pay it back (chips) and Defied's cut in; one headline, "Up to $X", and three tiles out, with
 // Check an amount and Save as a planned deal under them. Everything else is ONE closed fold, "Show the math". The A&R prospects in the picker and the pub sheet's own forecast are gone.
 
-// A measured pace counts when at least half of it is measured (lib/empire-math.js REAL_PACE_MIN), as the calculator always did.
+// Today's pace is song by song (lib/empire-math.js paceOfSongs): each measured song at its measured pace, the rest by the sheet's rule.
 const VerdictPill = ({ verdict }) => (verdict ? <span className="adv-pill" data-tone={verdictTone(verdict)} data-verdict={verdict}>{verdict.startsWith("Too high") ? "Too high" : verdict}</span> : null);
 const BLANK_NEW = { name: "", gross: "", share: "" };
 // "Pay back in": the choices, in months. The box starts on the model's own default (defaults.months), which joins the row if it isn't one of them
@@ -51,27 +51,37 @@ export function EmpireCalc({ data, reload, init = null }) {
   const rulePct = pctText(lev?.runRate ?? 0);
   const pace = useMemo(() => {
     if (!lev?.ok) return null;
-    if (producer) return paceSource({ p: paceOfSongs(picks.filter((s) => s.share > 0)), rule: lev.runRate, decay: lev.decayRate });
+    if (producer) return paceSource({ p: paceOfSongs(picks.filter((s) => s.share > 0)), rule: lev.runRate, decay: lev.decayRate, heldNames: picks.filter((s) => s.share > 0 && s.launch).map((s) => s.song), noSplit: picks.filter((s) => !(s.share > 0)).length });
     return { real: false, perYear: netStreams * lev.runRate, warning: null, source: `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${rulePct} a year.` };
   }, [lev, producer, scope, picked, netStreams]); // eslint-disable-line react-hooks/exhaustive-deps
   const R = clampMonths(monthsIn), amount = amountOf(amountIn), cut = cutFromText(cutText);
-  const m = useMemo(() => (lev?.ok && pace && cut != null
-    ? producerDeal({ pace: pace.perYear, ni: lev.niPerStream, payout: terms.payout, cut, decay: lev.decayRate, months: R, amount, pot: { left: free } })
-    : null), [lev, pace, cut, R, amount, terms, free]);
-  const checked = m ? checkSentence(m.check, m.ceiling) : null;
-  const decay = lev?.decayRate ?? 0;
+  // the new songs held down (lib/advance-pace.js songPace), named with their 28-day pace and what they count as from their latest week, for "Show the math"
+  const heldSongs = producer ? picks.filter((s) => s.share > 0 && s.launch) : [];
+  const heldWords = heldSongs.length ? ` New ${heldSongs.length === 1 ? "song" : "songs"} held to the latest week: ${heldSongs.map((s) => `“${s.song}” ${bigNum(s.measuredNet)} a year over its daily counts so far, counted as ${bigNum(s.paceNet)}`).join("; ")}.` : "";
 
   // (2026-11-21, review) A producer who already has a deal on a song these picks cover has those royalties spoken for: what is still to pay back on that deal (its estimate: a planned
   // deal's whole advance, a given one's what the royalties since its day haven't covered) comes off the advance recommended here, never below 0. Deals on other songs don't count.
+  // (2026-11-24, audit) "Check an amount" stacks the amount on it too, so the check, the headline and the ladder agree.
   const live = new Set((producer?.songs || []).map((s) => s.id));
   const existing = producer ? deals.filter((d) => overlapOf({ clientId: producer.id, scope, placementIds: picks.map((s) => s.id) }, d, live)) : [];
   const held = existing.reduce((a, d) => a + (Number(d.advance) || 0), 0), owing = existing.reduce((a, d) => a + (Number(d.owing ?? d.advance) || 0), 0);
+  const m = useMemo(() => (lev?.ok && pace && cut != null
+    ? producerDeal({ pace: pace.perYear, ni: lev.niPerStream, payout: terms.payout, cut, decay: lev.decayRate, months: R, amount, owing, pot: { left: free } })
+    : null), [lev, pace, cut, R, amount, owing, terms, free]);
+  const checked = m ? checkSentence(m.check, m.ceiling) : null;
+  // (2026-11-24, audit) "from daily counts" only when ALL of the pace is measured; a mix says how much is
+  const paceKind = pace?.real ? "real" : pace?.realShare > 0 ? "mixed" : "estimate";
+  const paceSub = paceKind === "real" ? "streams a year, from daily counts" : paceKind === "mixed" ? `streams a year, partly from daily counts (${partPct(pace.realShare)})` : "streams a year, an estimate";
+  const decay = lev?.decayRate ?? 0;
   const adv = m ? Math.max(0, m.advance - owing) : 0; // the advance that is left for a new deal
-  const potAfter = m && m.pot ? free - adv : null;
+  // (2026-11-24, audit) the estimates are shown to the nearest $10 (empire-data.js usd10): the headline, the tiles, the ladder and the check. What is left of the pot is the real
+  // amount less the advance as shown, and Save starts from the advance as shown, so what is on the screen adds up. The step-by-step under Show the math keeps the cents.
+  const adv10 = round10(adv);
+  const potAfter = m && m.pot ? free - adv10 : null;
 
   // the deal to save: its advance is the one typed for it, else the amount being checked, else the advance shown
   const typedSave = amountOf(saveIn);
-  const toSave = typedSave ?? amount ?? (m ? Math.round(adv * 100) / 100 : 0);
+  const toSave = typedSave ?? amount ?? (m ? adv10 : 0);
   const named = producer ? picks.length > 0 : who === "n" ? typed.name.trim().length > 0 && netStreams > 0 : false;
   const canSave = !!m && cut != null && toSave > 0 && named;
   const save = () => {
@@ -122,7 +132,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                         <label>
                           <input type="checkbox" checked={picked.has(s.id)} onChange={() => tick(s.id)} aria-label={s.song} />
                           <span className="emp-song-t"><b>{s.song}</b>{s.artist && <em> {s.artist}</em>}</span>
-                          <span className="emp-song-n" data-emp-song-pace>{s.share > 0 ? `${pctText(s.share, 0)} · ${bigNum(s.paceNet)} a year${s.kind === "real" ? "" : " (est.)"}` : "no split yet"}</span>
+                          <span className="emp-song-n" data-emp-song-pace>{s.share > 0 ? `${pctText(s.share, 0)} · ${bigNum(s.paceNet)} a year${s.kind !== "real" ? " (est.)" : s.launch ? " (new, rough)" : ""}` : "no split yet"}</span>
                         </label>
                       </li>
                     ))}
@@ -135,9 +145,12 @@ export function EmpireCalc({ data, reload, init = null }) {
           {who === "n" && (
             <>
               <Field label="Name" value={typed.name} onChange={(e) => setTyped({ ...typed, name: e.target.value })} placeholder="Who are you looking at?" data-f="name" />
-              <Field label="Gross streams" type="number" value={typed.gross} onChange={(e) => setTyped({ ...typed, gross: e.target.value })} data-f="gross" />
+              {/* (2026-11-24, audit) the pace for someone new is the sheet's rule, lifetime streams × the run-rate, so this box is their LIFETIME streams: it said "Gross streams",
+                  and a year's streams typed in came out at 30% of what they should */}
+              <Field label="Lifetime streams (all platforms)" type="number" value={typed.gross} onChange={(e) => setTyped({ ...typed, gross: e.target.value })} data-f="gross"
+                hint="Their all-time total on every platform, not a year's streams." />
               <Field label="Writer %" type="number" value={typed.share} onChange={(e) => setTyped({ ...typed, share: e.target.value })} data-f="share" />
-              {netStreams > 0 && <p className="hint">Net streams: {bigNum(Math.round(netStreams))}</p>}
+              {netStreams > 0 && <p className="hint">Their share, lifetime: {bigNum(Math.round(netStreams))} streams</p>}
             </>
           )}
           {!empty && pace?.warning && <p className="hint adv-warn" data-tone="warn" data-adv-warn role="note">{pace.warning}</p>}
@@ -162,14 +175,14 @@ export function EmpireCalc({ data, reload, init = null }) {
           {empty || !m ? <p className="adv-empty" data-emp-calc-empty>{!lev?.ok ? "Loading the rates…" : cut == null ? "Type Defied's cut as a percent to see an advance." : who === "n" && Number(typed.gross) > 0 && !(Number(typed.share) > 0) ? "Add their writer share (%) to see an advance." : producer && picks.length === 0 ? "Tick at least one song to see an advance." : "Pick a producer, or type streams, to see an advance."}</p> : (
             <>
               <div className="adv-headline" data-adv-headline>
-                <p className="adv-head-line"><span className="adv-head-up">Up to</span> <span className="adv-head-n" data-adv-headline-n>{money(adv)}</span></p>
+                <p className="adv-head-line"><span className="adv-head-up">Up to</span> <span className="adv-head-n" data-adv-headline-n>{usd10(adv)}</span></p>
                 <p className="adv-head-sub" data-adv-headline-sub><span>{`paid back in ${monthsText(R)}`}</span>{adv > 0 && <VerdictPill verdict={verdictShown(R)} />}</p>
                 {owing > 0 && <p className="adv-stat-sub" data-adv-owing>{`after the ${usd(owing)} still to pay back`}</p>}
               </div>
               <div className="cat-summary" data-adv-tiles>
                 <div className="cat-summary-grid">
-                  <div className="cat-stat" data-stat="royalties"><span className="cat-stat-label">Their royalties, next 12 months</span><span className="cat-stat-val">{money(m.next12.royalties)}</span></div>
-                  <div className="cat-stat" data-stat="cut"><span className="cat-stat-label">Defied's cut, next 12 months</span><span className="cat-stat-val">{money(m.next12.defiedCut)}</span></div>
+                  <div className="cat-stat" data-stat="royalties"><span className="cat-stat-label">Their royalties, next 12 months</span><span className="cat-stat-val">{usd10(m.next12.royalties)}</span></div>
+                  <div className="cat-stat" data-stat="cut"><span className="cat-stat-label">Defied's cut, next 12 months</span><span className="cat-stat-val">{usd10(m.next12.defiedCut)}</span></div>
                   <div className="cat-stat" data-stat="pot"><span className="cat-stat-label">{`Left of the ${usd0(terms.execution)} after this`}</span><span className="cat-stat-val" data-over={potAfter < 0 ? "" : undefined}>{usd(potAfter)}</span></div>
                 </div>
               </div>
@@ -183,7 +196,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                   />
                   {checked && <p className="adv-check-out" data-tone={checked.tone} data-adv-check-result role="status">{checked.text}</p>}
                 </div>
-              ) : <p className="hint adv-nofee" data-adv-nofee>At this pace there are no royalties to pay an advance back from.</p>}
+              ) : <p className="hint adv-nofee" data-adv-nofee>{pace.noSplitOnly ? "No split yet, so there are no royalties to pay an advance back from." : "At this pace there are no royalties to pay an advance back from."}</p>}
 
               <div className="adv-block adv-compact" data-emp-save>
                 <h3 className="adv-h">Save as a planned deal</h3>
@@ -211,12 +224,12 @@ export function EmpireCalc({ data, reload, init = null }) {
           <div className="emp-fc-body adv-math-body">
             <div className="cat-summary" data-adv-math-tiles>
               <div className="cat-summary-grid">
-                <div className="cat-stat" data-stat="toEmpire"><span className="cat-stat-label">{producer ? `Counts toward EMPIRE's ${usd0(terms.owed)} (already on Schedule A), next 12 months` : `Adds to EMPIRE's ${usd0(terms.owed)}, next 12 months`}</span><span className="cat-stat-val">{money(m.toEmpire.next12)}</span><span className="adv-stat-sub">{`all of Defied's ${pctText(terms.payout, 0)}`}</span></div>
-                <div className="cat-stat" data-stat="pace"><span className="cat-stat-label">Today's pace</span><span className="cat-stat-val">{bigNum(m.pace)}</span><span className="adv-stat-sub">{pace.real ? "streams a year, from daily counts" : "streams a year, an estimate"}</span></div>
+                <div className="cat-stat" data-stat="toEmpire"><span className="cat-stat-label">{producer ? `Counts toward EMPIRE's ${usd0(terms.owed)} (already on Schedule A), next 12 months` : `Adds to EMPIRE's ${usd0(terms.owed)}, next 12 months`}</span><span className="cat-stat-val">{usd10(m.toEmpire.next12)}</span><span className="adv-stat-sub">{`all of Defied's ${pctText(terms.payout, 0)}`}</span></div>
+                <div className="cat-stat" data-stat="pace"><span className="cat-stat-label">Today's pace</span><span className="cat-stat-val">{bigNum(m.pace)}</span><span className="adv-stat-sub">{paceSub}</span></div>
               </div>
             </div>
             {/* where today's pace comes from: real daily streams for songs with enough of them, otherwise the sheet's rule */}
-            <p className="hint adv-source" data-adv-source={pace.real ? "real" : "estimate"}>{pace.source}</p>
+            <p className="hint adv-source" data-adv-source={paceKind}>{pace.source}</p>
             <p className="hint adv-rate" data-emp-rate title="The rate is ASSUMPTIONS!B7 on the pub sheet">{`At $${+lev.blendedRate.toFixed(6)} a stream for the whole song (your pub sheet's rate).`}</p>
 
             <div className="adv-block" data-emp-flow>
@@ -241,7 +254,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                   <tbody>
                     {m.ladder.map((r) => (
                       <tr key={r.months} data-ladder-months={r.months} data-chosen={r.months === R ? "" : undefined} aria-current={r.months === R ? "true" : undefined}>
-                        <td>{monthsText(r.months)}</td><td>{money(Math.max(0, r.advance - owing))}</td><td><VerdictPill verdict={owing > 0 && r.advance - owing <= 0 ? null : r.verdict} /></td>
+                        <td>{monthsText(r.months)}</td><td>{usd10(Math.max(0, r.advance - owing))}</td><td><VerdictPill verdict={owing > 0 && r.advance - owing <= 0 ? null : r.verdict} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -264,9 +277,10 @@ export function EmpireCalc({ data, reload, init = null }) {
             <div className="adv-block adv-how" data-adv-how>
               <h3 className="adv-h">How we got these numbers</h3>
               <ul className="adv-how-list">
-                <li data-how="pace">{`Today's pace: ${Math.round(m.pace).toLocaleString("en-US")} streams a year (all platforms, their share). ${pace.source}`}</li>
+                <li data-how="pace">{`Today's pace: ${Math.round(m.pace).toLocaleString("en-US")} streams a year (all platforms, their share). ${pace.source}${heldWords}`}</li>
                 <li data-how="rate">{`× $${+lev.blendedRate.toFixed(6)} a stream: the pub sheet's rate for the whole song, writer and publisher (ASSUMPTIONS!B7) = ${usd(m.pace * lev.blendedRate)} a year at today's pace.`}</li>
-                <li data-how="net">{`Net Income: EMPIRE receives ${pctText(lev.niShare, 1)} of that, the mechanicals and the publisher's half of performance = ${usd(m.now.ni)} a year${lev.niShareSet ? ` (a share a Founder set; the standard guess is ${pctText(lev.niStandard, 1)})` : ""}. The writer's share of performance royalties isn't part of this: it's paid to the writer through their PRO, outside the deal. This is before EMPIRE's collection fees (the contract caps them at ${pctText(terms.feeCap, 0)}).`}</li>
+                {/* (2026-11-25) what Net Income counts follows the saved share: mechanicals only at 60% or under (empire-data.js netIncomeHow) */}
+                <li data-how="net">{netIncomeHow(lev, terms, m.now.ni)}</li>
                 <li data-how="empire">{`EMPIRE keeps ${pctText(1 - terms.payout, 1)} of Net Income: ${usd(m.now.empire)} a year.`}</li>
                 <li data-how="defied">{`Defied gets the other ${pctText(terms.payout, 1)}: ${usd(m.now.defied)} a year. All of it counts toward paying back EMPIRE's ${usd0(terms.owed)}, whoever it ends up with.`}</li>
                 <li data-how="cut">{`Defied's cut is ${pctText(cut, 2)} of that: ${usd(m.now.defiedCut)} a year.`}</li>
@@ -274,7 +288,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                 <li data-how="slowdown">{decay > 0
                   ? `Slows ${pct1(decay)} a year (ASSUMPTIONS!B8), so the next 12 months average ${pct1(yearFactor(decay, 1))} of today's pace; each year after is ${pct1(1 - decay)} of the one before. ${pct1(decay)} is a careful assumption; check it again once there's more history.`
                   : "No slowdown (ASSUMPTIONS!B8 is 0%), so every year earns today's pace."}</li>
-                <li data-how="advance">{`The advance is what the royalties add up to over the ${monthsText(R)} you picked, slowdown included: ${usd(m.advance)}${owing > 0 ? `. The deal above still has ${usd(owing)} to pay back out of the same royalties, so ${usd(adv)} is left for a new one` : ""}.`}</li>
+                <li data-how="advance">{`The advance is what the royalties add up to over the ${monthsText(R)} you picked, slowdown included: ${usd(m.advance)}${owing > 0 ? `. The deal above still has ${usd(owing)} to pay back out of the same royalties, so ${usd(adv)} is left for a new one` : ""}. Shown as ${usd10(adv)} above: the calculator's estimates are rounded to the nearest $10.`}</li>
                 <li data-how="adds">{producer ? `These songs already count toward EMPIRE's ${usd0(terms.owed)} (they're on Schedule A): about ${usd(m.toEmpire.next12)} in the next 12 months and ${usd(m.toEmpire.next36)} over 3 years (all of Defied's ${pctText(terms.payout, 0)} counts, whatever the producer is owed).` : `Once their songs are on Schedule A they would add about ${usd(m.toEmpire.next12)} in the next 12 months toward EMPIRE's ${usd0(terms.owed)}.`}</li>
                 <li data-how="verdict">{verdictRule()}</li>
               </ul>

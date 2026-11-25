@@ -6,7 +6,6 @@
 // (2026-11-24, the owner: "just the key information") The page opens on three tiles (paid back, left to give out, next statement) and one short line of dates (datesLine, nextLine below);
 // the timeline, the status line and the sentence about the bar, which they replace, are gone.
 import { verdictFor, VERDICTS } from "../../lib/advance-model";
-import { NEW_SONGS_WARN } from "../../lib/empire-math";
 
 // ---- words for numbers and days
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -16,6 +15,10 @@ export const dayShort = (s) => { const m = ymd(s); return m ? `${MON[+m[2] - 1]}
 export const monthYear = (s) => { const m = ymd(s); return m ? `${MON[+m[2] - 1]} ${m[1]}` : ""; };            // Mar 2029
 export const usd = (n) => { const v = Number(n) || 0; return `${v < 0 ? "-" : ""}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
 export const usd0 = (n) => { const v = Math.round(Number(n) || 0); return `${v < 0 ? "-" : ""}$${Math.abs(v).toLocaleString("en-US")}`; };
+// (2026-11-24, audit) the advance calculator's estimates (worked out from streams) are shown to the nearest $10, not to the cent they can't be accurate to: $16,139.94 is "$16,140".
+// Only for showing them: never real money, what is typed, or the math under them. Halves go away from 0 the same way both sides of it.
+export const round10 = (n) => { const v = Number(n) || 0; return Math.sign(v) * Math.round(Math.abs(v) / 10) * 10; };
+export const usd10 = (n) => usd0(round10(n));
 // a fraction as a percent: 0.2 is "20%", 0.272798 "27.3%"; no more than `digits` decimals, none when it is whole
 export const pctText = (x, digits = 1) => { const f = 10 ** digits; return `${Math.round((Number(x) || 0) * 100 * f) / f}%`; };
 // "about 20 months" (a number of months from today)
@@ -49,14 +52,47 @@ export function dealPayload({ producer = null, prospectName = "", scope = "catal
 // "Verdict: Safe ≤ 18 months to pay back, Workable ≤ 30, Tight ≤ 36, Too high beyond." from the model's own limits
 export const verdictRule = () => `Verdict: ${[`${VERDICTS[0][1]} ≤ ${VERDICTS[0][0]} months to pay back`, ...VERDICTS.slice(1).map(([max, word]) => `${word} ≤ ${max}`), "Too high beyond"].join(", ")}.`;
 
-// the sentence under "Check an amount": model.check is advanceModel's answer for it (producerDeal().check), ceil the most the royalties could ever repay
+// the sentence under "Check an amount": model.check is advanceModel's answer for it (producerDeal().check), ceil the most the royalties could ever repay.
+// (2026-11-24, audit) The amount is stacked on what the producer's deals still owe (check.owing), as the headline and the ladder are: the months are the months to repay both,
+// and the coverage is what is left of 3 years of royalties after the owing.
+const timesText = (x) => (x > 0 && x < 0.05 ? "less than 0.1×" : `${x.toFixed(1)}×`);
 export function checkSentence(check, ceil) {
   if (!check) return null;
-  const covers = check.coverage != null ? ` The royalties over 3 years cover it ${check.coverage.toFixed(1)}×.` : "";
+  const owing = Number(check.owing) > 0 ? Number(check.owing) : 0;
+  const covers = check.coverage == null ? ""
+    : !owing ? ` The royalties over 3 years cover it ${timesText(check.coverage)}.`
+    : check.coverage > 0 ? ` After the ${usd(owing)} still to pay back, the royalties over 3 years cover it ${timesText(check.coverage)}.`
+    : ` The royalties over 3 years don't even cover the ${usd(owing)} still to pay back.`;
   if (check.months == null) return { tone: "neutral", text: "There are no royalties at this pace, so there's nothing to pay it back from." };
-  if (check.months === Infinity) return { tone: "neg", text: `The royalties would never pay this back at this pace${ceil != null ? `; the most they could ever repay is ${usd(ceil)}` : ""}.${covers}` };
+  if (check.months === Infinity) {
+    const most = ceil == null ? "" : owing ? `; the most they could ever repay is ${usd10(ceil)}, so the most left for a new advance is ${usd10(Math.max(0, ceil - owing))}` : `; the most they could ever repay is ${usd10(ceil)}`;
+    return { tone: "neg", text: `The royalties would never pay this back ${owing ? `on top of the ${usd(owing)} still to pay back` : "at this pace"}${most}.${covers}` };
+  }
   const verdict = verdictShown(check.months);
-  return { tone: verdictTone(verdict), text: `Pays back in ${monthsText(check.months)} (${verdict}).${covers}` };
+  return { tone: verdictTone(verdict), text: `Pays back in ${monthsText(check.months)} (${verdict})${owing ? `, counting the ${usd(owing)} still to pay back first` : ""}.${covers}` };
+}
+
+// ---- what Net Income counts, in words (2026-11-25, the owner chose "mechanicals only")
+// The share of the pub sheet's whole-song rate counted as Net Income is the Founders' lever (levers.niShare, saved under Money › EMPIRE; levers.niStandard is the standard).
+// EMPIRE isn't registered to collect PRO money, so a share of MECH_ONLY_MAX or under is the mechanical royalties only, with EMPIRE's collection fees already taken out of it;
+// above it, the mechanicals and the publisher's half of performance, before those fees. Every sentence says the share that is saved, never a fixed one.
+export const MECH_ONLY_MAX = 0.6;
+export const mechOnly = (lev) => Number(lev?.niShare) <= MECH_ONLY_MAX + 1e-9;
+const PRO_WORDS = "EMPIRE isn't registered to collect PRO money, so performance royalties, both halves, go to the writers through BMI or their own PRO, not through EMPIRE.";
+// the "How the estimate counts Net Income" paragraph (components/dash/empire.jsx)
+export function netIncomeText(lev, terms) {
+  const rate = `$${+Number(lev.blendedRate).toFixed(6)}`, share = pctText(lev.niShare, 1);
+  const whose = lev.niShareSet ? `, a share a Founder set (the standard guess is ${pctText(lev.niStandard, 1)})` : ", the standard guess";
+  return mechOnly(lev)
+    ? `Net Income is what EMPIRE actually receives: the mechanical royalties only. ${PRO_WORDS} The pub sheet's rate a stream (${rate}) is for the whole song, so the estimate counts ${share} of it${whose}, with EMPIRE's collection fees (about 3%) already taken out. EMPIRE's statements replace this estimate.`
+    : `Net Income is what EMPIRE actually receives: the mechanicals and the publisher's half of performance. The pub sheet's rate a stream (${rate}) is for the whole song, writer and publisher, so the estimate counts ${share} of it${whose}. The writer's share of performance royalties isn't part of this: it's paid to the writer through their PRO, outside the deal. This is before EMPIRE's collection fees (the contract caps them at ${pctText(terms.feeCap, 0)}). EMPIRE's statements replace this estimate.`;
+}
+// the calculator's "How we got these numbers" line for it; niPerYear: the Net Income a year at today's pace
+export function netIncomeHow(lev, terms, niPerYear) {
+  const share = pctText(lev.niShare, 1), whose = lev.niShareSet ? ` (a share a Founder set; the standard guess is ${pctText(lev.niStandard, 1)})` : "";
+  return mechOnly(lev)
+    ? `Net Income: EMPIRE receives ${share} of that, the mechanical royalties only, with its collection fees (about 3%) already taken out = ${usd(niPerYear)} a year${whose}. ${PRO_WORDS}`
+    : `Net Income: EMPIRE receives ${share} of that, the mechanicals and the publisher's half of performance = ${usd(niPerYear)} a year${whose}. The writer's share of performance royalties isn't part of this: it's paid to the writer through their PRO, outside the deal. This is before EMPIRE's collection fees (the contract caps them at ${pctText(terms.feeCap, 0)}).`;
 }
 
 // ---- the recoupment card
@@ -201,22 +237,42 @@ export function dealForecast(deal) {
 }
 
 // ---- the calculator's pace, in words
-// p: paceOfSongs()'s answer for the songs picked; rule: the sheet's run-rate (B9) as a fraction; decay: B8
-export function paceSource({ p, rule, decay }) {
+// a part of the whole as a whole percent that never reads 0% or 100% while it is only a part (99.95% measured is "99%")
+export const partPct = (x) => `${Math.min(99, Math.max(1, Math.round((Number(x) || 0) * 100)))}%`;
+// the songs named in a sentence: “A”, “A” and “B”, “A”, “B” and “C”; past three, "N songs"
+const songNames = (xs) => (xs.length > 3 ? `${xs.length} songs` : xs.map((x) => `“${x}”`).join(", ").replace(/, ([^,]*)$/, " and $1"));
+// (2026-11-24, audit) the note for new songs: a song whose daily counts are from its first 3 months plans on its latest week when that is lower (lib/advance-pace.js songPace),
+// and the estimate is rough either way. heldNames: the held songs picked; p.newShare: the part of the pace from new songs.
+function newSongNote(p, decay, heldNames) {
+  const n = p.held || 0;
+  if (n > 0) {
+    const one = n === 1, who = heldNames?.length === n ? songNames(heldNames) : one ? "one song" : `${n} songs`;
+    return `New ${one ? "song" : "songs"}, so this estimate is rough: the daily counts for ${who} are from ${one ? "its" : "their"} first 3 months, when songs stream far more than they keep up, so ${one ? "it counts its" : "each counts its own"} latest week, not the launch spike. New songs usually keep falling faster than ${pctText(decay)} a year: check again once ${one ? "it's" : "they're"} past 3 months.`;
+  }
+  return p.newShare > 0 ? `New songs, so this estimate is rough: ${partPct(p.newShare)} of this pace is from songs out under 3 months, and new songs usually drop faster than ${pctText(decay)} a year.` : null;
+}
+// p: paceOfSongs()'s answer for the songs picked that have a split (song by song: each measured song at its measured pace, the rest by the rule); rule: the sheet's run-rate
+// (B9) as a fraction; decay: B8; heldNames: the names of the new songs held down; noSplit: how many songs picked have no split for the producer yet (they aren't in p).
+// -> { real (all of the pace measured), realShare, perYear, source, warning, noSplitOnly (every song picked has no split: nothing to count) }
+export function paceSource({ p, rule, decay, heldNames = [], noSplit = 0 }) {
   const r = pctText(rule);
-  if (p.real) {
+  // (2026-11-24, audit) songs without a split: said as such, not as "no daily tracking" (a $0 advance for a song with no split is about the split, not the readings)
+  if (noSplit > 0 && !(p.count > 0)) {
+    return { real: false, realShare: 0, perYear: 0, warning: null, noSplitOnly: true,
+      source: `No split yet: ${noSplit === 1 ? "the song picked has no split" : `none of the ${noSplit} songs picked has a split`} for this producer, so there are no royalties to count. Add the split on the song first.` };
+  }
+  const unsplit = noSplit > 0 ? ` ${noSplit === 1 ? "1 song has" : `${noSplit} songs have`} no split yet, so ${noSplit === 1 ? "it isn't" : "they aren't"} counted.` : "";
+  if (p.tracked > 0) {
     const rest = p.count - p.tracked;
-    const other = rest > 0 ? ` ${rest === 1 ? "The other song uses" : `The other ${rest} use`} the sheet's rule (${r} of lifetime a year).` : "";
+    const other = rest > 0 ? ` ${rest === 1 ? "The other song uses" : `The other ${rest} use`} the sheet's rule (${r} of lifetime a year)${p.real ? "" : `, so ${partPct(p.realShare)} of the pace is measured`}.` : "";
     return {
-      real: true, perYear: p.perYear,
-      source: `Real streams: Spotify's daily counts for ${p.tracked} of ${p.count} ${p.count === 1 ? "song" : "songs"}, scaled to all platforms by each song's lifetime total.${other}`,
-      warning: p.newShare >= NEW_SONGS_WARN ? `${Math.round(p.newShare * 100)}% of this pace is from songs out under 3 months. New songs usually drop faster than ${pctText(decay)} a year, so treat this as the high end.` : null,
+      real: p.real, realShare: p.realShare, perYear: p.perYear,
+      source: `${p.real ? "Real streams: " : ""}Spotify's daily counts for ${p.tracked} of ${p.count} ${p.count === 1 ? "song" : "songs"}, scaled to all platforms by each song's lifetime total.${other}${unsplit}`,
+      warning: newSongNote(p, decay, heldNames),
     };
   }
   return {
-    real: false, perYear: p.perYear, warning: null,
-    source: p.tracked > 0
-      ? `Estimate: Spotify's daily counts cover only ${pctText(p.realShare)} of their pace (${p.tracked} of ${p.count} songs), so this uses the sheet's rule: lifetime streams × ${r} a year.`
-      : `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${r} a year.`,
+    real: false, realShare: 0, perYear: p.perYear, warning: null,
+    source: `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${r} a year.${unsplit}`,
   };
 }
