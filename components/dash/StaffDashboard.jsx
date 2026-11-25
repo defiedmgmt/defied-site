@@ -102,7 +102,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   const reloadSongInfo = () => {
     setSongInfoErr(false);
     // (2026-11-25) an answer from before a write was read again by readFresh; one from before a sign-in is never used
-    return readFresh("/api/songs").then(({ dropped, ok, j, t }) => {
+    return readFresh("/api/songs", undefined, () => reloadSongInfo()).then(({ dropped, ok, j, t }) => {
       if (dropped) return;
       if (ok && j?.tracking) { setSongInfo(j); markLoaded("songs", t); } else setSongInfoErr(true);
     }).catch(() => setSongInfoErr(true));
@@ -143,7 +143,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   // (2026-11-25) every change of the counts (a read, Money's page, a payment logged from Home or To do) is the copy a reload starts from too
   const setAcct = (u) => setAcctN((x) => { const n = typeof u === "function" ? u(x) : u; dashCache.acct = n || null; return n; });
   const dropAcct = () => settleRestored("acct", false, () => setAcct(null));
-  const loadAcctN = () => !can("money") ? Promise.resolve() : readFresh("/api/accounting?counts=1").then(({ dropped, ok, j, t }) => {
+  const loadAcctN = () => !can("money") ? Promise.resolve() : readFresh("/api/accounting?counts=1", undefined, () => loadAcctN()).then(({ dropped, ok, j, t }) => {
     if (dropped) return;
     if (ok && j?.counts) { setAcct(j.counts); markLoaded("acctN", t); settleRestored("acct", true); } else dropAcct();
   }).catch(dropAcct);

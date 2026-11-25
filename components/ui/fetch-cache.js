@@ -13,7 +13,7 @@
 // (onData(null, { dropped: true })), so the page says it couldn't load instead of showing the old answer as current.
 // (2026-11-25, live) the cache empties when a write CHANGED something (components/shared/boot.js decides: a background pull that wasn't due
 // changes nothing, so it no longer empties every screen's answer), and an answer that lands while a write is on its way waits for it.
-import { bootFetch, fate, onDataChange, settledFate, stamp, watchWrites as watchBootWrites } from "../shared/boot";
+import { bootFetch, fate, onDataChange, refreshIfChanged, settledFate, stamp, watchWrites as watchBootWrites } from "../shared/boot";
 
 const cache = new Map();
 const inflight = new Map(); // url -> { p, at, t }: a prefetch on its way
@@ -60,6 +60,8 @@ export function swrJson(url, onData, { keep = (j) => j != null && !j.error, anyS
       if (f === "drop") return j; // a sign-in or sign-out since: never drawn or cached
       if (f === "again") return swrJson(url, onData, { keep, anyStatus }); // a write since: read again
       if (keep(j)) { restored.delete(url); cache.set(url, j); onData(j, { cached: false }); } else { dropRestored(); cache.delete(url); }
+      // (review PERF2-2) drawn while a slow write was still on its way: drawn again if that write then answers with a change
+      refreshIfChanged(t, () => { swrJson(url, onData, { keep, anyStatus }).catch(() => {}); });
       return j;
     }, async (err) => { if ((await settledFate(t)) === "apply") dropRestored(); throw err; });
 }

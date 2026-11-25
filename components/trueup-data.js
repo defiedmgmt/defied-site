@@ -17,7 +17,7 @@ export const emit = () => store.subs.forEach((f) => f());
 export function reloadTrueUp() {
   if (store.loading && fate(store.loadingStamp) === "apply") return store.loading;
   const t0 = stamp();
-  const p = readFresh("/api/trueup").then(({ dropped, ok, j, t }) => {
+  const p = readFresh("/api/trueup", undefined, () => reloadTrueUp()).then(({ dropped, ok, j, t }) => {
     if (dropped) return;
     if (!ok || !j) throw new Error("load");
     if (fate(t) !== "apply" && store.loading !== p) return; // a newer read is on its way: it answers

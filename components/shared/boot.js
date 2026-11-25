@@ -27,6 +27,11 @@ let gen = 0; // moves on with every write and every sign-in / sign-out
 let sgen = 0; // moves on with every sign-in / sign-out
 let user; // the account this tab is signed in as: undefined until the session check answers, null when nobody
 let pending = 0; // writes on their way
+const starts = new Map(); // each write on its way -> when it went out (a write older than writeWait.ms holds nothing any more)
+let writeSeq = 0;
+const settleListeners = new Set(); // told as each write answers (its id, and whether it changed something)
+// (2026-11-25, review PERF2-2) how long a write on its way may hold a read: at most this long after the write went out (tests set it lower)
+export const writeWait = { ms: 2500 };
 let idle = null; // { p, done }: resolves when no write is on its way
 const changeListeners = new Set(); // told when a write changed something (components/ui/fetch-cache.js empties its cache)
 export const BOOT_MAX_AGE = 15000; // a read handed over only to code that asks within 15 s of its answer arriving
@@ -59,15 +64,46 @@ export function watchWrites() {
     if (method === "GET" || method === "HEAD" || !url.includes("/api/")) return orig.apply(this, arguments);
     if (isBackgroundWrite(init)) return orig.apply(this, arguments).then((res) => { if (changedBy(res)) forgetBoot(); return res; }, (err) => { forgetBoot(); throw err; });
     if (!pending++) { let done; idle = { p: new Promise((r) => { done = r; }), done: () => done() }; }
-    const settle = (changed) => { if (changed) forgetBoot(); if (!--pending) { const i = idle; idle = null; i?.done(); } };
+    const id = ++writeSeq;
+    starts.set(id, Date.now());
+    const settle = (changed) => {
+      starts.delete(id); if (changed) forgetBoot();
+      for (const fn of [...settleListeners]) { try { fn(id, changed); } catch { /* a listener's own problem */ } }
+      if (!--pending) { const i = idle; idle = null; i?.done(); }
+    };
     // decided before the caller sees the answer: code that awaits a save and then reads again reads after the forgetting, never before it
     return orig.apply(this, arguments).then((res) => { settle(changedBy(res)); return res; }, (err) => { settle(true); throw err; });
   };
 }
 // resolves once no write is on its way (at once when none is)
 export const writesSettled = () => (pending && idle ? idle.p.then(() => writesSettled()) : Promise.resolve());
-// fate(t), decided once the writes on their way have answered: a read that lands while one is going waits to know whether it changed anything
-export async function settledFate(t) { await writesSettled(); return fate(t); }
+// fate(t), decided once the writes on their way have answered: a read that lands while one is going waits to know whether it changed anything.
+// (review PERF2-2) Never longer than writeWait.ms after the newest of them went out: a write that answers slowly, or never (a dropped connection, a
+// stalled function), no longer freezes every screen. Past that the read counts as it stands ("apply" only if no write has answered with a change
+// since it started), and readFresh / swrJson read it again if one of those writes later answers with a change (refreshIfChanged).
+const youngWrites = () => { const now = Date.now(); return [...starts.values()].filter((at) => now - at < writeWait.ms); };
+export async function settledFate(t) {
+  const young = youngWrites();
+  if (pending && young.length) {
+    let timer;
+    const left = Math.max(...young) + writeWait.ms - Date.now();
+    await Promise.race([writesSettled(), new Promise((r) => { timer = setTimeout(r, Math.max(0, left)); })]);
+    clearTimeout(timer);
+  }
+  return fate(t);
+}
+// a read used while writes were still on their way (the wait above ran out): refresh() reads it again as soon as one of THOSE writes answers
+// with a change (not after a sign-in or sign-out since, and not for writes sent later); once they have all answered, nothing more is listened for
+export function refreshIfChanged(t, refresh) {
+  if (!starts.size || typeof refresh !== "function") return;
+  const ids = new Set(starts.keys());
+  const onSettle = (id, changed) => {
+    if (!ids.delete(id)) return;
+    if (changed) { settleListeners.delete(onSettle); if (fate(t) === "again") refresh(); return; }
+    if (!ids.size) settleListeners.delete(onSettle);
+  };
+  settleListeners.add(onSettle);
+}
 // told whenever a write changed something (not for a write that changed nothing, nor for a sign-in or sign-out: those clear everything themselves)
 export function onDataChange(fn) { changeListeners.add(fn); return () => changeListeners.delete(fn); }
 // a write (or, with session, a sign-in or sign-out): nothing read before it is handed over or counted as recent; at a sign-in or sign-out
@@ -215,8 +251,9 @@ export const bootPending = (url) => parts.has(url);
 
 // GET url (from the boot when it has it) for the dashboard's caches -> { ok, status, j, t }, the answer to a read that started after
 // anything that happened since: a write while it was on its way reads it again (at most twice more), a sign-in or sign-out resolves
-// { dropped: true } (nothing to show, nothing to cache). t is the stamp of the read that answered (markLoaded(key, t)).
-export async function readFresh(url, init) {
+// { dropped: true } (nothing to show, nothing to cache). t is the stamp of the read that answered (markLoaded(key, t)). refresh: called if the
+// answer was used while a slow write was still on its way and that write then answered with a change (the caller reads again).
+export async function readFresh(url, init, refresh) {
   let last = null;
   for (let i = 0; i < 3; i++) {
     const t = stamp();
@@ -233,7 +270,8 @@ export async function readFresh(url, init) {
     const f = await settledFate(t);
     if (f === "drop") return { dropped: true };
     last = { ok: r.ok, status: r.status, j, t };
-    if (f === "apply") return last;
+    // (review PERF2-2) used while a slow write is still on its way: read again (refresh) if that write turns out to have changed something
+    if (f === "apply") { refreshIfChanged(t, refresh); return last; }
   }
   // writes kept coming: the last answer (it started after the earlier ones), not counted as recent (its stamp is out of date)
   return last;
@@ -242,6 +280,7 @@ export async function readFresh(url, init) {
 // when a section's data was last read well: going back within RECENT_MS draws what it has and asks nothing (a write in between asks again).
 // t: the stamp of the read that brought it; a read that started before a write or a sign-in is never counted
 export function markLoaded(key, t) { watchWrites(); if (fate(t) !== "apply") return; loaded.set(key, { at: Date.now(), gen }); }
-export function loadedRecently(key, ms = RECENT_MS) { const x = loaded.get(key); return !pending && !!x && x.gen === gen && Date.now() - x.at < ms; }
+// (no read counts as recent while a write younger than writeWait.ms is on its way: a tab switch then reads, and that read waits for it)
+export function loadedRecently(key, ms = RECENT_MS) { const x = loaded.get(key); return !youngWrites().length && !!x && x.gen === gen && Date.now() - x.at < ms; }
 // read well at least once since the page opened (and since the last write)
 export const loadedOnce = (key) => loaded.has(key);

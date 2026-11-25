@@ -21,7 +21,7 @@ export function useCuTasks(tab) {
     // (2026-11-25) an answer from before a write is read again (readFresh), one from before a sign-in is never used; a copy put back after a
     // reload whose first read fails comes off the screen, so "Couldn't reach ClickUp" shows as it used to
     const miss = () => { setFailed(true); settleRestored("tasks", false, () => { cuCache.d = null; setData(null); }); };
-    return readFresh(`/api/tasks${fresh ? "?fresh=1" : ""}`).then(({ dropped, ok, j, t }) => {
+    return readFresh(`/api/tasks${fresh ? "?fresh=1" : ""}`, undefined, () => load(fresh)).then(({ dropped, ok, j, t }) => {
       if (dropped) return;
       if (ok && j?.lists) { cuCache.d = j; markLoaded("tasks", t); settleRestored("tasks", true); setData(j); } else miss();
     }).catch(miss);
@@ -41,7 +41,7 @@ export function useSyncChecks(tab) {
     if (!force && syncCache.d && Date.now() - syncCache.at < 120000) { setData(syncCache.d); return Promise.resolve(); }
     setFailed(false); setBusy(true);
     const miss = () => { setFailed(true); settleRestored("sync", false, () => { syncCache.d = null; syncCache.at = 0; setData(null); }); };
-    return readFresh(force ? "/api/sync?fresh=1" : "/api/sync").then(({ dropped, ok, j }) => {
+    return readFresh(force ? "/api/sync?fresh=1" : "/api/sync", undefined, () => { syncCache.at = 0; load(force); }).then(({ dropped, ok, j }) => {
       if (dropped) return;
       if (ok && j?.checks) { syncCache.d = j; syncCache.at = Date.now(); settleRestored("sync", true); setData(j); } else miss();
     }).catch(miss).finally(() => setBusy(false));
@@ -140,7 +140,7 @@ async function splitFixPost(body) {
 export function useSplitFixes() {
   const [data, setData] = useState(null);
   // (2026-11-25) never an answer from before a write (an Undo just sent) or a sign-in: what's done by itself reads this
-  const load = () => readFresh("/api/split-fixes").then(({ dropped, ok, j }) => { if (!dropped && ok && j?.auto) setData(j); }).catch(() => {});
+  const load = () => readFresh("/api/split-fixes", undefined, () => load()).then(({ dropped, ok, j }) => { if (!dropped && ok && j?.auto) setData(j); }).catch(() => {});
   useEffect(() => { load(); }, []);
   return { data, setData, load };
 }
@@ -192,7 +192,7 @@ export async function syncFix(check, ctx, setBusy, setNote) {
 const seedCache = { d: null };
 export function useSeeds(tab, on) {
   const [data, setData] = useState(() => seedCache.d);
-  const load = () => (!on ? Promise.resolve() : readFresh("/api/data?seeds=1")
+  const load = () => (!on ? Promise.resolve() : readFresh("/api/data?seeds=1", undefined, () => load())
     .then(({ dropped, ok, j, t }) => { if (!dropped && ok && j?.todo) { seedCache.d = j; markLoaded("seeds", t); setData(j); } }).catch(() => {}));
   useEffect(() => { if (!loadedRecently("seeds") && (tab === "home" || tab === "todo" || !seedCache.d)) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   const drop = (lumId) => setData((d) => { const n = d ? { ...d, todo: d.todo.filter((r) => r.lumId !== lumId) } : d; seedCache.d = n; return n; });

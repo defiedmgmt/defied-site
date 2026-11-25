@@ -18,7 +18,7 @@ export function useHome() {
     let alive = true;
     // (2026-11-25) never an answer from before a write or a sign-in; a copy put back after a reload whose first read fails comes off the screen
     const miss = () => { if (!alive) return; setFailed(true); settleRestored("home", false, () => { dashCache.home = null; setHome(null); }); };
-    const load = (fresh = false) => { setFailed(false); return readFresh(`/api/home${fresh ? "?fresh=1" : ""}`).then(({ dropped, ok, j, t }) => {
+    const load = (fresh = false) => { setFailed(false); return readFresh(`/api/home${fresh ? "?fresh=1" : ""}`, undefined, () => load(fresh)).then(({ dropped, ok, j, t }) => {
       if (dropped || !alive) return;
       if (ok && j?.money) { dashCache.home = j; markLoaded("home", t); settleRestored("home", true); setHome(j); } else miss();
     }).catch(miss); };
@@ -48,7 +48,7 @@ export function useArSummary(tab) {
     // comes off: its first read failed)
     const miss = () => { if (!alive) return; if (settleRestored("ar", false, () => { dashCache.ar = null; })) setT({ failed: true }); else setT((x) => x || { failed: true }); };
     // (2026-11-25) never an answer from before a write or a sign-in, and the shared copy is written only while this screen is up
-    readFresh("/api/ar?summary=1").then(({ dropped, ok, j, t }) => {
+    readFresh("/api/ar?summary=1", undefined, () => alive && setAgain((n) => n + 1)).then(({ dropped, ok, j, t }) => {
       if (dropped || !alive) return;
       if (!ok || !j) return miss();
       dashCache.ar = j; markLoaded("ar", t); settleRestored("ar", true); setT(j);

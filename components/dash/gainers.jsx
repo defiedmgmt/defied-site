@@ -91,7 +91,7 @@ function useRosterTop() {
   useEffect(() => {
     let alive = true;
     const miss = () => { if (!alive) return; setFailed(true); settleRestored("top", false, () => { dashCache.top = null; setTop(null); }); };
-    const load = () => { setFailed(false); return readFresh("/api/growth?top=1").then(({ dropped, ok, j, t }) => {
+    const load = () => { setFailed(false); return readFresh("/api/growth?top=1", undefined, () => load()).then(({ dropped, ok, j, t }) => {
       if (dropped || !alive) return;
       if (ok && j?.top) { dashCache.top = j.top; markLoaded("top", t); settleRestored("top", true); setTop(j.top); } else miss();
     }).catch(miss); };
