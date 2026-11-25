@@ -49,14 +49,24 @@ export function dealPayload({ producer = null, prospectName = "", scope = "catal
 // "Verdict: Safe ≤ 18 months to pay back, Workable ≤ 30, Tight ≤ 36, Too high beyond." from the model's own limits
 export const verdictRule = () => `Verdict: ${[`${VERDICTS[0][1]} ≤ ${VERDICTS[0][0]} months to pay back`, ...VERDICTS.slice(1).map(([max, word]) => `${word} ≤ ${max}`), "Too high beyond"].join(", ")}.`;
 
-// the sentence under "Check an amount": model.check is advanceModel's answer for it (producerDeal().check), ceil the most the royalties could ever repay
+// the sentence under "Check an amount": model.check is advanceModel's answer for it (producerDeal().check), ceil the most the royalties could ever repay.
+// (2026-11-24, audit) The amount is stacked on what the producer's deals still owe (check.owing), as the headline and the ladder are: the months are the months to repay both,
+// and the coverage is what is left of 3 years of royalties after the owing.
+const timesText = (x) => (x > 0 && x < 0.05 ? "less than 0.1×" : `${x.toFixed(1)}×`);
 export function checkSentence(check, ceil) {
   if (!check) return null;
-  const covers = check.coverage != null ? ` The royalties over 3 years cover it ${check.coverage.toFixed(1)}×.` : "";
+  const owing = Number(check.owing) > 0 ? Number(check.owing) : 0;
+  const covers = check.coverage == null ? ""
+    : !owing ? ` The royalties over 3 years cover it ${timesText(check.coverage)}.`
+    : check.coverage > 0 ? ` After the ${usd(owing)} still to pay back, the royalties over 3 years cover it ${timesText(check.coverage)}.`
+    : ` The royalties over 3 years don't even cover the ${usd(owing)} still to pay back.`;
   if (check.months == null) return { tone: "neutral", text: "There are no royalties at this pace, so there's nothing to pay it back from." };
-  if (check.months === Infinity) return { tone: "neg", text: `The royalties would never pay this back at this pace${ceil != null ? `; the most they could ever repay is ${usd(ceil)}` : ""}.${covers}` };
+  if (check.months === Infinity) {
+    const most = ceil == null ? "" : owing ? `; the most they could ever repay is ${usd(ceil)}, so the most left for a new advance is ${usd(Math.max(0, ceil - owing))}` : `; the most they could ever repay is ${usd(ceil)}`;
+    return { tone: "neg", text: `The royalties would never pay this back ${owing ? `on top of the ${usd(owing)} still to pay back` : "at this pace"}${most}.${covers}` };
+  }
   const verdict = verdictShown(check.months);
-  return { tone: verdictTone(verdict), text: `Pays back in ${monthsText(check.months)} (${verdict}).${covers}` };
+  return { tone: verdictTone(verdict), text: `Pays back in ${monthsText(check.months)} (${verdict})${owing ? `, counting the ${usd(owing)} still to pay back first` : ""}.${covers}` };
 }
 
 // ---- the recoupment card

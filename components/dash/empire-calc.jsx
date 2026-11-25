@@ -55,17 +55,18 @@ export function EmpireCalc({ data, reload, init = null }) {
     return { real: false, perYear: netStreams * lev.runRate, warning: null, source: `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${rulePct} a year.` };
   }, [lev, producer, scope, picked, netStreams]); // eslint-disable-line react-hooks/exhaustive-deps
   const R = clampMonths(monthsIn), amount = amountOf(amountIn), cut = cutFromText(cutText);
-  const m = useMemo(() => (lev?.ok && pace && cut != null
-    ? producerDeal({ pace: pace.perYear, ni: lev.niPerStream, payout: terms.payout, cut, decay: lev.decayRate, months: R, amount, pot: { left: free } })
-    : null), [lev, pace, cut, R, amount, terms, free]);
-  const checked = m ? checkSentence(m.check, m.ceiling) : null;
-  const decay = lev?.decayRate ?? 0;
 
   // (2026-11-21, review) A producer who already has a deal on a song these picks cover has those royalties spoken for: what is still to pay back on that deal (its estimate: a planned
   // deal's whole advance, a given one's what the royalties since its day haven't covered) comes off the advance recommended here, never below 0. Deals on other songs don't count.
+  // (2026-11-24, audit) "Check an amount" stacks the amount on it too, so the check, the headline and the ladder agree.
   const live = new Set((producer?.songs || []).map((s) => s.id));
   const existing = producer ? deals.filter((d) => overlapOf({ clientId: producer.id, scope, placementIds: picks.map((s) => s.id) }, d, live)) : [];
   const held = existing.reduce((a, d) => a + (Number(d.advance) || 0), 0), owing = existing.reduce((a, d) => a + (Number(d.owing ?? d.advance) || 0), 0);
+  const m = useMemo(() => (lev?.ok && pace && cut != null
+    ? producerDeal({ pace: pace.perYear, ni: lev.niPerStream, payout: terms.payout, cut, decay: lev.decayRate, months: R, amount, owing, pot: { left: free } })
+    : null), [lev, pace, cut, R, amount, owing, terms, free]);
+  const checked = m ? checkSentence(m.check, m.ceiling) : null;
+  const decay = lev?.decayRate ?? 0;
   const adv = m ? Math.max(0, m.advance - owing) : 0; // the advance that is left for a new deal
   const potAfter = m && m.pot ? free - adv : null;
 
