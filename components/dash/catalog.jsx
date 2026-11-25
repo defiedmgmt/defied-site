@@ -230,7 +230,7 @@ export function SplitsToFix({ db, commit, reloadDb, songInfo, reloadSongInfo, on
     <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="splits">
       <div className="fix-head">
         <h3>{n ? `Splits to confirm (${n})` : "Splits"}</h3>
-        <span className="hint">{n ? "Even by default: 50% artist side, 50% producer side. Confirm writes only the client's own share to the sheet." : "All splits add up."}</span>
+        {!n && <span className="hint">All splits add up.</span>}
       </div>
       <DropNote note={note} />
       <HeldDupes dupes={dupes} onDupe={onDupe} />
@@ -295,7 +295,7 @@ function HeldDupes({ dupes, onDupe }) {
   if (!dupes?.length || !onDupe) return null;
   return (
     <p className="hint fix-held" data-held>
-      {dupes.length === 1 ? `${dupeName(dupes[0])} is a possible duplicate, so both of its cards are left out of this list until it's reviewed.` : `${dupes.length} possible duplicate songs are left out of this list until they're reviewed.`}
+      {dupes.length === 1 ? `${dupeName(dupes[0])} is a possible duplicate, left out until it's reviewed.` : `${dupes.length} possible duplicate songs are left out until they're reviewed.`}
       {" "}<button className="inline-link" data-held-review onClick={onDupe}>Review</button>
     </p>
   );
@@ -373,15 +373,12 @@ export function SongsToUpdate({ db, songInfo, reloadSongInfo, reloadDb, onFix, f
   const counts = useMemo(() => { const n = {}; for (const x of list) for (const g of x.gaps) if (GAP_WORDS[g.k]) n[g.k] = (n[g.k] || 0) + 1; return n; }, [list]);
   const shown = gap && counts[gap] ? list.filter((x) => x.gaps.some((g) => g.k === gap)) : list;
   const rows = more ? shown : shown.slice(0, UPDATE_FIRST);
-  // (2026-11-25, polish) the hint names the buttons the list has (it said "Update opens the song there." over rows that only had Add to pub sheet): a row not on the pub
-  // sheet has Add to pub sheet, and Update only for another gap; every other row has Update (rowButtons, as the row draws them)
-  const hasAdd = shown.some((x) => rowButtons(x).add), hasUpd = shown.some((x) => rowButtons(x).upd);
-  const hint = `What each song is missing, from the last sheet pull.${hasAdd ? ` Add to pub sheet finds or writes the song's row${hasUpd ? ";" : "."}` : ""}${hasUpd ? " Update opens the song there." : ""}`;
+  // (2026-11-25 declutter) no hint over the rows any more (the owner: "get rid of a lot of the simple one liner ai explanations"); only the empty list keeps its one line
   return (
     <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="update">
       <div className="fix-head">
         <h3>{list.length ? `Songs to update (${list.length})` : "Songs to update"}</h3>
-        <span className="hint" data-upd-hint>{list.length ? hint : "Every song has its sheet row, writer share, release date and link."}</span>
+        {!list.length && <span className="hint" data-upd-hint>Every song has its sheet row, writer share, release date and link.</span>}
         {sheetIds.length > 1 && <button type="button" className="btn sm upd-sheet-all" data-add-sheet-all disabled={!!sheetBusy} onClick={() => addToSheet(sheetIds.slice(0, SHEET_PER_PRESS), "all")}>
           {sheetBusy === "all" ? "Adding…" : `Add ${sheetIds.length > SHEET_PER_PRESS ? SHEET_PER_PRESS : sheetIds.length === 2 ? "both" : `all ${sheetIds.length}`} to the pub sheet`}</button>}
       </div>
@@ -453,7 +450,7 @@ export function AutoAddedList({ db, songInfo, reloadSongInfo, onFix }) {
     <div className="fix-panel" data-sec="autoAdded">
       <div className="fix-head">
         <h3>{list.length ? `Added automatically (${list.length})` : "Added automatically"}</h3>
-        <span className="hint">{list.length ? "New releases, on the site and the pub sheet with the assumed split. Edit one to change it, or press OK." : "Nothing left to check."}</span>
+        {!list.length && <span className="hint">Nothing left to check.</span>}
       </div>
       {err && <p className="hint err-text" role="alert" data-auto-err>{err}</p>}
       {list.length > 0 && (
@@ -505,7 +502,7 @@ export function PossibleList({ db, songInfo, reloadSongInfo, reloadDb }) {
     <div className="fix-panel" data-sec="possible">
       <div className="fix-head">
         <h3>{list.length ? `Possible placements (${list.length})` : "Possible placements"}</h3>
-        <span className="hint">{list.length ? "Our clients credited on new releases. Nothing is added until you press Add." : "Nothing left to look at."}</span>
+        {!list.length && <span className="hint">Nothing left to look at.</span>}
       </div>
       {err && <p className="hint err-text" role="alert" data-possible-err>{err}</p>}
       {list.length > 0 && (
@@ -718,15 +715,13 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
   return (
     <AskCard title="Merge these two cards?" goLabel="Merge cards" busyLabel="Working…" plain wide go={merge} onClose={onClose} alt={{ label: "Not the same song", run: notSame }} goDisabled={!!splitWhy}
       goWhy={splitWhy && `Split after merging: ${splitWhy}`}>
-      <p data-dupe-why>{client?.name ? `${client.name}'s page has` : "These are"} two cards with {pair.why}.{retitled ? "" : " After merging, one card is left."}</p>
+      <p data-dupe-why>{client?.name ? `${client.name}'s page has` : "These are"} two cards with {pair.why}.</p>
       {/* what happens, above the columns so it's in view at 1280x800 before Merge cards */}
       <p data-merge-drop>{retitled ? outcome : `"${drop.song || "Untitled"}" is removed from the site.`} {!fresh ? `Checking the ${tab} tab for its row…`
         : !fresh.ok ? `The ${tab} tab couldn't be checked just now; Merge checks it again first.`
         : fresh.dropRow != null ? `It has its own row on the ${tab} tab (row ${fresh.dropRow}), so it can't be merged here.`
         : `It has no row on the ${tab} tab (checked just now), so nothing is written there for it.`}</p>
       <p data-merge-share>{shareText}{rename && <> <span data-merge-rename>Row {fresh.keepRow} on the {tab} tab is renamed to "{title}".</span></>}</p>
-      {/* the merge is a staff save: the Publishing ClickUp task follows it at once (lib/area-tasks.js afterAction) */}
-      <p className="hint" data-merge-clickup>The Publishing task in ClickUp updates itself right after the merge.</p>
       {blocked && <p className="warn-text" role="alert" data-merge-blocked>{blocked}</p>}
       <div className="dupe-cols">
         {col(keep, "keep", retitled && keptHead.length ? `Kept: ${keptHead.join(" and ")}` : "Keeps this card")}

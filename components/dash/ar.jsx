@@ -137,7 +137,7 @@ export function ARAdmin({ onGo, sub, onSub, chip = null }) {
   );
 }
 const EMPTY = {
-  mine: "Your list is empty. Paste a Spotify, TikTok, Instagram or YouTube link above: it goes on your list.",
+  mine: "Your list is empty. Paste a Spotify, TikTok, Instagram or YouTube link above.",
   watch: "Nothing on the Watchlist yet. Paste a Spotify, TikTok, Instagram or YouTube link above.",
   artist: "No artists on the Watchlist yet.", producer: "No producers yet. Open an artist and switch them to Producer, or pick Producer when you add one.",
   song: "No songs on the Watchlist yet.", sound: "No TikTok sounds yet. Paste a sound's link (tiktok.com/music/…) to track it.", confirm: "Every match is confirmed.",

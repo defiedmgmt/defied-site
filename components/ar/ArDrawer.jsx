@@ -11,7 +11,7 @@ import { n0, signed, pctText, dirOf, dayText, atText, post, spanText, typeOf, TY
 import { Photo, Links, DeltaCell, MetricCell, TypeChip } from "./ArGrid";
 import { BigChart, usePhone } from "./BigChart";
 import { CAPTION, countWords, momentumWords, momentumHead } from "../../lib/ar/chart";
-import { LUM_BASIS_NOTE } from "../../lib/lum-basis";
+import { LUM_BASIS_FROM } from "../../lib/lum-basis";
 
 const METRIC_NAME = { listeners: "Spotify monthly listeners", streams: "Spotify streams", spfollowers: "Spotify followers", tiktok: "TikTok followers", instagram: "Instagram followers", youtube: "YouTube subscribers", videos: "TikTok videos with this sound" };
 const useIso = typeof window !== "undefined" ? useLayoutEffect : useEffect;
@@ -25,7 +25,9 @@ const kindOf = (key, s) => s.kind || (key === "streams" || key === "videos" ? "t
 // (2026-11-25, polish) Luminate changed how it counts on Sep 8, 2026 (lib/lum-basis.js; the server marks every point before it `older`). The chart, its numbers, the
 // all-time line and the two weeks' bars are the new count only, so the change of count (a ~16M "step" on a big song) is never drawn or taken as growth. The older readings
 // and weeks are not dropped: one muted line under them says what they were, with the note.
+// (2026-11-25 declutter) that line keeps the older numbers, headed by a few words ("Older count, before Sep 8, 2026:"), no longer the sentence about why
 const OLD_WEEKS_SHOWN = 4;
+const BASIS_DAY = new Date(`${LUM_BASIS_FROM}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 function LumHistory({ series, releases, variant }) {
   const [view, setView] = useState(null);
   const atdAll = (series || []).filter((p) => p.kind === "atd" && p.v != null), weeksAll = (series || []).filter((p) => p.kind === "week");
@@ -51,7 +53,6 @@ function LumHistory({ series, releases, variant }) {
       {on && (
         <>
           <BigChart key={on} points={on === "week" ? weekPts : atdPts} step={on === "week" ? 7 : "auto"} kind={on === "week" ? "level" : "total"} unit="streams" label={on === "week" ? "Luminate streams per week" : "Luminate all-time streams"} releases={releases} variant={variant} />
-          <p className="hint" data-lum-what>{CAPTION[on === "week" ? "lumWeek" : "lumAtd"]}</p>
           <p className="hint" data-lum-n>{on === "week"
             ? `${weekPts.length} weeks with a number, ${dayText(weekPts[0].d)} to ${dayText(weekPts[weekPts.length - 1].d)}${weeks.length > weekPts.length ? ` · ${weeks.length - weekPts.length} with none` : ""}`
             : `${atdPts.length} readings, ${dayText(atdPts[0].d)} to ${dayText(atdPts[atdPts.length - 1].d)}`} · {on === "week" ? "Luminate streams per week" : "Luminate all-time streams"} · {series[0]?.src || "Luminate, all platforms"}</p>
@@ -59,7 +60,7 @@ function LumHistory({ series, releases, variant }) {
       )}
       {atd.length > 0 && <p className="hint" data-lum-atd>All-time streams: {atd.map((p) => `${dayText(p.to)} ${n0(p.v)}`).join(" → ")}</p>}
       {(atdOld.length > 0 || weeksOld.length > 0) && (
-        <p className="hint ard-lum-older" data-lum-older>{`${LUM_BASIS_NOTE}. Before it, on its older, narrower count (kept apart, never compared with the numbers above): ${[
+        <p className="hint ard-lum-older" data-lum-older>{`Older count, before ${BASIS_DAY}: ${[
           atdOld.length && `all-time ${atdOld.map((p) => `${dayText(p.to)} ${n0(p.v)}`).join(" → ")}`,
           weeksOld.length && `${weeksOld.length === 1 ? "the week" : "weeks"} ${weeksOld.slice(-OLD_WEEKS_SHOWN).map((p) => `${dayText(p.from)}–${dayText(p.to)} ${n0(p.v)}`).join(" · ")}${weeksOld.length > OLD_WEEKS_SHOWN ? ` and ${weeksOld.length - OLD_WEEKS_SHOWN} earlier` : ""}`,
         ].filter(Boolean).join("; ")}.`}</p>
@@ -75,7 +76,6 @@ function LumHistory({ series, releases, variant }) {
           ))}
         </div>
       )}
-      <p className="hint">{series[0]?.src || "Luminate, all platforms"} · history, read-only.</p>
     </div>
   );
 }
@@ -194,7 +194,6 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
   const secMatch = r && r.match === "name" ? (
     <section className="ard-sec" data-drawer-match>
       <h4>Spotify match to confirm</h4>
-      <p className="hint">Luminate only gave us their name. Nothing is tracked on Spotify until you tap the right one.</p>
       {(r.candidates || []).map((c) => (
         <div key={c.id} className="ard-cand" data-candidate={c.id}>
           {c.image ? <img src={c.image} alt="" width={36} height={36} referrerPolicy="no-referrer" /> : <span className="arg-ph none">{String(c.name || "?").slice(0, 1)}</span>}
@@ -208,7 +207,6 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
           </span>
         </div>
       ))}
-      {r.candidates?.some((c) => c.info?.listeners) && <p className="hint">Monthly listeners as Spotify's own page rounds them.</p>}
       <form className="ard-paste" onSubmit={(e) => { e.preventDefault(); const sp = /spotify\.com\/(?:intl-[a-z-]+\/)?artist\/([A-Za-z0-9]{22})/.exec(paste)?.[1]; if (!sp) { setNote({ ok: false, text: "That isn't a Spotify artist link (open.spotify.com/artist/…)." }); return; } act({ action: "confirmMatch", id: r.trackedId, spotifyId: sp }, "Confirmed from your link. Its numbers start with the next update.").then(() => setPaste("")); }} data-drawer-paste>
         <input type="url" inputMode="url" placeholder="None of these? Paste their Spotify link" value={paste} onChange={(e) => setPaste(e.target.value)} aria-label="Their Spotify artist link" />
         <button type="submit" className="btn sm" disabled={busy || !paste.trim()}>Use this one</button>
@@ -219,7 +217,7 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
   const secIsrc = r && r.match === "isrc" && r.kind === "song" ? (
     <section className="ard-sec" data-drawer-match="isrc">
       <h4>Is this the right song?</h4>
-      <p className="hint">Matched to Spotify by its ISRC{r.isrc ? ` (${r.isrc})` : ""}. Its number is one reading and isn't tracked until you say yes.</p>
+      <p className="hint">Matched to Spotify by its ISRC{r.isrc ? ` (${r.isrc})` : ""}.</p>
       <div className="ard-confirm-isrc">
         {r.links?.spotify && <a className="btn ghost sm" href={r.links.spotify} target="_blank" rel="noopener noreferrer">Check it on Spotify <ExternalLink size={11} /></a>}
         <button type="button" className="btn sm" disabled={busy} onClick={() => act({ action: "confirmMatch", id: r.trackedId }, "Confirmed. It's tracked from the next update.")} data-confirm-isrc>Yes, that's it</button>
@@ -297,8 +295,7 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
               {x.text ? <span className="ard-mo-t">{x.text}</span> : null}
             </div>
           ))}
-          <p className="hint" data-momentum-line>{mw.line}.{mw.day ? ` Worked out ${dayText(mw.day)}.` : ""}</p>
-          {mw.left.length > 0 && <p className="hint">{mw.left.join(" and ")} left out of the score: nothing tracked for {mw.left.length === 1 ? "it" : "them"} yet.</p>}
+          {mw.day && <p className="hint" data-momentum-line>Worked out {dayText(mw.day)}.</p>}
         </div>
       )}
     </section>
@@ -311,7 +308,7 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
         <input type="checkbox" checked={d.mode?.mode === "campaign"} disabled={busy} onChange={(e) => act({ action: "setMode", entityId: r.entityId, mode: e.target.checked ? "campaign" : "auto" }, e.target.checked ? "Daily updates on: every number refreshes each day." : "Back to the usual schedule.")} data-campaign />
         <span>Daily updates (campaign mode)</span>
       </label>
-      <p className="hint">Every number for this {r.kind === "sound" ? "sound" : "artist"} refreshes each day while it's on. It costs a little Apify credit a day.</p>
+      <p className="hint">It costs a little Apify credit a day.</p>
     </section>
   ) : null;
 
