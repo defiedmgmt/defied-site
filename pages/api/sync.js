@@ -5,6 +5,7 @@
 import { withSheetsQuick } from "../../lib/sheets";
 import { requireAccess } from "../../lib/access";
 import { syncChecks } from "../../lib/sync-checks";
+import { seesEmpire } from "../../lib/schedule-a";
 
 // the pub sheet, Stripe, the accounting sheet and ClickUp, read side by side
 export const config = { maxDuration: 60 };
@@ -18,7 +19,8 @@ export default async function handler(req, res) {
     // line without its dollar figures (2026-11-13: the intern's Site › Sync showed the admin fee)
     // (2026-11-20) a page someone waits on: its reads don't sit out Google's quota (lib/sheets.js withSheetsQuick); the Schedule A line
     // (its Sync button writes that sheet) is Publishing's
-    return res.status(200).json(await withSheetsQuick(() => syncChecks({ money: req.access.sections.includes("money"), publishing: req.access.sections.includes("publishing"), fresh: req.query.fresh === "1" })));
+    // (2026-11-24) the Schedule A line's EMPIRE part (the confidential deal's copy) only for the EMPIRE deal pages' own audience: a Founder with Money and every artist
+    return res.status(200).json(await withSheetsQuick(() => syncChecks({ money: req.access.sections.includes("money"), publishing: req.access.sections.includes("publishing"), empire: seesEmpire(req.access), fresh: req.query.fresh === "1" })));
   } catch (err) {
     console.error("sync failed:", err);
     return res.status(500).json({ error: "Couldn't run the sync checks. Try again in a minute." });

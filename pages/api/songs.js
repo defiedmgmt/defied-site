@@ -83,6 +83,9 @@ async function act(body, ctx) {
     const list = [...new Set(ids(body.ids).filter((x) => /^[A-Za-z0-9]{22}(?::[A-Za-z0-9_-]{1,40})?$/.test(x)))];
     if (!list.length) return [400, { error: "Pick the song first." }];
     await sql.transaction(list.map(checkAutoAdded));
+    // (2026-11-24) an OK'd song is no longer an assumed split: the Schedule A sheet's "Assumed split, confirm" goes with the next run, marked and run the way the other
+    // song changes here are (touchScheduleA: never throws, at most one run in 2 minutes, waited for 2 seconds at the most), so a mark that fails never fails the OK
+    await touchScheduleA();
     return [200, { ok: true }];
   }
   if (action === "setIsrc") {
