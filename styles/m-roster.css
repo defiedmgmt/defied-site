@@ -1,1 +1,59 @@
 /* m-roster.css: phone and touch rules for Roster (Overview, Catalog, a client page, the song window); filled in the next mobile phase. Loaded after m-global.css. */
+/* (2026-11-25, mobile phase 2, the owner: "make sure everything is formatted good on mobile too, especially the web app version") Every rule sits under a phone,
+   touch or short-screen query, so desktop (900px and up with a mouse) is untouched. Nothing is hidden to make it fit: things wrap, stack or scroll with the page. */
+
+/* 1. THE SONG WINDOW'S BUTTONS (a phone): "Remove from catalog" didn't fit a third of the row and ran into Delete. It gets a full-width row of its own under
+      Delete and Edit, at the regular button height (the same shape as "Delete prospect" in app.css), so all three read in full. */
+@media (max-width:599px){
+  .app:not(.pub) .song-detail .modal-foot .btn[data-not-ours]{order:1;flex-basis:100%;height:var(--d-ctl);margin-right:0}
+}
+
+/* 2. THE SONG WINDOW'S HELP LINE (a phone, or a phone held sideways): "Remove from catalog: … Delete: …" was pinned above the buttons with them, which left
+      the song itself a small window (140px held sideways). Here the whole window scrolls instead of its body: the title and the buttons stay put (sticky), and
+      the help line scrolls with the song, read at its end just above the buttons. Same words, same look; nothing hidden. The buttons keep their top line
+      (app.css takes it off when the help line sits right above them). */
+@media (max-width:599px),(pointer:coarse) and (max-height:500px),(max-width:899px) and (max-height:500px){
+  .app:not(.pub) .modal-card.song-detail{overflow-y:auto;overscroll-behavior:contain}
+  .app:not(.pub) .modal-card.song-detail > .modal-body{flex:none;overflow:visible}
+  .app:not(.pub) .modal-card.song-detail > .modal-head{position:sticky;top:0;z-index:2;background:var(--d-s1)}
+  .app:not(.pub) .modal-card.song-detail > .modal-foot{position:sticky;bottom:0;z-index:2}
+  .app:not(.pub) .modal-card.song-detail > p.hint.song-foot-help + .modal-foot{border-top:1px solid var(--d-line);padding-top:12px}
+}
+@media (pointer:coarse) and (max-height:500px),(max-width:899px) and (max-height:500px){
+  .app:not(.pub) .modal-card.song-detail > p.hint.song-foot-help + .modal-foot{padding-top:6px}   /* held sideways the foot is compact (m-global.css) */
+}
+
+/* 3. CATALOG'S CARDS (a phone, or held sideways): each label ... value line kept roster.css's 44px table-cell minimum once it became a card line, so a card
+      was 252px for four short facts. The lines go back to their own height, as Overview's cards are (a card is still one tap target). */
+@media (max-width:639px),(pointer:coarse) and (max-height:500px){
+  .app:not(.pub) .rl-table td{min-height:0}
+}
+
+/* 4. NAMES AND CREDITS THAT WERE CUT. The client chips (the row of photos, under 1200px): a name wraps under its photo (12px) instead of "Saucepro…";
+      "Add client" matches it. The chip keeps its 76px and its photo; its name gets 72px of it (the chip draws no box, so nothing moves), so only a name
+      longer than that takes a second line. A song card's artists (the client's songs, New releases): they wrap instead of one cut line. Every name shows
+      in full (no line limit: in the real data a chip name takes at most two lines, a credit at most four). */
+@media (max-width:899px),(pointer:coarse) and (max-width:1199px){
+  .app:not(.pub) .catalog-clients .cc{padding-left:2px;padding-right:2px}
+  .app:not(.pub) .catalog-clients .cc-name{font-size:12px;line-height:1.25;white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+  .app:not(.pub) .catalog-clients .cc-add{font-size:12px}
+}
+@media (max-width:899px),(pointer:coarse){
+  .app:not(.pub) .song-info > span:not([class]){white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+}
+
+/* 5. A PERSON'S CHART (A&R's person view of a roster artist; a phone, or held sideways, as BigChart's own phone switch): the six metric pills wrap to four
+      rows on an iPhone SE and pushed the chart below the first screen. The chart comes right after its dates and range, and the four numbers follow it.
+      Their labels are 11px (10.5px was under the floor). */
+@media (max-width:699px),(pointer:coarse) and (max-height:500px){
+  .app:not(.pub) .ard .bc-stats{order:1}
+  .app:not(.pub) .ard .bc-stat dt{font-size:11px}
+}
+
+/* 6. "CLICK ANY TO SEE THE BREAKDOWN" said to a finger: a touch screen reads "Tap any…" (both words are in ClientPortal.jsx's songs heading, one shows);
+      a mouse still reads Click, so desktop is unchanged. */
+.app .say-tap{display:none}
+@media (hover:none){
+  .app .say-tap{display:inline}
+  .app .say-click{display:none}
+}
