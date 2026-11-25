@@ -692,9 +692,20 @@ function TodoCalendar({ ctx }) {
   const from = days[0], to = days[days.length - 1];
   const events = CAL_SOURCES.flatMap((f) => f({ ...ctx, home }, from, to));
   const on = (d) => events.filter((e) => e.day === d);
-  const step = (n) => setAnchor((a) => (phone ? addDays(a, 7 * n) : (() => { const [y, m] = a.split("-").map(Number); const x = new Date(Date.UTC(y, m - 1 + n, 1)); return x.toISOString().slice(0, 10); })()));
+  const step = (n) => {
+    setAnchor((a) => (phone ? addDays(a, 7 * n) : (() => { const [y, m] = a.split("-").map(Number); const x = new Date(Date.UTC(y, m - 1 + n, 1)); return x.toISOString().slice(0, 10); })()));
+    if (phone) setPicked((p) => addDays(p, 7 * n)); // (2026-11-25, mobile) the picked day moves with the week, so its list stays the week's
+  };
   const title = phone ? `${shortDay(from)} – ${shortDay(to)}` : new Date(`${first}T12:00:00Z`).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
   const chip = (e, i) => <span key={i} className={`cal-ev${e.late ? " late" : ""}`} data-kind={e.kind} data-area={e.kind}>{e.label}</span>;
+  // the picked day's list (open in ClickUp, Done ✓): under the month on a laptop, under the week on a phone
+  const dayList = (
+    <div className="cal-list" data-picked={picked}>
+      <h3 className="lm-h3">{new Date(`${picked}T12:00:00Z`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" })}</h3>
+      {!on(picked).length ? <p className="todo-line">Nothing on this day.</p> : on(picked).map((e, i) => (e.task ? <CuTodoRow key={e.task.id} t={e.task} cu={ctx.cu} />
+        : <div key={i} className="attn-row" data-area={e.kind}><span className="attn-main"><b>{e.label}</b></span></div>))}
+    </div>
+  );
   return (
     <div className="cal" data-cal={phone ? "week" : "month"}>
       <div className="cal-head">
@@ -704,14 +715,18 @@ function TodoCalendar({ ctx }) {
         <button type="button" className="inline-link cal-today" onClick={() => { setAnchor(today); setPicked(today); }}>Today</button>
       </div>
       {phone ? (
-        <div className="cal-week">
-          {days.map((d) => (
-            <div key={d} className={`cal-wday${d === today ? " today" : ""}`} data-day={d}>
-              <span className="cal-wname">{WEEKDAY_SHORT[dow(d)]} {Number(d.slice(8))}</span>
-              <span className="cal-wevs">{on(d).length ? on(d).map(chip) : <span className="muted">—</span>}</span>
-            </div>
-          ))}
-        </div>
+        <>
+          {/* (2026-11-25, mobile) each day is a button, as a month cell is: it picks the day, whose list (a task's ClickUp link and Done ✓) shows under the week */}
+          <div className="cal-week">
+            {days.map((d) => (
+              <button type="button" key={d} className={["cal-wday", d === today && "today", d === picked && "picked"].filter(Boolean).join(" ")} data-day={d} aria-pressed={d === picked} onClick={() => setPicked(d)}>
+                <span className="cal-wname">{WEEKDAY_SHORT[dow(d)]} {Number(d.slice(8))}</span>
+                <span className="cal-wevs">{on(d).length ? on(d).map(chip) : <span className="muted">—</span>}</span>
+              </button>
+            ))}
+          </div>
+          {dayList}
+        </>
       ) : (
         <>
           <div className="cal-grid" role="grid">
@@ -727,11 +742,7 @@ function TodoCalendar({ ctx }) {
               );
             })}
           </div>
-          <div className="cal-list" data-picked={picked}>
-            <h3 className="lm-h3">{new Date(`${picked}T12:00:00Z`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" })}</h3>
-            {!on(picked).length ? <p className="todo-line">Nothing on this day.</p> : on(picked).map((e, i) => (e.task ? <CuTodoRow key={e.task.id} t={e.task} cu={ctx.cu} />
-              : <div key={i} className="attn-row" data-area={e.kind}><span className="attn-main"><b>{e.label}</b></span></div>))}
-          </div>
+          {dayList}
         </>
       )}
     </div>
