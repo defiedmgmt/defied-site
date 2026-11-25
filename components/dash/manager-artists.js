@@ -33,7 +33,7 @@ export function splitByPct(pct) {
 }
 // a Founder's artists: Defied keeps the whole commission. There is no picker for a Founder; a new artist is sent with this cut (percent)
 export const FOUNDER_CUT = 0;
-export const FOUNDER_LINE = "Founders' artists: Defied keeps the whole commission (Manager Gets 0% on the sheet).";
+export const FOUNDER_LINE = "Founders' artists: Defied keeps the whole commission.";
 // why Save is held when artists are being added and no split is picked (the form says "Their artists: " first)
 export const PICK_CUT = "pick their cut (66.7 / 33.3 or 50 / 50).";
 

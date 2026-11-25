@@ -83,7 +83,7 @@ function AboutEditor({ db, commit }) {
   return (
     <div>
       <div className="admin-head"><h2>About page</h2><button className="btn sm" onClick={save} disabled={saving}>{saving ? "Saving…" : saved ? "Saved ✓" : "Save"}</button></div>
-      <p className="muted mb">This text shows on the public About page. Leave a blank line between paragraphs.</p>
+      <p className="muted mb">Leave a blank line between paragraphs.</p>
       <textarea className="about-editor" rows={9} value={text} onChange={(e) => setText(e.target.value)} />
     </div>
   );
@@ -104,7 +104,6 @@ function NotableAdmin({ db, commit }) {
   ];
   return (
     <div>
-      <p className="muted mb">The songs on the About page. Paste a Spotify link to fill in the details.</p>
       <Editor title="Notable releases" items={list} columns={cols} maxItems={10}
         blank={{ song: "", artist: "", client: "", releaseDate: "", link: "", cover: "" }}
         onSave={save} onDelete={del}
@@ -116,7 +115,7 @@ function NotableAdmin({ db, commit }) {
             <Field label="Artist" value={e.artist} onChange={(ev) => set({ ...e, artist: ev.target.value })} />
             <Field label="Client" value={e.client} onChange={(ev) => set({ ...e, client: ev.target.value })} />
             <Field label="Release date" type="date" value={e.releaseDate} onChange={(ev) => set({ ...e, releaseDate: ev.target.value })} />
-            <Field label="Streaming link (opens on click)" value={e.link} onChange={(ev) => set({ ...e, link: ev.target.value })} />
+            <Field label="Streaming link" value={e.link} onChange={(ev) => set({ ...e, link: ev.target.value })} />
           </>
         )}
       />

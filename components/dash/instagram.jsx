@@ -173,8 +173,8 @@ function ConnLine({ st, said, reload }) {
         {st.connected && st.canConnect && <> <button type="button" className="inline-link" onClick={() => setAsking(true)} data-ig-disconnect>Disconnect</button></>}
       </p>
       {st.connected && st.canPublish === false && <p className="hint ig-warn">Instagram didn't allow posting on this sign-in. Reconnect and allow "content publishing".</p>}
-      {!st.postsOn && <p className="hint">Posting is off until <code>INSTAGRAM_POSTS</code> is <code>on</code> in Vercel. You can still draft and preview.</p>}
-      {!st.uploads && <p className="hint">Uploads are off until file storage (<code>BLOB_READ_WRITE_TOKEN</code>) is set up: the Spotify cover still works.</p>}
+      {!st.postsOn && <p className="hint">Posting is off until <code>INSTAGRAM_POSTS</code> is <code>on</code> in Vercel.</p>}
+      {!st.uploads && <p className="hint">Uploads are off until file storage (<code>BLOB_READ_WRITE_TOKEN</code>) is set up.</p>}
       {words && <p className={last === "connected" ? "hint ok-text" : "hint err-text"} role="status">{words}</p>}
       {err && <p className="hint err-text" role="alert">{err}</p>}
       {asking && (
@@ -247,7 +247,8 @@ export function InstagramPanel() {
   const slides = type === "video" ? (video ? [video] : []) : [coverUrl && { kind: "image", url: coverUrl }, slide2].filter(Boolean);
   const at = Math.min(slide, Math.max(0, slides.length - 1));
   const vid = type === "video" ? video : slide2?.kind === "video" ? slide2 : null;
-  const rules = type === "video" ? ["Posts as a Reel that also shows on the feed."]
+  // (2026-11-25 declutter) a Video only post has no rule to follow (its "Posts as a Reel that also shows on the feed." only said how it posts)
+  const rules = type === "video" ? []
     : slide2?.kind === "video" ? ["Don't add a song: the video's own audio plays."]
     : ["Add the song in the Instagram app after posting (include the intro with the producer tag)."];
   const warns = [
@@ -368,7 +369,6 @@ export function InstagramPanel() {
             {isAlbum && (
               <section className="ig-sec" data-ig-tracks>
                 <h3>Tracks Defied worked on</h3>
-                <p className="hint">Tick each one; each gets its own producers and credit.</p>
                 <div className="ig-tracks">
                   {found.tracks.map((t) => {
                     const p = picks[t.n], ft = featsOf(t);
@@ -378,7 +378,6 @@ export function InstagramPanel() {
                         {p && <>
                           <ProducerPick roster={roster} value={p.prods} onChange={(v) => setPick(t.n, { prods: v })} label={`Producers on track ${t.n}`} />
                           <CreditPick value={p.credit} onChange={(v) => setPick(t.n, { credit: v })} />
-                          {p.guessed && <span className="hint">From the song's split on the site.</span>}
                         </>}
                       </div>
                     );
@@ -400,7 +399,6 @@ export function InstagramPanel() {
                 {!isAlbum && <>
                   <ProducerPick roster={roster} value={prods} onChange={setProds} label="Defied producers" />
                   {prods.length > 0 && <CreditPick value={credit} onChange={setCredit} />}
-                  {!prods.length && <p className="hint">None: the caption says “Out now!” (an artist's own release).</p>}
                 </>}
                 {isAlbum && !prodRows.length && <p className="hint">Pick each ticked track's producers above.</p>}
                 {prodRows.map((p) => <PersonRow key={p.key} p={p} value={val(p.key, rowSrc(p))} onChange={setVal(p.key)} />)}
@@ -448,7 +446,7 @@ export function InstagramPanel() {
             {found && people.length > 0 && (
               <section className="ig-sec" data-ig-people>
                 <h3>Collaborators &amp; tags</h3>
-                <p className="hint">Always tag and collaborate with all artists and producers. Instagram allows {MAX_COLLABORATORS} collaborators; {type === "video" ? "a Reel can't carry photo tags." : "everyone is tagged on the cover."}</p>
+                <p className="hint">Instagram allows {MAX_COLLABORATORS} collaborators.</p>
                 <div className="ig-people">
                   {ppl.map((p, i) => {
                     const on = collabKeys.includes(p.key);
@@ -481,10 +479,10 @@ export function InstagramPanel() {
               {slides.length > 1 && <div className="ig-ph-dots" aria-hidden>{slides.map((_, i) => <span key={i} className={i === at ? "on" : ""} />)}</div>}
               <div className="ig-ph-cap"><b>{st.username || "defiedmgmt"}</b> {text}</div>
             </div>
-            {found && <ul className="ig-rules" data-ig-rules>{rules.map((r) => <li key={r}>{r}</li>)}{warns.map((w) => <li key={w} className="ig-warn">{w}</li>)}</ul>}
+            {found && (rules.length > 0 || warns.length > 0) && <ul className="ig-rules" data-ig-rules>{rules.map((r) => <li key={r}>{r}</li>)}{warns.map((w) => <li key={w} className="ig-warn">{w}</li>)}</ul>}
             {found && (
               <label className="fld ig-cap-edit">
-                <span>Caption{caption !== null && caption !== format ? " (edited: it no longer follows the fields above)" : ""}</span>
+                <span>Caption{caption !== null && caption !== format ? " (edited)" : ""}</span>
                 <textarea rows={8} value={text} onChange={(e) => setCaption(e.target.value)} data-ig-caption />
                 <span className="hint">{text.length} / {MAX_CAPTION}</span>
               </label>

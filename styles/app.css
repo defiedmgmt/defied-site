@@ -513,11 +513,6 @@ html:has(.app:not(.pub) .dash),html:has(.app:not(.pub) .portal){scrollbar-gutter
 .app:not(.pub) .overview-links{gap:4px}
 /* About: field and its Save share one 760px column */
 .app:not(.pub) .subnav ~ div:has(> .about-editor){max-width:760px}
-/* Roster + Notable: their how-to paragraph sits ABOVE the Editor in the DOM; show it as a hint UNDER the table
-   (CSS order only — DOM order, and therefore the tests that read the first .dash-main p.muted, are unchanged) */
-.app:not(.pub) .subnav ~ div:has(> div > .admin-head):has(> p.muted.mb){display:flex;flex-direction:column}
-.app:not(.pub) .subnav ~ div:has(> div > .admin-head):has(> p.muted.mb) > div:has(> .admin-head){order:1}
-.app:not(.pub) .subnav ~ div:has(> div > .admin-head):has(> p.muted.mb) > p.muted.mb{order:2;max-width:68ch;margin:12px 0 0;font-size:12.5px;line-height:1.5;color:var(--d-ink-4)}
 /* segmented sub-nav (Website, A&R) */
 .app:not(.pub) .subnav{display:inline-flex;flex-wrap:nowrap;gap:4px;max-width:100%;margin:0 0 28px;padding:4px;
   border:1px solid var(--d-line-2);border-radius:100px;overflow-x:auto;scrollbar-width:none}
