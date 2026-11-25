@@ -346,6 +346,12 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   const spotifyOnly = (p) => spotifyStandIn(p, growth, spotSongs);
   const streamsNow = useMemo(() => portalStreams(songs, { growth, spotSongs }), [songs, growth, spotSongs]);
   const spotifyFill = streamsNow.spotifyFill;
+  // (2026-11-25, the owner: "for each client can we sort the songs from highest streams to lowest streams in the roster section") staff see a client's songs biggest first:
+  // the number each song's window shows (streamsNow: the sheet's streams, or Spotify's plays standing in; "Under 1,000" counts as none), a tie the newest release first, then by title
+  const byStreams = useMemo(() => {
+    const n = new Map(streamsNow.songs.map((r) => [r.p.id, r.under1k ? 0 : Number(r.streams) || 0]));
+    return [...songs].sort((a, b) => (n.get(b.id) || 0) - (n.get(a.id) || 0) || String(b.releaseDate || "").localeCompare(String(a.releaseDate || "")) || String(a.song || "").localeCompare(String(b.song || "")));
+  }, [songs, streamsNow]);
   // (2026-11-15) a client's "as of" lines say the day their streams are from, as the share card does (lib/portal-streams.js
   // streamsDay): the sheet's (Luminate's, numbersOn) unless Spotify's plays are all there is, then theirs. No day: the last pull's
   const asOfWords = (day) => new Date(day ? `${day}T12:00:00` : db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -439,15 +445,12 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
       <div className="portal-block-head">
         <div>
           <h2>Songs &amp; Publishing Splits</h2>
-          <p className="muted">
-            {/* the song count already lives in the summary's Songs stat for
-                clients, and for staff who see no money (songsTile) — repeating
-                it here would just be the same number twice. Staff with the
-                money columns see no Songs stat there, so keep it here. */}
-            {(!songsTile || !db.sheetSync?.lastSyncedAt) && `${songs.length} Song${songs.length === 1 ? "" : "s"} · `}
-            {/* (2026-11-25, mobile) a touch screen says Tap, a mouse still says Click (styles/m-roster.css shows one of the two) */}
-            <span className="say-click">Click</span><span className="say-tap">Tap</span> any to see the breakdown.
-          </p>
+          {/* the song count already lives in the summary's Songs stat for
+              clients, and for staff who see no money (songsTile) — repeating
+              it here would just be the same number twice. Staff with the
+              money columns see no Songs stat there, so keep it here.
+              (2026-11-25 declutter) the count alone: no sentence after it telling you to click (or tap) a card, which is plainly a button */}
+          {(!songsTile || !db.sheetSync?.lastSyncedAt) && <p className="muted">{`${songs.length} Song${songs.length === 1 ? "" : "s"}`}</p>}
           {isStaff && pushWarn && <p className="hint err-text">{pushWarn}</p>}
         </div>
         <button className="btn sm" onClick={startAdd}><Plus size={15} /> Add Song</button>
@@ -459,7 +462,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
         <p className="muted">No songs yet — add the first one.</p>
       ) : (
         <div className="song-grid">
-          {(isStaff ? [...songs].sort((a, b) => (splitTotal(a.splits) === 100) - (splitTotal(b.splits) === 100)) : songs).map((p) => (
+          {/* (2026-11-25, the owner: "... and in their client portals") a client's own page too: biggest streams first (byStreams, above) */}
+          {byStreams.map((p) => (
             <button key={p.id} className="song-card" onClick={() => setOpenId(p.id)}>
               <div className="song-cover">
                 {p.cover ? <Photo src={p.cover} alt={p.song} /> : <div className="song-cover-empty"><Disc3 size={26} /></div>}
@@ -516,14 +520,14 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                   {/* no streams from the sheet yet: Spotify's plays stand in */}
                   {(() => {
                     const sp = spotifyOnly(active);
-                    return <div className="split-list-row" data-song-streams={sp ? (sp.under1k ? "spotify-under-1k" : "spotify") : "sheet"}><span className="split-name">Streams{sp && <em> (Spotify, until Luminate has it)</em>}</span><span className="split-pct">{sp?.under1k ? "Under 1,000" : fmt(sp?.n ?? active.streams)}</span></div>;
+                    return <div className="split-list-row" data-song-streams={sp ? (sp.under1k ? "spotify-under-1k" : "spotify") : "sheet"}><span className="split-name">Streams{sp && <em> (Spotify)</em>}</span><span className="split-pct">{sp?.under1k ? "Under 1,000" : fmt(sp?.n ?? active.streams)}</span></div>;
                   })()}
                   <p className="hint song-asof">{isStaff ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt })
                     : `as of ${asOfWords(streamsDay(active.streams, spotifyOnly(active)?.on, numbersOn))}`}</p>
                 </div>
               )}
-              {/* (2026-11-11, the owner: "make it clear that the splits are pub splits for each song") */}
-              <div className="song-splits-head" data-splits-head><h4>Publishing splits</h4><span className="hint">Who owns this song's publishing, by writer share</span></div>
+              {/* (2026-11-11, the owner: "make it clear that the splits are pub splits for each song") (2026-11-25 declutter) the heading says it: no hint line beside it */}
+              <div className="song-splits-head" data-splits-head><h4>Publishing splits</h4></div>
               <SplitsPie splits={activeEven ? activeEven.splits : active.splits} size={230} />
               <div className="split-list">
                 {(() => { const hue = splitColors(activeEven ? activeEven.splits : active.splits); return orderSplits(activeEven ? activeEven.splits : active.splits || []).map((s, i) => (
@@ -586,7 +590,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               <Field label="Streaming link" data-field="link" value={editing.link} onChange={(ev) => setEditing({ ...editing, link: ev.target.value })} />
               <label className="check-row" data-not-on-streaming>
                 <input type="checkbox" checked={noStream ?? skipOf(editing.id)} onChange={(ev) => setNoStream(ev.target.checked)} />
-                <span>Not on streaming<em className="check-hint">Unreleased, or only on SoundCloud/TikTok: no link or release date needed.</em></span>
+                <span>Not on streaming</span>
               </label>
               <SplitsEditor splits={editing.splits} onChange={(v) => setEditing({ ...editing, splits: v })} focusPct={splitsFirst} assume={!!isStaff || !editing.id} forClient={!isStaff} owner={client} artist={editing.artist} />
               <label className="check-row">
