@@ -2233,6 +2233,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .pub-tiles .cat-stat{justify-content:flex-start}
 .app:not(.pub) .pub-tiles .cat-stat-val{font-size:clamp(18px,13cqi,28px)}
 .app:not(.pub) .pub-tiles .cat-stat-note{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app:not(.pub) .pub-summary > .pub-once{margin:8px 2px 0}   /* (2026-11-25) "Shared songs counted once in these totals": one line under the row, for its three totals that count that way */
 @container pub-summary (max-width:779px){ .app:not(.pub) .pub-tiles.cat-summary-grid:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:repeat(2,minmax(0,1fr))} }
 @container pub-summary (max-width:389px){
   .app:not(.pub) .pub-tiles.cat-summary-grid:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:repeat(2,minmax(0,1fr))}
