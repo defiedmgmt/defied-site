@@ -7,7 +7,7 @@ import { overlapOf, paceOfSongs, producerDeal } from "../../lib/empire-math";
 import { yearFactor } from "../../lib/advance-model";
 import { useIsPhone } from "../ui/responsive";
 import {
-  amountOf, centsOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, netIncomeHow, paceSource, partPct, pctText, round10, shownParts, usd, usd0, usd10, verdictRule, verdictShown, verdictTone,
+  amountOf, centsOf, checkSentence, clampMonths, cutFromText, dealPayload, floor10, monthsText, netIncomeHow, paceSource, partPct, pctText, shownParts, usd, usd0, usd10, verdictRule, verdictShown, verdictTone,
 } from "./empire-data";
 
 // The advance calculator (2026-11-21), moved here from Clients › Advance calculator into Money, and rebuilt for how Defied now gives advances: out of the
@@ -78,13 +78,16 @@ export function EmpireCalc({ data, reload, init = null }) {
   const paceSub = paceKind === "real" ? "streams a year, from daily counts" : paceKind === "mixed" ? `streams a year, partly from daily counts (${partPct(pace.realShare)})` : "streams a year, an estimate";
   const decay = lev?.decayRate ?? 0;
   const adv = m ? Math.max(0, m.advance - owing) : 0; // the advance that is left for a new deal
-  // (2026-11-24, audit) the estimates are shown to the nearest $10 (empire-data.js usd10): the headline, the tiles, the ladder and the check. What is left of the pot is the real
+  // (2026-11-24, audit) the estimates are shown to the nearest $10 (empire-data.js usd10): the tiles and the check. What is left of the pot is the real
   // amount less the advance as shown, and Save starts from the advance as shown, so what is on the screen adds up. The step-by-step under Show the math keeps the cents.
-  const adv10 = round10(adv);
+  // (2026-11-25, final review MM-1) The headline, the ladder and Save's amount are upper limits: rounded DOWN to the $10 (floor10), so the amount shown, checked or saved,
+  // always pays back within the months picked (to the nearest $10, $3,256.79 showed as $3,260: 36.1 months, "Too high", under a Tight headline).
+  const adv10 = floor10(adv);
   const potAfter = m && m.pot ? free - adv10 : null;
   // (2026-11-25, polish) Parts and the total they make add up on the screen. Their royalties + Defied's cut (next 12 months) ARE what counts toward EMPIRE's total (all of
   // Defied's payout), and each was rounded to $10 on its own: $1,410 + $350 under a $1,770 (1,768.49). The total and the royalties keep their own nearest $10 (the total is the
-  // number that counts toward EMPIRE; the royalties are what the advance is paid back from, so at 12 months they are the headline), and Defied's cut is the total less the
+  // number that counts toward EMPIRE; the royalties are what the advance is paid back from: at 12 months the headline, an upper limit rounded down, is the royalties
+  // rounded down, so it is the tile or $10 under it, never over), and Defied's cut is the total less the
   // royalties as shown (never a whole $10 from its own exact value). The same at the cent in Show the math: Net Income = EMPIRE's part + Defied's, Defied's = the producer's
   // royalties + Defied's cut, each ledger's total = its years as shown, and the advance less what is still owed.
   const n12 = m ? shownParts(m.toEmpire.next12, m.next12.royalties, 10) : null; // whole: counts toward EMPIRE · part: their royalties · rest: Defied's cut
@@ -192,8 +195,8 @@ export function EmpireCalc({ data, reload, init = null }) {
           {empty || !m ? <p className="adv-empty" data-emp-calc-empty>{!lev?.ok ? "Loading the rates…" : cut == null ? "Type Defied's cut as a percent to see an advance." : who === "n" && Number(typed.gross) > 0 && !(Number(typed.share) > 0) ? "Add their writer share (%) to see an advance." : producer && picks.length === 0 ? "Tick at least one song to see an advance." : "Pick a producer, or type streams, to see an advance."}</p> : (
             <>
               <div className="adv-headline" data-adv-headline>
-                <p className="adv-head-line"><span className="adv-head-up">Up to</span> <span className="adv-head-n" data-adv-headline-n>{usd10(adv)}</span></p>
-                <p className="adv-head-sub" data-adv-headline-sub><span>{`paid back in ${monthsText(R)}`}</span>{adv > 0 && <VerdictPill verdict={verdictShown(R)} />}</p>
+                <p className="adv-head-line"><span className="adv-head-up">Up to</span> <span className="adv-head-n" data-adv-headline-n>{usd0(adv10)}</span></p>
+                <p className="adv-head-sub" data-adv-headline-sub><span>{`paid back in ${monthsText(R)}`}</span>{adv10 > 0 && <VerdictPill verdict={verdictShown(R)} />}</p>
                 {owing > 0 && <p className="adv-stat-sub" data-adv-owing>{`after the ${usd(owing)} still to pay back`}</p>}
               </div>
               <div className="cat-summary" data-adv-tiles>
@@ -272,7 +275,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                   <tbody>
                     {m.ladder.map((r) => (
                       <tr key={r.months} data-ladder-months={r.months} data-chosen={r.months === R ? "" : undefined} aria-current={r.months === R ? "true" : undefined}>
-                        <td>{monthsText(r.months)}</td><td>{usd10(Math.max(0, r.advance - owing))}</td><td><VerdictPill verdict={owing > 0 && r.advance - owing <= 0 ? null : r.verdict} /></td>
+                        <td>{monthsText(r.months)}</td><td>{usd0(floor10(r.advance - owing))}</td><td><VerdictPill verdict={floor10(r.advance - owing) > 0 ? r.verdict : null} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -306,7 +309,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                 <li data-how="slowdown">{decay > 0
                   ? `Slows ${pct1(decay)} a year (ASSUMPTIONS!B8), so the next 12 months average ${pct1(yearFactor(decay, 1))} of today's pace; each year after is ${pct1(1 - decay)} of the one before. ${pct1(decay)} is a careful assumption; check it again once there's more history.`
                   : "No slowdown (ASSUMPTIONS!B8 is 0%), so every year earns today's pace."}</li>
-                <li data-how="advance">{`The advance is what the royalties add up to over the ${monthsText(R)} you picked, slowdown included: ${usd(advHow.whole)}${owing > 0 ? `. The deal above still has ${usd(advHow.part)} to pay back out of the same royalties, so ${usd(Math.max(0, advHow.rest))} is left for a new one` : ""}. Shown as ${usd10(adv)} above: the calculator's estimates are rounded to the nearest $10.`}</li>
+                <li data-how="advance">{`The advance is what the royalties add up to over the ${monthsText(R)} you picked, slowdown included: ${usd(advHow.whole)}${owing > 0 ? `. The deal above still has ${usd(advHow.part)} to pay back out of the same royalties, so ${usd(Math.max(0, advHow.rest))} is left for a new one` : ""}. Shown as ${usd0(adv10)} above, rounded down to the $10 so it never takes longer than the months picked; the calculator's other estimates are rounded to the nearest $10.`}</li>
                 <li data-how="adds">{producer ? `These songs already count toward EMPIRE's ${usd0(terms.owed)} (they're on Schedule A): about ${usd(m.toEmpire.next12)} in the next 12 months and ${usd(m.toEmpire.next36)} over 3 years (all of Defied's ${pctText(terms.payout, 0)} counts, whatever the producer is owed).` : `Once their songs are on Schedule A they would add about ${usd(m.toEmpire.next12)} in the next 12 months toward EMPIRE's ${usd0(terms.owed)}.`}</li>
                 <li data-how="verdict">{verdictRule()}</li>
               </ul>

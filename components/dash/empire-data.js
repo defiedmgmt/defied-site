@@ -19,6 +19,12 @@ export const usd0 = (n) => { const v = Math.round(Number(n) || 0); return `${v <
 // Only for showing them: never real money, what is typed, or the math under them. Halves go away from 0 the same way both sides of it.
 export const round10 = (n) => { const v = Number(n) || 0; return Math.sign(v) * Math.round(Math.abs(v) / 10) * 10; };
 export const usd10 = (n) => usd0(round10(n));
+// (2026-11-25, final review MM-1) An upper limit is rounded DOWN to the $10, never up past what it stands for: the headline ("Up to"), each ladder row, the amount Save
+// starts from, and the most the royalties could ever repay / the most left for a new advance. To the nearest $10, Stack!e's $3,256.79 over 36 months showed as $3,260,
+// which takes 36.1 months to pay back ("Too high"), under a headline that said Tight. Rounded down ($3,250), the amount shown, typed back into Check an amount, always
+// pays back within the months picked. An advance is never below 0. Descriptive estimates (the tiles, what is left of the pot) stay to the nearest $10 (round10).
+export const floor10 = (n) => { const v = Math.max(0, Number(n) || 0); return Math.floor(v / 10) * 10; };
+export const usdFloor10 = (n) => usd0(floor10(n));
 // (2026-11-25, polish) A whole and the two parts it is made of, as the page shows them, so that what is on the screen adds up ($1,410 + $350 was shown under a $1,770
 // made of the same money): the whole and the first part are each rounded on their own (step 10: to the nearest $10, as usd10; else to the cent), and the second part is
 // what is left of the whole, which is never a whole step away from its own exact value. -> { whole, part, rest } (numbers, rounded)
@@ -75,7 +81,8 @@ export function checkSentence(check, ceil) {
     : ` The royalties over 3 years don't even cover the ${usd(owing)} still to pay back.`;
   if (check.months == null) return { tone: "neutral", text: "There are no royalties at this pace, so there's nothing to pay it back from." };
   if (check.months === Infinity) {
-    const most = ceil == null ? "" : owing ? `; the most they could ever repay is ${usd10(ceil)}, so the most left for a new advance is ${usd10(Math.max(0, ceil - owing))}` : `; the most they could ever repay is ${usd10(ceil)}`;
+    // both are upper limits (an amount at the ceiling is never paid back): rounded down to the $10 (floor10), never up past it
+    const most = ceil == null ? "" : owing ? `; the most they could ever repay is ${usdFloor10(ceil)}, so the most left for a new advance is ${usdFloor10(ceil - owing)}` : `; the most they could ever repay is ${usdFloor10(ceil)}`;
     return { tone: "neg", text: `The royalties would never pay this back ${owing ? `on top of the ${usd(owing)} still to pay back` : "at this pace"}${most}.${covers}` };
   }
   const verdict = verdictShown(check.months);
