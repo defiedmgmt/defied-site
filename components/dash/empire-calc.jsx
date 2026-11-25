@@ -5,6 +5,7 @@ import { bigNum, pct1 } from "./ar-fmt";
 import { useAct, useEmpire } from "./empire-api";
 import { overlapOf, paceOfSongs, producerDeal } from "../../lib/empire-math";
 import { yearFactor } from "../../lib/advance-model";
+import { useIsPhone } from "../ui/responsive";
 import {
   amountOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, netIncomeHow, paceSource, partPct, pctText, round10, usd, usd0, usd10, verdictRule, verdictShown, verdictTone,
 } from "./empire-data";
@@ -40,6 +41,9 @@ export function EmpireCalc({ data, reload, init = null }) {
   const [note, setNote] = useState(init?.note ?? "");
   const [said, setSaid] = useState(init?.said ?? null);
   const { busy, err, act, clear } = useAct(reload);
+  // (2026-11-25, mobile) on a phone the picker's "Someone new" leaves its "(type their streams)" off: the closed picker cut it to "…their stre…";
+  // the Name and Lifetime streams fields under it say the same. Desktop keeps the words (false on the server and on first paint).
+  const phone = useIsPhone();
 
   const producer = who.startsWith("p:") ? producers.find((p) => p.id === who.slice(2)) : null;
   const picks = (scope === "songs" ? (producer?.songs || []).filter((s) => picked.has(s.id)) : producer?.songs || []);
@@ -112,7 +116,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                   {producers.map((p) => <option key={p.id} value={`p:${p.id}`}>{p.name} ({p.songs.length} {p.songs.length === 1 ? "song" : "songs"})</option>)}
                 </optgroup>
               )}
-              <option value="n">Someone new (type their streams)</option>
+              <option value="n">{phone ? "Someone new" : "Someone new (type their streams)"}</option>
             </select>
           </label>
 
@@ -250,7 +254,8 @@ export function EmpireCalc({ data, reload, init = null }) {
               <div className="adv-block" data-adv-ladder>
                 <h3 className="adv-h">{owing > 0 ? `Advance for each payback time, after the ${usd(owing)} still to pay back` : "Advance for each payback time"}</h3>
                 <table className="adv-ladder">
-                  <thead><tr><th scope="col">Pays back in</th><th scope="col">Advance</th><th scope="col">Verdict</th></tr></thead>
+                  {/* (2026-11-25, mobile) "back in" kept together: on a phone the head wraps as "Pays / back in", never with "in" alone */}
+                  <thead><tr><th scope="col">Pays back{"\u00a0"}in</th><th scope="col">Advance</th><th scope="col">Verdict</th></tr></thead>
                   <tbody>
                     {m.ladder.map((r) => (
                       <tr key={r.months} data-ladder-months={r.months} data-chosen={r.months === R ? "" : undefined} aria-current={r.months === R ? "true" : undefined}>

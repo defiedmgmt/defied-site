@@ -1,1 +1,48 @@
-/* m-money.css: phone and touch rules for Money (Overview, All payments, My payments and the deal pages); filled in the next mobile phase. Loaded after m-global.css. */
+/* m-money.css (2026-11-25, mobile phase 2): phone and touch rules for Money (Overview, All payments, My payments and the two deal pages, the
+   recoupment page and the Advance calculator). Loaded after m-global.css, so a tie with it or with app.css / the deal pages' stylesheet goes
+   to this file. Desktop (900px and up with a mouse) is untouched: every rule sits under a phone, touch or phone-width query. */
+
+/* 1. THE ADVANCE CALCULATOR'S "SHOW THE MATH" ON A PHONE. Three padded boxes inside each other left the payback ladder 240px, so its
+      Verdict column sat on the card's right edge at 375 and 390: the boxes give back a little padding, the column heads may wrap between
+      words, never inside one ("Pays / back in": the calculator keeps "back in" together), and the block scrolls rather than spill if a screen
+      is narrower still (320px).
+      The card padding also keeps the five "Pay back in" month chips on one row at 375. */
+@media (max-width:560px){
+  .app:not(.pub) .emp-card{padding:16px 14px}
+  .app:not(.pub) .emp-calc .emp-fc-body{padding:0 12px 12px}
+  .app:not(.pub) .emp-calc .adv-math-body .adv-block{padding:12px 10px}
+  .app:not(.pub) .emp-calc .adv-ladder th{letter-spacing:.06em;white-space:normal;overflow-wrap:normal}
+  .app:not(.pub) .emp-calc [data-adv-ladder]{overflow-x:auto}
+}
+/* the first math tile's long label took half of a two-column row and stood nine lines tall: the two tiles stack (one column under 600px,
+   where the dashboard's tiles go two by two) */
+@media (max-width:599px){
+  .app:not(.pub) .adv-math-body [data-adv-math-tiles] .cat-summary-grid{grid-template-columns:minmax(0,1fr)}
+}
+/* the 3-year ledgers: an amount never breaks in the middle ("$2,200.1" / "5"); its label wraps instead */
+@media (max-width:899px){
+  .app:not(.pub) .adv-ledgers .split-pct,.app:not(.pub) .adv-ledgers .split-list-total > span:last-child{flex:none;white-space:nowrap;overflow-wrap:normal}
+}
+
+/* 2. TAP TARGETS (touch screens and phone widths, the query of the shared 44px label rule). The "Which songs" radios and the Log confirm's
+      row ticks are 44px rows already (m-global.css); their box and words now sit on the row's middle, not its top. Pick all / None keep their
+      look and place in the sentence and get a 44px-wide invisible tap area (their height is already 44px: the text-link padding). */
+@media (pointer:coarse),(max-width:639px){
+  .app:not(.pub) .emp-radio,.app:not(.pub) .logedit-tick{align-items:center}
+  .app:not(.pub) .emp-radio input{margin-top:0}
+  .app:not(.pub) .logedit-tick input{margin:0}
+  .app:not(.pub) .emp-songs-acts .inline-link{position:relative}
+  .app:not(.pub) .emp-songs-acts .inline-link::before{content:"";position:absolute;top:0;bottom:0;left:50%;width:max(100%,44px);transform:translateX(-50%)}
+}
+
+/* 3. SMALL TEXT ON A PHONE (under 900px: portrait and held sideways). Money's number tiles and the ladder's column heads (the display font,
+      uppercase, 10px) go to 11px, as the shared tiles did in m-global.css; the body-font labels that say what a thing is go to the micro size
+      (12px): "Spent", "Mark money spent", "Which songs", "$2.00 paid", a test payment's chip, My payments' "made" / "you keep" and its
+      "Recent payments" line when held sideways. */
+@media (max-width:899px){
+  .app:not(.pub) :is(.acct-tiles,.emp-page,.my-pay) .cat-stat-label{font-size:11px;letter-spacing:.08em}
+  .app:not(.pub) .emp-calc .adv-ladder th{font-size:11px}
+  .app:not(.pub) :is(.emp-list-h,.emp-form-title,.emp-scope legend){font-size:var(--d-fs-micro)}
+  .app:not(.pub) .pay-amt em,.app:not(.pub) .pay-test{font-size:var(--d-fs-micro)}
+  .app:not(.pub) .my-pay :is(.mp-keep-label,.todo-group){font-size:var(--d-fs-micro)}
+}
