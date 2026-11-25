@@ -2209,9 +2209,11 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 /* a stat row with one tile is that tile's width, not the whole row's (phones: the whole row, as every odd last tile is); a row with a cover keeps the table's 44px */
 @media (min-width:640px){
   .app:not(.pub) :is(.pub-tiles,.portal-tiles):has(> .cat-stat:only-child){max-width:320px}
+  .app:not(.pub) .pub-tiles:has(> .cat-stat:nth-child(2):last-child){max-width:640px}   /* the Roster overview's two tiles (Streams, Clients) side by side, each as wide as the lone one was */
   .app:not(.pub) tr:has(.nr-thumb) > td{padding-top:6px;padding-bottom:6px}
 }
 @media (max-width:639px){
+  .app:not(.pub) .pub-tiles.cat-summary-grid:has(> .cat-stat:nth-child(2):last-child){grid-template-columns:minmax(0,1fr)}   /* on a phone the two tiles wrap, one under the other, each the full width: side by side, "Streams (all time)" breaks over two lines */
   .app:not(.pub) .nr-strip{margin:0 -16px;padding:2px 16px 12px;scroll-padding-inline:16px}
   .app:not(.pub) .nr-strip > li{width:132px}
   .app:not(.pub) .nr-thumb{width:40px;height:40px}

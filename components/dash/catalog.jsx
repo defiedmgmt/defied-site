@@ -813,6 +813,8 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
     return by.dir * ((Number(val[by.col](a)) || 0) - (Number(val[by.col](b)) || 0)) || name(a).localeCompare(name(b));
   });
   const songsTotal = rows.reduce((a, x) => a + (Number(x.songs) || 0), 0);
+  // the Clients tile: the table's own rows counted (the very `rows` its <tbody> draws), so the tile and the table cannot disagree
+  const clientsTotal = rows.length;
   return (
     <div>
       <div className="admin-head">
@@ -833,11 +835,13 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
       {state.data && (
         <>
           <div className="cat-summary">
-            {/* (2026-11-24, the owner: "just the key information") one number: the roster's streams, MASTER's own total. The pub earnings and the potential admin fee (the old pub
-                sheet's estimates) and the line explaining them are not shown */}
+            {/* (2026-11-24, the owner: "just the key information") two numbers: the roster's streams, MASTER's own total, and how many clients the table lists. The pub earnings and the potential
+                admin fee (the old pub sheet's estimates) and the line explaining them are not shown */}
             <div className="cat-summary-grid pub-tiles">
               {/* MASTER adds each writer's gross up: a song two roster writers share is in it twice */}
               <div className="cat-stat" data-stat="streams" title="Added up by writer: a song two writers share counts once for each"><span className="cat-stat-label">Streams (all time)</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
+              {/* the clients in the table below (clientsTotal: its own rows), drawn with the streams tile, once MASTER has loaded (until then: "Loading master sheet data…" above, no tiles) */}
+              <div className="cat-stat" data-stat="clients" title="The clients in the table below"><span className="cat-stat-label">Clients</span><span className="cat-stat-val">{fmt(clientsTotal)}</span></div>
             </div>
           </div>
 

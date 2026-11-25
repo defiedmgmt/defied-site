@@ -341,7 +341,7 @@ There was a **Releases** pill too until 2026-11-24 (the owner: "maybe we dont ne
     Status chips are the app's own gaps: No ISRC (the finder's), No link and No release date (`lib/sheet-facts.js` SONG_GAPS), Split to confirm (`splitsToConfirm`, the list To do and the
     client chips use), and a gray Not on streaming (`song_tracking.skip`). A song marked Not on streaming is not asked for a date, link or ISRC. Search is instant over title, artist and
     client; the chips are All, Missing info (any chip but the gray one) and Not on streaming; the sort is Most streams (default) or Newest release. A phone shows 25 cards, then "Show more".
-- **Roster** (the clients' page): the Overview (the streams total, "Streams (all time)", and the table: client, songs, this week, streams, the same for every account: no "More columns" button)
+- **Roster** (the clients' page): the Overview (two tiles, "Streams (all time)" and "Clients", which is the number of rows in the table below it, so the two always agree; and the table: client, songs, this week, streams, the same for every account: no "More columns" button)
   and a client's page (their name and role, the Campaign numbers, Gross Streams, the songs with their covers, splits and "+N this week"). The old pub sheet's estimates are not on these pages
   or in a song's window: no Pub earnings or Potential admin fee tile, row or column (not behind "More columns" either, which is gone), no "Estimates: streams × the writer's share × $0.00092"
   line, no "Sheet tab: <name>" under a client's name (a tab the sheet doesn't have is still said, as a warning), and a song's card says nothing about its split unless it is missing or doesn't
