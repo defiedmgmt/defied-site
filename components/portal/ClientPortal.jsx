@@ -445,7 +445,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                 it here would just be the same number twice. Staff with the
                 money columns see no Songs stat there, so keep it here. */}
             {(!songsTile || !db.sheetSync?.lastSyncedAt) && `${songs.length} Song${songs.length === 1 ? "" : "s"} · `}
-            Click any to see the breakdown.
+            {/* (2026-11-25, mobile) a touch screen says Tap, a mouse still says Click (styles/m-roster.css shows one of the two) */}
+            <span className="say-click">Click</span><span className="say-tap">Tap</span> any to see the breakdown.
           </p>
           {isStaff && pushWarn && <p className="hint err-text">{pushWarn}</p>}
         </div>
