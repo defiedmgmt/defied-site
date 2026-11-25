@@ -55,9 +55,9 @@ export function EmpireCalc({ data, reload, init = null }) {
     return { real: false, perYear: netStreams * lev.runRate, warning: null, source: `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${rulePct} a year.` };
   }, [lev, producer, scope, picked, netStreams]); // eslint-disable-line react-hooks/exhaustive-deps
   const R = clampMonths(monthsIn), amount = amountOf(amountIn), cut = cutFromText(cutText);
-  // the new songs held down (lib/advance-pace.js songPace), named with their measured launch pace and what they count as, for "Show the math"
+  // the new songs held down (lib/advance-pace.js songPace), named with their 28-day pace and what they count as from their latest week, for "Show the math"
   const heldSongs = producer ? picks.filter((s) => s.share > 0 && s.launch) : [];
-  const heldWords = heldSongs.length ? ` New ${heldSongs.length === 1 ? "song" : "songs"} held down: ${heldSongs.map((s) => `“${s.song}” ${bigNum(s.measuredNet)} a year at launch, counted as ${bigNum(s.paceNet)}`).join("; ")}.` : "";
+  const heldWords = heldSongs.length ? ` New ${heldSongs.length === 1 ? "song" : "songs"} held to the latest week: ${heldSongs.map((s) => `“${s.song}” ${bigNum(s.measuredNet)} a year over its daily counts so far, counted as ${bigNum(s.paceNet)}`).join("; ")}.` : "";
 
   // (2026-11-21, review) A producer who already has a deal on a song these picks cover has those royalties spoken for: what is still to pay back on that deal (its estimate: a planned
   // deal's whole advance, a given one's what the royalties since its day haven't covered) comes off the advance recommended here, never below 0. Deals on other songs don't count.
