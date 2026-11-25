@@ -14,6 +14,11 @@
 // it, and such an answer never counts as recent. A sign-in or sign-out in between means "drop": the last account's answers never fill the
 // next one's caches; its boot requests are cancelled. A boot's answer also says whose it is (X-Boot-User), and it's only handed to the
 // account this tab is signed in as.
+// (2026-11-25, live) A write counts when its answer says something changed: the watch sees every POST/PUT/PATCH/DELETE to /api/ go out,
+// and when its answer comes back with X-Defied-Changed: 0 (the Dashboard's background sheet pull that wasn't due, { skipped }) nothing is
+// forgotten; any other answer, or none, is a change and forgets as before. While a write is on its way, a read that lands waits for its
+// answer before it counts (settledFate), so a read from before a real write is still never shown after it, and one from before a no-op
+// isn't thrown away. (Before, the background pull's POST, a 60 ms "not due", dropped every boot answer still on its way: 9 reads asked again.)
 
 const parts = new Map(); // url -> { p: Promise<{ s, b, who } | null>, at }
 const loaded = new Map(); // key -> { at, gen }
@@ -21,7 +26,10 @@ const running = new Set(); // the boot requests on their way (AbortControllers):
 let gen = 0; // moves on with every write and every sign-in / sign-out
 let sgen = 0; // moves on with every sign-in / sign-out
 let user; // the account this tab is signed in as: undefined until the session check answers, null when nobody
-export const BOOT_MAX_AGE = 15000; // a read handed over only to code that asks within 15 s of the page opening
+let pending = 0; // writes on their way
+let idle = null; // { p, done }: resolves when no write is on its way
+const changeListeners = new Set(); // told when a write changed something (components/ui/fetch-cache.js empties its cache)
+export const BOOT_MAX_AGE = 15000; // a read handed over only to code that asks within 15 s of its answer arriving
 export const RECENT_MS = 30000;
 // a read the boot hasn't answered this long after it started is asked for on its own (the server gives up on it at 9 s: lib/boot.js; tests set it lower)
 export const bootWait = { ms: 12000 };
@@ -30,23 +38,33 @@ export const bootWait = { ms: 12000 };
 const trace = (k, v) => { try { const t = (window.__dashBoot = window.__dashBoot || { parts: {} }); if (k) t.parts[k] = v; return t; } catch { return {}; } };
 
 let watching = false;
-function watchWrites() {
+// a write's answer: did it change anything? Only an answer that says X-Defied-Changed: 0 didn't; a failed request may have, so it counts
+export const changedBy = (res) => !(res && typeof res.headers?.get === "function" && res.headers.get("x-defied-changed") === "0");
+export function watchWrites() {
   if (watching || typeof window === "undefined" || typeof window.fetch !== "function") return;
   watching = true;
   const orig = window.fetch;
   window.fetch = function (input, init) {
     const method = String(init?.method || (typeof input === "object" && input?.method) || "GET").toUpperCase();
-    if (method !== "GET" && method !== "HEAD") {
-      const url = typeof input === "string" ? input : input?.url || String(input);
-      if (url.includes("/api/")) forgetBoot();
-    }
-    return orig.apply(this, arguments);
+    const url = typeof input === "string" ? input : input?.url || String(input);
+    if (method === "GET" || method === "HEAD" || !url.includes("/api/")) return orig.apply(this, arguments);
+    if (!pending++) { let done; idle = { p: new Promise((r) => { done = r; }), done: () => done() }; }
+    const settle = (changed) => { if (changed) forgetBoot(); if (!--pending) { const i = idle; idle = null; i?.done(); } };
+    // decided before the caller sees the answer: code that awaits a save and then reads again reads after the forgetting, never before it
+    return orig.apply(this, arguments).then((res) => { settle(changedBy(res)); return res; }, (err) => { settle(true); throw err; });
   };
 }
+// resolves once no write is on its way (at once when none is)
+export const writesSettled = () => (pending && idle ? idle.p.then(() => writesSettled()) : Promise.resolve());
+// fate(t), decided once the writes on their way have answered: a read that lands while one is going waits to know whether it changed anything
+export async function settledFate(t) { await writesSettled(); return fate(t); }
+// told whenever a write changed something (not for a write that changed nothing, nor for a sign-in or sign-out: those clear everything themselves)
+export function onDataChange(fn) { changeListeners.add(fn); return () => changeListeners.delete(fn); }
 // a write (or, with session, a sign-in or sign-out): nothing read before it is handed over or counted as recent; at a sign-in or sign-out
 // the boot requests still on their way are cancelled too
 export function forgetBoot({ session = false } = {}) {
   gen++; parts.clear(); loaded.clear();
+  for (const fn of changeListeners) { try { fn({ session }); } catch { /* a listener's own problem */ } }
   if (session) {
     sgen++;
     for (const c of running) { try { c.abort(); } catch { /* already done */ } }
@@ -83,6 +101,10 @@ const SECTION_READS = {
   ar: ["/api/ar-lists?view=home"],
 };
 const MONEY_ACCOUNTING_SUBS = [null, "overview", "payments", "mine"];
+// (2026-11-25, live) where the Dashboard starts its background sheet pull (StaffDashboard: Dashboard, To do, Roster), whether one is due
+// comes with the boot, so a pull that isn't due costs no request at all (catalog-data.js fullSiteSync)
+export const PULL_DUE_URL = "/api/sheets-pull?due=1";
+const PULL_TABS = ["home", "todo", "catalog"];
 // the section an address opens (the same names as StaffDashboard's tabs; an old one's own address is good enough here)
 export function bootSectionOf(pathname) {
   const [, root, t, sub] = String(pathname || "").split("?")[0].split("/");
@@ -105,7 +127,7 @@ export function bootPlan(pathname, { me = true } = {}) {
   // views read their own lists
   if (at.tab === "money" && !MONEY_ACCOUNTING_SUBS.includes(at.sub)) own = [];
   if (at.tab === "ar" && at.sub) own = [];
-  return [[...(me ? ["/api/auth/me"] : []), ...SHELL_FIRST], [...SHELL_REST, ...own]];
+  return [[...(me ? ["/api/auth/me"] : []), ...SHELL_FIRST], [...SHELL_REST, ...own, ...(PULL_TABS.includes(at.tab) ? [PULL_DUE_URL] : [])]];
 }
 
 // one /api/boot request for these reads; each read's answer is handed to the first bootFetch(url) that asks for it
@@ -114,7 +136,7 @@ function bootRequest(urls) {
   if (!mine.length) return;
   const waiting = new Map();
   const at = Date.now();
-  for (const u of mine) { let resolve; const p = new Promise((r) => { resolve = r; }); parts.set(u, { p, at }); waiting.set(u, resolve); }
+  for (const u of mine) { let resolve; const e = { p: null, at, arrived: 0 }; e.p = new Promise((r) => { resolve = (v) => { e.arrived = Date.now(); r(v); }; }); parts.set(u, e); waiting.set(u, resolve); }
   const t0 = typeof performance !== "undefined" ? performance.now() : 0;
   const ctl = typeof AbortController === "function" ? new AbortController() : null;
   if (ctl) running.add(ctl);
@@ -168,10 +190,13 @@ export function bootFetch(url, init) {
   const plain = () => fetch(url, { cache: "no-store", ...init });
   const e = parts.get(url);
   if (e) parts.delete(url);
-  if (!e || Date.now() - e.at > BOOT_MAX_AGE || (init?.method && String(init.method).toUpperCase() !== "GET")) return plain();
+  // (2026-11-25) too old: an answer that ARRIVED over BOOT_MAX_AGE ago (one still on its way is always waited for: a slow cold boot is still
+  // the read the page asked for, and asking again would only double it)
+  if (!e || (e.arrived && Date.now() - e.arrived > BOOT_MAX_AGE) || (init?.method && String(init.method).toUpperCase() !== "GET")) return plain();
   const t = stamp();
   return e.p.then((part) => {
-    if (!part || fate(t) === "drop" || (user !== undefined && part.who !== undefined && part.who !== (user || ""))) return plain();
+    // (the session check's own answer is exempt: it is what says who this tab is signed in as)
+    if (!part || fate(t) === "drop" || (url !== "/api/auth/me" && user !== undefined && part.who !== undefined && part.who !== (user || ""))) return plain();
     return new Response(part.b === undefined ? null : JSON.stringify(part.b), { status: part.s, headers: { "Content-Type": "application/json" } });
   });
 }
@@ -190,12 +215,12 @@ export async function readFresh(url, init) {
       r = await bootFetch(url, init);
       j = await r.json().catch(() => null);
     } catch (err) {
-      const f = fate(t);
+      const f = await settledFate(t);
       if (f === "drop") return { dropped: true };
       if (f === "again") continue;
       throw err;
     }
-    const f = fate(t);
+    const f = await settledFate(t);
     if (f === "drop") return { dropped: true };
     last = { ok: r.ok, status: r.status, j, t };
     if (f === "apply") return last;
@@ -207,6 +232,6 @@ export async function readFresh(url, init) {
 // when a section's data was last read well: going back within RECENT_MS draws what it has and asks nothing (a write in between asks again).
 // t: the stamp of the read that brought it; a read that started before a write or a sign-in is never counted
 export function markLoaded(key, t) { watchWrites(); if (fate(t) !== "apply") return; loaded.set(key, { at: Date.now(), gen }); }
-export function loadedRecently(key, ms = RECENT_MS) { const x = loaded.get(key); return !!x && x.gen === gen && Date.now() - x.at < ms; }
+export function loadedRecently(key, ms = RECENT_MS) { const x = loaded.get(key); return !pending && !!x && x.gen === gen && Date.now() - x.at < ms; }
 // read well at least once since the page opened (and since the last write)
 export const loadedOnce = (key) => loaded.has(key);

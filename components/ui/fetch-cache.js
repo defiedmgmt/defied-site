@@ -11,7 +11,9 @@
 // (2026-11-25, review) Each read is stamped as it starts (components/shared/boot.js): an answer from before a write is read again, one from before a
 // sign-in or sign-out is never cached or drawn, and a copy put back from the tab's saved copy whose first read fails is taken off the screen
 // (onData(null, { dropped: true })), so the page says it couldn't load instead of showing the old answer as current.
-import { bootFetch, fate, stamp } from "../shared/boot";
+// (2026-11-25, live) the cache empties when a write CHANGED something (components/shared/boot.js decides: a background pull that wasn't due
+// changes nothing, so it no longer empties every screen's answer), and an answer that lands while a write is on its way waits for it.
+import { bootFetch, fate, onDataChange, settledFate, stamp, watchWrites as watchBootWrites } from "../shared/boot";
 
 const cache = new Map();
 const inflight = new Map(); // url -> { p, at, t }: a prefetch on its way
@@ -21,17 +23,10 @@ let watching = false;
 // a response read once, by whoever asks first (a prefetch and the read that joins it share it)
 const wrap = (r) => { let jp = null; return { ok: r.ok, status: r.status, json: () => (jp = jp || r.json()) }; };
 function watchWrites() {
-  if (watching || typeof window === "undefined" || typeof window.fetch !== "function") return;
+  if (watching || typeof window === "undefined") return;
   watching = true;
-  const orig = window.fetch;
-  window.fetch = function (input, init) {
-    const method = String(init?.method || (typeof input === "object" && input?.method) || "GET").toUpperCase();
-    if (method !== "GET" && method !== "HEAD") {
-      const url = typeof input === "string" ? input : input?.url || String(input);
-      if (url.includes("/api/")) { cache.clear(); inflight.clear(); prefetched.clear(); restored.clear(); }
-    }
-    return orig.apply(this, arguments);
-  };
+  watchBootWrites();
+  onDataChange(() => { cache.clear(); inflight.clear(); prefetched.clear(); restored.clear(); });
 }
 
 // swrJson(url, onData, { keep, anyStatus }): calls onData(cached) right away when there is a good answer from
@@ -60,13 +55,13 @@ export function swrJson(url, onData, { keep = (j) => j != null && !j.error, anyS
   };
   return got
     .then((r) => (r.ok || anyStatus ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-    .then((j) => {
-      const f = fate(t);
+    .then(async (j) => {
+      const f = await settledFate(t);
       if (f === "drop") return j; // a sign-in or sign-out since: never drawn or cached
       if (f === "again") return swrJson(url, onData, { keep, anyStatus }); // a write since: read again
       if (keep(j)) { restored.delete(url); cache.set(url, j); onData(j, { cached: false }); } else { dropRestored(); cache.delete(url); }
       return j;
-    }, (err) => { if (fate(t) === "apply") dropRestored(); throw err; });
+    }, async (err) => { if ((await settledFate(t)) === "apply") dropRestored(); throw err; });
 }
 // start reading url now (the pointer is on its section's button), unless it's cached or already on its way; swrJson joins it
 export function prefetchJson(url) {

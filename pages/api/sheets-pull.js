@@ -19,7 +19,28 @@ import { claimState, setState } from "../../lib/app-state";
 
 const BACKGROUND_MIN = 30; // components/dash/catalog-data.js SYNC_STALE_MS says the same
 
+// (2026-11-25, live) GET ?due=1 (read only, also answered inside the dashboard's /api/boot): would the Dashboard's background pull run now?
+// The same rule as the POST's claim below, without claiming: a staff account's pull of every artist waits 30 minutes after the last one
+// started; one limited to its own artists never waits; a client's portal doesn't pull from here. A pull that isn't due then costs the
+// Dashboard no request at all (components/dash/catalog-data.js fullSiteSync).
+async function pullDue(req, res) {
+  const session = await requireAccess(req, res, "publishing", { clients: true });
+  if (!session) return;
+  res.setHeader("Cache-Control", "no-store");
+  if (session.user.role !== "staff") return res.status(200).json({ due: false });
+  if (limited(req)) return res.status(200).json({ due: true });
+  try {
+    const [row] = await sql`SELECT updated_at < now() - ${BACKGROUND_MIN}::int * interval '1 minute' AS due FROM app_state WHERE key = 'sheetPull'`;
+    return res.status(200).json({ due: !row || !!row.due });
+  } catch (err) {
+    console.error("sheets-pull due check failed:", err);
+    // can't tell: the POST decides, as before
+    return res.status(200).json({ due: true });
+  }
+}
+
 export default async function handler(req, res) {
+  if (req.method === "GET" && req.query?.due) return pullDue(req, res);
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   const session = await requireAccess(req, res, "publishing", { clients: true });
   if (!session) return;
@@ -43,7 +64,12 @@ export default async function handler(req, res) {
     const spreadsheetId = getSheetId();
     const known = await loadClientTabNames();
     const whole = isStaff && !limited(req) && known.length > 0 && known.every((k) => clients.some((c) => c.id === k.id));
-    if (whole && !(await claimState("sheetPull", req.body?.background ? BACKGROUND_MIN : 0))) return res.status(200).json({ skipped: true, clients: [] });
+    // (2026-11-25, live) a background pull that isn't due changes nothing: X-Defied-Changed: 0 tells the dashboard (components/shared/boot.js)
+    // not to treat it as a write (it was throwing away every read still on its way)
+    if (whole && !(await claimState("sheetPull", req.body?.background ? BACKGROUND_MIN : 0))) {
+      res.setHeader("X-Defied-Changed", "0");
+      return res.status(200).json({ skipped: true, changed: false, clients: [] });
+    }
     const tabs = await listTabs(sheets, spreadsheetId);
 
     const out = [], facts = [];
