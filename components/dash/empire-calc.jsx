@@ -51,10 +51,13 @@ export function EmpireCalc({ data, reload, init = null }) {
   const rulePct = pctText(lev?.runRate ?? 0);
   const pace = useMemo(() => {
     if (!lev?.ok) return null;
-    if (producer) return paceSource({ p: paceOfSongs(picks.filter((s) => s.share > 0)), rule: lev.runRate, decay: lev.decayRate });
+    if (producer) return paceSource({ p: paceOfSongs(picks.filter((s) => s.share > 0)), rule: lev.runRate, decay: lev.decayRate, heldNames: picks.filter((s) => s.share > 0 && s.launch).map((s) => s.song) });
     return { real: false, perYear: netStreams * lev.runRate, warning: null, source: `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${rulePct} a year.` };
   }, [lev, producer, scope, picked, netStreams]); // eslint-disable-line react-hooks/exhaustive-deps
   const R = clampMonths(monthsIn), amount = amountOf(amountIn), cut = cutFromText(cutText);
+  // the new songs held down (lib/advance-pace.js songPace), named with their measured launch pace and what they count as, for "Show the math"
+  const heldSongs = producer ? picks.filter((s) => s.share > 0 && s.launch) : [];
+  const heldWords = heldSongs.length ? ` New ${heldSongs.length === 1 ? "song" : "songs"} held down: ${heldSongs.map((s) => `“${s.song}” ${bigNum(s.measuredNet)} a year at launch, counted as ${bigNum(s.paceNet)}`).join("; ")}.` : "";
 
   // (2026-11-21, review) A producer who already has a deal on a song these picks cover has those royalties spoken for: what is still to pay back on that deal (its estimate: a planned
   // deal's whole advance, a given one's what the royalties since its day haven't covered) comes off the advance recommended here, never below 0. Deals on other songs don't count.
@@ -123,7 +126,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                         <label>
                           <input type="checkbox" checked={picked.has(s.id)} onChange={() => tick(s.id)} aria-label={s.song} />
                           <span className="emp-song-t"><b>{s.song}</b>{s.artist && <em> {s.artist}</em>}</span>
-                          <span className="emp-song-n" data-emp-song-pace>{s.share > 0 ? `${pctText(s.share, 0)} · ${bigNum(s.paceNet)} a year${s.kind === "real" ? "" : " (est.)"}` : "no split yet"}</span>
+                          <span className="emp-song-n" data-emp-song-pace>{s.share > 0 ? `${pctText(s.share, 0)} · ${bigNum(s.paceNet)} a year${s.kind !== "real" ? " (est.)" : s.launch ? " (new, rough)" : ""}` : "no split yet"}</span>
                         </label>
                       </li>
                     ))}
@@ -268,7 +271,7 @@ export function EmpireCalc({ data, reload, init = null }) {
             <div className="adv-block adv-how" data-adv-how>
               <h3 className="adv-h">How we got these numbers</h3>
               <ul className="adv-how-list">
-                <li data-how="pace">{`Today's pace: ${Math.round(m.pace).toLocaleString("en-US")} streams a year (all platforms, their share). ${pace.source}`}</li>
+                <li data-how="pace">{`Today's pace: ${Math.round(m.pace).toLocaleString("en-US")} streams a year (all platforms, their share). ${pace.source}${heldWords}`}</li>
                 <li data-how="rate">{`× $${+lev.blendedRate.toFixed(6)} a stream: the pub sheet's rate for the whole song, writer and publisher (ASSUMPTIONS!B7) = ${usd(m.pace * lev.blendedRate)} a year at today's pace.`}</li>
                 <li data-how="net">{`Net Income: EMPIRE receives ${pctText(lev.niShare, 1)} of that, the mechanicals and the publisher's half of performance = ${usd(m.now.ni)} a year${lev.niShareSet ? ` (a share a Founder set; the standard guess is ${pctText(lev.niStandard, 1)})` : ""}. The writer's share of performance royalties isn't part of this: it's paid to the writer through their PRO, outside the deal. This is before EMPIRE's collection fees (the contract caps them at ${pctText(terms.feeCap, 0)}).`}</li>
                 <li data-how="empire">{`EMPIRE keeps ${pctText(1 - terms.payout, 1)} of Net Income: ${usd(m.now.empire)} a year.`}</li>

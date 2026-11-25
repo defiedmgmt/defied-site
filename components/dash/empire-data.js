@@ -6,7 +6,6 @@
 // (2026-11-24, the owner: "just the key information") The page opens on three tiles (paid back, left to give out, next statement) and one short line of dates (datesLine, nextLine below);
 // the timeline, the status line and the sentence about the bar, which they replace, are gone.
 import { verdictFor, VERDICTS } from "../../lib/advance-model";
-import { NEW_SONGS_WARN } from "../../lib/empire-math";
 
 // ---- words for numbers and days
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -213,9 +212,21 @@ export function dealForecast(deal) {
 // ---- the calculator's pace, in words
 // a part of the whole as a whole percent that never reads 0% or 100% while it is only a part (99.95% measured is "99%")
 export const partPct = (x) => `${Math.min(99, Math.max(1, Math.round((Number(x) || 0) * 100)))}%`;
+// the songs named in a sentence: “A”, “A” and “B”, “A”, “B” and “C”; past three, "N songs"
+const songNames = (xs) => (xs.length > 3 ? `${xs.length} songs` : xs.map((x) => `“${x}”`).join(", ").replace(/, ([^,]*)$/, " and $1"));
+// (2026-11-24, audit) the note for new songs: a song whose daily counts are from its first 3 months is held toward the sheet's rule (lib/advance-pace.js songPace), and the
+// estimate is rough either way. heldNames: the held songs picked; p.newShare: the part of the pace from new songs.
+function newSongNote(p, r, decay, heldNames) {
+  const n = p.held || 0;
+  if (n > 0) {
+    const one = n === 1, who = heldNames?.length === n ? songNames(heldNames) : one ? "one song" : `${n} songs`;
+    return `New ${one ? "song" : "songs"}, so this estimate is rough: the daily counts for ${who} are from ${one ? "its" : "their"} first 3 months, when songs stream far more than they keep up, so ${one ? "its" : "each one's"} pace is held down toward the sheet's rule (${r} of lifetime a year) on the streams it should have by 3 months. Check again once ${one ? "it's" : "they're"} past that.`;
+  }
+  return p.newShare > 0 ? `New songs, so this estimate is rough: ${partPct(p.newShare)} of this pace is from songs out under 3 months, and new songs usually drop faster than ${pctText(decay)} a year.` : null;
+}
 // p: paceOfSongs()'s answer for the songs picked (song by song: each measured song at its measured pace, the rest by the rule); rule: the sheet's run-rate (B9) as a
-// fraction; decay: B8. -> { real (all of the pace measured), realShare, perYear, source, warning }
-export function paceSource({ p, rule, decay }) {
+// fraction; decay: B8; heldNames: the names of the new songs held down. -> { real (all of the pace measured), realShare, perYear, source, warning }
+export function paceSource({ p, rule, decay, heldNames = [] }) {
   const r = pctText(rule);
   if (p.tracked > 0) {
     const rest = p.count - p.tracked;
@@ -223,7 +234,7 @@ export function paceSource({ p, rule, decay }) {
     return {
       real: p.real, realShare: p.realShare, perYear: p.perYear,
       source: `${p.real ? "Real streams: " : ""}Spotify's daily counts for ${p.tracked} of ${p.count} ${p.count === 1 ? "song" : "songs"}, scaled to all platforms by each song's lifetime total.${other}`,
-      warning: p.newShare >= NEW_SONGS_WARN ? `${Math.round(p.newShare * 100)}% of this pace is from songs out under 3 months. New songs usually drop faster than ${pctText(decay)} a year, so treat this as the high end.` : null,
+      warning: newSongNote(p, r, decay, heldNames),
     };
   }
   return {
