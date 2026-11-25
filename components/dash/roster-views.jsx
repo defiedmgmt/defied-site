@@ -97,7 +97,6 @@ export function RosterCatalog({ db, songInfo, onOpen }) {
   const list = phone ? shown.slice(0, limit) : shown;
   // the day the streams are from, as the portal and the share card say it (db.streamsOn); else the day the site last read the pub sheet
   const asOf = db.streamsOn ? `Streams as of ${dayWords(db.streamsOn)}` : db.sheetSync?.lastSyncedAt ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt }) : "";
-  const several = shown.some((r) => r.clients.length > 1);
   const cols = [
     { id: "song", label: "Song", className: "rl-song", render: (r) => <span className="nr-song"><span className="nr-thumb"><Cover r={r} w={96} /></span><OpenSong r={r} /></span> },
     { id: "artist", label: "Artist", render: (r) => r.artist || "—" },
@@ -114,7 +113,8 @@ export function RosterCatalog({ db, songInfo, onOpen }) {
         <span className="emp-big-of" data-rl-songs={sum.songs}>{sum.streams === 1 ? "stream" : "streams"} · {fmt(sum.songs)} {sum.songs === 1 ? "song" : "songs"}</span>
       </div>
       <p className="hint cat-asof" data-rl-asof>
-        {[asOf, sum.noStreams > 0 && `${fmt(sum.noStreams)} ${sum.noStreams === 1 ? "song" : "songs"} not on Luminate yet, no streams here`, several && "a song on more than one client's page counts once"].filter(Boolean).join(" · ")}
+        {/* (2026-11-25) the total adds every client's copy up (summary), as the rest of the dashboard: no "counts once" line any more */}
+        {[asOf, sum.noStreams > 0 && `${fmt(sum.noStreams)} ${sum.noStreams === 1 ? "song" : "songs"} not on Luminate yet, no streams here`].filter(Boolean).join(" · ")}
       </p>
       <div className="rl-tools">
         <input className="arg-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search songs, artists or clients" aria-label="Search songs, artists or clients" autoComplete="off" data-rl-search />
