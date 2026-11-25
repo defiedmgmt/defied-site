@@ -5,11 +5,12 @@
 //           on: { dryRun, rows, songs }, what the copy would have; it isn't read).
 //   POST -> runs the sync now (Site › Sync's "Sync Schedule A now"): { ok, at, rows, producers, onlyOnSheet, summary, changed, wrote, empire? } (empire: the copy's
 //           { ok, rows, songs }, or { error } when it couldn't be written: the sync of the main sheet is done and the answer is a 200 all the same).
+//   empire (and last.empire) only for a Founder with Money and every artist (lib/schedule-a.js seesEmpire, the EMPIRE deal pages' gate); anyone else gets neither.
 // 503 with the words when it isn't set up (SCHEDULE_A_SHEET_ID) or its writes are off (SCHEDULE_A_WRITES); 409 when another run is writing the sheet just now (one at a
 // time: { busy: true }); 502 when Google or the sheet said no, or the sheet's header row isn't one the site knows (nothing is written then).
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
-import { runScheduleA, scheduleAStatus, scheduleAOn, scheduleAWritesOn } from "../../lib/schedule-a";
+import { runScheduleA, scheduleAStatus, scheduleAOn, scheduleAWritesOn, seesEmpire, withoutEmpire } from "../../lib/schedule-a";
 
 // the database, one read of the sheet, one write of it and its looks
 export const config = { maxDuration: 60 };
@@ -17,8 +18,10 @@ export const config = { maxDuration: 60 };
 export default async function handler(req, res) {
   const session = await requireAccess(req, res, "publishing", { whole: true });
   if (!session) return;
+  // (2026-11-24) the EMPIRE copy is the confidential deal's: only a Founder with Money and every artist (the deal pages' own gate) hears anything of it here
+  const founder = seesEmpire(req.access);
   if (req.method === "GET") {
-    try { return res.status(200).json(await scheduleAStatus()); } catch (err) {
+    try { return res.status(200).json(await scheduleAStatus({ empire: founder })); } catch (err) {
       console.error("schedule a status failed:", err);
       return res.status(500).json({ error: "Couldn't read Schedule A's state. Try again in a minute." });
     }
@@ -33,5 +36,5 @@ export default async function handler(req, res) {
   if (out.busy) return res.status(409).json({ error: "Schedule A is being written right now (another run is in progress). Try again in a minute.", busy: true });
   // (a run that ran out of time goes on by itself: the answer says so)
   if (out.late || out.skipped) return res.status(200).json({ ok: false, skipped: out.skipped, late: !!out.late });
-  return res.status(200).json(out);
+  return res.status(200).json(founder ? out : withoutEmpire(out));
 }
