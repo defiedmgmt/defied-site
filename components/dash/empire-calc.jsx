@@ -6,7 +6,7 @@ import { useAct, useEmpire } from "./empire-api";
 import { overlapOf, paceOfSongs, producerDeal } from "../../lib/empire-math";
 import { yearFactor } from "../../lib/advance-model";
 import {
-  amountOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, paceSource, pctText, usd, usd0, verdictRule, verdictShown, verdictTone,
+  amountOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, paceSource, partPct, pctText, usd, usd0, verdictRule, verdictShown, verdictTone,
 } from "./empire-data";
 
 // The advance calculator (2026-11-21), moved here from Clients › Advance calculator into Money, and rebuilt for how Defied now gives advances: out of the
@@ -69,6 +69,9 @@ export function EmpireCalc({ data, reload, init = null }) {
     ? producerDeal({ pace: pace.perYear, ni: lev.niPerStream, payout: terms.payout, cut, decay: lev.decayRate, months: R, amount, owing, pot: { left: free } })
     : null), [lev, pace, cut, R, amount, owing, terms, free]);
   const checked = m ? checkSentence(m.check, m.ceiling) : null;
+  // (2026-11-24, audit) "from daily counts" only when ALL of the pace is measured; a mix says how much is
+  const paceKind = pace?.real ? "real" : pace?.realShare > 0 ? "mixed" : "estimate";
+  const paceSub = paceKind === "real" ? "streams a year, from daily counts" : paceKind === "mixed" ? `streams a year, partly from daily counts (${partPct(pace.realShare)})` : "streams a year, an estimate";
   const decay = lev?.decayRate ?? 0;
   const adv = m ? Math.max(0, m.advance - owing) : 0; // the advance that is left for a new deal
   const potAfter = m && m.pot ? free - adv : null;
@@ -219,11 +222,11 @@ export function EmpireCalc({ data, reload, init = null }) {
             <div className="cat-summary" data-adv-math-tiles>
               <div className="cat-summary-grid">
                 <div className="cat-stat" data-stat="toEmpire"><span className="cat-stat-label">{producer ? `Counts toward EMPIRE's ${usd0(terms.owed)} (already on Schedule A), next 12 months` : `Adds to EMPIRE's ${usd0(terms.owed)}, next 12 months`}</span><span className="cat-stat-val">{money(m.toEmpire.next12)}</span><span className="adv-stat-sub">{`all of Defied's ${pctText(terms.payout, 0)}`}</span></div>
-                <div className="cat-stat" data-stat="pace"><span className="cat-stat-label">Today's pace</span><span className="cat-stat-val">{bigNum(m.pace)}</span><span className="adv-stat-sub">{pace.real ? "streams a year, from daily counts" : "streams a year, an estimate"}</span></div>
+                <div className="cat-stat" data-stat="pace"><span className="cat-stat-label">Today's pace</span><span className="cat-stat-val">{bigNum(m.pace)}</span><span className="adv-stat-sub">{paceSub}</span></div>
               </div>
             </div>
             {/* where today's pace comes from: real daily streams for songs with enough of them, otherwise the sheet's rule */}
-            <p className="hint adv-source" data-adv-source={pace.real ? "real" : "estimate"}>{pace.source}</p>
+            <p className="hint adv-source" data-adv-source={paceKind}>{pace.source}</p>
             <p className="hint adv-rate" data-emp-rate title="The rate is ASSUMPTIONS!B7 on the pub sheet">{`At $${+lev.blendedRate.toFixed(6)} a stream for the whole song (your pub sheet's rate).`}</p>
 
             <div className="adv-block" data-emp-flow>
