@@ -2,9 +2,9 @@
 // account that sees every artist (the sheet is the whole roster's: an account limited to its own artists is refused).
 //   GET  -> { on, writes, url, last, preview }  where it stands (app_state "scheduleA") and what a sync would do now, a dry run: one read of the sheet,
 //           nothing written. preview is { rows, producers, onlyOnSheet, changed, wouldFormat, summary, empire? } or { error } (empire, when the EMPIRE copy is
-//           on: { dryRun, rows, songs }, what the copy would have; it isn't read).
+//           on: { dryRun, rows, songs, leftOut? }, what the copy would have, leftOut the songs it would leave out for an uncleared sample; it isn't read).
 //   POST -> runs the sync now (Site › Sync's "Sync Schedule A now"): { ok, at, rows, producers, onlyOnSheet, summary, changed, wrote, empire? } (empire: the copy's
-//           { ok, rows, songs }, or { error } when it couldn't be written: the sync of the main sheet is done and the answer is a 200 all the same).
+//           { ok, rows, songs, leftOut? }, or { error } when it couldn't be written: the sync of the main sheet is done and the answer is a 200 all the same).
 //   empire (and last.empire) only for a Founder with Money and every artist (lib/schedule-a.js seesEmpire, the EMPIRE deal pages' gate); anyone else gets neither.
 // 503 with the words when it isn't set up (SCHEDULE_A_SHEET_ID) or its writes are off (SCHEDULE_A_WRITES); 409 when another run is writing the sheet just now (one at a
 // time: { busy: true }); 502 when Google or the sheet said no, or the sheet's header row isn't one the site knows (nothing is written then).
