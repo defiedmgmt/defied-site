@@ -44,10 +44,12 @@
 
 /* 5. A PERSON'S CHART (A&R's person view of a roster artist; a phone, or held sideways, as BigChart's own phone switch): the six metric pills wrap to four
       rows on an iPhone SE and pushed the chart below the first screen. The chart comes right after its dates and range, and the four numbers follow it.
-      Their labels are 11px (10.5px was under the floor). */
+      Their labels are the 12px micro size (10.5px was under the floor). (2026-11-25, merge of the mobile phase: this sheet said 11px and m-home.css,
+      which sets every chart's labels on a phone, says 12px; this rule is heavier, so the drawer read 11px. They are labels that say which number is which,
+      so both sheets now give them the same 12px.) */
 @media (max-width:699px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .ard .bc-stats{order:1}
-  .app:not(.pub) .ard .bc-stat dt{font-size:11px}
+  .app:not(.pub) .ard .bc-stat dt{font-size:var(--d-fs-micro)}
 }
 
 /* 6. "CLICK ANY TO SEE THE BREAKDOWN" said to a finger: a touch screen reads "Tap any…" (both words are in ClientPortal.jsx's songs heading, one shows);
@@ -56,4 +58,11 @@
 @media (hover:none){
   .app .say-tap{display:inline}
   .app .say-click{display:none}
+}
+
+/* 7. ROSTER'S NUMBERS TILES' LABELS (2026-11-25, merge of the mobile phase; found by the re-measure): Overview's four tiles ("Streams (all time)" …) and a client
+      page's Gross Streams were 10px on a phone, and the Campaign tiles held sideways too (m-global's 11px is for a portrait phone). 11px, as every other numbers
+      tile on a phone (m-global, m-money, m-public). Nothing moves but the label's size; the labels still fit their tiles (re-measured at 375, 390, 430, 844x390). */
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
+  .app:not(.pub) :is(.pub-tiles,.portal-tiles,.as-grid) .cat-stat-label{font-size:11px}
 }

@@ -70,3 +70,9 @@
 @media (pointer:coarse) and (max-height:500px){
   .app:not(.pub) .ard .arg-links a{width:44px;height:44px;font-size:12px}
 }
+
+/* (2026-11-25, merge of the mobile phase; found by the re-measure) the calendar's "Today" link is 44px wide as well as tall on a phone or touch screen
+   (it was 39px wide); its word stays where it was, at the right of the row. */
+@media (max-width:700px),(pointer:coarse){
+  .app:not(.pub) .cal-today{min-width:44px;justify-content:flex-end}
+}

@@ -48,6 +48,10 @@
   /* the Copied toast: 11px (one line for submissions@ from a 375px phone up), and clear of the screen's edges when a long address
      needs a second line */
   .app.pub .toast{max-width:calc(100% - 32px);box-sizing:border-box;padding:12px 16px;font-size:11px;letter-spacing:.04em;line-height:1.3;text-align:center}
+  /* (2026-11-25, merge of the mobile phase; found by the re-measure) the captions in the two moving bands, Home's stats ("BILLBOARD 200 / DRAKE "Q&A" ·
+     PROD. STACK!E") and About's credits ("PROD. …"), are a quarter of the band's size with a 9px floor, so 9px on every phone: 11px here. Desktop keeps
+     its own (the band is bigger there, so the caption is 11px already). */
+  .app.pub .st-cap,.app.pub .about2-band .cr-sub{font-size:11px}
 }
 /* a release card's play badge is its only sign that it opens Spotify or YouTube: on a touch screen (no hover) it always shows */
 @media (hover:none){
