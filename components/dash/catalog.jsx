@@ -777,7 +777,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   const sumWeek = (ws) => {
     const t = ws.reduce((a, w) => a + w.thisWeek, 0), l = ws.reduce((a, w) => a + w.lastWeek, 0);
     // under 1,000 streams this week a % says little (1 → 2 is "▲ 100%"): streams only, as on the Dashboard
-    return { thisWeek: t, wowPct: l > 0 && t >= WEEK_PCT_MIN ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null };
+    return { thisWeek: t, wowPct: l > 0 && t >= WEEK_PCT_MIN ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null, songs: ws.length };
   };
   // (2026-11-10) Refresh numbers and the pub sheet's Drive folder are the Founders' (Money access); the table is the same for everyone
   const seeMoney = canUse(db, "money");
@@ -814,10 +814,12 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   });
   const songsTotal = rows.reduce((a, x) => a + (Number(x.songs) || 0), 0);
   // the stat row above the table, all from what the page already has, so it agrees with the table: Streams this week is the This week column added up (the very `rows` the <tbody> draws, so a "—" row adds
-  // nothing; null while no row has a week, the column's own state), with the days it covers said as the column's head says them. Songs is the Songs column added up, the Roster total row's number. Roster is
-  // every client on the site (db.clients, the chips beside the table), the ones with no pub sheet row yet too: the data has no management/admin kind to split them by
+  // nothing; null while no row has a week, the column's own state). It covers only part of the catalog, so under the number it says where the week comes from, which days and how much it covers: Spotify's
+  // automated daily numbers add up the songs that have both weeks (n of the songs in the Songs column), Luminate's week the clients it has a week for (k of the table's clients). Songs is the Songs column added up,
+  // the Roster total row's number. Roster is every client on the site (db.clients, the chips beside the table), the ones with no pub sheet row yet too: the data has no management/admin kind to split them by
   const weekTotal = noWeeks ? null : rows.reduce((a, x) => a + (Number(x.wk?.thisWeek) || 0), 0);
-  const weekNote = lumWeek ? (lumLabel ? `Luminate · ${lumLabel}` : "") : (span ? dayRange(span.from, span.to) : "");
+  const weekSource = [lumWeek ? "Luminate" : "Spotify", lumWeek ? lumLabel : span ? dayRange(span.from, span.to) : ""].filter(Boolean).join(" · "); // the source and days, as the column's head says them
+  const weekCover = lumWeek ? `${fmt(rows.filter((x) => x.wk).length)} of ${fmt(rows.length)} clients` : `${fmt(rows.reduce((a, x) => a + (x.wk?.songs || 0), 0))} of ${fmt(songsTotal)} songs`;
   const rosterCount = db.clients.length;
   return (
     <div>
@@ -844,8 +846,9 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
             <div className="cat-summary-grid pub-tiles">
               {/* MASTER adds each writer's gross up: a song two roster writers share is in it twice */}
               <div className="cat-stat" data-stat="streams" title="Added up by writer: a song two writers share counts once for each"><span className="cat-stat-label">Streams (all time)</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
-              {/* the table's This week column added up (weekTotal), the days it covers under the label; "—" until a week of numbers has come, as the column's cells say it */}
-              <div className="cat-stat" data-stat="week" title={weekTotal == null ? "No weekly numbers yet" : `The This week column below, added up${lumWeek ? "" : ": each client's songs that have Spotify numbers for both weeks"}`}><span className="cat-stat-label">Streams this week{weekNote && <span className="cat-stat-note">{weekNote}</span>}</span><span className="cat-stat-val">{weekTotal == null ? <span className="muted-dash">—</span> : fmt(weekTotal)}</span></div>
+              {/* the table's This week column added up (weekTotal); "—" until a week of numbers has come, as the column's cells say it. Under the number, in two short lines that never wrap: the source and the days, and how
+                  much of the catalog the number covers (it is only the songs with both weeks) */}
+              <div className="cat-stat" data-stat="week" title={weekTotal == null ? "No weekly numbers yet" : `The This week column below, added up${lumWeek ? "" : ": each client's songs that have Spotify numbers for both weeks"}`}><span className="cat-stat-label">Streams this week</span><span className="cat-stat-val">{weekTotal == null ? <span className="muted-dash">—</span> : fmt(weekTotal)}</span>{weekTotal != null && <span className="pub-sub"><span className="cat-stat-note">{weekSource}</span><span className="cat-stat-note">{weekCover}</span></span>}</div>
               {/* the Songs column added up (songsTotal, the Roster total row's number): a song two clients share is in it twice, as in the streams */}
               <div className="cat-stat" data-stat="songs" title="The Songs column below, added up: a song two clients share counts once for each"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{fmt(songsTotal)}</span></div>
               {/* everyone on the roster: db.clients (rosterCount), the chips beside the table, so a client with no songs yet counts too */}

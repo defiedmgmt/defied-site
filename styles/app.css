@@ -2219,14 +2219,18 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 }
 /* The Roster overview's stat row (.pub-summary holds .pub-tiles: Streams (all time), Streams this week, Songs, Roster) lays itself out by its OWN width, not the screen's: the Overview's column is 840px wide on a
    1440px screen, 724px on a 1280px one and 588px on a 900px one (the side nav and the client list take the rest), so a screen width says little. The widest label, "Streams this week", is 152px of Suntage and a
-   tile has 36px of padding: four across from 780px (5px to spare), two by two under that down to 390px, one column under 390px, so no label wraps and no number is cut at any width. The numbers scale with their
-   tile (13cqi, as the dashboard's 11cqi but a size up: there are four in a row), 24px in the one-column stack. The container is NAMED: a bare @container query reads the nearest container, which for a tile's number is the
-   tile itself (every .cat-stat is one), not this row. */
+   tile has 36px of padding: four across from 780px (5px to spare), two by two under that down to 390px, and under 390px (a phone) the two Streams tiles are full width with Songs and Roster side by side under
+   them, so no label wraps and no number is cut at any width. The numbers scale with their tile (13cqi, as the dashboard's 11cqi but a size up: there are four in a row), 24px on a phone. Every number sits on
+   one line across the row (flex-start) and a note hangs under its own; a note's lines (Streams this week says its source, days and coverage in two short ones) never wrap: they are cut with an ellipsis first.
+   The container is NAMED: a bare @container query reads the nearest container, which for a tile's number is the tile itself (every .cat-stat is one), not this row. */
 .app:not(.pub) .pub-summary{container-name:pub-summary;container-type:inline-size}
+.app:not(.pub) .pub-tiles .cat-stat{justify-content:flex-start}
 .app:not(.pub) .pub-tiles .cat-stat-val{font-size:clamp(18px,13cqi,28px)}
+.app:not(.pub) .pub-tiles .cat-stat-note{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @container pub-summary (max-width:779px){ .app:not(.pub) .pub-tiles.cat-summary-grid:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:repeat(2,minmax(0,1fr))} }
 @container pub-summary (max-width:389px){
-  .app:not(.pub) .pub-tiles.cat-summary-grid:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:minmax(0,1fr)}
+  .app:not(.pub) .pub-tiles.cat-summary-grid:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:repeat(2,minmax(0,1fr))}
+  .app:not(.pub) .pub-tiles > .cat-stat:nth-child(-n+2){grid-column:1 / -1}
   .app:not(.pub) .pub-tiles .cat-stat-val{font-size:24px}
 }
 @media (max-width:700px){
