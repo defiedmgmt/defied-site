@@ -1,1 +1,72 @@
-/* m-home.css: phone and touch rules for Home (Dashboard), To do and A&R; filled in the next mobile phase. Loaded after m-global.css. */
+/* m-home.css: phone and touch rules for Home (Dashboard), To do and A&R (2026-11-25, the mobile phase's area sheet). Loaded after m-global.css,
+   so a rule here wins a tie with one there or in app.css / ar-grid.css. Desktop (900px and up with a mouse) is untouched: every rule sits under a
+   phone query ((max-width:899px) or narrower), the sideways-phone query ((pointer:coarse) and (max-height:500px)), or both. Small labels use the
+   12px token m-global.css sets (--d-fs-micro). */
+
+/* 1. HOME › the money line ("NOV $326.92 · OCT $404.76 · 2026 $4,753.99 (i)"). The month labels are 12px (they were 9.5-10px); a 4px gap
+      between label and figure, and the (i) keeps its 44px tap box but lets it reach 14px into the right gutter (its icon lines up with the
+      gutter, under the Sync pill), so the three figures and the (i) still share one line at 375 and the ticker stays where it is at 390. */
+@media (max-width:639px){
+  .app:not(.pub) .home-head .home-money-line .hml-stat{gap:4px}
+  .app:not(.pub) .home-head .home-money-info{margin-right:-14px}
+}
+/* Home's small labels on a phone, held sideways too: the month labels, This week's day names and its Today pill */
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
+  .app:not(.pub) .home-head .hml-l{font-size:var(--d-fs-micro);letter-spacing:.04em}
+  .app:not(.pub) .hw-name,.app:not(.pub) .hw-today{font-size:var(--d-fs-micro)}
+}
+/* the ticker's "Spikes & releases" where it has words (640px and up; under that it is an icon only, app.css) */
+@media (min-width:640px) and (max-width:899px),(min-width:640px) and (pointer:coarse) and (max-height:500px){
+  .app:not(.pub) .htk-label{font-size:var(--d-fs-micro)}
+}
+
+/* Home › This week on a phone, held sideways too: a row's second line (a song's artists and producers, an artist's top song) wraps instead of
+   ending in "…", as the A&R tab's "from → to" does (m-global) and A&R Home's lists do (ar-grid.css). The name stays one line. */
+@media (max-width:639px),(pointer:coarse) and (max-height:500px){
+  .app:not(.pub) .home-row .gainers .lm-song-main > span{white-space:normal;overflow:visible;text-overflow:clip}
+}
+
+/* 2. TO DO › ClickUp's head on a phone: "CLICKUP · 2" with New task beside it, then the List and Person filters half the row each, so
+      "Everyone", "All lists" and most names show whole (each filter had about 51px of text room at 375). The filters keep their 44px. */
+@media (max-width:599px){
+  .app:not(.pub) .todo-cu-head{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:center;gap:8px 6px}
+  .app:not(.pub) .todo-cu-head > .todo-cu-tools{display:contents}
+  .app:not(.pub) .todo-cu-head > span:first-child{grid-area:1 / 1}
+  .app:not(.pub) .todo-cu-head [data-new-task]{grid-area:1 / 2;justify-self:end}
+  .app:not(.pub) .todo-cu-head .todo-cu-tools select{grid-row:2;width:100%;min-width:0}
+}
+
+/* 3. TO DO › the Calendar's week on a phone (todo.jsx, the same query as its JS: phoneQuery(599)): each day is a button that picks it, and the
+      picked day's list shows under the week (a ClickUp task opens there and has its Done ✓), as a month cell does on a laptop. */
+@media (max-width:599px),(pointer:coarse) and (max-height:500px){
+  .app:not(.pub) button.cal-wday{all:unset;box-sizing:border-box;display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px;align-items:start;width:100%;min-height:44px;
+    padding:10px 12px;border-top:1px solid var(--d-line);background:var(--d-s1);color:inherit;font:inherit;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .app:not(.pub) button.cal-wday.picked{box-shadow:inset 0 0 0 1px var(--d-ink-3)}
+  .app:not(.pub) button.cal-wday:focus-visible{outline:1px solid #f5f5f5;outline-offset:-2px}
+}
+
+/* 4. TO DO › small labels on a phone, held sideways too: the group labels ("NEEDS YOU", "CLICKUP · 2"; m-global does it under 640px), and a
+      message's subject chip in the Messages panel (9.5px; "ARTIST MANAGEMENT" was cut at 375): 12px, and a long subject wraps inside its chip. */
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
+  .app:not(.pub) .todo-group{font-size:var(--d-fs-micro)}
+  .app:not(.pub) .todo-panel .sub-top-info > .tag{font-size:var(--d-fs-micro);height:auto;min-height:22px;padding-block:4px;line-height:1.2;
+    white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;justify-content:center;text-align:center;text-wrap:balance}
+}
+
+/* 5. A&R › small labels on a phone, held sideways too: Home's Up / Down / Rising / Falling, "Adds per week", the "+252 streams" amounts, the
+      bar numbers and their weeks; a chart's stat labels ("Now") in the drawer. */
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
+  .app:not(.pub) .arh-half-h,.app:not(.pub) .arh-week-h{font-size:var(--d-fs-micro)}
+  .app:not(.pub) .arh .gainer .gainer-num em{font-size:var(--d-fs-micro)}
+  .app:not(.pub) .arh-bar-n,.app:not(.pub) .arh-bar-l{font-size:var(--d-fs-micro)}
+  .app:not(.pub) .bc-stat dt{font-size:var(--d-fs-micro)}
+}
+/* a chart's stat tiles sit two to a row on a portrait phone: a label may take two lines ("Change · all readings") and every figure in the row
+   still lines up (the numbers tiles' rule in m-global) */
+@media (max-width:639px){
+  .app:not(.pub) .bc-stat dt{line-height:1.25;min-height:2.5em}
+}
+/* the drawer's Spotify / TikTok / IG / YouTube links held sideways: 44px, as under 640px (ar-grid.css) */
+@media (pointer:coarse) and (max-height:500px){
+  .app:not(.pub) .ard .arg-links a{width:44px;height:44px;font-size:12px}
+}
