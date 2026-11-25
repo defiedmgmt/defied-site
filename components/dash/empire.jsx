@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import { Field } from "./ui";
+import { useIsPhone } from "../ui/responsive";
 import { useAct, useEmpire } from "./empire-api";
 import {
   amountOf, barOf, cutFromText, datesLine, dayText, dealForecast, dealLine, dueWords, estimateNote, forecastLines, lateNote, missingNote, netIncomeText, nextLine, pctText, plannedLine,
@@ -141,6 +142,7 @@ function SpentCard({ data, reload, init }) {
   const [f, setF] = useState(() => init?.form ?? { amount: "", what: "", on: today });
   const [ask, setAsk] = useState(init?.ask ?? null); // the entry whose Delete is being asked about
   const { busy, err, act } = useAct(reload);
+  const phone = useIsPhone(); // (2026-11-25, mobile) a phone's "What for" box is narrower than the example: a shorter one there, the same on desktop
   const ok = amountOf(f.amount) != null && f.what.trim() !== "" && !!f.on;
   const add = () => act({ action: "addSpend", amount: f.amount, what: f.what, on: f.on }, () => { setF({ amount: "", what: "", on: today }); setOpen(false); });
   return (
@@ -180,7 +182,7 @@ function SpentCard({ data, reload, init }) {
           <p className="emp-form-title" data-emp-spend-title>Mark money spent</p>
           <div className="emp-spend-form" data-emp-spend-form>
             <Field label="Amount ($)" inputMode="decimal" autoComplete="off" placeholder="2,500" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} data-f="spendAmount" />
-            <Field label="What for" maxLength={120} autoComplete="off" placeholder="Short, like: mix for a producer's single" value={f.what} onChange={(e) => setF({ ...f, what: e.target.value })} data-f="spendWhat" />
+            <Field label="What for" maxLength={120} autoComplete="off" placeholder={phone ? "Like: mix for a single" : "Short, like: mix for a producer's single"} value={f.what} onChange={(e) => setF({ ...f, what: e.target.value })} data-f="spendWhat" />
             <label className="fld emp-day"><span>Date</span><input type="date" min={terms.effective} max={today} value={f.on} onChange={(e) => setF({ ...f, on: e.target.value })} data-f="spendOn" /></label>
             <span className="emp-form-acts">
               <button type="button" className="btn sm emp-form-go" data-emp-add-spend onClick={add} disabled={busy || !ok}>{busy ? "Adding…" : "Add"}</button>
