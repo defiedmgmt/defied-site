@@ -1130,7 +1130,7 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
                   <option>Producer</option><option>Artist</option><option>Producer / Artist</option>
                 </select>
               </label>
-              <p className="hint">Starts hidden from the public roster (Site › Website › Roster). Their sheet tab is made with their first song.</p>
+              {/* (2026-11-25 declutter) no hint line under the form on where a new client starts and when their sheet tab is made */}
             </div>
             <div className="modal-foot">
               <button className="btn ghost sm" onClick={() => setAddingClient(false)}>Cancel</button>

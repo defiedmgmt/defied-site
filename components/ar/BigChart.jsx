@@ -1,7 +1,7 @@
 // A&R's big chart (2026-11-20): one series over time, drawn for the person view (full screen, or the 480px drawer, or a phone).
 // What it shows, top to bottom: the dates and number of readings in view with the range pills (7D / 30D / All, only the ranges the data more than
 // fills), a row of four numbers for that range (now, the change, the average per day, the biggest day), the chart, and its notes (dashed = no reading;
-// where the scale starts; which releases the dotted lines are). The chart: x placed by CALENDAR DAY (a missing day is a visible gap, never squeezed
+// which releases the dotted lines are; 2026-11-25 declutter: no note on where the scale starts). The chart: x placed by CALENDAR DAY (a missing day is a visible gap, never squeezed
 // out), y on 4 to 5 round numbers with the lowest one always labelled and the scale never starting at 0 when that would flatten the line, a faint dashed
 // connector wherever days have no reading, a strip of bars (the change since the day before, the week before or the previous reading; green up, red down) on
 // the same x scale, dotted lines on release days, and a crosshair that snaps to the nearest reading under a finger, a mouse or ← / → (Home / End too).
@@ -12,7 +12,7 @@
 //   releases [{ d, name }]                                             variant   "full" (340px tall; 240 on a phone) or "drawer" (200px)
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { phoneQuery } from "../../lib/phone";
-import { buildChart, hitAt, moveIndex, normPoints, spacingOf, countWords, rangesFor, inRange, rangeLabel, summarize, tipOf, ariaSummary, compact, exact, signedText, pctText, shortDay } from "../../lib/ar/chart";
+import { buildChart, hitAt, moveIndex, normPoints, spacingOf, countWords, rangesFor, inRange, rangeLabel, summarize, tipOf, ariaSummary, exact, signedText, pctText, shortDay } from "../../lib/ar/chart";
 
 const useIso = typeof window !== "undefined" ? useLayoutEffect : useEffect; // layout effects only where there is a page (the server prints without one)
 
@@ -62,7 +62,7 @@ function statsOf(sum, { kind, sp, sel, unit }) {
   const word = sp.auto ? "" : sp.step === 7 ? "week" : "day", one = sum.n < 2;
   return [
     { k: "now", label: "Now", value: exact(sum.current.v), sub: [unit, shortDay(sum.current.d)].filter(Boolean).join(" · ") },
-    { k: "change", label: `Change · ${rangeText(sel)}`, value: one ? "—" : signedText(sum.change), sub: one ? "needs a second reading" : `${sum.pct == null ? "" : `${pctText(sum.pct)} `}since ${shortDay(sum.since)}`, dir: one ? undefined : dirOf(sum.change) },
+    { k: "change", label: `Change · ${rangeText(sel)}`, value: one ? "—" : signedText(sum.change), sub: one ? "" : `${sum.pct == null ? "" : `${pctText(sum.pct)} `}since ${shortDay(sum.since)}`, dir: one ? undefined : dirOf(sum.change) },
     { k: "perday", label: "Average per day", value: one || sum.perDay == null ? "—" : signedText(sum.perDay), sub: one ? "" : `over ${sum.days} ${sum.days === 1 ? "day" : "days"}`, dir: one || sum.perDay == null ? undefined : dirOf(sum.perDay) },
     { k: "best", label: sp.auto ? "Biggest single gain" : `Biggest ${word} gain`, value: sum.best ? signedText(sum.best.change) : "—",
       sub: sum.best ? (sp.auto ? `${shortDay(sum.best.from)} → ${shortDay(sum.best.d)}` : shortDay(sum.best.d)) : one ? "" : sp.auto ? "no rise between readings yet" : `no rise ${word} over ${word} yet`, dir: sum.best ? "up" : undefined },
@@ -210,13 +210,14 @@ export function BigChart({ points, label = "", kind = "level", step = 1, unit = 
       </div>
       <div className="bc-sr" role="status" aria-live="polite">{say}</div>
 
-      {(m.gaps.length > 0 || !m.zero || relInView.length > 0) && (
+      {/* (2026-11-25 declutter) the notes are a key: which days have no reading (beside the dashed line's mark) and which releases the dotted lines are. No sentence on why
+          (a day's gain needs both days; the dashed line isn't a measurement), and no line saying the scale doesn't start at 0 (its lowest number is labelled) */}
+      {(m.gaps.length > 0 || relInView.length > 0) && (
         <div className="bc-notes" data-bc-notes>
           {m.gaps.length > 0 && (kind === "daily"
-            ? <p data-bc-gaps>No daily gain {gapText}: a day's gain needs a reading on both days.</p>
-            : <p data-bc-gaps><i className="bc-key bc-key-gap" aria-hidden="true" />No reading {gapText}: the dashed line only joins the days either side, it is not a measurement.</p>)}
+            ? <p data-bc-gaps>No daily gain {gapText}</p>
+            : <p data-bc-gaps><i className="bc-key bc-key-gap" aria-hidden="true" />No reading {gapText}</p>)}
           {relInView.length > 0 && <p data-bc-releases-note><i className="bc-key bc-key-rel" aria-hidden="true" />Releases: {relLines.slice(0, 5).join(" · ")}{relLines.length > 5 ? ` · and ${relLines.length - 5} more` : ""}</p>}
-          {!m.zero && <p data-bc-scale>The vertical scale starts near {compact(m.dom.min)}, not 0, so small moves show.</p>}
         </div>
       )}
     </div>

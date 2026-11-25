@@ -135,7 +135,8 @@ export function ShareDialog({ clientId, name, isStaff, onClose }) {
                 <div className="share-state"><RefreshCw size={18} className="spin" aria-hidden="true" /><p>Making your card…</p></div>
               )}
           </div>
-          <p className="hint share-note">{format === "story" ? "Story size, 1080 × 1920." : "Post size, 1080 × 1350."} Streams and top songs only.</p>
+          {/* (2026-11-25 declutter) the size only, with no line on what the card holds (it shows it) */}
+          <p className="hint share-note">{format === "story" ? "Story size, 1080 × 1920." : "Post size, 1080 × 1350."}</p>
           {card.src && card.leftOff > 0 && <p className="hint share-note" data-share-left-off={card.leftOff}>{leftOffWords(card.leftOff)}</p>}
           {shareMsg && <p className="hint err-text share-note" role="alert">{shareMsg}</p>}
         </div>
