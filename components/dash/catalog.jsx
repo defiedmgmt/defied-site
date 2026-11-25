@@ -310,6 +310,8 @@ const gapRank = (k) => (GAP_RANK.includes(k) ? GAP_RANK.indexOf(k) : GAP_RANK.le
 // write of it failed (songInfo.sheetFails). With more than one such song, one button does them all. A song found or written comes off the list at
 // once (`fresh`: its row and share, until the page's facts are read again) and the sentence under the heading says what happened.
 const SHEET_PER_PRESS = 10; // lib/auto-add.js ROWS_PER_CLICK
+// a row's buttons: { add } Add to pub sheet when the song isn't on the sheet; { upd } the gap Update opens on (not on the sheet: only another gap; else the first one), or null
+const rowButtons = (x) => { const add = x.gaps.some((g) => g.k === "sheet"); return { add, upd: (add ? x.gaps.find((g) => g.k !== "sheet") : x.gaps[0] || {}) || null }; };
 export function SongsToUpdate({ db, songInfo, reloadSongInfo, reloadDb, onFix, focus, dupes = [], onDupe }) {
   // "Not on streaming" is saved in song tracking (song_tracking.skip); the list is worked out again at once with the song marked,
   // and if the save doesn't go through the row comes back with the reason. `marked`: the songs marked here, until the facts are read again
@@ -370,11 +372,15 @@ export function SongsToUpdate({ db, songInfo, reloadSongInfo, reloadDb, onFix, f
   const counts = useMemo(() => { const n = {}; for (const x of list) for (const g of x.gaps) if (GAP_WORDS[g.k]) n[g.k] = (n[g.k] || 0) + 1; return n; }, [list]);
   const shown = gap && counts[gap] ? list.filter((x) => x.gaps.some((g) => g.k === gap)) : list;
   const rows = more ? shown : shown.slice(0, UPDATE_FIRST);
+  // (2026-11-25, polish) the hint names the buttons the list has (it said "Update opens the song there." over rows that only had Add to pub sheet): a row not on the pub
+  // sheet has Add to pub sheet, and Update only for another gap; every other row has Update (rowButtons, as the row draws them)
+  const hasAdd = shown.some((x) => rowButtons(x).add), hasUpd = shown.some((x) => rowButtons(x).upd);
+  const hint = `What each song is missing, from the last sheet pull.${hasAdd ? ` Add to pub sheet finds or writes the song's row${hasUpd ? ";" : "."}` : ""}${hasUpd ? " Update opens the song there." : ""}`;
   return (
     <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="update">
       <div className="fix-head">
         <h3>{list.length ? `Songs to update (${list.length})` : "Songs to update"}</h3>
-        <span className="hint">{list.length ? `What each song is missing, from the last sheet pull. ${sheetIds.length ? "Add to pub sheet finds or writes the song's row; " : ""}Update opens the song there.` : "Every song has its sheet row, writer share, release date and link."}</span>
+        <span className="hint" data-upd-hint>{list.length ? hint : "Every song has its sheet row, writer share, release date and link."}</span>
         {sheetIds.length > 1 && <button type="button" className="btn sm upd-sheet-all" data-add-sheet-all disabled={!!sheetBusy} onClick={() => addToSheet(sheetIds.slice(0, SHEET_PER_PRESS), "all")}>
           {sheetBusy === "all" ? "Adding…" : `Add ${sheetIds.length > SHEET_PER_PRESS ? SHEET_PER_PRESS : sheetIds.length === 2 ? "both" : `all ${sheetIds.length}`} to the pub sheet`}</button>}
       </div>
@@ -393,7 +399,7 @@ export function SongsToUpdate({ db, songInfo, reloadSongInfo, reloadDb, onFix, f
         <div className="fix-group" data-group="update">
           {rows.map((x) => { const gs = [...x.gaps].sort((a, b) => gapRank(a.k) - gapRank(b.k)), extra = gs.length + (x.skip ? 1 : 0) + (x.splitSee ? 1 : 0) - 2, open = opened.has(x.p.id);
             // not on the pub sheet: Add to pub sheet is the button, and Update stays only for another gap (it opens on that one)
-            const onSheet = x.gaps.some((g) => g.k === "sheet"), upd = onSheet ? x.gaps.find((g) => g.k !== "sheet") : x.gaps[0] || {}; return (
+            const { add: onSheet, upd } = rowButtons(x); return (
             <div className={`fix-row${open ? " upd-open" : ""}`} key={x.p.id} data-song={x.p.id}>
               <span className="fix-song"><span className="fix-who">{x.client?.name || "A deleted client"} · </span>{x.p.song || "Untitled"}</span>
               {/* money gaps first (as the To do names them); on phones the first two chips and a "+N" that shows the rest */}
