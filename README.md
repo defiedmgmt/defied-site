@@ -404,6 +404,11 @@ mark: money spent, a deal given, the advance received. Nothing estimated counts 
   deal on those songs it says so and takes what is still to pay back on that deal (an estimate) off the advance it recommends, never below 0, and it plans against what is neither spent nor planned.
   Saving it files a planned deal (listed under Producer deals on the EMPIRE pill; the confirmation says "It's in Producer deals on the EMPIRE page."). Everything else is one closed fold, "Show the math": what counts toward EMPIRE's total, today's pace and where it
   comes from, the rate, where each dollar of Net Income goes, the payback ladder, the 3-year ledgers and every step. The pub sheet's own forecast that used to sit under it is gone.
+  (2026-11-24, accuracy) Today's pace is song by song: a song with daily readings at its measured pace, one without by the sheet's rule (lifetime x B9), summed (no switch to the
+  rule for everything below half measured); "from daily counts" only when all of it is measured, else "partly from daily counts (N%)". A song whose daily counts are from its first
+  90 days is held toward the sheet's rule on the lifetime it should have at 90 days, never above its measured pace, with a "New song, so this estimate is rough" note (`lib/advance-pace.js`
+  songPace `forward`; the estimate of what was already earned still fills at today's measured rate). Check an amount is stacked on what the producer's deals still owe, like the headline.
+  Someone new is typed as lifetime streams (all platforms). The calculator's estimates are shown to the nearest $10; Show the math keeps the cents.
 - **Saved state**: the one `app_state` row "empireDeal", an entry per key (`received`, `levers`, `statement:<quarter>`, `deal:<id>`, `spend:<id>`), each write one SQL
   statement on its own key so two founders saving at once never overwrite each other. No migration. `lib/empire-store.js` checks everything typed.
 
