@@ -3,6 +3,7 @@ import { shareFixes, shareDiffers } from "../../lib/split-fixes";
 import { importShare, snapSplits } from "../../lib/pct";
 import { dupeIds } from "./helpers";
 import { splitsToFix, uid } from "./ui";
+import { PULL_DUE_URL, readFresh } from "../shared/boot";
 
 // Publishing's data side the shell, To do and the portal need: the background sheet sync and the
 // split lists (list B #11: apart from Publishing's screens in catalog.jsx).
@@ -125,6 +126,12 @@ const sheetSongId = (clientId, title) => {
 // changes, so an edit made during the pull stays.
 // background (the Dashboard's own pull on a stale copy): the server may skip it, a pull having started lately ({ skipped })
 export async function fullSiteSync(tabDb, commit, { background = false } = {}) {
+  // (2026-11-25, live) the Dashboard's background pull asks first whether one is due (the answer comes with the dashboard's boot): when it
+  // isn't, nothing is read or sent (it used to read the whole dataset and POST a pull the server then skipped, on most loads)
+  if (background) {
+    const due = await readFresh(PULL_DUE_URL).catch(() => null);
+    if (due?.dropped || (due?.ok && due.j?.due === false)) return { missing: [], skipped: true };
+  }
   const latest = await fetch("/api/dashboard-data", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   const db = latest?.role === "staff" ? latest : tabDb;
   const pulled = await pullAndMergeSheetData(db, db.clients, { background });
