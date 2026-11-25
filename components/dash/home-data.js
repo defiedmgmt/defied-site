@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { RefreshCw, AlertTriangle } from "lucide-react";
-import { dashCache } from "../shared/dash-caches";
+import { dashCache, settleRestored } from "../shared/dash-caches";
+import { loadedOnce, loadedRecently, markLoaded, readFresh } from "../shared/boot";
 
 // Home's data hooks, read by the shell too (list B #11: here, not in home.jsx, so every section can use
 // them without loading Home). useHome: GET /api/home.
@@ -15,10 +16,15 @@ export function useHome() {
   const loader = useRef(null);
   useEffect(() => {
     let alive = true;
-    const load = (fresh = false) => { setFailed(false); return fetch(`/api/home${fresh ? "?fresh=1" : ""}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!alive) return; if (d?.money) { dashCache.home = d; setHome(d); } else setFailed(true); }).catch(() => alive && setFailed(true)); };
+    // (2026-11-25) never an answer from before a write or a sign-in; a copy put back after a reload whose first read fails comes off the screen
+    const miss = () => { if (!alive) return; setFailed(true); settleRestored("home", false, () => { dashCache.home = null; setHome(null); }); };
+    const load = (fresh = false) => { setFailed(false); return readFresh(`/api/home${fresh ? "?fresh=1" : ""}`).then(({ dropped, ok, j, t }) => {
+      if (dropped || !alive) return;
+      if (ok && j?.money) { dashCache.home = j; markLoaded("home", t); settleRestored("home", true); setHome(j); } else miss();
+    }).catch(miss); };
     loader.current = load;
-    load();
+    // (2026-11-24, speed) back on the Dashboard within 30 s of the last read (and no save since): what it has
+    if (!(dashCache.home && loadedRecently("home"))) load();
     return () => { alive = false; };
   }, []);
   return { home, failed, retry: () => loader.current?.(), refresh: () => loader.current?.(true) };
@@ -28,14 +34,25 @@ export const monthName = (ym) => (ym ? new Date(`${ym}-15T12:00:00`).toLocaleDat
 // A&R's counts (GET /api/ar?summary=1): follow-ups due, and Summary's top people for Home's This week. Loaded once by StaffDashboard for the A&R badge and the Dashboard's task,
 // again when the Dashboard opens. null while loading or when it couldn't load (no badge, no task).
 export function useArSummary(tab) {
-  const [t, setT] = useState(null);
+  const [t, setT] = useState(() => dashCache.ar || null);
   const [again, setAgain] = useState(0); // reload(): after a renewal in To do
+  const seen = useRef(0);
   useEffect(() => {
-    if (tab !== "home" && t && !again) return;
+    // (2026-11-24, speed) reload() always reads; otherwise not within 30 s of the last read, and off the Dashboard only once per visit
+    // (a copy put back after a reload is read again)
+    const forced = again !== seen.current;
+    seen.current = again;
+    if (!forced && (loadedRecently("ar") || (tab !== "home" && loadedOnce("ar")))) return undefined;
     let alive = true;
-    // a failed read keeps the last answer, or marks it answered so the To do count doesn't wait forever
-    const miss = () => alive && setT((x) => x || { failed: true });
-    fetch("/api/ar?summary=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => (d ? alive && setT(d) : miss())).catch(miss);
+    // a failed read keeps the last answer, or marks it answered so the To do count doesn't wait forever (a copy put back after a reload
+    // comes off: its first read failed)
+    const miss = () => { if (!alive) return; if (settleRestored("ar", false, () => { dashCache.ar = null; })) setT({ failed: true }); else setT((x) => x || { failed: true }); };
+    // (2026-11-25) never an answer from before a write or a sign-in, and the shared copy is written only while this screen is up
+    readFresh("/api/ar?summary=1").then(({ dropped, ok, j, t }) => {
+      if (dropped || !alive) return;
+      if (!ok || !j) return miss();
+      dashCache.ar = j; markLoaded("ar", t); settleRestored("ar", true); setT(j);
+    }).catch(miss);
     return () => { alive = false; };
   }, [tab, again]); // eslint-disable-line react-hooks/exhaustive-deps
   return useMemo(() => t && { ...t, reload: () => setAgain((n) => n + 1) }, [t]);

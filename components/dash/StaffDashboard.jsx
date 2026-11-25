@@ -17,6 +17,9 @@ export { canUse, TODO_AREAS } from "./access";
 import { arSecOf } from "../shared/ar-routes";
 import { PasswordCard } from "./password";
 import { InstallApp } from "../shared/install-app";
+import { bootSectionOf, loadedRecently, markLoaded, readFresh } from "../shared/boot";
+import { dashCache, settleRestored } from "../shared/dash-caches";
+import { prefetchJson } from "../ui/fetch-cache";
 
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
@@ -24,6 +27,10 @@ import { InstallApp } from "../shared/install-app";
 // (2026-11-23) Clients is called Roster (its id and address, /dashboard/catalog, are what they were). (2026-11-24, the owner: "maybe that whole deals tab can go in with money to make things less
 // cluttered") Deals is not a tab any more: EMPIRE and the Advance calculator are Money's last two pills again, for the Founders who had Deals (seeDeals below)
 const DASH_TABS = ["home", "todo", "mytodo", "mypay", "ar", "money", "catalog", "site"];
+// (2026-11-24, speed) the section this address opens downloads its code now, beside its data (it used to wait for the dataset), and the
+// pointer on a section's button starts its first read too (its code already did): Money's numbers, A&R Home's lists
+if (typeof window !== "undefined") { const at0 = bootSectionOf(window.location.pathname); if (at0) SECTION_CODE[at0.tab]?.(); }
+const SECTION_FIRST_READ = { money: "/api/accounting", ar: "/api/ar-lists?view=home" };
 function placeOf(t, s) {
   const sub = typeof s === "string" && s ? s : null;
   if (t === "accounting") return sub === "log" || sub === "check" ? { tab: "todo", sub } : { tab: "money", sub: sub === "payments" ? "payments" : null };
@@ -94,14 +101,18 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   const [songInfoErr, setSongInfoErr] = useState(false);
   const reloadSongInfo = () => {
     setSongInfoErr(false);
-    return fetch("/api/songs", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.tracking) setSongInfo(d); else setSongInfoErr(true); }).catch(() => setSongInfoErr(true));
+    // (2026-11-25) an answer from before a write was read again by readFresh; one from before a sign-in is never used
+    return readFresh("/api/songs").then(({ dropped, ok, j, t }) => {
+      if (dropped) return;
+      if (ok && j?.tracking) { setSongInfo(j); markLoaded("songs", t); } else setSongInfoErr(true);
+    }).catch(() => setSongInfoErr(true));
   };
   const can = (k) => canUse(db, k);
   const songInfoOff = !can("publishing");
   useEffect(() => {
     if (songInfoOff) return;
-    if (tab === "home" || tab === "todo" || !songInfo) reloadSongInfo();
+    // (2026-11-24) back on Home or To do within 30 s of the last read (and no save since): what it has
+    if (!songInfo || ((tab === "home" || tab === "todo") && !loadedRecently("songs"))) reloadSongInfo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
   // what the old Luminate portfolios' starting list still needs (list B #3): To do's two rows
@@ -128,10 +139,17 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   // log, rows to check), ClickUp's open tasks and the sync checks: To do's rows, its one count in the
   // sidebar, Home's biggest tasks and each tab's count chip all come from these
   const arSum = useArSummary(tab === "todo" ? "home" : tab);
-  const [acctN, setAcctN] = useState(null);
-  const loadAcctN = () => !can("money") ? Promise.resolve() : fetch("/api/accounting?counts=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => d?.counts && setAcctN(d.counts)).catch(() => {});
-  useEffect(() => { loadAcctN(); }, []);
-  useEffect(() => { if (tab === "todo") loadAcctN(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [acctN, setAcctN] = useState(() => (can("money") ? dashCache.acct || null : null));
+  // (2026-11-25) every change of the counts (a read, Money's page, a payment logged from Home or To do) is the copy a reload starts from too
+  const setAcct = (u) => setAcctN((x) => { const n = typeof u === "function" ? u(x) : u; dashCache.acct = n || null; return n; });
+  const dropAcct = () => settleRestored("acct", false, () => setAcct(null));
+  const loadAcctN = () => !can("money") ? Promise.resolve() : readFresh("/api/accounting?counts=1").then(({ dropped, ok, j, t }) => {
+    if (dropped) return;
+    if (ok && j?.counts) { setAcct(j.counts); markLoaded("acctN", t); settleRestored("acct", true); } else dropAcct();
+  }).catch(dropAcct);
+  // once as the dashboard opens, and again when To do opens (not within 30 s of the last read)
+  const acctAsked = useRef(false);
+  useEffect(() => { if (!acctAsked.current || (tab === "todo" && !loadedRecently("acctN"))) { acctAsked.current = true; loadAcctN(); } }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   const cu = useCuTasks(tab);
   const sync = useSyncChecks(tab);
   const fixes = useSplitFixes();
@@ -144,7 +162,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   const cuDue = cu.data?.tasks || [];
   const todoN = todo.length + cuDue.length;
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
-  const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou, can, seeds };
+  const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct, fixes, doneForYou, can, seeds };
   // (2026-11-23, 2026-11-24) the EMPIRE and Advance calculator pills of Money, for the one kind of account that has them: a Founder with Money access and every artist (the API refuses everyone else).
   // The Roster page's pointer line (catalog.jsx seeEmpire) is the same decision
   const seeDeals = can("money") && !db.access?.ownOnly && db.access?.role === "founder";
@@ -180,6 +198,8 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   const myMoney = tabs.some(([t]) => t === "mypay");
   // My payments' own address opens it inside Money (as a pill) for a login that has Money
   useEffect(() => { if (at === "mypay" && paired("mypay")) { setAt({ tab: "money", sub: "mine" }); toUrl("money", "mine", "replace"); } }, [at]); // eslint-disable-line react-hooks/exhaustive-deps
+  // the mouse on (or focus reaching) a section's button starts that section's first read, beside its code (only the sections this account has are drawn)
+  const warm = (id) => { if (SECTION_FIRST_READ[id] && id !== home) prefetchJson(SECTION_FIRST_READ[id]); };
   const [pwOpen, setPwOpen] = useState(false); // "Password": each login changes its own (components/dash/password.jsx)
   // (2026-11-11, the owner: "get rid of the · own artists on each co managers page")
   const roleWord = db.access ? ROLES[db.access.role]?.label || "Staff" : "Staff — full edit access";
@@ -193,7 +213,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
         <div className="dash-brand"><Link href="/dashboard" className="logo-link" aria-label="Dashboard" onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return; e.preventDefault(); go("home"); }}><Wordmark height={26} /></Link></div>
         <nav>
           {side.map(([id, label, Icon, badge, area]) => (
-            <button key={id} className={[home === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={home === id ? "page" : undefined} onClick={() => setTab(id)} onPointerEnter={() => SECTION_CODE[id]?.()} onFocus={() => SECTION_CODE[id]?.()}>
+            <button key={id} className={[home === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={home === id ? "page" : undefined} onClick={() => setTab(id)} onPointerEnter={() => SECTION_CODE[id]?.()} onMouseEnter={() => warm(id)} onFocus={() => { SECTION_CODE[id]?.(); warm(id); }}>
               <Icon size={17} /> <span className="nav-label">{label}</span>
               {!!badge && <span className="nav-badge">{badge}</span>}
             </button>
@@ -209,11 +229,11 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
       <main className="dash-main">
         <InstallApp />
         {!at && <div className="admin-empty" data-no-sections>Your account has nothing turned on yet. Ask a Founder to turn on what you need in Site › Users.</div>}
-        {at === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcctN} />}
+        {at === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcct} />}
         {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} mine={pair("todo")} />}
         {at === "mytodo" && (paired("mytodo") ? <MyTodoPage title="To do" mine={pair("todo")} /> : <MyTodoPage />)}
         {at === "mypay" && !paired("mypay") && <MyPaymentsPage />}
-        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} myMoney={myMoney} empire={seeDeals} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
+        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcct} myMoney={myMoney} empire={seeDeals} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
         {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("site")} area="site" onGo={go} />} />}
         {at === "catalog" && <CatalogAdmin db={db} commit={commit} reloadDb={reloadDb} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}

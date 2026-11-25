@@ -5,7 +5,8 @@ import { fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
 import { autoAddedOf, dashTasks, dupeIds, possibleOf, songsToUpdate } from "./helpers";
 import { money } from "./ui";
 import { songsWithoutIsrc } from "./isrc-data";
-import { cuCache, syncCache } from "../shared/dash-caches";
+import { cuCache, syncCache, settleRestored } from "../shared/dash-caches";
+import { SYNC_TABS, loadedOnce, loadedRecently, markLoaded, readFresh } from "../shared/boot";
 
 // To do's data: the hooks and the row list the shell reads on every section (the sidebar's one count,
 // each tab's chip, Home's biggest tasks). Kept apart from To do's screens (todo.jsx) by list B #11, so
@@ -17,12 +18,19 @@ export function useCuTasks(tab) {
   const [failed, setFailed] = useState(false);
   const load = (fresh = false) => {
     setFailed(false);
-    return fetch(`/api/tasks${fresh ? "?fresh=1" : ""}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.lists) { cuCache.d = d; setData(d); } else setFailed(true); }).catch(() => setFailed(true));
+    // (2026-11-25) an answer from before a write is read again (readFresh), one from before a sign-in is never used; a copy put back after a
+    // reload whose first read fails comes off the screen, so "Couldn't reach ClickUp" shows as it used to
+    const miss = () => { setFailed(true); settleRestored("tasks", false, () => { cuCache.d = null; setData(null); }); };
+    return readFresh(`/api/tasks${fresh ? "?fresh=1" : ""}`).then(({ dropped, ok, j, t }) => {
+      if (dropped) return;
+      if (ok && j?.lists) { cuCache.d = j; markLoaded("tasks", t); settleRestored("tasks", true); setData(j); } else miss();
+    }).catch(miss);
   };
-  useEffect(() => { if (tab === "home" || tab === "todo" || !cuCache.d) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
-  const drop = (id) => setData((d) => (d ? { ...d, tasks: d.tasks.filter((t) => t.id !== id) } : d));
-  const add = (t) => setData((d) => (d ? { ...d, tasks: [...d.tasks, t] } : d));
+  // (2026-11-24, speed) not again within 30 s of the last read (a save in between reads again); a copy put back after a reload is read again
+  useEffect(() => { if (!loadedRecently("tasks") && (tab === "home" || tab === "todo" || !loadedOnce("tasks"))) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (2026-11-25) Done ✓ and New task change the shared copy too (what another section and a reload start from)
+  const drop = (id) => setData((d) => { const n = d ? { ...d, tasks: d.tasks.filter((t) => t.id !== id) } : d; cuCache.d = n; return n; });
+  const add = (t) => setData((d) => { const n = d ? { ...d, tasks: [...d.tasks, t] } : d; cuCache.d = n; return n; });
   return { data, failed, load, drop, add };
 }
 export function useSyncChecks(tab) {
@@ -32,11 +40,21 @@ export function useSyncChecks(tab) {
   const load = (force = false) => {
     if (!force && syncCache.d && Date.now() - syncCache.at < 120000) { setData(syncCache.d); return Promise.resolve(); }
     setFailed(false); setBusy(true);
-    return fetch(force ? "/api/sync?fresh=1" : "/api/sync", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.checks) { syncCache.d = d; syncCache.at = Date.now(); setData(d); } else setFailed(true); }).catch(() => setFailed(true)).finally(() => setBusy(false));
+    const miss = () => { setFailed(true); settleRestored("sync", false, () => { syncCache.d = null; syncCache.at = 0; setData(null); }); };
+    return readFresh(force ? "/api/sync?fresh=1" : "/api/sync").then(({ dropped, ok, j }) => {
+      if (dropped) return;
+      if (ok && j?.checks) { syncCache.d = j; syncCache.at = Date.now(); settleRestored("sync", true); setData(j); } else miss();
+    }).catch(miss).finally(() => setBusy(false));
   };
   // (any tab's first load reads them too: the sidebar's count and each tab's chip include the amber ones)
-  useEffect(() => { if (tab === "home" || tab === "todo" || tab === "site" || !syncCache.d) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (2026-11-24, speed) Dashboard, To do and Site show them on their first screen; anywhere else they're only that count, so they're read
+  // 2 s later, after the section's own reads (they read the sheets, Stripe and ClickUp, and run INFO's manager copy and the people link)
+  useEffect(() => {
+    if (SYNC_TABS.includes(tab)) { load(); return undefined; }
+    if (syncCache.d && syncCache.at) return undefined;
+    const t = setTimeout(() => load(), 2000);
+    return () => clearTimeout(t);
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   return { data, failed, busy, load };
 }
 
@@ -121,7 +139,8 @@ async function splitFixPost(body) {
 }
 export function useSplitFixes() {
   const [data, setData] = useState(null);
-  const load = () => fetch("/api/split-fixes", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => d?.auto && setData(d)).catch(() => {});
+  // (2026-11-25) never an answer from before a write (an Undo just sent) or a sign-in: what's done by itself reads this
+  const load = () => readFresh("/api/split-fixes").then(({ dropped, ok, j }) => { if (!dropped && ok && j?.auto) setData(j); }).catch(() => {});
   useEffect(() => { load(); }, []);
   return { data, setData, load };
 }
@@ -173,9 +192,9 @@ export async function syncFix(check, ctx, setBusy, setNote) {
 const seedCache = { d: null };
 export function useSeeds(tab, on) {
   const [data, setData] = useState(() => seedCache.d);
-  const load = () => (!on ? Promise.resolve() : fetch("/api/data?seeds=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-    .then((d) => { if (d?.todo) { seedCache.d = d; setData(d); } }).catch(() => {}));
-  useEffect(() => { if (tab === "home" || tab === "todo" || !seedCache.d) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = () => (!on ? Promise.resolve() : readFresh("/api/data?seeds=1")
+    .then(({ dropped, ok, j, t }) => { if (!dropped && ok && j?.todo) { seedCache.d = j; markLoaded("seeds", t); setData(j); } }).catch(() => {}));
+  useEffect(() => { if (!loadedRecently("seeds") && (tab === "home" || tab === "todo" || !seedCache.d)) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   const drop = (lumId) => setData((d) => { const n = d ? { ...d, todo: d.todo.filter((r) => r.lumId !== lumId) } : d; seedCache.d = n; return n; });
   return { data, load, drop };
 }
