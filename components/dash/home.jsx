@@ -277,7 +277,9 @@ export function SyncView({ ctx }) {
           {d.checks.map((c) => (
             <div key={c.id} className="attn-row sync-row" data-check={c.id} data-ok={c.ok === true ? "ok" : c.ok === false ? "warn" : "unknown"}>
               <i className="sync-dot" aria-hidden="true" />
-              <span className="attn-main"><b>{c.text}</b>{c.detail && <em>{c.detail}</em>}{c.id === "people" && <PeopleBlock check={c} ctx={ctx} />}</span>
+              <span className="attn-main"><b>{c.text}</b>{c.detail && <em>{c.detail}</em>}{c.id === "people" && <PeopleBlock check={c} ctx={ctx} />}
+                {/* (2026-11-24) Schedule A's EMPIRE copy, one small line under it: how many songs, when it was written or why it wasn't, and its link */}
+                {c.empire?.text && <em data-empire={c.empire.ok === true ? "ok" : c.empire.ok === false ? "warn" : "unknown"}>{c.empire.text}{c.empire.url && <> <ExtLink className="inline-link" href={c.empire.url}>{c.empire.label}</ExtLink></>}</em>}</span>
               {/* (2026-11-13) a "go" fix only opens a page, so it shows on a green line too (INFO's "Caden has no site login":
                   Site › Users); "also" is a second link beside the fix (INFO's "Open the sheet ↗"). (2026-11-20) Schedule A's line has both on
                   every state: its Sync button and its sheet's link */}

@@ -3,7 +3,7 @@
 const post = () => fetch("/api/schedule-a", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: "{}" });
 
 const n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
-// the answer in words: "Schedule A synced: 172 songs from 9 producers. 1 song is only on the sheet (not on the site yet). 2 artist rows removed. 3 added."
+// the answer in words: "Schedule A synced: 172 songs from 9 producers. 1 song is only on the sheet (not on the site yet). 2 artist rows removed. 3 added. EMPIRE copy: 40 songs over 1M streams."
 export function scheduleAWords(out) {
   if (!out?.ok) return out?.late ? "Schedule A is still being written. Check again in a minute." : `Schedule A wasn't run${out?.skipped ? ` (${out.skipped})` : ""}.`;
   const sum = out.summary || {};
@@ -16,6 +16,8 @@ export function scheduleAWords(out) {
     sum.notesStashed ? `${n(sum.notesStashed, "note", "notes")} of ${sum.notesStashed === 1 ? "a row" : "rows"} that left the table ${sum.notesStashed === 1 ? "is" : "are"} kept, in case ${sum.notesStashed === 1 ? "it comes" : "they come"} back.` : "",
     sum.notesRestored ? `${n(sum.notesRestored, "kept note", "kept notes")} came back with ${sum.notesRestored === 1 ? "its row" : "their rows"}.` : "",
     out.changed === false ? "Nothing had changed." : "",
+    // (2026-11-24) the EMPIRE copy, written after it: how many songs it has, or why it wasn't written (the sync itself is done either way)
+    out.empire?.error ? `The EMPIRE copy wasn't written: ${String(out.empire.error).replace(/^The EMPIRE copy wasn't written: /, "")}` : out.empire?.ok ? `EMPIRE copy: ${n(out.empire.songs || 0, "song", "songs")} over 1M streams.` : "",
   ].filter(Boolean).join(" ");
 }
 
