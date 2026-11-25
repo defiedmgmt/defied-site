@@ -19,7 +19,7 @@ import { findByName, ownSplit } from "../site/data";
 import { normalizeTitle, splitsToConfirm, fullSiteSync } from "./catalog-data";
 import { dashCache } from "../shared/dash-caches";
 import { RosterCatalog } from "./roster-views";
-import { rosterStreams, songKey } from "../../lib/roster-catalog";
+import { rosterStreams } from "../../lib/roster-catalog";
 export { normalizeTitle, isSheetSyncStale, fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
 
 // a song's row on its client's tab, in the same order the sheet pull matches them (pullAndMergeSheetData):
@@ -741,8 +741,6 @@ export function DupeMerge({ db, commit, songInfo, reloadSongInfo, pair, onClose,
 // (2026-11-13, the owner: "u can hide net streams for founders too") No Net streams column, for anyone. (2026-11-24) No Pub earnings or % of roster fee column behind a "More columns" button
 // (the button went with them), no Potential admin fee column, nor on the Overview's tiles or a client's page: the old pub sheet's estimates (streams x share x the sheet's rate) are not shown
 const OVERVIEW_COLS = [["writer", "Client"], ["songs", "Songs"], ["week", "This week"], ["gross", "Streams"]];
-// (2026-11-25) what the Roster total row's songs and streams are (its first cell's title): Catalog's, each song once
-const ONCE_TITLE = "Songs and streams count every song on the roster once, as Catalog does: a song two clients share counts once (the rows above count it for each client)";
 
 // (Splits to confirm, Songs to update and the merge card are To do's now, r7: PubFix there shows them)
 function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient }) {
@@ -821,8 +819,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   // auto: the opening order (This week); with no weekly numbers at all it falls back to Streams (list A 1)
   const [sort, setSort] = useState({ col: "week", dir: -1, auto: true });
   const weekOf = (client) => {
-    // (2026-11-25) each week keeps its song's id (pid), so Streams this week's coverage can count the songs once (a song on two clients' pages is one song, as in Catalog)
-    let ws = client && growth ? db.placements.filter((p) => p.clientId === client.id).map((p) => growth[p.id] && { ...growth[p.id], pid: p.id }).filter((w) => w && w.thisWeek != null && w.lastWeek != null) : [];
+    let ws = client && growth ? db.placements.filter((p) => p.clientId === client.id).map((p) => growth[p.id]).filter((w) => w && w.thisWeek != null && w.lastWeek != null) : [];
     // one real week, as on the Dashboard (lib/weekly.js sameWeek): the songs whose week ends last
     const end = ws.map((w) => w.weekOf?.to).filter(Boolean).sort().pop();
     if (end) ws = ws.filter((w) => !w.weekOf || w.weekOf.to === end);
@@ -832,7 +829,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
   const sumWeek = (ws) => {
     const t = ws.reduce((a, w) => a + w.thisWeek, 0), l = ws.reduce((a, w) => a + w.lastWeek, 0);
     // under 1,000 streams this week a % says little (1 → 2 is "▲ 100%"): streams only, as on the Dashboard
-    return { thisWeek: t, wowPct: l > 0 && t >= WEEK_PCT_MIN ? (t / l - 1) * 100 : null, pids: ws.map((w) => w.pid), weekOf: ws.find((w) => w.weekOf)?.weekOf || null, songs: ws.length };
+    return { thisWeek: t, wowPct: l > 0 && t >= WEEK_PCT_MIN ? (t / l - 1) * 100 : null, weekOf: ws.find((w) => w.weekOf)?.weekOf || null, songs: ws.length };
   };
   // (2026-11-10) Refresh numbers and the pub sheet's Drive folder are the Founders' (Money access); the table is the same for everyone
   const seeMoney = canUse(db, "money");
@@ -867,17 +864,14 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
     }
     return by.dir * ((Number(val[by.col](a)) || 0) - (Number(val[by.col](b)) || 0)) || name(a).localeCompare(name(b));
   });
+  const songsTotal = rows.reduce((a, x) => a + (Number(x.songs) || 0), 0);
   // the stat row above the table, all from what the page already has, so it agrees with the table: Streams this week is the This week column added up (the very `rows` the <tbody> draws, so a "—" row adds
   // nothing; null while no row has a week, the column's own state). It covers only part of the catalog, so under the number it says where the week comes from, which days and how much it covers: Spotify's
-  // automated daily numbers add up the songs that have both weeks (n of the Songs tile's songs), Luminate's week the clients it has a week for (k of the table's clients). (2026-11-25, the owner: "just make it
-  // consistent") Songs is Catalog's count, each song once (once.songs, the Roster total row's number too; the Songs column's cells stay each client's own), and the coverage counts its songs the same way
-  // (a song with a week on two clients' pages is one song: songKey, Catalog's own rule), so it never says "of 380" beside a Songs tile of 361. Roster is every client on the site (db.clients, the chips beside
-  // the table), the ones with no pub sheet row yet too: the data has no management/admin kind to split them by
+  // automated daily numbers add up the songs that have both weeks (n of the songs in the Songs column), Luminate's week the clients it has a week for (k of the table's clients). Songs is the Songs column added up,
+  // the Roster total row's number. Roster is every client on the site (db.clients, the chips beside the table), the ones with no pub sheet row yet too: the data has no management/admin kind to split them by
   const weekTotal = noWeeks ? null : rows.reduce((a, x) => a + (Number(x.wk?.thisWeek) || 0), 0);
   const weekSource = [lumWeek ? "Luminate" : "Spotify", lumWeek ? lumLabel : span ? dayRange(span.from, span.to) : ""].filter(Boolean).join(" · "); // the source and days, as the column's head says them
-  const byId = new Map(db.placements.map((p) => [p.id, p]));
-  const weekSongs = new Set(rows.flatMap((x) => x.wk?.pids || []).map((id) => songKey(byId.get(id)))).size;
-  const weekCover = lumWeek ? `${fmt(rows.filter((x) => x.wk).length)} of ${fmt(rows.length)} clients` : `${fmt(weekSongs)} of ${fmt(once.songs)} songs`;
+  const weekCover = lumWeek ? `${fmt(rows.filter((x) => x.wk).length)} of ${fmt(rows.length)} clients` : `${fmt(rows.reduce((a, x) => a + (x.wk?.songs || 0), 0))} of ${fmt(songsTotal)} songs`;
   const rosterCount = db.clients.length;
   return (
     <div>
@@ -903,14 +897,13 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
                 potential admin fee (the old pub sheet's estimates) and the line explaining them are not shown. All four are drawn together, once MASTER has loaded (until then: "Loading master sheet data…" above, no tiles) */}
             <div className="cat-summary-grid pub-tiles">
               {/* (2026-11-25) the roster's all-time streams as Catalog counts them (once, above): a song two clients share counts once, so it can be smaller than the Streams column added up; one short line
-                  under the number says so while there is such a song (Catalog says the same under its total). It is the row's only such line: Songs counts the same way and doesn't say it again */}
+                  under the number says so while there is such a song (Catalog says the same under its total) */}
               <div className="cat-stat" data-stat="streams" title="Every song on the roster once, the same total as Catalog: a song two clients share counts once"><span className="cat-stat-label">Streams (all time)</span><span className="cat-stat-val">{fmt(once.streams)}</span>{once.shared > 0 && <span className="pub-sub"><span className="cat-stat-note" data-once>Shared songs counted once</span></span>}</div>
               {/* the table's This week column added up (weekTotal); "—" until a week of numbers has come, as the column's cells say it. Under the number, in two short lines that never wrap: the source and the days, and how
                   much of the catalog the number covers (it is only the songs with both weeks) */}
               <div className="cat-stat" data-stat="week" title={weekTotal == null ? "No weekly numbers yet" : `The This week column below, added up${lumWeek ? "" : ": each client's songs that have Spotify numbers for both weeks"}`}><span className="cat-stat-label">Streams this week</span><span className="cat-stat-val">{weekTotal == null ? <span className="muted-dash">—</span> : fmt(weekTotal)}</span>{weekTotal != null && <span className="pub-sub"><span className="cat-stat-note">{weekSource}</span><span className="cat-stat-note">{weekCover}</span></span>}</div>
-              {/* (2026-11-25, the owner: "just make it consistent") Catalog's song count, each song once (once.songs, the Roster total row's number too), not the Songs column added up (a song two clients share is
-                  in that twice). The "Shared songs counted once" line under Streams (all time) says it for both */}
-              <div className="cat-stat" data-stat="songs" title="Every song on the roster once, the same count as Catalog: a song two clients share counts once"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{fmt(once.songs)}</span></div>
+              {/* the Songs column added up (songsTotal, the Roster total row's number): a song two clients share is in it twice (the streams tile counts it once since 2026-11-25; the songs were left as they are) */}
+              <div className="cat-stat" data-stat="songs" title="The Songs column below, added up: a song two clients share counts once for each"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{fmt(songsTotal)}</span></div>
               {/* everyone on the roster: db.clients (rosterCount), the chips beside the table, so a client with no songs yet counts too */}
               <div className="cat-stat" data-stat="roster" title="Everyone on the roster: the clients listed beside the table, the ones with no pub sheet tab yet too"><span className="cat-stat-label">Roster</span><span className="cat-stat-val">{fmt(rosterCount)}</span></div>
             </div>
@@ -949,10 +942,9 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
               {state.data.rosterTotal && (
                 <tfoot>
                   <tr className="master-total-row">
-                    {/* (2026-11-25) its Songs and Streams are the tiles' (Catalog's, each song once), not the rows above added up nor MASTER's ROSTER TOTAL: with a shared song both are less than the column, and one
-                        line under "Roster total" says why, for the two */}
-                    {OVERVIEW_COLS.map(([id, label]) => (id === "writer" ? <td key={id} data-label={label} className="master-once" title={ONCE_TITLE}><span>Roster total{once.shared > 0 && <em data-once>shared songs counted once</em>}</span></td>
-                      : <td key={id} data-label={label}>{id === "week" ? null : id === "songs" ? fmt(once.songs) : fmt(once.streams)}</td>))}
+                    {/* (2026-11-25) its Streams is the tile's (Catalog's total, each song once), not MASTER's ROSTER TOTAL: with a shared song it is less than the rows above added up, and says why under it */}
+                    {OVERVIEW_COLS.map(([id, label]) => (id === "gross" ? <td key={id} data-label={label} className="master-once" title="Every song on the roster once, the same total as Catalog: a song two clients share counts once"><span>{fmt(once.streams)}{once.shared > 0 && <em data-once>shared songs once</em>}</span></td>
+                      : <td key={id} data-label={label}>{id === "writer" ? "Roster total" : id === "week" ? null : id === "songs" ? songsTotal : null}</td>))}
                   </tr>
                 </tfoot>
               )}
