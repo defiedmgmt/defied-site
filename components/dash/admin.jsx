@@ -621,7 +621,8 @@ export function TeamAdmin({ db, commit, openId = null, reloadDb = null, onGo = n
   const [said, setSaid] = useState(null); // the line after a team entry was ADDED: its account and INFO's manager list too, hidden (people-added.jsx)
   const cols = [
     { key: "name", label: "Name", render: (s) => <span className="cell-name"><Avatar src={s.photo} name={s.name} size={30} />{s.name}</span> },
-    { key: "role", label: "Role" }, { key: "email", label: "Email" },
+    // (2026-11-25, mobile) the email in its own span: on a phone it takes a line of its own under Role · Live (styles/m-site.css)
+    { key: "role", label: "Role" }, { key: "email", label: "Email", render: (s) => <span className="team-email">{s.email || "—"}</span> },
     // (2026-11-14, people link) like the roster's: an entry the site made for a new person stays hidden until it's shown
     { key: "visible", label: "Public", render: (s) => s.visible !== false ? <span className="badge-yes"><Check size={12} /> Live</span> : <span className="badge-no" data-team-hidden>Hidden</span> },
   ];
