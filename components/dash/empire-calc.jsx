@@ -136,9 +136,12 @@ export function EmpireCalc({ data, reload, init = null }) {
           {who === "n" && (
             <>
               <Field label="Name" value={typed.name} onChange={(e) => setTyped({ ...typed, name: e.target.value })} placeholder="Who are you looking at?" data-f="name" />
-              <Field label="Gross streams" type="number" value={typed.gross} onChange={(e) => setTyped({ ...typed, gross: e.target.value })} data-f="gross" />
+              {/* (2026-11-24, audit) the pace for someone new is the sheet's rule, lifetime streams × the run-rate, so this box is their LIFETIME streams: it said "Gross streams",
+                  and a year's streams typed in came out at 30% of what they should */}
+              <Field label="Lifetime streams (all platforms)" type="number" value={typed.gross} onChange={(e) => setTyped({ ...typed, gross: e.target.value })} data-f="gross"
+                hint="Their all-time total on every platform, not a year's streams." />
               <Field label="Writer %" type="number" value={typed.share} onChange={(e) => setTyped({ ...typed, share: e.target.value })} data-f="share" />
-              {netStreams > 0 && <p className="hint">Net streams: {bigNum(Math.round(netStreams))}</p>}
+              {netStreams > 0 && <p className="hint">Their share, lifetime: {bigNum(Math.round(netStreams))} streams</p>}
             </>
           )}
           {!empty && pace?.warning && <p className="hint adv-warn" data-tone="warn" data-adv-warn role="note">{pace.warning}</p>}
