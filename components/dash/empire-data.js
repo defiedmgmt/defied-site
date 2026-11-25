@@ -187,7 +187,9 @@ export function estimateNote(rec, streamsOn = "") {
   if (!rec || !f || f.off) return "";
   if (!e?.from) return "Every quarter so far has an EMPIRE statement, so nothing here is estimated.";
   const songs = e.songs === 1 ? "1 song" : `${e.songs} songs`;
-  const how = e.songs ? `${pctText(e.measuredShare, 0)} of those streams are counted from Luminate's totals (or a song's lifetime count since it came out), the rest is today's pace over the days` : "";
+  // (2026-11-25, polish) the first days of September before a song's first Luminate total are estimated from its early-September rate (lib/empire-deal.js earnedWindow `early`), not today's pace
+  const rest = Number(e.early) > 0 ? `estimated: the first days of September from each song's early-September rate (${e.early === 1 ? "1 song" : `${e.early} songs`}) and today's pace over the other days` : "today's pace over the days";
+  const how = e.songs ? `${pctText(e.measuredShare, 0)} of those streams are counted from Luminate's totals (or a song's lifetime count since it came out), the rest is ${rest}` : "";
   const asOf = streamsOn ? ` Streams as of ${dayText(streamsOn)}.` : "";
   return `Estimated from real streams since ${dayText(e.from)}: about ${usd0(f.estimated)} for Defied, from ${songs} on Schedule A${how ? `; ${how}` : ""}.${e.noShare ? ` ${e.noShare === 1 ? "1 song has" : `${e.noShare} songs have`} no split for the producer yet and ${e.noShare === 1 ? "isn't" : "aren't"} counted.` : ""}${asOf}`;
 }
