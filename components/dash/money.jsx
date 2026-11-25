@@ -20,8 +20,12 @@ import { PanelWait } from "./sections";
 const EmpireDeal = dynamic(() => import("./empire").then((m) => m.EmpireDeal), { ssr: false, loading: PanelWait });
 const AdvanceDeal = dynamic(() => import("./empire-calc").then((m) => m.AdvanceDeal), { ssr: false, loading: PanelWait });
 
-// "Nov", "Oct": this month and the one before, from the day the page is viewed
-const monthShort = (offset) => { const d = new Date(); d.setDate(15); d.setMonth(d.getMonth() + offset); return d.toLocaleDateString("en-US", { month: "short" }); };
+// "Nov", "Oct": this month and the one before, from the day the page is viewed, on New York's clock: the totals are counted by New York month (lib/stripe.js
+// commissionTotals), so near midnight at a month's end the viewer's own clock would name the wrong months (2026-11-24, audit)
+const monthShort = (offset) => {
+  const at = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric" }).formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return new Date(Date.UTC(Number(at.year), Number(at.month) - 1 + offset, 15)).toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+};
 export function MoneyRow({ money: m, failed, retry }) {
   if (!m || !m.connected || m.error) {
     return (
