@@ -1,7 +1,8 @@
 // (2026-11-24, speed) GET /api/boot?u=<url>&u=<url>…: a dashboard page's first reads in one request, each answered by its own route's
 // handler (lib/boot.js runs them in-process, with this request's cookie: every role check is that route's own). Only the URLs below;
 // each old route still works on its own for every other caller (a reload after a save, Try again, ?fresh=1, the portal).
-// One line of JSON per read as it's ready ({ u, s, ms, b }); components/shared/boot.js reads them and hands each to the code that asked.
+// One line of JSON per read as it's ready ({ u, s, ms, b }, or { u, f: 1 } for one that took too long); components/shared/boot.js reads them
+// and hands each to the code that asked.
 import { runBoot, partTable } from "../../lib/boot";
 import me from "./auth/me";
 import dashboardData from "./dashboard-data";
@@ -18,7 +19,8 @@ import home from "./home";
 import growth from "./growth";
 
 // the slowest of these (the first Stripe fill, the Sync checks) have 60 s on their own routes; streaming lets each line leave when ready
-export const config = { maxDuration: 60, supportsResponseStreaming: true };
+// (responseLimit: the lines are streamed; Next's 4 MB warning is for one buffered answer)
+export const config = { maxDuration: 60, supportsResponseStreaming: true, api: { responseLimit: false } };
 
 const PARTS = partTable([
   ["/api/auth/me", me],

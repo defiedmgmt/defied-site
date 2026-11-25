@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { Disc3, ChevronDown, TrendingUp } from "lucide-react";
 import { WowPill } from "./chips";
 import { fmt } from "./ui";
-import { dashCache } from "../shared/dash-caches";
-import { bootFetch, loadedRecently, markLoaded } from "../shared/boot";
+import { dashCache, settleRestored } from "../shared/dash-caches";
+import { loadedRecently, markLoaded, readFresh } from "../shared/boot";
 import { Photo } from "../shared/ui";
 import { dayRange } from "./helpers";
 import { swrJson, peekJson } from "../ui/fetch-cache";
@@ -90,8 +90,11 @@ function useRosterTop() {
   const loader = useRef(null);
   useEffect(() => {
     let alive = true;
-    const load = () => { setFailed(false); return bootFetch("/api/growth?top=1").then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!alive) return; if (d?.top) { dashCache.top = d.top; markLoaded("top"); setTop(d.top); } else setFailed(true); }).catch(() => alive && setFailed(true)); };
+    const miss = () => { if (!alive) return; setFailed(true); settleRestored("top", false, () => { dashCache.top = null; setTop(null); }); };
+    const load = () => { setFailed(false); return readFresh("/api/growth?top=1").then(({ dropped, ok, j, t }) => {
+      if (dropped || !alive) return;
+      if (ok && j?.top) { dashCache.top = j.top; markLoaded("top", t); settleRestored("top", true); setTop(j.top); } else miss();
+    }).catch(miss); };
     loader.current = load;
     // (2026-11-24, speed) back on the Dashboard within 30 s of the last read (and no save since): what it has
     if (!(dashCache.top && loadedRecently("top"))) load();

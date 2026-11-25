@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { bootFetch, loadedRecently, markLoaded } from "./shared/boot";
+import { fate, loadedRecently, markLoaded, readFresh, stamp } from "./shared/boot";
 
 // The monthly true-up's data side (GET /api/trueup and its To do rows), read by the dashboard's shell on
 // every section; the screens are in TrueUp.jsx, loaded with To do (list B #11).
@@ -12,11 +12,19 @@ export const plural = (n, one, many = `${one}s`) => `${fmt(n)} ${n === 1 ? one :
 // recent: the update applied in this visit, so its row (and its Undo) stays until the page is left
 export const store = { d: null, err: null, subs: new Set(), loading: null, recent: null };
 export const emit = () => store.subs.forEach((f) => f());
+// (2026-11-25) a read already on its way is shared only if nothing happened since it started: after an Apply or Undo (a write) a new read
+// starts, and an answer from before a write or a sign-in never lands in the store
 export function reloadTrueUp() {
-  if (store.loading) return store.loading;
-  store.loading = bootFetch("/api/trueup").then((r) => (r.ok ? r.json() : Promise.reject(new Error("load"))))
-    .then((d) => { store.d = { ...d, recent: store.recent }; store.err = null; markLoaded("trueup"); }).catch(() => { store.err = true; }).finally(() => { store.loading = null; emit(); });
-  return store.loading;
+  if (store.loading && fate(store.loadingStamp) === "apply") return store.loading;
+  const t0 = stamp();
+  const p = readFresh("/api/trueup").then(({ dropped, ok, j, t }) => {
+    if (dropped) return;
+    if (!ok || !j) throw new Error("load");
+    if (fate(t) !== "apply" && store.loading !== p) return; // a newer read is on its way: it answers
+    store.d = { ...j, recent: store.recent }; store.err = null; markLoaded("trueup", t);
+  }).catch(() => { if (fate(t0) !== "drop") store.err = true; }).finally(() => { if (store.loading === p) store.loading = null; emit(); });
+  store.loading = p; store.loadingStamp = t0;
+  return p;
 }
 const sub = (f) => { store.subs.add(f); return () => store.subs.delete(f); };
 const snap = () => store.d;

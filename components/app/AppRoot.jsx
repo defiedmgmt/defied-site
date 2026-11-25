@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import { CheckCircle2 } from "lucide-react";
 import { ACCOUNT_CHANGED, SAVE_NOTE_MS, SAVE_OFFLINE, SIGNED_OUT, accountChanged, addedNote, applyPatch, diffDb, holdUnload, inTabOrder, knownIds, refusal, saveFailure, saveKeys, withServerRows, withoutPasswords } from "./saves";
 import { clearDashCaches, clearStoredDash, setCacheScope } from "../shared/dash-caches";
-import { bootFetch, startBoot } from "../shared/boot";
+import { bootFetch, setBootUser, startBoot } from "../shared/boot";
 import { ROUTE_TO_PATH, routeOf } from "../shared/routes";
 import { useRevealOnScroll, vtWillRun } from "../shared/ui";
 import { DATA_ROUTES, PageGuard } from "../site/About";
@@ -123,7 +123,8 @@ export default function AppRoot({ Component, pageProps }) {
     bootFetch("/api/auth/me")
       .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; })
       // signed out: this tab's saved copy of the last account's dashboard goes too
-      .then((d) => { if (!d.user) clearStoredDash(); if (alive) setSession(d.user ?? null); })
+      // (2026-11-25) and the boot's answers are handed only to the account this check names
+      .then((d) => { setBootUser(d.user?.id ?? null); if (!d.user) clearStoredDash(); if (alive) setSession(d.user ?? null); })
       // a 503 (the account couldn't be checked) or no connection: signed out, not "still asking" forever,
       // but the sign-in page says why
       .catch(() => { if (alive) { setSession(null); setAuthDown(true); } });
@@ -170,7 +171,8 @@ export default function AppRoot({ Component, pageProps }) {
         s.server = data; s.freshAt = Date.now();
         // (2026-11-24, speed) this account's saved copy of the dashboard's last answers (only one saved under this same user and access)
         // is put back before the first draw: a reload shows them at once and reads them again behind it
-        if (data.role === "staff") setCacheScope(session.id, data.access);
+        // (2026-11-25) keyed by what this dataset holds: the access, and for an account limited to its own artists, which artists they are now
+        if (data.role === "staff") setCacheScope(session.id, data);
         setDb(data);
       } catch (err) {
         if (alive) setLoadErr(err.message || "Couldn't load your dashboard data.");
@@ -309,6 +311,7 @@ export default function AppRoot({ Component, pageProps }) {
     // in the same render as the route change: the new dashboard never draws the last account's data
     clearDashCaches();
     // (2026-11-24, speed) and its first reads start now, beside the route change (the session is known: no check of it)
+    setBootUser(data.user.id);
     if (data.user.role === "staff") startBoot("/dashboard", { me: false });
     setDb(null); setSession(data.user); setAuthDown(false); setLoadErr(null); setSignIns((n) => n + 1);
     signedInHere.current = true; // this push goes on from the sign-in page; the effect below needn't
@@ -330,6 +333,7 @@ export default function AppRoot({ Component, pageProps }) {
       // this push, sometimes winning and landing back on the login page.
       await go("home");
       clearDashCaches(); // the next account never sees this one's last answers
+      setBootUser(null);
       setSession(null);
       setDb(null);
       setLoadErr(null); setAuthDown(false);

@@ -17,8 +17,8 @@ export { canUse, TODO_AREAS } from "./access";
 import { arSecOf } from "../shared/ar-routes";
 import { PasswordCard } from "./password";
 import { InstallApp } from "../shared/install-app";
-import { bootFetch, bootSectionOf, loadedRecently, markLoaded } from "../shared/boot";
-import { dashCache } from "../shared/dash-caches";
+import { bootSectionOf, loadedRecently, markLoaded, readFresh } from "../shared/boot";
+import { dashCache, settleRestored } from "../shared/dash-caches";
 import { prefetchJson } from "../ui/fetch-cache";
 
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
@@ -101,8 +101,11 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   const [songInfoErr, setSongInfoErr] = useState(false);
   const reloadSongInfo = () => {
     setSongInfoErr(false);
-    return bootFetch("/api/songs").then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.tracking) { setSongInfo(d); markLoaded("songs"); } else setSongInfoErr(true); }).catch(() => setSongInfoErr(true));
+    // (2026-11-25) an answer from before a write was read again by readFresh; one from before a sign-in is never used
+    return readFresh("/api/songs").then(({ dropped, ok, j, t }) => {
+      if (dropped) return;
+      if (ok && j?.tracking) { setSongInfo(j); markLoaded("songs", t); } else setSongInfoErr(true);
+    }).catch(() => setSongInfoErr(true));
   };
   const can = (k) => canUse(db, k);
   const songInfoOff = !can("publishing");
@@ -137,7 +140,13 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   // sidebar, Home's biggest tasks and each tab's count chip all come from these
   const arSum = useArSummary(tab === "todo" ? "home" : tab);
   const [acctN, setAcctN] = useState(() => (can("money") ? dashCache.acct || null : null));
-  const loadAcctN = () => !can("money") ? Promise.resolve() : bootFetch("/api/accounting?counts=1").then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.counts) { dashCache.acct = d.counts; markLoaded("acctN"); setAcctN(d.counts); } }).catch(() => {});
+  // (2026-11-25) every change of the counts (a read, Money's page, a payment logged from Home or To do) is the copy a reload starts from too
+  const setAcct = (u) => setAcctN((x) => { const n = typeof u === "function" ? u(x) : u; dashCache.acct = n || null; return n; });
+  const dropAcct = () => settleRestored("acct", false, () => setAcct(null));
+  const loadAcctN = () => !can("money") ? Promise.resolve() : readFresh("/api/accounting?counts=1").then(({ dropped, ok, j, t }) => {
+    if (dropped) return;
+    if (ok && j?.counts) { setAcct(j.counts); markLoaded("acctN", t); settleRestored("acct", true); } else dropAcct();
+  }).catch(dropAcct);
   // once as the dashboard opens, and again when To do opens (not within 30 s of the last read)
   const acctAsked = useRef(false);
   useEffect(() => { if (!acctAsked.current || (tab === "todo" && !loadedRecently("acctN"))) { acctAsked.current = true; loadAcctN(); } }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -153,7 +162,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   const cuDue = cu.data?.tasks || [];
   const todoN = todo.length + cuDue.length;
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
-  const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct: setAcctN, fixes, doneForYou, can, seeds };
+  const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct, fixes, doneForYou, can, seeds };
   // (2026-11-23, 2026-11-24) the EMPIRE and Advance calculator pills of Money, for the one kind of account that has them: a Founder with Money access and every artist (the API refuses everyone else).
   // The Roster page's pointer line (catalog.jsx seeEmpire) is the same decision
   const seeDeals = can("money") && !db.access?.ownOnly && db.access?.role === "founder";
@@ -220,11 +229,11 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
       <main className="dash-main">
         <InstallApp />
         {!at && <div className="admin-empty" data-no-sections>Your account has nothing turned on yet. Ask a Founder to turn on what you need in Site › Users.</div>}
-        {at === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcctN} />}
+        {at === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcct} />}
         {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} mine={pair("todo")} />}
         {at === "mytodo" && (paired("mytodo") ? <MyTodoPage title="To do" mine={pair("todo")} /> : <MyTodoPage />)}
         {at === "mypay" && !paired("mypay") && <MyPaymentsPage />}
-        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcctN} myMoney={myMoney} empire={seeDeals} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
+        {at === "money" && <AccountingAdmin sub={sub} onSub={setSub} onCounts={setAcct} myMoney={myMoney} empire={seeDeals} chip={can("todo") && <TodoChip n={areaN("money")} area="money" onGo={go} />} onGo={go} />}
         {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("site")} area="site" onGo={go} />} />}
         {at === "catalog" && <CatalogAdmin db={db} commit={commit} reloadDb={reloadDb} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
