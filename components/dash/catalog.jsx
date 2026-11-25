@@ -8,7 +8,7 @@ import { mergedCard, mergedTitle } from "../../lib/duplicates";
 import { PhoneSort } from "../ui/responsive";
 import { NAME_TAKEN, clientDeleteAsk, deleteClientCascade, nameTaken } from "./clients";
 import { WowPill } from "./chips";
-import { GAP_WORDS, WEEK_PCT_MIN, autoAddedOf, dayRange, dupeName, possibleOf, shortDay, songsPost, songsToUpdate, useGrowthState } from "./helpers";
+import { GAP_WORDS, WEEK_PCT_MIN, autoAddedOf, dayRange, dupeName, possibleOf, sheetWords, shortDay, songsPost, songsToUpdate, useGrowthState } from "./helpers";
 import { canUse } from "./access";
 import { Avatar, DropNote, Field, PctInput, fmt, landOn, revealChip, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "./ui";
 import { NotOursAsk, SongManager, noSheetTab, pushShare, releaseDay } from "../portal/ClientPortal";
@@ -304,14 +304,48 @@ const UPDATE_FIRST = 8;
 const GAP_RANK = ["share", "sheet", "date", "link"];
 const gapRank = (k) => (GAP_RANK.includes(k) ? GAP_RANK.indexOf(k) : GAP_RANK.length);
 // Publishing › Songs to update: what each song is missing, one button that opens the song at the first gap, and "Not on streaming"
-// for a song with no date or link because it isn't out (or only on SoundCloud/TikTok): it stops asking for them
-export function SongsToUpdate({ db, songInfo, reloadSongInfo, onFix, focus, dupes = [], onDupe }) {
+// for a song with no date or link because it isn't out (or only on SoundCloud/TikTok): it stops asking for them.
+// (2026-11-24) A song "Not on the pub sheet" has "Add to pub sheet" instead of Update (which only opened the song again): the server finds its row
+// on the client's tab or writes it there (POST /api/songs { action: "sheetRow" }, lib/auto-add.js putOnSheet), and the row says why when the last
+// write of it failed (songInfo.sheetFails). With more than one such song, one button does them all. A song found or written comes off the list at
+// once (`fresh`: its row and share, until the page's facts are read again) and the sentence under the heading says what happened.
+const SHEET_PER_PRESS = 10; // lib/auto-add.js ROWS_PER_CLICK
+export function SongsToUpdate({ db, songInfo, reloadSongInfo, reloadDb, onFix, focus, dupes = [], onDupe }) {
   // "Not on streaming" is saved in song tracking (song_tracking.skip); the list is worked out again at once with the song marked,
   // and if the save doesn't go through the row comes back with the reason. `marked`: the songs marked here, until the facts are read again
   const [marked, setMarked] = useState(() => new Set());
   const [markErr, setMarkErr] = useState(null);
   const info = useMemo(() => (songInfo && marked.size ? { ...songInfo, tracking: { ...songInfo.tracking, ...Object.fromEntries([...marked].map((id) => [id, { ...songInfo.tracking?.[id], skip: true }])) } } : songInfo), [songInfo, marked]);
-  const list = useMemo(() => songsToUpdate(db, info), [db, info]);
+  // placement id -> { row, share, net } that Add to pub sheet just found or wrote, laid over the last pull's facts until the page reads them again
+  const [fresh, setFresh] = useState(() => ({}));
+  const [sheetBusy, setSheetBusy] = useState(null); // "all" or the song being added
+  const [sheetNote, setSheetNote] = useState(null); // { ok } or { err }: what the last press did
+  useEffect(() => { setFresh((f) => (Object.keys(f).length ? {} : f)); }, [db.sheetFacts]);
+  const dbNow = useMemo(() => (Object.keys(fresh).length ? { ...db, sheetFacts: { clients: db.sheetFacts?.clients || {}, songs: { ...(db.sheetFacts?.songs || {}), ...fresh } } } : db), [db, fresh]);
+  const list = useMemo(() => songsToUpdate(dbNow, info), [dbNow, info]);
+  const addToSheet = async (ids, which) => {
+    setSheetNote(null);
+    setSheetBusy(which);
+    // the songs the server found on the sheet or wrote there: off the list at once, also when a later one failed
+    const take = (d) => {
+      const got = [...(d?.already || []), ...(d?.added || [])];
+      if (got.length) setFresh((f) => ({ ...f, ...Object.fromEntries(got.map((x) => [x.id, { row: x.row, share: x.share ?? null, net: 0 }])) }));
+      return got.length;
+    };
+    try {
+      const d = await songsPost({ action: "sheetRow", placementIds: ids });
+      take(d);
+      setSheetNote({ ok: sheetWords(d) || "Nothing was left to add." });
+      await reloadDb?.();
+      await reloadSongInfo?.();
+    } catch (e) {
+      const got = take(e.data);
+      setSheetNote({ err: [got ? sheetWords(e.data) : "", e.message].filter(Boolean).join(" ") });
+      if (got) await reloadDb?.();
+      await reloadSongInfo?.(); // the row's own words (why) come with the songs' facts
+    } finally { setSheetBusy(null); }
+  };
+  const sheetIds = list.filter((x) => x.gaps.some((g) => g.k === "sheet")).map((x) => x.p.id);
   useEffect(() => {
     const left = [...marked].filter((id) => !songInfo?.tracking?.[id]?.skip);
     if (left.length !== marked.size) setMarked(new Set(left));
@@ -340,9 +374,12 @@ export function SongsToUpdate({ db, songInfo, reloadSongInfo, onFix, focus, dupe
     <div className={`fix-panel${focus ? " flash" : ""}`} ref={box} data-sec="update">
       <div className="fix-head">
         <h3>{list.length ? `Songs to update (${list.length})` : "Songs to update"}</h3>
-        <span className="hint">{list.length ? "What each song is missing, from the last sheet pull. Update opens the song there." : "Every song has its sheet row, writer share, release date and link."}</span>
+        <span className="hint">{list.length ? `What each song is missing, from the last sheet pull. ${sheetIds.length ? "Add to pub sheet finds or writes the song's row; " : ""}Update opens the song there.` : "Every song has its sheet row, writer share, release date and link."}</span>
+        {sheetIds.length > 1 && <button type="button" className="btn sm upd-sheet-all" data-add-sheet-all disabled={!!sheetBusy} onClick={() => addToSheet(sheetIds.slice(0, SHEET_PER_PRESS), "all")}>
+          {sheetBusy === "all" ? "Adding…" : `Add ${sheetIds.length > SHEET_PER_PRESS ? SHEET_PER_PRESS : sheetIds.length === 2 ? "both" : `all ${sheetIds.length}`} to the pub sheet`}</button>}
       </div>
       <HeldDupes dupes={dupes} onDupe={onDupe} />
+      {sheetNote && <p className={`hint upd-sheet-note${sheetNote.err ? " err-text" : ""}`} role={sheetNote.err ? "alert" : "status"} data-sheet-note={sheetNote.err ? "err" : "ok"}>{sheetNote.err || sheetNote.ok}</p>}
       {markErr && <p className="hint err-text" role="alert" data-upd-err>{markErr}</p>}
       {Object.keys(counts).length > 1 && (
         <div className="upd-filters" data-upd-filters>
@@ -354,7 +391,9 @@ export function SongsToUpdate({ db, songInfo, reloadSongInfo, onFix, focus, dupe
       )}
       {list.length > 0 && (
         <div className="fix-group" data-group="update">
-          {rows.map((x) => { const gs = [...x.gaps].sort((a, b) => gapRank(a.k) - gapRank(b.k)), extra = gs.length + (x.skip ? 1 : 0) + (x.splitSee ? 1 : 0) - 2, open = opened.has(x.p.id); return (
+          {rows.map((x) => { const gs = [...x.gaps].sort((a, b) => gapRank(a.k) - gapRank(b.k)), extra = gs.length + (x.skip ? 1 : 0) + (x.splitSee ? 1 : 0) - 2, open = opened.has(x.p.id);
+            // not on the pub sheet: Add to pub sheet is the button, and Update stays only for another gap (it opens on that one)
+            const onSheet = x.gaps.some((g) => g.k === "sheet"), upd = onSheet ? x.gaps.find((g) => g.k !== "sheet") : x.gaps[0] || {}; return (
             <div className={`fix-row${open ? " upd-open" : ""}`} key={x.p.id} data-song={x.p.id}>
               <span className="fix-song"><span className="fix-who">{x.client?.name || "A deleted client"} · </span>{x.p.song || "Untitled"}</span>
               {/* money gaps first (as the To do names them); on phones the first two chips and a "+N" that shows the rest */}
@@ -370,8 +409,10 @@ export function SongsToUpdate({ db, songInfo, reloadSongInfo, onFix, focus, dupe
               <span className="fix-streams">{fmt(x.p.streams || 0)} streams</span>
               <span className="fix-acts">
                 {songInfo && x.gaps.some((g) => g.k === "date" || g.k === "link") && <button className="btn ghost sm upd-off-btn" data-not-on-streaming title="Not out yet, taken down, or only on SoundCloud/TikTok: no release date or link to find" onClick={() => markGone(x.p)}>Not on streaming</button>}
-                <button className="btn sm" data-update onClick={() => onFix(x.p.id, (x.gaps[0] || {}).field)}>Update</button>
+                {onSheet && <button className="btn sm" data-add-sheet disabled={!!sheetBusy} onClick={() => addToSheet([x.p.id], x.p.id)}>{sheetBusy === x.p.id ? "Adding…" : "Add to pub sheet"}</button>}
+                {upd && <button className={`btn${onSheet ? " ghost" : ""} sm`} data-update onClick={() => onFix(x.p.id, upd.field)}>Update</button>}
               </span>
+              {x.why && <span className="upd-why" data-sheet-why>The last try didn't go through: {x.why.error}</span>}
             </div>
           ); })}
           {shown.length > UPDATE_FIRST && <button className="inline-link upd-more" data-upd-more onClick={() => setMore(!more)}>{more ? `Show the first ${UPDATE_FIRST}` : `Show all ${shown.length}`}</button>}

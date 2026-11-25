@@ -26,6 +26,10 @@ import { requireSameOrigin } from "../../lib/session";
 import { requireAccess, limited, mayUseClient } from "../../lib/access";
 import { sql } from "../../lib/db";
 import { ownerOf } from "../../lib/names";
+import { noteSheetFail } from "../../lib/sheet-fails";
+
+// never what decides the answer: a note that can't be saved is said in the log
+const failed = (placementId, error) => noteSheetFail(placementId, error).catch((e) => console.error("sheets-push: sheet failure note", e));
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
@@ -38,6 +42,7 @@ export default async function handler(req, res) {
   }
 
   const isStaff = session.user.role === "staff";
+  let pushing = false; // past every check, the song saved on the site: only then is a failure kept for it
   try {
     // whose song this is (saved just before this push): a split under one of
     // that client's own names is theirs, even where another client's tab
@@ -59,12 +64,16 @@ export default async function handler(req, res) {
     if (!saved) return res.status(409).json({ error: "That song isn't saved on the site, so nothing was written to the pub sheet. Reload the page and save it again.", refused: true, written: false });
 
     // (2026-11-17) the tab lookup, the row write and its answer are lib/sheet-push.js's now (lib/auto-add.js writes a song's row with it too)
+    pushing = true;
     const out = await pushSongRows({ placementId, song, artist, luminateId, splits, liveIds, check, saved, known, whose, by: session.user?.name || session.user?.email || "song push" });
+    // (2026-11-24) a push that wrote nothing says why on Songs to update too (lib/sheet-fails.js), not only in the editor that sent it
+    if (out.status !== 200 && !out.body?.written) await failed(placementId, out.body?.error);
     return res.status(out.status).json(out.body);
   } catch (err) {
     // a write call that failed was read back all the same (it may have landed): its answer goes with the error
     const back = err.readBack;
     if (back && !back.ok) console.error(`sheets-push: ${back.alarm}`);
+    if (pushing) await failed(placementId, err.message || "Sheet push failed.");
     return res.status(502).json({ error: err.message || "Sheet push failed.", ...(back ? { checked: true, ...(back.ok ? {} : { alarm: back.alarm }) } : {}) });
   }
 }

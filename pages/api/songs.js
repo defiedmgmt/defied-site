@@ -1,7 +1,8 @@
 // Each song's extra facts (lib/song-info.js): GET returns them; POST takes one { action, ... }: an ISRC
 // typed in or picked, the ISRC finder run on a few songs, "This isn't ours", "Not the same song", and
 // (2026-11-17) "Not on streaming" for one song and "OK" on a song added automatically (lib/auto-add.js), and
-// (2026-11-18) "Add" and "Not ours" on a possible placement (lib/credits/add.js: the only way one becomes a song).
+// (2026-11-18) "Add" and "Not ours" on a possible placement (lib/credits/add.js: the only way one becomes a song), and (2026-11-24)
+// "Add to pub sheet" on Songs to update (lib/auto-add.js putOnSheet).
 // Publishing only. (Luminate's page had these until list B #3; the ISRC lookups stayed.)
 import { sql } from "../../lib/db";
 import { requireSameOrigin } from "../../lib/session";
@@ -78,6 +79,21 @@ async function act(body, ctx) {
   // (loaded when used: Add reaches the pub sheet's code, which the rest of this route never needs)
   if (action === "possibleAdd") return (await import("../../lib/credits/add")).addPossible({ key: body.key, by: ctx.session?.user?.name || ctx.session?.user?.email || "" });
   if (action === "possibleNotOurs") return (await import("../../lib/credits/add")).dismissPossible({ key: body.key });
+  // (2026-11-24) "Add to pub sheet" on Songs to update: the songs' rows, found on their clients' tabs or written there (lib/auto-add.js putOnSheet: the
+  // song editor's own push, with its rules and the formula guard). The same permission as Add above. A write that fails is a 502 that says why, with
+  // what was done before it (already, added), so the page can take those rows off the list
+  if (action === "sheetRow") {
+    const list = [...new Set(ids(body.placementIds))];
+    if (!list.length) return [400, { error: "Pick the song first." }];
+    // a Sheets request Google turns away for its per-minute quota waits and goes again (lib/sheets.js), but never past 40 s into this press (the route has 60)
+    const [{ putOnSheet }, { withSheetsDeadline }] = await Promise.all([import("../../lib/auto-add"), import("../../lib/sheets")]);
+    const r = await withSheetsDeadline(Date.now() + 40000, () => putOnSheet(list, { by: ctx.session?.user?.name || ctx.session?.user?.email || "an Add to pub sheet button" }));
+    if (r.busy) return [409, { error: "A song is being written to the pub sheet right now. Try again in a minute." }];
+    if (r.skipped) return [409, { error: r.skipped }];
+    const done = { already: r.already, added: r.added, waiting: r.waiting, gone: r.gone, ...(r.alarm ? { alarm: r.alarm } : {}) };
+    if (r.error) return [502, { error: `${r.error.song ? `"${r.error.song}" isn't on the pub sheet: ` : ""}${r.error.error}`, failed: r.error.id || "", ...done }];
+    return [200, { ok: true, ...done }];
+  }
   if (action === "autoChecked") {
     // the Spotify track ids that key autoAdded (22 letters and digits; a song added for a second client on one release is "<id>:<client id>")
     const list = [...new Set(ids(body.ids).filter((x) => /^[A-Za-z0-9]{22}(?::[A-Za-z0-9_-]{1,40})?$/.test(x)))];

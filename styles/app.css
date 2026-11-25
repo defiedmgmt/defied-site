@@ -2157,6 +2157,10 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .upd-gap.upd-split,.app:not(.pub) .upd-gap.upd-off{color:var(--d-ink-3)}   /* neutral: nothing to fix (Not on streaming, a split Splits to confirm has) */
 .app:not(.pub) .upd-gap-more{display:none;color:var(--d-ink-3);background:none;font-family:inherit;cursor:pointer}
 .app:not(.pub) .upd-filters{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}
+/* (2026-11-24) Add to pub sheet: the one button for all of them at the heading's end, what the last press did under it, and a row's reason (its last write failed) on its own line */
+.app:not(.pub) .fix-head .upd-sheet-all{margin-left:auto}
+.app:not(.pub) .upd-sheet-note{margin:2px 0 8px;font-size:12.5px;white-space:normal}
+.app:not(.pub) .fix-group[data-group=update] .upd-why{grid-column:1 / -1;min-width:0;font-size:12.5px;line-height:1.35;color:var(--d-warn);white-space:normal;overflow-wrap:anywhere}
 .app:not(.pub) .upd-filter{display:inline-flex;align-items:center;height:26px;padding:0 10px;border:1px solid var(--d-line-2);border-radius:999px;background:none;color:var(--d-ink-3);font:400 12px/1 var(--d-body);cursor:pointer;white-space:nowrap}
 .app:not(.pub) .upd-filter.on{background:var(--d-active);border-color:var(--d-line-3);color:var(--d-ink)}
 .app:not(.pub) .upd-more{margin:8px 0 2px;font-size:13px}
@@ -2233,6 +2237,9 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
   .app:not(.pub) .fix-group[data-group=update] .fix-acts .btn{min-height:34px}
   /* with Not on streaming beside Update the buttons take their own line, so the streams never run into them */
   .app:not(.pub) .fix-group[data-group=update] .fix-row:has(.upd-off-btn) .fix-acts{grid-column:1 / -1;justify-content:flex-start}
+  /* ...and with Add to pub sheet beside Update too */
+  .app:not(.pub) .fix-group[data-group=update] .fix-row:has([data-add-sheet]):has([data-update]) .fix-acts{grid-column:1 / -1;justify-content:flex-start}
+  .app:not(.pub) .fix-head .upd-sheet-all{margin-left:0;min-height:40px}
   .app:not(.pub) .fix-group[data-group=update] .upd-gap-x{display:none}
   .app:not(.pub) .fix-group[data-group=update] .upd-gap-more{display:inline-flex}
   /* the "+N" never gets cut: the chips before it shrink and clip instead, and its tap area is 40px tall */
