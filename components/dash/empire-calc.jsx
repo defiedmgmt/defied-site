@@ -6,7 +6,7 @@ import { useAct, useEmpire } from "./empire-api";
 import { overlapOf, paceOfSongs, producerDeal } from "../../lib/empire-math";
 import { yearFactor } from "../../lib/advance-model";
 import {
-  amountOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, paceSource, partPct, pctText, usd, usd0, verdictRule, verdictShown, verdictTone,
+  amountOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, paceSource, partPct, pctText, round10, usd, usd0, usd10, verdictRule, verdictShown, verdictTone,
 } from "./empire-data";
 
 // The advance calculator (2026-11-21), moved here from Clients › Advance calculator into Money, and rebuilt for how Defied now gives advances: out of the
@@ -74,11 +74,14 @@ export function EmpireCalc({ data, reload, init = null }) {
   const paceSub = paceKind === "real" ? "streams a year, from daily counts" : paceKind === "mixed" ? `streams a year, partly from daily counts (${partPct(pace.realShare)})` : "streams a year, an estimate";
   const decay = lev?.decayRate ?? 0;
   const adv = m ? Math.max(0, m.advance - owing) : 0; // the advance that is left for a new deal
-  const potAfter = m && m.pot ? free - adv : null;
+  // (2026-11-24, audit) the estimates are shown to the nearest $10 (empire-data.js usd10): the headline, the tiles, the ladder and the check. What is left of the pot is the real
+  // amount less the advance as shown, and Save starts from the advance as shown, so what is on the screen adds up. The step-by-step under Show the math keeps the cents.
+  const adv10 = round10(adv);
+  const potAfter = m && m.pot ? free - adv10 : null;
 
   // the deal to save: its advance is the one typed for it, else the amount being checked, else the advance shown
   const typedSave = amountOf(saveIn);
-  const toSave = typedSave ?? amount ?? (m ? Math.round(adv * 100) / 100 : 0);
+  const toSave = typedSave ?? amount ?? (m ? adv10 : 0);
   const named = producer ? picks.length > 0 : who === "n" ? typed.name.trim().length > 0 && netStreams > 0 : false;
   const canSave = !!m && cut != null && toSave > 0 && named;
   const save = () => {
@@ -172,14 +175,14 @@ export function EmpireCalc({ data, reload, init = null }) {
           {empty || !m ? <p className="adv-empty" data-emp-calc-empty>{!lev?.ok ? "Loading the rates…" : cut == null ? "Type Defied's cut as a percent to see an advance." : who === "n" && Number(typed.gross) > 0 && !(Number(typed.share) > 0) ? "Add their writer share (%) to see an advance." : producer && picks.length === 0 ? "Tick at least one song to see an advance." : "Pick a producer, or type streams, to see an advance."}</p> : (
             <>
               <div className="adv-headline" data-adv-headline>
-                <p className="adv-head-line"><span className="adv-head-up">Up to</span> <span className="adv-head-n" data-adv-headline-n>{money(adv)}</span></p>
+                <p className="adv-head-line"><span className="adv-head-up">Up to</span> <span className="adv-head-n" data-adv-headline-n>{usd10(adv)}</span></p>
                 <p className="adv-head-sub" data-adv-headline-sub><span>{`paid back in ${monthsText(R)}`}</span>{adv > 0 && <VerdictPill verdict={verdictShown(R)} />}</p>
                 {owing > 0 && <p className="adv-stat-sub" data-adv-owing>{`after the ${usd(owing)} still to pay back`}</p>}
               </div>
               <div className="cat-summary" data-adv-tiles>
                 <div className="cat-summary-grid">
-                  <div className="cat-stat" data-stat="royalties"><span className="cat-stat-label">Their royalties, next 12 months</span><span className="cat-stat-val">{money(m.next12.royalties)}</span></div>
-                  <div className="cat-stat" data-stat="cut"><span className="cat-stat-label">Defied's cut, next 12 months</span><span className="cat-stat-val">{money(m.next12.defiedCut)}</span></div>
+                  <div className="cat-stat" data-stat="royalties"><span className="cat-stat-label">Their royalties, next 12 months</span><span className="cat-stat-val">{usd10(m.next12.royalties)}</span></div>
+                  <div className="cat-stat" data-stat="cut"><span className="cat-stat-label">Defied's cut, next 12 months</span><span className="cat-stat-val">{usd10(m.next12.defiedCut)}</span></div>
                   <div className="cat-stat" data-stat="pot"><span className="cat-stat-label">{`Left of the ${usd0(terms.execution)} after this`}</span><span className="cat-stat-val" data-over={potAfter < 0 ? "" : undefined}>{usd(potAfter)}</span></div>
                 </div>
               </div>
@@ -221,7 +224,7 @@ export function EmpireCalc({ data, reload, init = null }) {
           <div className="emp-fc-body adv-math-body">
             <div className="cat-summary" data-adv-math-tiles>
               <div className="cat-summary-grid">
-                <div className="cat-stat" data-stat="toEmpire"><span className="cat-stat-label">{producer ? `Counts toward EMPIRE's ${usd0(terms.owed)} (already on Schedule A), next 12 months` : `Adds to EMPIRE's ${usd0(terms.owed)}, next 12 months`}</span><span className="cat-stat-val">{money(m.toEmpire.next12)}</span><span className="adv-stat-sub">{`all of Defied's ${pctText(terms.payout, 0)}`}</span></div>
+                <div className="cat-stat" data-stat="toEmpire"><span className="cat-stat-label">{producer ? `Counts toward EMPIRE's ${usd0(terms.owed)} (already on Schedule A), next 12 months` : `Adds to EMPIRE's ${usd0(terms.owed)}, next 12 months`}</span><span className="cat-stat-val">{usd10(m.toEmpire.next12)}</span><span className="adv-stat-sub">{`all of Defied's ${pctText(terms.payout, 0)}`}</span></div>
                 <div className="cat-stat" data-stat="pace"><span className="cat-stat-label">Today's pace</span><span className="cat-stat-val">{bigNum(m.pace)}</span><span className="adv-stat-sub">{paceSub}</span></div>
               </div>
             </div>
@@ -251,7 +254,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                   <tbody>
                     {m.ladder.map((r) => (
                       <tr key={r.months} data-ladder-months={r.months} data-chosen={r.months === R ? "" : undefined} aria-current={r.months === R ? "true" : undefined}>
-                        <td>{monthsText(r.months)}</td><td>{money(Math.max(0, r.advance - owing))}</td><td><VerdictPill verdict={owing > 0 && r.advance - owing <= 0 ? null : r.verdict} /></td>
+                        <td>{monthsText(r.months)}</td><td>{usd10(Math.max(0, r.advance - owing))}</td><td><VerdictPill verdict={owing > 0 && r.advance - owing <= 0 ? null : r.verdict} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -284,7 +287,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                 <li data-how="slowdown">{decay > 0
                   ? `Slows ${pct1(decay)} a year (ASSUMPTIONS!B8), so the next 12 months average ${pct1(yearFactor(decay, 1))} of today's pace; each year after is ${pct1(1 - decay)} of the one before. ${pct1(decay)} is a careful assumption; check it again once there's more history.`
                   : "No slowdown (ASSUMPTIONS!B8 is 0%), so every year earns today's pace."}</li>
-                <li data-how="advance">{`The advance is what the royalties add up to over the ${monthsText(R)} you picked, slowdown included: ${usd(m.advance)}${owing > 0 ? `. The deal above still has ${usd(owing)} to pay back out of the same royalties, so ${usd(adv)} is left for a new one` : ""}.`}</li>
+                <li data-how="advance">{`The advance is what the royalties add up to over the ${monthsText(R)} you picked, slowdown included: ${usd(m.advance)}${owing > 0 ? `. The deal above still has ${usd(owing)} to pay back out of the same royalties, so ${usd(adv)} is left for a new one` : ""}. Shown as ${usd10(adv)} above: the calculator's estimates are rounded to the nearest $10.`}</li>
                 <li data-how="adds">{producer ? `These songs already count toward EMPIRE's ${usd0(terms.owed)} (they're on Schedule A): about ${usd(m.toEmpire.next12)} in the next 12 months and ${usd(m.toEmpire.next36)} over 3 years (all of Defied's ${pctText(terms.payout, 0)} counts, whatever the producer is owed).` : `Once their songs are on Schedule A they would add about ${usd(m.toEmpire.next12)} in the next 12 months toward EMPIRE's ${usd0(terms.owed)}.`}</li>
                 <li data-how="verdict">{verdictRule()}</li>
               </ul>

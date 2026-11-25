@@ -15,6 +15,10 @@ export const dayShort = (s) => { const m = ymd(s); return m ? `${MON[+m[2] - 1]}
 export const monthYear = (s) => { const m = ymd(s); return m ? `${MON[+m[2] - 1]} ${m[1]}` : ""; };            // Mar 2029
 export const usd = (n) => { const v = Number(n) || 0; return `${v < 0 ? "-" : ""}$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
 export const usd0 = (n) => { const v = Math.round(Number(n) || 0); return `${v < 0 ? "-" : ""}$${Math.abs(v).toLocaleString("en-US")}`; };
+// (2026-11-24, audit) the advance calculator's estimates (worked out from streams) are shown to the nearest $10, not to the cent they can't be accurate to: $16,139.94 is "$16,140".
+// Only for showing them: never real money, what is typed, or the math under them. Halves go away from 0 the same way both sides of it.
+export const round10 = (n) => { const v = Number(n) || 0; return Math.sign(v) * Math.round(Math.abs(v) / 10) * 10; };
+export const usd10 = (n) => usd0(round10(n));
 // a fraction as a percent: 0.2 is "20%", 0.272798 "27.3%"; no more than `digits` decimals, none when it is whole
 export const pctText = (x, digits = 1) => { const f = 10 ** digits; return `${Math.round((Number(x) || 0) * 100 * f) / f}%`; };
 // "about 20 months" (a number of months from today)
@@ -61,7 +65,7 @@ export function checkSentence(check, ceil) {
     : ` The royalties over 3 years don't even cover the ${usd(owing)} still to pay back.`;
   if (check.months == null) return { tone: "neutral", text: "There are no royalties at this pace, so there's nothing to pay it back from." };
   if (check.months === Infinity) {
-    const most = ceil == null ? "" : owing ? `; the most they could ever repay is ${usd(ceil)}, so the most left for a new advance is ${usd(Math.max(0, ceil - owing))}` : `; the most they could ever repay is ${usd(ceil)}`;
+    const most = ceil == null ? "" : owing ? `; the most they could ever repay is ${usd10(ceil)}, so the most left for a new advance is ${usd10(Math.max(0, ceil - owing))}` : `; the most they could ever repay is ${usd10(ceil)}`;
     return { tone: "neg", text: `The royalties would never pay this back ${owing ? `on top of the ${usd(owing)} still to pay back` : "at this pace"}${most}.${covers}` };
   }
   const verdict = verdictShown(check.months);
