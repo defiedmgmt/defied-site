@@ -211,22 +211,23 @@ export function dealForecast(deal) {
 }
 
 // ---- the calculator's pace, in words
-// p: paceOfSongs()'s answer for the songs picked; rule: the sheet's run-rate (B9) as a fraction; decay: B8
+// a part of the whole as a whole percent that never reads 0% or 100% while it is only a part (99.95% measured is "99%")
+export const partPct = (x) => `${Math.min(99, Math.max(1, Math.round((Number(x) || 0) * 100)))}%`;
+// p: paceOfSongs()'s answer for the songs picked (song by song: each measured song at its measured pace, the rest by the rule); rule: the sheet's run-rate (B9) as a
+// fraction; decay: B8. -> { real (all of the pace measured), realShare, perYear, source, warning }
 export function paceSource({ p, rule, decay }) {
   const r = pctText(rule);
-  if (p.real) {
+  if (p.tracked > 0) {
     const rest = p.count - p.tracked;
-    const other = rest > 0 ? ` ${rest === 1 ? "The other song uses" : `The other ${rest} use`} the sheet's rule (${r} of lifetime a year).` : "";
+    const other = rest > 0 ? ` ${rest === 1 ? "The other song uses" : `The other ${rest} use`} the sheet's rule (${r} of lifetime a year)${p.real ? "" : `, so ${partPct(p.realShare)} of the pace is measured`}.` : "";
     return {
-      real: true, perYear: p.perYear,
-      source: `Real streams: Spotify's daily counts for ${p.tracked} of ${p.count} ${p.count === 1 ? "song" : "songs"}, scaled to all platforms by each song's lifetime total.${other}`,
+      real: p.real, realShare: p.realShare, perYear: p.perYear,
+      source: `${p.real ? "Real streams: " : ""}Spotify's daily counts for ${p.tracked} of ${p.count} ${p.count === 1 ? "song" : "songs"}, scaled to all platforms by each song's lifetime total.${other}`,
       warning: p.newShare >= NEW_SONGS_WARN ? `${Math.round(p.newShare * 100)}% of this pace is from songs out under 3 months. New songs usually drop faster than ${pctText(decay)} a year, so treat this as the high end.` : null,
     };
   }
   return {
-    real: false, perYear: p.perYear, warning: null,
-    source: p.tracked > 0
-      ? `Estimate: Spotify's daily counts cover only ${pctText(p.realShare)} of their pace (${p.tracked} of ${p.count} songs), so this uses the sheet's rule: lifetime streams × ${r} a year.`
-      : `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${r} a year.`,
+    real: false, realShare: 0, perYear: p.perYear, warning: null,
+    source: `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${r} a year.`,
   };
 }

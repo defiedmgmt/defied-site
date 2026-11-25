@@ -19,7 +19,7 @@ import {
 // just the key information") Shown simple: who (a producer of ours, or someone new), how long to pay it back (chips) and Defied's cut in; one headline, "Up to $X", and three tiles out, with
 // Check an amount and Save as a planned deal under them. Everything else is ONE closed fold, "Show the math". The A&R prospects in the picker and the pub sheet's own forecast are gone.
 
-// A measured pace counts when at least half of it is measured (lib/empire-math.js REAL_PACE_MIN), as the calculator always did.
+// Today's pace is song by song (lib/empire-math.js paceOfSongs): each measured song at its measured pace, the rest by the sheet's rule.
 const VerdictPill = ({ verdict }) => (verdict ? <span className="adv-pill" data-tone={verdictTone(verdict)} data-verdict={verdict}>{verdict.startsWith("Too high") ? "Too high" : verdict}</span> : null);
 const BLANK_NEW = { name: "", gross: "", share: "" };
 // "Pay back in": the choices, in months. The box starts on the model's own default (defaults.months), which joins the row if it isn't one of them
