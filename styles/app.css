@@ -2209,15 +2209,25 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 /* a stat row with one tile is that tile's width, not the whole row's (phones: the whole row, as every odd last tile is); a row with a cover keeps the table's 44px */
 @media (min-width:640px){
   .app:not(.pub) :is(.pub-tiles,.portal-tiles):has(> .cat-stat:only-child){max-width:320px}
-  .app:not(.pub) .pub-tiles:has(> .cat-stat:nth-child(2):last-child){max-width:640px}   /* the Roster overview's two tiles (Streams, Clients) side by side, each as wide as the lone one was */
   .app:not(.pub) tr:has(.nr-thumb) > td{padding-top:6px;padding-bottom:6px}
 }
 @media (max-width:639px){
-  .app:not(.pub) .pub-tiles.cat-summary-grid:has(> .cat-stat:nth-child(2):last-child){grid-template-columns:minmax(0,1fr)}   /* on a phone the two tiles wrap, one under the other, each the full width: side by side, "Streams (all time)" breaks over two lines */
   .app:not(.pub) .nr-strip{margin:0 -16px;padding:2px 16px 12px;scroll-padding-inline:16px}
   .app:not(.pub) .nr-strip > li{width:132px}
   .app:not(.pub) .nr-thumb{width:40px;height:40px}
   .app:not(.pub) td:has(> .nr-song){align-items:center}   /* the card's title row: the cover, the name and the › on one middle line (the cards' rows are baseline-aligned) */
+}
+/* The Roster overview's stat row (.pub-summary holds .pub-tiles: Streams (all time), Streams this week, Songs, Roster) lays itself out by its OWN width, not the screen's: the Overview's column is 840px wide on a
+   1440px screen, 724px on a 1280px one and 588px on a 900px one (the side nav and the client list take the rest), so a screen width says little. The widest label, "Streams this week", is 152px of Suntage and a
+   tile has 36px of padding: four across from 780px (5px to spare), two by two under that down to 390px, one column under 390px, so no label wraps and no number is cut at any width. The numbers scale with their
+   tile (13cqi, as the dashboard's 11cqi but a size up: there are four in a row), 24px in the one-column stack. The container is NAMED: a bare @container query reads the nearest container, which for a tile's number is the
+   tile itself (every .cat-stat is one), not this row. */
+.app:not(.pub) .pub-summary{container-name:pub-summary;container-type:inline-size}
+.app:not(.pub) .pub-tiles .cat-stat-val{font-size:clamp(18px,13cqi,28px)}
+@container pub-summary (max-width:779px){ .app:not(.pub) .pub-tiles.cat-summary-grid:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:repeat(2,minmax(0,1fr))} }
+@container pub-summary (max-width:389px){
+  .app:not(.pub) .pub-tiles.cat-summary-grid:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:minmax(0,1fr)}
+  .app:not(.pub) .pub-tiles .cat-stat-val{font-size:24px}
 }
 @media (max-width:700px){
   .app:not(.pub) .subpill .pill-long{display:none}  /* the phone pill reads "Advance" */

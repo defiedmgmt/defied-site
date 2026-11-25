@@ -813,8 +813,12 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
     return by.dir * ((Number(val[by.col](a)) || 0) - (Number(val[by.col](b)) || 0)) || name(a).localeCompare(name(b));
   });
   const songsTotal = rows.reduce((a, x) => a + (Number(x.songs) || 0), 0);
-  // the Clients tile: the table's own rows counted (the very `rows` its <tbody> draws), so the tile and the table cannot disagree
-  const clientsTotal = rows.length;
+  // the stat row above the table, all from what the page already has, so it agrees with the table: Streams this week is the This week column added up (the very `rows` the <tbody> draws, so a "—" row adds
+  // nothing; null while no row has a week, the column's own state), with the days it covers said as the column's head says them. Songs is the Songs column added up, the Roster total row's number. Roster is
+  // every client on the site (db.clients, the chips beside the table), the ones with no pub sheet row yet too: the data has no management/admin kind to split them by
+  const weekTotal = noWeeks ? null : rows.reduce((a, x) => a + (Number(x.wk?.thisWeek) || 0), 0);
+  const weekNote = lumWeek ? (lumLabel ? `Luminate · ${lumLabel}` : "") : (span ? dayRange(span.from, span.to) : "");
+  const rosterCount = db.clients.length;
   return (
     <div>
       <div className="admin-head">
@@ -834,14 +838,18 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
 
       {state.data && (
         <>
-          <div className="cat-summary">
-            {/* (2026-11-24, the owner: "just the key information") two numbers: the roster's streams, MASTER's own total, and how many clients the table lists. The pub earnings and the potential
-                admin fee (the old pub sheet's estimates) and the line explaining them are not shown */}
+          <div className="cat-summary pub-summary">
+            {/* (2026-11-24, the owner: "just the key information") four numbers, no money: the roster's streams, MASTER's own total, this week's streams, the songs and the people on the roster. The pub earnings and the
+                potential admin fee (the old pub sheet's estimates) and the line explaining them are not shown. All four are drawn together, once MASTER has loaded (until then: "Loading master sheet data…" above, no tiles) */}
             <div className="cat-summary-grid pub-tiles">
               {/* MASTER adds each writer's gross up: a song two roster writers share is in it twice */}
               <div className="cat-stat" data-stat="streams" title="Added up by writer: a song two writers share counts once for each"><span className="cat-stat-label">Streams (all time)</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
-              {/* the clients in the table below (clientsTotal: its own rows), drawn with the streams tile, once MASTER has loaded (until then: "Loading master sheet data…" above, no tiles) */}
-              <div className="cat-stat" data-stat="clients" title="The clients in the table below"><span className="cat-stat-label">Clients</span><span className="cat-stat-val">{fmt(clientsTotal)}</span></div>
+              {/* the table's This week column added up (weekTotal), the days it covers under the label; "—" until a week of numbers has come, as the column's cells say it */}
+              <div className="cat-stat" data-stat="week" title={weekTotal == null ? "No weekly numbers yet" : `The This week column below, added up${lumWeek ? "" : ": each client's songs that have Spotify numbers for both weeks"}`}><span className="cat-stat-label">Streams this week{weekNote && <span className="cat-stat-note">{weekNote}</span>}</span><span className="cat-stat-val">{weekTotal == null ? <span className="muted-dash">—</span> : fmt(weekTotal)}</span></div>
+              {/* the Songs column added up (songsTotal, the Roster total row's number): a song two clients share is in it twice, as in the streams */}
+              <div className="cat-stat" data-stat="songs" title="The Songs column below, added up: a song two clients share counts once for each"><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{fmt(songsTotal)}</span></div>
+              {/* everyone on the roster: db.clients (rosterCount), the chips beside the table, so a client with no songs yet counts too */}
+              <div className="cat-stat" data-stat="roster" title="Everyone on the roster: the clients listed beside the table, the ones with no pub sheet tab yet too"><span className="cat-stat-label">Roster</span><span className="cat-stat-val">{fmt(rosterCount)}</span></div>
             </div>
           </div>
 
