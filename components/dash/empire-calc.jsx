@@ -7,7 +7,7 @@ import { overlapOf, paceOfSongs, producerDeal } from "../../lib/empire-math";
 import { yearFactor } from "../../lib/advance-model";
 import { useIsPhone } from "../ui/responsive";
 import {
-  amountOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, netIncomeHow, paceSource, partPct, pctText, round10, usd, usd0, usd10, verdictRule, verdictShown, verdictTone,
+  amountOf, centsOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, netIncomeHow, paceSource, partPct, pctText, round10, shownParts, usd, usd0, usd10, verdictRule, verdictShown, verdictTone,
 } from "./empire-data";
 
 // The advance calculator (2026-11-21), moved here from Clients › Advance calculator into Money, and rebuilt for how Defied now gives advances: out of the
@@ -82,6 +82,16 @@ export function EmpireCalc({ data, reload, init = null }) {
   // amount less the advance as shown, and Save starts from the advance as shown, so what is on the screen adds up. The step-by-step under Show the math keeps the cents.
   const adv10 = round10(adv);
   const potAfter = m && m.pot ? free - adv10 : null;
+  // (2026-11-25, polish) Parts and the total they make add up on the screen. Their royalties + Defied's cut (next 12 months) ARE what counts toward EMPIRE's total (all of
+  // Defied's payout), and each was rounded to $10 on its own: $1,410 + $350 under a $1,770 (1,768.49). The total and the royalties keep their own nearest $10 (the total is the
+  // number that counts toward EMPIRE; the royalties are what the advance is paid back from, so at 12 months they are the headline), and Defied's cut is the total less the
+  // royalties as shown (never a whole $10 from its own exact value). The same at the cent in Show the math: Net Income = EMPIRE's part + Defied's, Defied's = the producer's
+  // royalties + Defied's cut, each ledger's total = its years as shown, and the advance less what is still owed.
+  const n12 = m ? shownParts(m.toEmpire.next12, m.next12.royalties, 10) : null; // whole: counts toward EMPIRE · part: their royalties · rest: Defied's cut
+  const niNow = m ? shownParts(m.now.ni, m.now.empire) : null;                   // whole: Net Income a year · part: EMPIRE keeps · rest: Defied gets
+  const defNow = m ? shownParts(niNow.rest, m.now.royalties) : null;            // whole: Defied gets · part: the producer's royalties · rest: Defied's cut
+  const advHow = m ? shownParts(m.advance, owing) : null;                       // whole: the royalties over the months · part: still owed · rest: left for a new deal
+  const ledgerNi = m ? centsOf(m.years.ni) : null, ledgerRoy = m ? centsOf(m.years.royalties) : null;
 
   // the deal to save: its advance is the one typed for it, else the amount being checked, else the advance shown
   const typedSave = amountOf(saveIn);
@@ -93,6 +103,9 @@ export function EmpireCalc({ data, reload, init = null }) {
     return act(body, () => { setSaid(`Saved: ${usd(toSave)} for ${producer ? producer.name : body.prospectName}, as a planned deal. It's in Producer deals on the EMPIRE page.`); setSaveIn(""); setNote(""); });
   };
   const leftAfter = m && m.pot ? Math.round((free - toSave) * 100) / 100 : null;
+  // (2026-11-25, polish) what would be left is an estimate too while the advance saved is the one shown (it is worked out from streams): to the nearest $10 then, as the tile
+  // above. An advance typed in (to save, or being checked) is a real amount, so what is left of the advance after it keeps its cents.
+  const leftUsd = typedSave == null && amount == null ? usd10 : usd;
 
   const choose = (value) => {
     setWho(value); setSaid(null); clear(); setAmountIn(""); setSaveIn("");
@@ -185,9 +198,9 @@ export function EmpireCalc({ data, reload, init = null }) {
               </div>
               <div className="cat-summary" data-adv-tiles>
                 <div className="cat-summary-grid">
-                  <div className="cat-stat" data-stat="royalties"><span className="cat-stat-label">Their royalties, next 12 months</span><span className="cat-stat-val">{usd10(m.next12.royalties)}</span></div>
-                  <div className="cat-stat" data-stat="cut"><span className="cat-stat-label">Defied's cut, next 12 months</span><span className="cat-stat-val">{usd10(m.next12.defiedCut)}</span></div>
-                  <div className="cat-stat" data-stat="pot"><span className="cat-stat-label">{`Left of the ${usd0(terms.execution)} after this`}</span><span className="cat-stat-val" data-over={potAfter < 0 ? "" : undefined}>{usd(potAfter)}</span></div>
+                  <div className="cat-stat" data-stat="royalties"><span className="cat-stat-label">Their royalties, next 12 months</span><span className="cat-stat-val">{usd0(n12.part)}</span></div>
+                  <div className="cat-stat" data-stat="cut"><span className="cat-stat-label">Defied's cut, next 12 months</span><span className="cat-stat-val">{usd0(n12.rest)}</span></div>
+                  <div className="cat-stat" data-stat="pot"><span className="cat-stat-label">{`Left of the ${usd0(terms.execution)} after this`}</span><span className="cat-stat-val" data-over={potAfter < 0 ? "" : undefined}>{usd10(potAfter)}</span></div>
                 </div>
               </div>
 
@@ -210,7 +223,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                   <Field label="Note (optional)" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} data-f="note" />
                 </div>
                 <button type="button" className="btn sm" data-emp-save-planned onClick={save} disabled={busy || !canSave}>{busy ? "Saving…" : "Save as a planned deal"}</button>
-                {leftAfter != null && toSave > 0 && <p className="hint" data-emp-left-after data-over={leftAfter < 0 ? "" : undefined}>{leftAfter < 0 ? `That's ${usd(-leftAfter)} more than is left of the ${usd0(terms.execution)}.` : `${usd(leftAfter)} would be left of the ${usd0(terms.execution)}.`}</p>}
+                {leftAfter != null && toSave > 0 && <p className="hint" data-emp-left-after data-over={leftAfter < 0 ? "" : undefined}>{leftAfter < 0 ? `That's ${leftUsd(-leftAfter)} more than is left of the ${usd0(terms.execution)}.` : `${leftUsd(leftAfter)} would be left of the ${usd0(terms.execution)}.`}</p>}
                 {who === "n" && !typed.name.trim() && <p className="hint">Type their name above to save a deal for them.</p>}
                 {producer && scope === "songs" && picks.length === 0 && <p className="hint">Tick at least one song to save a deal.</p>}
                 {err && <p className="hint err-text" role="alert" data-emp-err>{err}</p>}
@@ -228,7 +241,7 @@ export function EmpireCalc({ data, reload, init = null }) {
           <div className="emp-fc-body adv-math-body">
             <div className="cat-summary" data-adv-math-tiles>
               <div className="cat-summary-grid">
-                <div className="cat-stat" data-stat="toEmpire"><span className="cat-stat-label">{producer ? `Counts toward EMPIRE's ${usd0(terms.owed)} (already on Schedule A), next 12 months` : `Adds to EMPIRE's ${usd0(terms.owed)}, next 12 months`}</span><span className="cat-stat-val">{usd10(m.toEmpire.next12)}</span><span className="adv-stat-sub">{`all of Defied's ${pctText(terms.payout, 0)}`}</span></div>
+                <div className="cat-stat" data-stat="toEmpire"><span className="cat-stat-label">{producer ? `Counts toward EMPIRE's ${usd0(terms.owed)} (already on Schedule A), next 12 months` : `Adds to EMPIRE's ${usd0(terms.owed)}, next 12 months`}</span><span className="cat-stat-val">{usd0(n12.whole)}</span><span className="adv-stat-sub">{`all of Defied's ${pctText(terms.payout, 0)}`}</span></div>
                 <div className="cat-stat" data-stat="pace"><span className="cat-stat-label">Today's pace</span><span className="cat-stat-val">{bigNum(m.pace)}</span><span className="adv-stat-sub">{paceSub}</span></div>
               </div>
             </div>
@@ -244,9 +257,9 @@ export function EmpireCalc({ data, reload, init = null }) {
                 <span className="emp-seg emp-seg-prod" style={{ width: `${Math.round(m.perDollar.producer * 1000) / 10}%` }} />
               </div>
               <ul className="emp-legend" data-emp-flow-legend>
-                <li><i className="emp-sw emp-sw-empire" aria-hidden="true" /> EMPIRE keeps <b>{pctText(m.perDollar.empire, 1)}</b> <em>{usd(m.now.empire)} a year</em></li>
-                <li><i className="emp-sw emp-sw-cut" aria-hidden="true" /> Defied's cut <b>{pctText(m.perDollar.defiedCut, 1)}</b> <em>{usd(m.now.defiedCut)} a year</em></li>
-                <li><i className="emp-sw emp-sw-prod" aria-hidden="true" /> Producer's royalties <b>{pctText(m.perDollar.producer, 1)}</b> <em>{usd(m.now.royalties)} a year</em></li>
+                <li><i className="emp-sw emp-sw-empire" aria-hidden="true" /> EMPIRE keeps <b>{pctText(m.perDollar.empire, 1)}</b> <em>{usd(niNow.part)} a year</em></li>
+                <li><i className="emp-sw emp-sw-cut" aria-hidden="true" /> Defied's cut <b>{pctText(m.perDollar.defiedCut, 1)}</b> <em>{usd(defNow.rest)} a year</em></li>
+                <li><i className="emp-sw emp-sw-prod" aria-hidden="true" /> Producer's royalties <b>{pctText(m.perDollar.producer, 1)}</b> <em>{usd(defNow.part)} a year</em></li>
               </ul>
             </div>
 
@@ -269,12 +282,12 @@ export function EmpireCalc({ data, reload, init = null }) {
 
             <div className="adv-ledgers">
               <div className="split-list" data-adv-ledger="net">
-                {m.years.ni.map((x, i) => <div key={i} className="split-list-row"><span className="split-name">{`Net Income yr ${i + 1}`}</span><span className="split-pct">{money(x)}</span></div>)}
-                <div className="split-list-row split-list-total"><span>Net Income next 3 yrs</span><span>{money(m.years.ni.reduce((a, b) => a + b, 0))}</span></div>
+                {ledgerNi.each.map((x, i) => <div key={i} className="split-list-row"><span className="split-name">{`Net Income yr ${i + 1}`}</span><span className="split-pct">{money(x)}</span></div>)}
+                <div className="split-list-row split-list-total"><span>Net Income next 3 yrs</span><span>{money(ledgerNi.total)}</span></div>
               </div>
               <div className="split-list" data-adv-ledger="royalties">
-                {m.years.royalties.map((x, i) => <div key={i} className="split-list-row"><span className="split-name">{`Producer's royalties yr ${i + 1}`}</span><span className="split-pct">{money(x)}</span></div>)}
-                <div className="split-list-row split-list-total"><span>Royalties next 3 yrs</span><span>{money(m.years.royalties.reduce((a, b) => a + b, 0))}</span></div>
+                {ledgerRoy.each.map((x, i) => <div key={i} className="split-list-row"><span className="split-name">{`Producer's royalties yr ${i + 1}`}</span><span className="split-pct">{money(x)}</span></div>)}
+                <div className="split-list-row split-list-total"><span>Royalties next 3 yrs</span><span>{money(ledgerRoy.total)}</span></div>
               </div>
             </div>
 
@@ -285,15 +298,15 @@ export function EmpireCalc({ data, reload, init = null }) {
                 <li data-how="pace">{`Today's pace: ${Math.round(m.pace).toLocaleString("en-US")} streams a year (all platforms, their share). ${pace.source}${heldWords}`}</li>
                 <li data-how="rate">{`× $${+lev.blendedRate.toFixed(6)} a stream: the pub sheet's rate for the whole song, writer and publisher (ASSUMPTIONS!B7) = ${usd(m.pace * lev.blendedRate)} a year at today's pace.`}</li>
                 {/* (2026-11-25) what Net Income counts follows the saved share: mechanicals only at 60% or under (empire-data.js netIncomeHow) */}
-                <li data-how="net">{netIncomeHow(lev, terms, m.now.ni)}</li>
-                <li data-how="empire">{`EMPIRE keeps ${pctText(1 - terms.payout, 1)} of Net Income: ${usd(m.now.empire)} a year.`}</li>
-                <li data-how="defied">{`Defied gets the other ${pctText(terms.payout, 1)}: ${usd(m.now.defied)} a year. All of it counts toward paying back EMPIRE's ${usd0(terms.owed)}, whoever it ends up with.`}</li>
-                <li data-how="cut">{`Defied's cut is ${pctText(cut, 2)} of that: ${usd(m.now.defiedCut)} a year.`}</li>
-                <li data-how="royalties">{`What's left, ${usd(m.now.royalties)} a year, is the producer's royalties. They pay back the producer's advance first.`}</li>
+                <li data-how="net">{netIncomeHow(lev, terms, niNow.whole)}</li>
+                <li data-how="empire">{`EMPIRE keeps ${pctText(1 - terms.payout, 1)} of Net Income: ${usd(niNow.part)} a year.`}</li>
+                <li data-how="defied">{`Defied gets the other ${pctText(terms.payout, 1)}: ${usd(niNow.rest)} a year. All of it counts toward paying back EMPIRE's ${usd0(terms.owed)}, whoever it ends up with.`}</li>
+                <li data-how="cut">{`Defied's cut is ${pctText(cut, 2)} of that: ${usd(defNow.rest)} a year.`}</li>
+                <li data-how="royalties">{`What's left, ${usd(defNow.part)} a year, is the producer's royalties. They pay back the producer's advance first.`}</li>
                 <li data-how="slowdown">{decay > 0
                   ? `Slows ${pct1(decay)} a year (ASSUMPTIONS!B8), so the next 12 months average ${pct1(yearFactor(decay, 1))} of today's pace; each year after is ${pct1(1 - decay)} of the one before. ${pct1(decay)} is a careful assumption; check it again once there's more history.`
                   : "No slowdown (ASSUMPTIONS!B8 is 0%), so every year earns today's pace."}</li>
-                <li data-how="advance">{`The advance is what the royalties add up to over the ${monthsText(R)} you picked, slowdown included: ${usd(m.advance)}${owing > 0 ? `. The deal above still has ${usd(owing)} to pay back out of the same royalties, so ${usd(adv)} is left for a new one` : ""}. Shown as ${usd10(adv)} above: the calculator's estimates are rounded to the nearest $10.`}</li>
+                <li data-how="advance">{`The advance is what the royalties add up to over the ${monthsText(R)} you picked, slowdown included: ${usd(advHow.whole)}${owing > 0 ? `. The deal above still has ${usd(advHow.part)} to pay back out of the same royalties, so ${usd(Math.max(0, advHow.rest))} is left for a new one` : ""}. Shown as ${usd10(adv)} above: the calculator's estimates are rounded to the nearest $10.`}</li>
                 <li data-how="adds">{producer ? `These songs already count toward EMPIRE's ${usd0(terms.owed)} (they're on Schedule A): about ${usd(m.toEmpire.next12)} in the next 12 months and ${usd(m.toEmpire.next36)} over 3 years (all of Defied's ${pctText(terms.payout, 0)} counts, whatever the producer is owed).` : `Once their songs are on Schedule A they would add about ${usd(m.toEmpire.next12)} in the next 12 months toward EMPIRE's ${usd0(terms.owed)}.`}</li>
                 <li data-how="verdict">{verdictRule()}</li>
               </ul>

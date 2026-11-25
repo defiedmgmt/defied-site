@@ -19,6 +19,16 @@ export const usd0 = (n) => { const v = Math.round(Number(n) || 0); return `${v <
 // Only for showing them: never real money, what is typed, or the math under them. Halves go away from 0 the same way both sides of it.
 export const round10 = (n) => { const v = Number(n) || 0; return Math.sign(v) * Math.round(Math.abs(v) / 10) * 10; };
 export const usd10 = (n) => usd0(round10(n));
+// (2026-11-25, polish) A whole and the two parts it is made of, as the page shows them, so that what is on the screen adds up ($1,410 + $350 was shown under a $1,770
+// made of the same money): the whole and the first part are each rounded on their own (step 10: to the nearest $10, as usd10; else to the cent), and the second part is
+// what is left of the whole, which is never a whole step away from its own exact value. -> { whole, part, rest } (numbers, rounded)
+export function shownParts(whole, part, step = 0.01) {
+  if (step === 10) { const w = round10(whole), p = round10(part); return { whole: w, part: p, rest: w - p }; }
+  const w = Math.round((Number(whole) || 0) * 100), p = Math.round((Number(part) || 0) * 100);
+  return { whole: w / 100, part: p / 100, rest: (w - p) / 100 };
+}
+// a list of amounts shown to the cent and their total, which is the sum of the cents shown (not the exact sum rounded, which can be a cent off)
+export const centsOf = (xs) => { const c = (xs || []).map((x) => Math.round((Number(x) || 0) * 100)); return { each: c.map((x) => x / 100), total: c.reduce((a, b) => a + b, 0) / 100 }; };
 // a fraction as a percent: 0.2 is "20%", 0.272798 "27.3%"; no more than `digits` decimals, none when it is whole
 export const pctText = (x, digits = 1) => { const f = 10 ** digits; return `${Math.round((Number(x) || 0) * 100 * f) / f}%`; };
 // "about 20 months" (a number of months from today)
