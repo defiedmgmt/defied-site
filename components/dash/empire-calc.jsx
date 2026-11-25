@@ -6,7 +6,7 @@ import { useAct, useEmpire } from "./empire-api";
 import { overlapOf, paceOfSongs, producerDeal } from "../../lib/empire-math";
 import { yearFactor } from "../../lib/advance-model";
 import {
-  amountOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, paceSource, partPct, pctText, round10, usd, usd0, usd10, verdictRule, verdictShown, verdictTone,
+  amountOf, checkSentence, clampMonths, cutFromText, dealPayload, monthsText, netIncomeHow, paceSource, partPct, pctText, round10, usd, usd0, usd10, verdictRule, verdictShown, verdictTone,
 } from "./empire-data";
 
 // The advance calculator (2026-11-21), moved here from Clients › Advance calculator into Money, and rebuilt for how Defied now gives advances: out of the
@@ -279,7 +279,8 @@ export function EmpireCalc({ data, reload, init = null }) {
               <ul className="adv-how-list">
                 <li data-how="pace">{`Today's pace: ${Math.round(m.pace).toLocaleString("en-US")} streams a year (all platforms, their share). ${pace.source}${heldWords}`}</li>
                 <li data-how="rate">{`× $${+lev.blendedRate.toFixed(6)} a stream: the pub sheet's rate for the whole song, writer and publisher (ASSUMPTIONS!B7) = ${usd(m.pace * lev.blendedRate)} a year at today's pace.`}</li>
-                <li data-how="net">{`Net Income: EMPIRE receives ${pctText(lev.niShare, 1)} of that, the mechanicals and the publisher's half of performance = ${usd(m.now.ni)} a year${lev.niShareSet ? ` (a share a Founder set; the standard guess is ${pctText(lev.niStandard, 1)})` : ""}. The writer's share of performance royalties isn't part of this: it's paid to the writer through their PRO, outside the deal. This is before EMPIRE's collection fees (the contract caps them at ${pctText(terms.feeCap, 0)}).`}</li>
+                {/* (2026-11-25) what Net Income counts follows the saved share: mechanicals only at 60% or under (empire-data.js netIncomeHow) */}
+                <li data-how="net">{netIncomeHow(lev, terms, m.now.ni)}</li>
                 <li data-how="empire">{`EMPIRE keeps ${pctText(1 - terms.payout, 1)} of Net Income: ${usd(m.now.empire)} a year.`}</li>
                 <li data-how="defied">{`Defied gets the other ${pctText(terms.payout, 1)}: ${usd(m.now.defied)} a year. All of it counts toward paying back EMPIRE's ${usd0(terms.owed)}, whoever it ends up with.`}</li>
                 <li data-how="cut">{`Defied's cut is ${pctText(cut, 2)} of that: ${usd(m.now.defiedCut)} a year.`}</li>

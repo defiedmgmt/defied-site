@@ -383,7 +383,9 @@ mark: money spent, a deal given, the advance received. Nothing estimated counts 
   too); and what a buyout would cost on the day it opens. Inside it, "How the estimate counts Net Income": the streams each Schedule A song earned (Luminate's all-time total
   near the start and the latest count where both exist, a song's lifetime count if it came out since, else today's pace x the days), x the pub sheet's rate a stream
   (ASSUMPTIONS!B7) x the share of it EMPIRE receives as Net Income (a standard guess a Founder can change there) x what EMPIRE pays Defied. It is before EMPIRE's collection fees
-  (the contract caps them); a statement replaces it.
+  (the contract caps them); a statement replaces it. (2026-11-25) The words follow the share saved: at 60% or under they say Net Income is the mechanical royalties only (EMPIRE isn't
+  registered to collect PRO money, so both halves of performance go to the writers through their PRO) with about 3% collection fees already taken out; above 60%, the mechanicals and
+  the publisher's half of performance, before the fees (`components/dash/empire-data.js` netIncomeText / netIncomeHow, on the EMPIRE page and in the calculator's Show the math).
 - **The advance EMPIRE gave Defied**, a second bar. It starts at $0 and fills only with money marked spent: the deals marked
   given plus the entries a founder types in under "Mark money spent" (a button; its form, amount, what for and the day, appears when it is pressed; saved as `spend:<id>`, Delete asks in the page).
   A planned deal is one muted line under the bar, not part of it. Going over is allowed and says "Over by $X". Whether it has been received (and the day) is a small chip with its button.

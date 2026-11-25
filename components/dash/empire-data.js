@@ -72,6 +72,29 @@ export function checkSentence(check, ceil) {
   return { tone: verdictTone(verdict), text: `Pays back in ${monthsText(check.months)} (${verdict})${owing ? `, counting the ${usd(owing)} still to pay back first` : ""}.${covers}` };
 }
 
+// ---- what Net Income counts, in words (2026-11-25, the owner chose "mechanicals only")
+// The share of the pub sheet's whole-song rate counted as Net Income is the Founders' lever (levers.niShare, saved under Money › EMPIRE; levers.niStandard is the standard).
+// EMPIRE isn't registered to collect PRO money, so a share of MECH_ONLY_MAX or under is the mechanical royalties only, with EMPIRE's collection fees already taken out of it;
+// above it, the mechanicals and the publisher's half of performance, before those fees. Every sentence says the share that is saved, never a fixed one.
+export const MECH_ONLY_MAX = 0.6;
+export const mechOnly = (lev) => Number(lev?.niShare) <= MECH_ONLY_MAX + 1e-9;
+const PRO_WORDS = "EMPIRE isn't registered to collect PRO money, so performance royalties, both halves, go to the writers through BMI or their own PRO, not through EMPIRE.";
+// the "How the estimate counts Net Income" paragraph (components/dash/empire.jsx)
+export function netIncomeText(lev, terms) {
+  const rate = `$${+Number(lev.blendedRate).toFixed(6)}`, share = pctText(lev.niShare, 1);
+  const whose = lev.niShareSet ? `, a share a Founder set (the standard guess is ${pctText(lev.niStandard, 1)})` : ", the standard guess";
+  return mechOnly(lev)
+    ? `Net Income is what EMPIRE actually receives: the mechanical royalties only. ${PRO_WORDS} The pub sheet's rate a stream (${rate}) is for the whole song, so the estimate counts ${share} of it${whose}, with EMPIRE's collection fees (about 3%) already taken out. EMPIRE's statements replace this estimate.`
+    : `Net Income is what EMPIRE actually receives: the mechanicals and the publisher's half of performance. The pub sheet's rate a stream (${rate}) is for the whole song, writer and publisher, so the estimate counts ${share} of it${whose}. The writer's share of performance royalties isn't part of this: it's paid to the writer through their PRO, outside the deal. This is before EMPIRE's collection fees (the contract caps them at ${pctText(terms.feeCap, 0)}). EMPIRE's statements replace this estimate.`;
+}
+// the calculator's "How we got these numbers" line for it; niPerYear: the Net Income a year at today's pace
+export function netIncomeHow(lev, terms, niPerYear) {
+  const share = pctText(lev.niShare, 1), whose = lev.niShareSet ? ` (a share a Founder set; the standard guess is ${pctText(lev.niStandard, 1)})` : "";
+  return mechOnly(lev)
+    ? `Net Income: EMPIRE receives ${share} of that, the mechanical royalties only, with its collection fees (about 3%) already taken out = ${usd(niPerYear)} a year${whose}. ${PRO_WORDS}`
+    : `Net Income: EMPIRE receives ${share} of that, the mechanicals and the publisher's half of performance = ${usd(niPerYear)} a year${whose}. The writer's share of performance royalties isn't part of this: it's paid to the writer through their PRO, outside the deal. This is before EMPIRE's collection fees (the contract caps them at ${pctText(terms.feeCap, 0)}).`;
+}
+
 // ---- the recoupment card
 // the bar: what EMPIRE's statements credited, as a percent of the whole, to a tenth (never past 100). There is no estimated part: the bar is money only.
 export function barOf(r) {

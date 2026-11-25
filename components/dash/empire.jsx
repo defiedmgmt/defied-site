@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, RefreshCw } from "lucide-react";
 import { Field } from "./ui";
 import { useAct, useEmpire } from "./empire-api";
 import {
-  amountOf, barOf, cutFromText, datesLine, dayText, dealForecast, dealLine, dueWords, estimateNote, forecastLines, lateNote, missingNote, nextLine, pctText, plannedLine,
+  amountOf, barOf, cutFromText, datesLine, dayText, dealForecast, dealLine, dueWords, estimateNote, forecastLines, lateNote, missingNote, netIncomeText, nextLine, pctText, plannedLine,
   quarterWords, scopeText, shareFromText, spentBar, spentRows, usd, usd0,
 } from "./empire-data";
 
@@ -117,14 +117,15 @@ function NetIncomeBox({ data, reload, init }) {
       <summary>How the estimate counts Net Income</summary>
       <div className="emp-how-body">
         <p data-emp-estimate>{estimateNote(r, streamsOn)} {missingNote(r)} {lateNote(terms)}</p>
-        <p>Net Income is what EMPIRE actually receives: the mechanicals and the publisher's half of performance. The pub sheet's rate a stream (${+levers.blendedRate.toFixed(6)}) is for the whole song, writer and publisher, so the estimate counts {pctText(levers.niShare, 1)} of it{levers.niShareSet ? <>, a share a Founder set (the standard guess is {pctText(levers.niStandard, 1)})</> : <>, the standard guess</>}. The writer's share of performance royalties isn't part of this: it's paid to the writer through their PRO, outside the deal. This is before EMPIRE's collection fees (the contract caps them at {pctText(terms.feeCap, 0)}). EMPIRE's statements replace this estimate.</p>
+        {/* (2026-11-25) what Net Income counts follows the saved share: mechanicals only at 60% or under (empire-data.js netIncomeText) */}
+        <p>{netIncomeText(levers, terms)}</p>
         <div className="emp-inline">
           <label className="fld"><span>Share counted as Net Income (%)</span>
             <input inputMode="decimal" autoComplete="off" value={text} onChange={(e) => setText(e.target.value)} aria-invalid={share == null ? "true" : "false"} data-f="niShare" /></label>
           <button type="button" className="btn sm" data-emp-save-levers onClick={() => save(false)} disabled={busy || share == null}>{busy ? "Saving…" : "Save"}</button>
           {levers.niShareSet && <button type="button" className="btn ghost sm" data-emp-reset-levers onClick={() => save(true)} disabled={busy}>Use the standard</button>}
         </div>
-        {share == null && <p className="hint err-text">Type a percent, like 75.</p>}
+        {share == null && <p className="hint err-text">Type a percent, like {Math.round(levers.niStandard * 1000) / 10}.</p>}
         <Err text={err} />
       </div>
     </details>
