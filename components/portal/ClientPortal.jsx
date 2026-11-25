@@ -401,7 +401,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
             <div className="client-head-name">{client.name}</div>
             {/* (2026-11-24) no "Sheet tab: <name>" line: the role alone, and only when there's something to say after it: no songs yet, or a tab the sheet doesn't have (a warning) */}
             <div className="client-head-meta">{client.role || "Client"}{!songs.length ? " · No songs yet. Their pub sheet tab is made with their first song."
-              : noSheetTab(songInfo, client) ? <> · <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span></>
+              : noSheetTab(songInfo, client) ? <> · <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span><span className="m-why">{`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}</span></>
               : null}</div>
           </div>
           {(onDeleteClient || moreItems.length > 0) && <ClientMore onDelete={onDeleteClient ? () => onDeleteClient(client) : undefined} items={moreItems} />}
@@ -628,7 +628,8 @@ export function ClientPortal({ db, commit, session, logout, signingOut }) {
   return (
     <div className="portal">
       <header className="portal-nav">
-        <Link href={ROUTE_TO_PATH.home} className="logo-link"><Wordmark height={26} /></Link>
+        {/* (2026-11-25, mobile) the logo stays in the portal (the top of it), as the dashboard's does: an installed app has no Back to come home with */}
+        <Link href={ROUTE_TO_PATH.client} className="logo-link" aria-label="Your portal"><Wordmark height={26} /></Link>
         <div className="portal-who">
           <span>{client?.name || session.name}</span>
           <button onClick={() => setPwOpen(true)} data-change-password><KeyRound size={16} /> <span className="portal-pw-label">Password</span></button>

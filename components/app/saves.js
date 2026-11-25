@@ -1,4 +1,6 @@
 import { MAX_DATA_BYTES } from "../../lib/image-links";
+// (2026-11-25, mobile) the installed app's launch screen and the portal's refresh on coming back (components/app/resume.js): AppRoot reads them here, its one module of its own
+export { RESUME_REFRESH_MS, SIGNED_IN_HINT } from "./resume";
 
 /* ------------------------------------------------------------------ */
 /*  STAFF DASHBOARD                                                     */

@@ -1,6 +1,7 @@
 {
   "name": "Defied MGMT",
   "short_name": "Defied",
+  "id": "/login",
   "description": "Your Defied Management portal: songs, publishing splits, numbers and payments.",
   "start_url": "/login",
   "scope": "/",

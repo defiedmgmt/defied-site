@@ -117,7 +117,7 @@ function ProducerPick({ roster, value, onChange, label }) {
   const name = (id) => roster.find((c) => c.id === id)?.name || "Someone";
   return (
     <div className="ig-row ig-prods">
-      {value.map((id) => <span key={id} className="ig-chip">{name(id)}<button type="button" onClick={() => onChange(value.filter((x) => x !== id))} aria-label={`Take ${name(id)} off`}><X size={12} /></button></span>)}
+      {value.map((id) => <span key={id} className="ig-chip">{name(id)}<button type="button" className="m-tap-off m-hit" onClick={() => onChange(value.filter((x) => x !== id))} aria-label={`Take ${name(id)} off`}><X size={12} /></button></span>)}
       <select className="ig-input" value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])} aria-label={label}>
         <option value="">{value.length ? "Add another producer…" : "Add a Defied producer…"}</option>
         {[["Producers", left.filter((c) => c.producer)], ["Other clients", left.filter((c) => !c.producer)]].map(([g, list]) => list.length > 0 && (
@@ -454,7 +454,7 @@ export function InstagramPanel() {
                     const on = collabKeys.includes(p.key);
                     return (
                       <div key={p.key} className="ig-pp" data-ig-pp={p.key}>
-                        <button type="button" className="ig-up" onClick={() => moveUp(p.key)} disabled={i === 0} aria-label={`Move ${p.name} up`}><ChevronUp size={14} /></button>
+                        <button type="button" className="ig-up m-tap-off m-hit" onClick={() => moveUp(p.key)} disabled={i === 0} aria-label={`Move ${p.name} up`}><ChevronUp size={14} /></button>
                         <span className="ig-pp-name">{p.handle ? `@${p.handle}` : p.name} <em className="ig-badge">{p.role}</em></span>
                         <span className="ig-pp-what">{on ? (type === "video" ? "Collaborator" : "Collaborator + tagged") : type === "video" ? "In the caption only" : "Tagged only"}</span>
                         <label className="ig-check"><input type="checkbox" checked={on} disabled={!on && collabKeys.length >= MAX_COLLABORATORS} onChange={() => toggleCollab(p.key)} /> <span>Collaborator</span></label>

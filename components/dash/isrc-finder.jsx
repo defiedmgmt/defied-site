@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { RefreshCw, CheckCircle2, Search } from "lucide-react";
-import { CardTable } from "../ui/responsive";
+import { CardTable, PHONE_Q } from "../ui/responsive";
 import { songsWithoutIsrc } from "./isrc-data";
 import { IsrcPicks, songsPost, useMedia } from "./helpers";
 import { fmt } from "./ui";
@@ -40,7 +40,7 @@ export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
   }, [all, kept, sort, name]); // eslint-disable-line react-hooks/exhaustive-deps
   const open = rows.filter((g) => !res[g.key]?.isrc);
   // r11 fix: on a phone the first 20 (136 cards were about 25,000px), "Show more" for the next 20
-  const phone = useMedia("(max-width: 639px)");
+  const phone = useMedia(PHONE_Q); // the cards' own query (mobile.css): a phone held sideways too
   const [limit, setLimit] = useState(20);
   const shownRows = phone ? rows.slice(0, limit) : rows;
   const onSort = (col) => setSort((s) => (s.col === col ? { col, dir: -s.dir } : { col, dir: 1 }));

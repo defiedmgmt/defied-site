@@ -16,8 +16,11 @@
 //      <ResponsiveContainer>.
 import React, { useEffect, useRef, useState } from "react";
 
-export const PHONE_MAX = 639;
-const PHONE_Q = `(max-width:${PHONE_MAX}px)`;
+// (2026-11-25, mobile) a phone held sideways is a phone too: a touch screen under 500px tall (844x390, 667x375) gets the
+// phone layout, not the desktop or tablet one. One definition (lib/phone.js), used by every phone switch in JS and mirrored in
+// mobile.css (sections 1, 3 and 4); a screen with its own width keeps it and adds the same sideways clause (phoneQuery(699)).
+import { PHONE_MAX, PHONE_Q, PHONE_SIDEWAYS, phoneQuery } from "../../lib/phone";
+export { PHONE_MAX, PHONE_Q, PHONE_SIDEWAYS, phoneQuery };
 
 // true on a phone-width screen; follows rotation and window resizes. false on the server and on first paint
 // (the CSS does the layout; this is only for what has to render differently, e.g. fewer chart labels).

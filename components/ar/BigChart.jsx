@@ -11,6 +11,7 @@
 //            all-time totals: readings whenever an export was made)
 //   releases [{ d, name }]                                             variant   "full" (340px tall; 240 on a phone) or "drawer" (200px)
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { phoneQuery } from "../../lib/phone";
 import { buildChart, hitAt, moveIndex, normPoints, spacingOf, countWords, rangesFor, inRange, rangeLabel, summarize, tipOf, ariaSummary, compact, exact, signedText, pctText, shortDay } from "../../lib/ar/chart";
 
 const useIso = typeof window !== "undefined" ? useLayoutEffect : useEffect; // layout effects only where there is a page (the server prints without one)
@@ -20,7 +21,7 @@ export function usePhone() {
   const [phone, setPhone] = useState(false);
   useIso(() => {
     if (typeof window === "undefined" || !window.matchMedia) return undefined;
-    const mq = window.matchMedia("(max-width: 699px)"), on = () => setPhone(mq.matches);
+    const mq = window.matchMedia(phoneQuery(699)), on = () => setPhone(mq.matches);
     on();
     if (mq.addEventListener) { mq.addEventListener("change", on); return () => mq.removeEventListener("change", on); }
     mq.addListener(on);

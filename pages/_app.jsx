@@ -10,6 +10,14 @@ import "../styles/app.css";
 import "../styles/share.css"; // the share card's button and window (2026-11-13): after app.css, whose dialog it builds on
 import "../styles/empire.css"; // Money › EMPIRE recoupment and Advance calculator (2026-11-21): after app.css, whose dashboard tokens and Advance calculator classes it builds on
 import "../styles/roster.css"; // Roster › Catalog and Releases (2026-11-23): the few rules the two lists need, on top of the dashboard's own table, chip and search styles
+// the mobile layer (2026-11-25), after every stylesheet above so its rules win a tie with theirs: the shared phone, touch and installed-app
+// rules first, then one sheet per area, which win over the shared one
+import "../styles/m-global.css";
+import "../styles/m-home.css"; // Home, To do, A&R
+import "../styles/m-money.css"; // Money
+import "../styles/m-roster.css"; // Roster
+import "../styles/m-site.css"; // Site
+import "../styles/m-public.css"; // the public site, sign-in and the client portal
 
 // The app shell (components/app/AppRoot.jsx) is mounted once here, not per page: it holds the session,
 // the dashboard's data and its save queue in memory, so it must survive client-side route changes

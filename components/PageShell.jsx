@@ -30,7 +30,9 @@ export default function PageShell({ title, description, path = "/", image = DEFA
       )}
       <title>{title}</title>
       <meta name="description" content={description} />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      {/* viewport-fit=cover (2026-11-25): the installed iPhone app reports its home-indicator and notch insets, which the tab bar, sheets
+          and toasts pad for (env(safe-area-inset-*), styles/app.css and styles/m-global.css); without it they were all 0. Pinch zoom stays on. */}
+      <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       <meta name="theme-color" content="#000000" />
       <meta name="color-scheme" content="dark" />
       {/* the page is black before its stylesheet has loaded too, instead of flashing white */}

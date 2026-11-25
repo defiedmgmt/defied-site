@@ -11,6 +11,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Clock, ExternalLink, SlidersHorizontal, Download, Columns3, X } from "lucide-react";
 import { thumb } from "../shared/ui";
+import { phoneQuery } from "../ui/responsive";
 import { n0, signed, pctText, dirOf, short, dayText, atText, nyDayOf, kindLabel, trackingText, store, spanText, typeOf, TYPE_LABEL } from "./fmt";
 
 // ---------------------------------------------------------------- cells
@@ -221,7 +222,8 @@ export function toCsv(rows, cols, o = {}) {
 // ---------------------------------------------------------------- the grid
 function useNarrow() {
   const [n, setN] = useState(false);
-  useEffect(() => { const m = window.matchMedia("(max-width: 699px)"), f = () => setN(m.matches); f(); m.addEventListener("change", f); return () => m.removeEventListener("change", f); }, []);
+  // (2026-11-25, mobile) a phone held sideways gets the cards and the Sort & filter sheet too (the cards' CSS has no width query)
+  useEffect(() => { const m = window.matchMedia(phoneQuery(699)), f = () => setN(m.matches); f(); m.addEventListener("change", f); return () => m.removeEventListener("change", f); }, []);
   return n;
 }
 // a phone card's 3 numbers. r10 fix: an artist with no Spotify number yet shows its Luminate week in its place,
@@ -299,8 +301,14 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
   const newest = Object.values(asOf).filter((v) => /T/.test(String(v))).sort().pop();
   const exportCsv = () => {
     const blob = new Blob([toCsv(shown, visible.filter((c) => c.id !== "links"), o)], { type: "text/csv;charset=utf-8" });
+    const name = `ar-${view}-${nyDayOf(Date.now())}.csv`;
+    // (2026-11-25, mobile) opened from the home screen (an installed iPhone app handles a blob download badly): the share sheet, whose
+    // Save to Files keeps it, when the device can share a file; anywhere else the download, as before
+    const installed = window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    const file = installed && typeof File !== "undefined" ? new File([blob], name, { type: "text/csv" }) : null;
+    if (file && navigator.canShare?.({ files: [file] })) { navigator.share({ files: [file], title: name }).catch(() => {}); return; }
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob); a.download = `ar-${view}-${nyDayOf(Date.now())}.csv`; document.body.appendChild(a); a.click(); a.remove();
+    a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   };
   const keyNav = (e, i) => {

@@ -12,6 +12,8 @@ const remember = () => { try { localStorage.setItem(KEY, "done"); } catch { /* s
 const standalone = () => window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
 const phone = () => (window.matchMedia?.("(pointer: coarse)").matches || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) && Math.min(window.screen?.width || 9999, window.innerWidth) <= 1024;
 const apple = () => /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+// (2026-11-25) Chrome, Edge and Firefox on an iPhone: their Share button is in the address bar, not Safari's
+const appleOther = () => /CriOS|FxiOS|EdgiOS/.test(navigator.userAgent);
 
 // a beforeinstallprompt can fire before the card is drawn (it's on the dashboard's lazy sections): kept here
 let early = null;
@@ -20,10 +22,10 @@ if (typeof window !== "undefined") window.addEventListener("beforeinstallprompt"
 export function InstallApp() {
   const [show, setShow] = useState(false);
   const [prompt, setPrompt] = useState(null);
-  const [ios, setIos] = useState(false);
+  const [ios, setIos] = useState(false); // false, "safari" or "other" (another iPhone browser)
   useEffect(() => {
     if (standalone() || remembered() || !phone()) return;
-    setIos(apple());
+    setIos(apple() ? (appleOther() ? "other" : "safari") : false);
     setShow(true);
     if (early) setPrompt(early);
     const got = (e) => { e.preventDefault(); early = e; setPrompt(e); };
@@ -46,7 +48,9 @@ export function InstallApp() {
       <div className="install-text">
         <b>Add Defied to your phone</b>
         {prompt ? <span>Opens full screen from your home screen, like an app.</span>
-          : ios ? <span>Tap <Share size={14} aria-label="Share" className="install-glyph" /> Share at the bottom of Safari, then <SquarePlus size={14} aria-hidden="true" className="install-glyph" /> <b>Add to Home Screen</b>.</span>
+          /* (2026-11-25) iOS 26's compact Safari keeps Share under the ••• button beside the address; the classic layout and iPad have it in the toolbar */
+          : ios === "other" ? <span>Tap <Share size={14} aria-label="Share" className="install-glyph" /> Share in the address bar, then <SquarePlus size={14} aria-hidden="true" className="install-glyph" /> <b>Add to Home Screen</b>.</span>
+          : ios ? <span>Tap <Share size={14} aria-label="Share" className="install-glyph" /> Share (in the toolbar, or under ••• next to the address), then <SquarePlus size={14} aria-hidden="true" className="install-glyph" /> <b>Add to Home Screen</b>. You may need to tap View More first.</span>
             : <span>Open your browser's menu <EllipsisVertical size={14} aria-label="menu" className="install-glyph" /> and tap <b>Add to Home screen</b> or <b>Install app</b>.</span>}
       </div>
       {prompt && <button type="button" className="btn sm install-go" onClick={install} data-install-go>Install</button>}

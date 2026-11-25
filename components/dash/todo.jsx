@@ -16,6 +16,7 @@ import { syncFix } from "./todo-data";
 import { ownAt, typedShare, pctText } from "../../lib/split-fixes";
 import { shareChanged } from "../../lib/pct";
 import { PanelWait } from "./sections";
+import { phoneQuery } from "../ui/responsive";
 export { useCuTasks, useSyncChecks, todoItems, useSplitFixes, useAutoConfirm, syncFix, useSeeds } from "./todo-data";
 
 // The panels a row opens in place come from other areas (Money's log preview, Publishing's split and merge
@@ -676,7 +677,8 @@ export const CAL_SOURCES = [
 export const addDays = (iso, n) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
 export const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 function TodoCalendar({ ctx }) {
-  const phone = useMedia("(max-width: 599px)");
+  // (2026-11-25, mobile) a phone held sideways gets the week too, not the 600px-tall month grid
+  const phone = useMedia(phoneQuery(599));
   const { home } = useHome();
   const today = nyDay(Date.now());
   const [anchor, setAnchor] = useState(today);

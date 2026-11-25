@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { CheckCircle2 } from "lucide-react";
-import { ACCOUNT_CHANGED, SAVE_NOTE_MS, SAVE_OFFLINE, SIGNED_OUT, accountChanged, addedNote, applyPatch, diffDb, holdUnload, inTabOrder, knownIds, refusal, saveFailure, saveKeys, withServerRows, withoutPasswords } from "./saves";
+import { ACCOUNT_CHANGED, RESUME_REFRESH_MS, SAVE_NOTE_MS, SAVE_OFFLINE, SIGNED_IN_HINT, SIGNED_OUT, accountChanged, addedNote, applyPatch, diffDb, holdUnload, inTabOrder, knownIds, refusal, saveFailure, saveKeys, withServerRows, withoutPasswords } from "./saves";
 import { clearDashCaches, clearStoredDash, setCacheScope } from "../shared/dash-caches";
 import { bootFetch, setBootUser, startBoot } from "../shared/boot";
 import { ROUTE_TO_PATH, routeOf } from "../shared/routes";
@@ -292,6 +292,30 @@ export default function AppRoot({ Component, pageProps }) {
     return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", onVisible); };
   }, [route, session?.id, session?.role]);
 
+  // (2026-11-25, mobile) the installed app is kept in memory for days, with no reload button: the client portal, opened again after more
+  // than 5 minutes away, reads its data again. Never mid-save (reloadDb waits for the queue and backs off) and never under an open window
+  // (an add or remove dialog). The staff dashboard keeps the Messages-only refresh above, so nothing being edited there is touched.
+  useEffect(() => {
+    if (route !== "client" || session?.role !== "client") return;
+    let hiddenAt = document.visibilityState === "hidden" ? Date.now() : null;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") { hiddenAt = Date.now(); return; }
+      const away = hiddenAt === null ? 0 : Date.now() - hiddenAt;
+      hiddenAt = null;
+      if (away < RESUME_REFRESH_MS || saves.current.pending || document.querySelector(".app:not(.pub) .modal")) return;
+      reloadDb();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [route, session?.id, session?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // (2026-11-25, mobile) the launch screen (components/app/resume.js): this device's note that someone is signed in here follows the
+  // check (a check that failed says nothing either way, so it leaves the note alone)...
+  useEffect(() => {
+    if (session === undefined || (session === null && authDown)) return;
+    try { if (session) localStorage.setItem(SIGNED_IN_HINT, "1"); else localStorage.removeItem(SIGNED_IN_HINT); } catch { /* storage blocked: the form shows, as before */ }
+  }, [session, authDown]);
+
   const go = (r) => {
     const path = ROUTE_TO_PATH[r] || "/";
     const nav = router.pathname !== path ? router.push(path) : Promise.resolve();
@@ -355,6 +379,14 @@ export default function AppRoot({ Component, pageProps }) {
     if (route !== "login") signedInHere.current = false;
     else if (session?.role && !signedInHere.current) router.replace(session.role === "staff" ? "/dashboard" : "/portal");
   }, [route, session]);
+  // ...and the neutral screen goes once there's something to show: the sign-in form (signed out, or the check failed), the dashboard or
+  // portal with its data (or its error), or any other page
+  useEffect(() => {
+    const el = document.documentElement;
+    if (!el.hasAttribute("data-resume")) return;
+    const inApp = route === "staff" || route === "client";
+    if (session === null || (route !== "login" && (!inApp || db || loadErr))) el.removeAttribute("data-resume");
+  }, [route, session, db, loadErr]);
 
   const inPortal = route === "staff" || route === "client";
 

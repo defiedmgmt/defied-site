@@ -2,6 +2,7 @@ import { useRouter } from "next/router";
 import PageShell from "../../components/PageShell";
 import { useApp } from "../../components/app/AppRoot";
 import { StaffDashboard } from "../../components/dash/StaffDashboard";
+import { AppErrorBoundary } from "../../components/app/ErrorScreen";
 
 // Every dashboard section has its own address, /dashboard/<section>[/<part>] (list B #11): Home is plain
 // /dashboard, then /dashboard/todo, /dashboard/catalog (Roster), /dashboard/numbers, /dashboard/money (and its deal pills),
@@ -14,14 +15,16 @@ const TITLES = { "": "Dashboard", home: "Dashboard", todo: "To do", mytodo: "My 
 const dashTitle = (section) => `${TITLES[String(section || "")] || "Dashboard"} · Defied`;
 export default function DashboardPage() {
   const { session, db, commit, reloadDb, logout, signingOut } = useApp();
-  const { query } = useRouter();
+  const { query, asPath } = useRouter();
   const section = Array.isArray(query.section) ? query.section[0] : query.section;
   return (
     <>
       <PageShell title={dashTitle(section)} description="Defied Management staff dashboard." path="/dashboard" noindex />
       {/* session undefined = /api/auth/me hasn't answered: the same "Loading…" as the data load after it */}
+      {/* (2026-11-25, mobile) a section that breaks shows the site's own error screen with Try again (components/app/ErrorScreen.jsx), never a white page;
+          another address draws the dashboard again */}
       {(session === undefined || session?.role === "staff") && (
-        db ? <StaffDashboard db={db} commit={commit} reloadDb={reloadDb} logout={logout} signingOut={signingOut} name={session?.name} /> : <p className="muted page">Loading…</p>
+        db ? <AppErrorBoundary resetKey={asPath}><StaffDashboard db={db} commit={commit} reloadDb={reloadDb} logout={logout} signingOut={signingOut} name={session?.name} /></AppErrorBoundary> : <p className="muted page">Loading…</p>
       )}
     </>
   );

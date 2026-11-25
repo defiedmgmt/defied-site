@@ -474,6 +474,8 @@ function AcctToLog({ d, onLog, onPick }) {
               : <button className="btn sm" data-log={p.id} onClick={() => onLog([p.id])}>Log it</button>}
             <button className={p.needsDetails ? "btn sm" : "btn ghost sm"} data-log-details={p.id} onClick={() => onPick(p)}>Log with details</button>
           </span>
+          {/* (2026-11-25, mobile) why it needs details, as a line of its own on a touch screen (no hover there to show the title) */}
+          {p.needsDetails ? <span className="hint m-why acct-need-why">{p.needsDetails}</span> : null}
         </div>
       ))}
     </div>

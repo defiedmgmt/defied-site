@@ -240,7 +240,8 @@ for songs that have none (`lib/advance-pace.js`).
 - There's always at least one Founder. Only a Founder can change roles, or another Founder's login.
 - The sidebar's foot says who is signed in: their name (`users.name`, the session's: `pages/dashboard/[[...section]].jsx` hands it to `StaffDashboard`) beside their role, on one line
   ("Devin · Founder"; a name too long for the line is cut with "…", never the role; no name, the role alone). A Founder's label has a soft light that sweeps across it every few seconds
-  (`.dash-role` in `styles/app.css`); it stays still for anyone whose device asks for reduced motion. The phone's top bar has no label.
+  (`.dash-role` in `styles/app.css`); it stays still for anyone whose device asks for reduced motion. On a phone the same line sits under the logo in
+  the top bar, inside the bar's height (`styles/m-global.css`).
 
 There are no demo logins. Accounts are created in Site › Users.
 
@@ -416,6 +417,24 @@ mark: money spent, a deal given, the advance received. Nothing estimated counts 
   Someone new is typed as lifetime streams (all platforms). The calculator's estimates are shown to the nearest $10; Show the math keeps the cents.
 - **Saved state**: the one `app_state` row "empireDeal", an entry per key (`received`, `levers`, `statement:<quarter>`, `deal:<id>`, `spend:<id>`), each write one SQL
   statement on its own key so two founders saving at once never overwrite each other. No migration. `lib/empire-store.js` checks everything typed.
+
+## Phones and the installed app (2026-11-25)
+
+The site works as an app from a phone's home screen (`public/manifest.webmanifest`: "Defied", standalone, opening on `/login`, `id` `/login`).
+The mobile layer is `components/ui/mobile.css` (the shared helpers: tables as cards, 44px taps, `m-phone` / `m-desk`, `.m-why`) and
+`styles/m-global.css` (the shared rules), then one sheet per area: `styles/m-home.css`, `m-money.css`, `m-roster.css`, `m-site.css`,
+`m-public.css`, imported last in `pages/_app.jsx` so they win. Desktop (900px and up with a mouse) is never changed by them.
+- A phone is under 640px wide, or a touch screen under 500px tall (a phone held sideways): `PHONE_Q` / `phoneQuery()` in
+  `components/ui/responsive.jsx`, mirrored in `mobile.css`. Held sideways, the dashboard's top bar and tab bar are compact (48px, icon beside label).
+- Every field is 16px on a phone or touch screen (iOS zooms into anything smaller); Money's amount field is 18px.
+- Taps are 44px on any touch screen, any width; checkbox and radio rows too. A small control in a fixed slot keeps its size and gets an
+  invisible 44px tap area (`m-tap-off m-hit`).
+- The viewport has `viewport-fit=cover`, so the tab bar, sheets and toasts pad for the iPhone's home indicator, and held sideways for the notch.
+- Launching the app while signed in shows a black Defied screen, not the sign-in form, until the session check answers
+  (`components/app/resume.js`: a note in this browser that someone is signed in here, never who; signed-out visitors get the form at once).
+- A page that breaks shows the site's own error screen with Try again (`pages/_error.jsx`, `components/app/ErrorScreen.jsx`), never a white page.
+- The client portal reads its data again when the app is opened after more than 5 minutes away. There is no service worker (nothing is
+  cached, so a deploy is never stale).
 
 ## Environment variables
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CardTable } from "../ui/responsive";
+import { CardTable, PHONE_Q } from "../ui/responsive";
 import { peekJson, swrJson } from "../ui/fetch-cache";
 import { splitsToConfirm } from "./catalog-data";
 import { streamsAsOf, fmt } from "./ui";
@@ -91,7 +91,7 @@ export function RosterCatalog({ db, songInfo, onOpen }) {
   const counts = useMemo(() => filterCounts(found), [found]);
   const shown = useMemo(() => sortRows(filterRows(found, filter), by), [found, filter, by]);
   const sum = useMemo(() => summary(shown), [shown]);
-  const phone = useMedia("(max-width: 639px)");
+  const phone = useMedia(PHONE_Q); // the cards' own query (mobile.css): a phone held sideways too
   const [limit, setLimit] = useState(PHONE_ROWS);
   useEffect(() => { setLimit(PHONE_ROWS); }, [q, filter, by]);
   const list = phone ? shown.slice(0, limit) : shown;

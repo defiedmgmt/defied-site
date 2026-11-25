@@ -404,7 +404,8 @@ button{font-family:inherit;cursor:pointer}
    --area-*: which part of the business a task, nav item or badge belongs to (To do, Biggest tasks, the nav).
    --type-*: what a Watchlist row is (A&R's chips and 3px left bars: components/ar/ar-grid.css [data-type]). */
 :root{--area-money:#34d399;--area-pub:#60a5fa;--area-ar:#f59e0b;--area-site:#a78bfa;--area-clickup:#f29bc8;
-  --type-artist:#60a5fa;--type-producer:#a78bfa;--type-song:#34d399;--type-sound:#22d3ee;}
+  --type-artist:#60a5fa;--type-producer:#a78bfa;--type-song:#34d399;--type-sound:#22d3ee;
+  --d-tab-h:64px;}   /* (2026-11-25) the tab bar's height on <html> too: html's scroll-padding-bottom (the phone block below) reads it there */
 .app:not(.pub){
   --d-bg:#000;--d-side:#050506;--d-s1:#0b0b0c;--d-s2:#111113;--d-s3:#161618;--d-field:#0d0d0f;
   --d-hover:rgba(255,255,255,.04);--d-active:rgba(255,255,255,.07);--d-overlay:rgba(0,0,0,.72);
@@ -466,7 +467,7 @@ html:has(.app:not(.pub) .dash),html:has(.app:not(.pub) .portal){scrollbar-gutter
 .app:not(.pub) .dash-role{margin:0;padding:4px 12px 6px;font:600 11px/1.3 var(--d-body);letter-spacing:.06em;
   text-transform:uppercase;color:var(--d-ink-4)}
 /* (2026-11-23, the owner: "name next to the role as well at the bottom") the signed-in person's name beside their role, on the one line (StaffDashboard.jsx): the name gives way (…) before the role does.
-   A label with no name is the plain text it always was. The phone's top bar draws no label at all (.dash-role is hidden there, in the max-width:899px block below) */
+   A label with no name is the plain text it always was. (2026-11-25) The phone's top bar draws it on a line under the logo (styles/m-global.css, section 7) */
 .app:not(.pub) .dash-role-named{display:flex;align-items:center;gap:6px;align-self:flex-start;max-width:100%}
 .app:not(.pub) .dash-who{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app:not(.pub) .dash-role-dot{flex:none}
@@ -993,7 +994,6 @@ html:has(.app:not(.pub) .modal){overflow:hidden}
     align-self:stretch;gap:12px;padding:10px 16px;background:var(--d-bg);border-right:0;border-bottom:1px solid var(--d-line)}
   .app:not(.pub) .dash-brand{width:auto;padding:0}
   .app:not(.pub) .dash-side-foot{flex-direction:row;align-items:center;margin:0;padding:0;border:0}
-  .app:not(.pub) .dash-role{display:none}
   .app:not(.pub) .dash-out{width:auto;height:var(--d-ctl-sm);padding:0 14px;gap:8px;border:1px solid var(--d-line-3);border-radius:100px;color:var(--d-ink);font-size:13.5px}
   .app:not(.pub) .dash-side-foot{gap:8px}
   .app:not(.pub) .dash-pw{width:var(--d-ctl-sm);padding:0;justify-content:center}   /* the top bar: a key icon beside Sign out */
@@ -1039,7 +1039,7 @@ html:has(.app:not(.pub) .modal){overflow:hidden}
   .app:not(.pub) .admin-row:not(.admin-hd) > .admin-act{order:1;flex:none}
   .app:not(.pub) .admin-row:not(.admin-hd)::after{content:"";order:2;flex-basis:100%;height:0}
   .app:not(.pub) .admin-row:not(.admin-hd) > .cell:nth-child(n+3)::before{content:"·";margin-right:8px;color:var(--d-ink-off)}
-  .app:not(.pub) .admin-row:has(.cell-name) > .cell:nth-child(2){margin-left:42px}
+  .app:not(.pub) .admin-row:has(.cell-name > :is(.avatar,.avatar-ph)) > .cell:nth-child(2){margin-left:42px}   /* (2026-11-25) only a row with a photo (not Users) */
   /* line 2 stays one line (no "·" orphaned onto a third): the last column takes what's left and ellipsizes;
      on Roster that's the credit, so the Live/Hidden chip lines up on the right */
   .app:not(.pub) .admin-row:not(.admin-hd):not(.admin-row-link) > .cell:not(:first-child){max-width:70%}
@@ -1380,7 +1380,7 @@ html:has(.app:not(.pub) .modal){overflow:hidden}
 .lg-pw input{padding-right:84px}
 .lg-show{position:absolute;top:4px;right:4px;bottom:4px;padding:0 14px;border:0;border-radius:9px;background:none;color:var(--mut3);
   font-family:'Suntage','Inter',sans-serif;font-size:10px;letter-spacing:.16em;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:color .2s ease,background-color .2s ease}
-.lg-show:hover{color:var(--ink);background:rgba(255,255,255,.06)}
+@media (hover:hover){ .lg-show:hover{color:var(--ink);background:rgba(255,255,255,.06)} }   /* (2026-11-25) a tap on a phone leaves no tint behind */
 .lg-show:focus-visible{outline:2px solid #f5f5f5;outline-offset:-2px}
 /* the checkbox drawn to match the fields: a dark square that fills white with a black tick */
 .lg-help{margin:22px 0 0;color:var(--mut);font-size:14px;animation:rv .6s var(--ease-out) .4s both}
@@ -1946,7 +1946,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .row-dots{min-width:34px;padding:0 8px;font-size:16px;letter-spacing:.05em}
 .app:not(.pub) .row-menu{display:flex;flex-direction:column;min-width:210px}
 .app:not(.pub) .row-menu > button.lm-not-ours{color:var(--d-neg)}
-@media (max-width:700px){.app:not(.pub) .row-dots{min-height:40px;min-width:40px} .app:not(.pub) .row-menu > button{min-height:40px}}
+@media (max-width:700px),(pointer:coarse){.app:not(.pub) .row-dots{min-height:40px;min-width:40px} .app:not(.pub) .row-menu > button{min-height:40px}}
 /* the ISRC finder's guesses, one tap each */
 .app:not(.pub) .isrc-picks{display:flex;flex-wrap:wrap;align-items:center;gap:6px;max-width:520px}
 .app:not(.pub) .isrc-picks > .hint{flex-basis:100%;margin:0}
@@ -2076,7 +2076,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .quiet-act[data-not-ours]:hover:not(:disabled), .app:not(.pub) .quiet-act[data-not-ours]:focus-visible{color:var(--d-neg)}
 .app:not(.pub) .quiet-act:focus-visible{outline:1px solid var(--d-line-3);outline-offset:1px}
 .app:not(.pub) .quiet-act:disabled{opacity:.5;cursor:default}
-@media (max-width:700px){.app:not(.pub) .quiet-act{min-height:40px}}
+@media (max-width:700px),(pointer:coarse){.app:not(.pub) .quiet-act{min-height:40px}}
 .app:not(.pub) .del-note [data-show-me]{margin-left:4px;font-weight:600}
 .app:not(.pub) .fix-panel{scroll-margin-top:16px}
 .app:not(.pub) p.hint.del-note{display:flex;align-items:flex-start;gap:8px;margin:0 0 14px;padding:10px 12px;border:1px solid var(--d-pos-line);border-radius:var(--d-r-md);background:var(--d-pos-bg);color:var(--d-ink-2);font-size:13px;line-height:1.5;max-width:80ch}
@@ -3044,7 +3044,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 @media (min-width:700px){ .app:not(.pub) .ar-summary .ar-gainers[data-wait]{min-height:341px} }
 .app:not(.pub) .dirty-bar{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 22px;border-top:1px solid var(--d-warn-line);background:var(--d-warn-bg);font-size:13.5px;color:var(--d-ink)}
 .app:not(.pub) .dirty-bar > span{margin-right:auto;font-weight:600}
-@media (max-width:700px){
+@media (max-width:700px),(pointer:coarse){   /* (2026-11-25) touch screens of any width too: a phone held sideways is 667-932px wide */
   /* phones: every tap target at least 40px tall, and nothing moves for it (easy-spec B9): text links grow
      an invisible 12px above and below, the Luminate tick gets a 44px box over the same 28px slot */
   .app:not(.pub) .dash-main .inline-link:not(.song-detail-top .inline-link){padding-block:12px;margin-block:-12px}
@@ -3317,8 +3317,8 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .cal-wname{font-size:12.5px;color:var(--d-ink-3)}
 .app:not(.pub) .cal-wevs{display:flex;flex-direction:column;gap:4px;min-width:0}
 .app:not(.pub) .cal-wevs .cal-ev{white-space:normal}
-/* phones: every control a thumb can hit (easy-d B9: at least 40px tall) */
-@media (max-width:700px){
+/* phones: every control a thumb can hit (easy-d B9: at least 40px tall); (2026-11-25) and any touch screen, held sideways too */
+@media (max-width:700px),(pointer:coarse){
   .app:not(.pub) :is(.sync-pill,.todo-chip){height:40px}
   .app:not(.pub) :is(.home-all,.cal-today){min-height:40px;display:inline-flex;align-items:center}
   .app:not(.pub) .todo-chips .upd-filter,.app:not(.pub) .todo-cu-tools select{height:40px}

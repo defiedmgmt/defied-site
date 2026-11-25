@@ -61,6 +61,9 @@ const dataUrlOf = (blob) => new Promise((resolve, reject) => {
   r.readAsDataURL(blob);
 });
 // a phone's share sheet takes the PNG itself (navigator.canShare with files); elsewhere it's Save image only
+// (2026-11-25, mobile) opened from the home screen: an installed iPhone app has handled a blob download badly (nothing, or the window turns
+// into the image with no way back), so there "Save image" opens the share sheet, whose Save Image puts it in Photos
+const installedApp = () => typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true);
 const shareable = (file) => {
   try { return typeof navigator !== "undefined" && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] }); } catch { return false; }
 };
@@ -138,7 +141,9 @@ export function ShareDialog({ clientId, name, isStaff, onClose }) {
         </div>
         <div className="modal-foot">
           {card.src && card.canShare && <button type="button" className="btn ghost sm" data-share-native onClick={share}><Share2 size={14} aria-hidden="true" /> Share</button>}
-          {card.src
+          {card.src && card.canShare && installedApp()
+            ? <button type="button" className="btn sm" data-share-save onClick={share}><Download size={14} aria-hidden="true" /> Save image</button>
+            : card.src
             ? <a className="btn sm" href={card.url} download={fileName} data-share-save><Download size={14} aria-hidden="true" /> Save image</a>
             : <button type="button" className="btn sm" disabled data-share-save><Download size={14} aria-hidden="true" /> Save image</button>}
         </div>
