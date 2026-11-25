@@ -174,8 +174,10 @@ export function songsToUpdate(db, songInfo) {
     const gone = !!songInfo?.tracking?.[p.id]?.skip;
     const gaps = songGaps({ p, fact: facts.songs?.[p.id], tabRead: facts.clients?.[p.clientId] != null, split, skip: gone }).filter((x) => !(x.k === "share" && fillIds.has(p.id)));
     if (!gaps.some((x) => GAP_WORDS[x.k])) continue;
-    // a split to confirm or review is Splits to confirm's (build I3): listed here only for the other gaps, with a pointer
-    out.push({ p, client: (db.clients || []).find((c) => c.id === p.clientId) || null, gaps: gaps.filter((x) => GAP_WORDS[x.k]), splitSee: gaps.some((x) => !GAP_WORDS[x.k]), skip: gone });
+    // a split to confirm or review is Splits to confirm's (build I3): listed here only for the other gaps, with a pointer.
+    // (2026-11-24) `why`: a song not on the pub sheet whose last write failed says why (songInfo.sheetFails, lib/sheet-fails.js)
+    const why = gaps.some((x) => x.k === "sheet") ? songInfo?.sheetFails?.[p.id] || null : null;
+    out.push({ p, client: (db.clients || []).find((c) => c.id === p.clientId) || null, gaps: gaps.filter((x) => GAP_WORDS[x.k]), splitSee: gaps.some((x) => !GAP_WORDS[x.k]), skip: gone, why });
   }
   return out.sort((a, b) => (b.p.streams || 0) - (a.p.streams || 0));
 }
@@ -216,10 +218,25 @@ const UPDATE_WORDS_MAX = 60;
 function updateWords(list) {
   const n = (f) => list.filter((x) => x.gaps.some(f)).length;
   const share = n((g) => g.k === "share"), sheet = n((g) => g.k === "sheet"), dl = n((g) => g.k === "date" || g.k === "link");
-  const parts = [share && `${share} no writer share`, sheet && `${sheet} not on the sheet`, dl && `${dl} no date or link`].filter(Boolean);
+  // (2026-11-24) how many of those a write was tried for and failed (each row says why)
+  const failed = list.filter((x) => x.why).length;
+  const parts = [share && `${share} no writer share`, sheet && `${sheet} not on the sheet${failed ? ` (${failed} failed)` : ""}`, dl && `${dl} no date or link`].filter(Boolean);
   let out = parts[0] || "";
   for (const x of parts.slice(1)) if (`${out} · ${x}`.length <= UPDATE_WORDS_MAX) out = `${out} · ${x}`; else break;
   return out;
+}
+// (2026-11-24) what "Add to pub sheet" did, in one sentence (POST /api/songs { action: "sheetRow" }, lib/auto-add.js putOnSheet): the songs
+// that were already on the sheet (the list was from before their rows were written), the ones written now, and what's left for another press
+const quoted = (xs) => { const t = xs.map((x) => `“${x.song || "Untitled"}”`); return t.length > 1 ? `${t.slice(0, -1).join(", ")} and ${t[t.length - 1]}` : t[0] || ""; };
+const rowsWords = (xs) => [...new Set(xs.map((x) => x.tab))].map((tab) => { const r = xs.filter((x) => x.tab === tab).map((x) => x.row); return `${tab} row${r.length > 1 ? "s" : ""} ${r.join(", ")}`; }).join("; ");
+export function sheetWords(d) {
+  const already = d?.already || [], added = d?.added || [], waiting = (d?.waiting || []).length, gone = (d?.gone || []).length;
+  return [
+    already.length && `${quoted(already)} ${already.length > 1 ? "were" : "was"} already on the pub sheet (${rowsWords(already)}).`,
+    added.length && `${quoted(added)} ${added.length > 1 ? "are" : "is"} on the pub sheet now (${rowsWords(added)}).`,
+    waiting && `${waiting} more ${waiting > 1 ? "wait" : "waits"}: press Add to pub sheet again in a minute.`,
+    gone && `${gone} ${gone > 1 ? "songs aren't" : "song isn't"} on the site any more.`,
+  ].filter(Boolean).join(" ");
 }
 export function dashTasks(db, songInfo) {
   // both groups of Splits to confirm, in plain words: the even default ready to confirm, and the ones to fix by hand

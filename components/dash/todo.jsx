@@ -113,7 +113,7 @@ function PubFix({ kind, ctx, viaCta = false }) {
   return (
     <>
       {kind === "splits" && <SplitsToFix db={db} commit={commit} reloadDb={reloadDb} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} onGo={onGo} dupes={dupes} onDupe={openDupe} />}
-      {kind === "update" && <SongsToUpdate db={db} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} dupes={dupes} onDupe={openDupe} />}
+      {kind === "update" && <SongsToUpdate db={db} songInfo={songInfo} reloadSongInfo={reloadSongInfo} reloadDb={reloadDb} onFix={openFix} dupes={dupes} onDupe={openDupe} />}
       {kind === "autoAdded" && <AutoAddedList db={db} songInfo={songInfo} reloadSongInfo={reloadSongInfo} onFix={openFix} />}
       {kind === "possible" && <PossibleList db={db} songInfo={songInfo} reloadSongInfo={reloadSongInfo} reloadDb={reloadDb} />}
       {kind === "dupes" && (dupes.length
