@@ -350,13 +350,6 @@ There was a **Releases** pill too until 2026-11-24 (the owner: "maybe we dont ne
   or in a song's window: no Pub earnings or Potential admin fee tile, row or column (not behind "More columns" either, which is gone), no "Estimates: streams × the writer's share × $0.00092"
   line, no "Sheet tab: <name>" under a client's name (a tab the sheet doesn't have is still said, as a warning), and a song's card says nothing about its split unless it is missing or doesn't
   add up to 100% (a client's own portal still says "Pub split · N people · 100%"). A song's window keeps its streams, its splits and everything else, and every write it had.
-- **The roster's all-time streams are counted one way everywhere** (2026-11-25, the owner: "all time for streams just make it consistent"): every place that says one all-time streams number for
-  the whole roster (or for every artist an account sees) takes it from `lib/roster-catalog.js` `rosterStreams`, which is Catalog's own total (`catalogRows` + `summary`): each song once, a song
-  two clients share counted once (the biggest of its copies, never their sum). Those places: the Roster overview's "Streams (all time)" tile (with "Shared songs counted once" under the number while
-  there is such a song) and its Roster total row's Streams ("shared songs once" under it: with a shared song it is less than the rows above added up), Catalog's own big number, and Site › Sync's
-  pub sheet line ("Site and pub sheet match: N streams (each song once)"). A client's own total stays their songs added up (their row in the Overview, their page and portal, their share card): that
-  client really has those streams. The pub sheet's MASTER tab still adds the writers up in its own ROSTER GROSS STREAMS / ROSTER TOTAL (the owner's formula, not changed by the site): that sum
-  counts a shared song once for each writer, so it is bigger, and the site no longer shows it as the roster's total (Nov 25: 249,275,500 there, 205,490,931 counted once).
 - **Each song's ISRC and "Not on streaming"** are the two facts the dashboard's own data doesn't carry for every account. `GET /api/songs` has them, but it is for every artist at
   once (an account limited to its own artists is refused), so for that account the pages read `GET /api/roster-catalog`: `{ tracking: { [placementId]: { isrc?, skip? } } }`, its own
   artists' songs only (`requireAccess(..., "publishing")`, `limited`/`ownSet`), read only, `Cache-Control: no-store`, no migration. Every other account uses the copy it has.
