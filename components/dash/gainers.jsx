@@ -3,6 +3,7 @@ import { Disc3, ChevronDown, TrendingUp } from "lucide-react";
 import { WowPill } from "./chips";
 import { fmt } from "./ui";
 import { dashCache } from "../shared/dash-caches";
+import { bootFetch, loadedRecently, markLoaded } from "../shared/boot";
 import { Photo } from "../shared/ui";
 import { dayRange } from "./helpers";
 import { swrJson, peekJson } from "../ui/fetch-cache";
@@ -89,10 +90,11 @@ function useRosterTop() {
   const loader = useRef(null);
   useEffect(() => {
     let alive = true;
-    const load = () => { setFailed(false); return fetch("/api/growth?top=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (!alive) return; if (d?.top) { dashCache.top = d.top; setTop(d.top); } else setFailed(true); }).catch(() => alive && setFailed(true)); };
+    const load = () => { setFailed(false); return bootFetch("/api/growth?top=1").then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!alive) return; if (d?.top) { dashCache.top = d.top; markLoaded("top"); setTop(d.top); } else setFailed(true); }).catch(() => alive && setFailed(true)); };
     loader.current = load;
-    load();
+    // (2026-11-24, speed) back on the Dashboard within 30 s of the last read (and no save since): what it has
+    if (!(dashCache.top && loadedRecently("top"))) load();
     return () => { alive = false; };
   }, []);
   return { top, failed, retry: () => loader.current?.() };

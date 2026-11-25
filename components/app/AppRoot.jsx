@@ -2,7 +2,8 @@ import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { CheckCircle2 } from "lucide-react";
 import { ACCOUNT_CHANGED, SAVE_NOTE_MS, SAVE_OFFLINE, SIGNED_OUT, accountChanged, addedNote, applyPatch, diffDb, holdUnload, inTabOrder, knownIds, refusal, saveFailure, saveKeys, withServerRows, withoutPasswords } from "./saves";
-import { clearDashCaches } from "../shared/dash-caches";
+import { clearDashCaches, clearStoredDash, setCacheScope } from "../shared/dash-caches";
+import { bootFetch, startBoot } from "../shared/boot";
 import { ROUTE_TO_PATH, routeOf } from "../shared/routes";
 import { useRevealOnScroll, vtWillRun } from "../shared/ui";
 import { DATA_ROUTES, PageGuard } from "../site/About";
@@ -116,9 +117,13 @@ export default function AppRoot({ Component, pageProps }) {
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/auth/me")
+    // (2026-11-24, speed) a dashboard address starts its first reads now, beside this check (components/shared/boot.js): the cookie is what
+    // authenticates each of them, so none waits for this answer, and each comes back in one or two requests instead of 12-14
+    if (route === "staff") startBoot(window.location.pathname);
+    bootFetch("/api/auth/me")
       .then(async (r) => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d; })
-      .then((d) => { if (alive) setSession(d.user ?? null); })
+      // signed out: this tab's saved copy of the last account's dashboard goes too
+      .then((d) => { if (!d.user) clearStoredDash(); if (alive) setSession(d.user ?? null); })
       // a 503 (the account couldn't be checked) or no connection: signed out, not "still asking" forever,
       // but the sign-in page says why
       .catch(() => { if (alive) { setSession(null); setAuthDown(true); } });
@@ -156,13 +161,16 @@ export default function AppRoot({ Component, pageProps }) {
     let alive = true;
     (async () => {
       try {
-        const res = await fetch("/api/dashboard-data");
+        const res = await bootFetch("/api/dashboard-data");
         if (res.status === 401) { if (alive) setSession(null); return; }
         const data = await res.json().catch(() => ({}));
         if (!alive) return;
         if (!res.ok || !data.role) throw new Error(data.error || "Failed to load.");
         if (data.role !== session.role) throw new Error(ACCOUNT_CHANGED);
         s.server = data; s.freshAt = Date.now();
+        // (2026-11-24, speed) this account's saved copy of the dashboard's last answers (only one saved under this same user and access)
+        // is put back before the first draw: a reload shows them at once and reads them again behind it
+        if (data.role === "staff") setCacheScope(session.id, data.access);
         setDb(data);
       } catch (err) {
         if (alive) setLoadErr(err.message || "Couldn't load your dashboard data.");
@@ -300,6 +308,8 @@ export default function AppRoot({ Component, pageProps }) {
     if (!res.ok || !data) return data?.error || (res.status >= 500 || res.ok ? "Sign-in isn't available right now — try again in a minute." : "Incorrect email or password.");
     // in the same render as the route change: the new dashboard never draws the last account's data
     clearDashCaches();
+    // (2026-11-24, speed) and its first reads start now, beside the route change (the session is known: no check of it)
+    if (data.user.role === "staff") startBoot("/dashboard", { me: false });
     setDb(null); setSession(data.user); setAuthDown(false); setLoadErr(null); setSignIns((n) => n + 1);
     signedInHere.current = true; // this push goes on from the sign-in page; the effect below needn't
     go(data.user.role === "staff" ? "staff" : "client");

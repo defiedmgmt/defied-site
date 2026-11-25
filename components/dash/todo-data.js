@@ -6,6 +6,7 @@ import { autoAddedOf, dashTasks, dupeIds, possibleOf, songsToUpdate } from "./he
 import { money } from "./ui";
 import { songsWithoutIsrc } from "./isrc-data";
 import { cuCache, syncCache } from "../shared/dash-caches";
+import { SYNC_TABS, bootFetch, loadedOnce, loadedRecently, markLoaded } from "../shared/boot";
 
 // To do's data: the hooks and the row list the shell reads on every section (the sidebar's one count,
 // each tab's chip, Home's biggest tasks). Kept apart from To do's screens (todo.jsx) by list B #11, so
@@ -17,10 +18,11 @@ export function useCuTasks(tab) {
   const [failed, setFailed] = useState(false);
   const load = (fresh = false) => {
     setFailed(false);
-    return fetch(`/api/tasks${fresh ? "?fresh=1" : ""}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.lists) { cuCache.d = d; setData(d); } else setFailed(true); }).catch(() => setFailed(true));
+    return bootFetch(`/api/tasks${fresh ? "?fresh=1" : ""}`).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.lists) { cuCache.d = d; markLoaded("tasks"); setData(d); } else setFailed(true); }).catch(() => setFailed(true));
   };
-  useEffect(() => { if (tab === "home" || tab === "todo" || !cuCache.d) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (2026-11-24, speed) not again within 30 s of the last read (a save in between reads again); a copy put back after a reload is read again
+  useEffect(() => { if (!loadedRecently("tasks") && (tab === "home" || tab === "todo" || !loadedOnce("tasks"))) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   const drop = (id) => setData((d) => (d ? { ...d, tasks: d.tasks.filter((t) => t.id !== id) } : d));
   const add = (t) => setData((d) => (d ? { ...d, tasks: [...d.tasks, t] } : d));
   return { data, failed, load, drop, add };
@@ -32,11 +34,18 @@ export function useSyncChecks(tab) {
   const load = (force = false) => {
     if (!force && syncCache.d && Date.now() - syncCache.at < 120000) { setData(syncCache.d); return Promise.resolve(); }
     setFailed(false); setBusy(true);
-    return fetch(force ? "/api/sync?fresh=1" : "/api/sync", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+    return bootFetch(force ? "/api/sync?fresh=1" : "/api/sync").then((r) => (r.ok ? r.json() : null))
       .then((d) => { if (d?.checks) { syncCache.d = d; syncCache.at = Date.now(); setData(d); } else setFailed(true); }).catch(() => setFailed(true)).finally(() => setBusy(false));
   };
   // (any tab's first load reads them too: the sidebar's count and each tab's chip include the amber ones)
-  useEffect(() => { if (tab === "home" || tab === "todo" || tab === "site" || !syncCache.d) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (2026-11-24, speed) Dashboard, To do and Site show them on their first screen; anywhere else they're only that count, so they're read
+  // 2 s later, after the section's own reads (they read the sheets, Stripe and ClickUp, and run INFO's manager copy and the people link)
+  useEffect(() => {
+    if (SYNC_TABS.includes(tab)) { load(); return undefined; }
+    if (syncCache.d && syncCache.at) return undefined;
+    const t = setTimeout(() => load(), 2000);
+    return () => clearTimeout(t);
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   return { data, failed, busy, load };
 }
 
@@ -121,7 +130,7 @@ async function splitFixPost(body) {
 }
 export function useSplitFixes() {
   const [data, setData] = useState(null);
-  const load = () => fetch("/api/split-fixes", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => d?.auto && setData(d)).catch(() => {});
+  const load = () => bootFetch("/api/split-fixes").then((r) => (r.ok ? r.json() : null)).then((d) => d?.auto && setData(d)).catch(() => {});
   useEffect(() => { load(); }, []);
   return { data, setData, load };
 }
@@ -173,9 +182,9 @@ export async function syncFix(check, ctx, setBusy, setNote) {
 const seedCache = { d: null };
 export function useSeeds(tab, on) {
   const [data, setData] = useState(() => seedCache.d);
-  const load = () => (!on ? Promise.resolve() : fetch("/api/data?seeds=1", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
-    .then((d) => { if (d?.todo) { seedCache.d = d; setData(d); } }).catch(() => {}));
-  useEffect(() => { if (tab === "home" || tab === "todo" || !seedCache.d) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = () => (!on ? Promise.resolve() : bootFetch("/api/data?seeds=1").then((r) => (r.ok ? r.json() : null))
+    .then((d) => { if (d?.todo) { seedCache.d = d; markLoaded("seeds"); setData(d); } }).catch(() => {}));
+  useEffect(() => { if (!loadedRecently("seeds") && (tab === "home" || tab === "todo" || !seedCache.d)) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   const drop = (lumId) => setData((d) => { const n = d ? { ...d, todo: d.todo.filter((r) => r.lumId !== lumId) } : d; seedCache.d = n; return n; });
   return { data, load, drop };
 }

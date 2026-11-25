@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
+import { bootFetch, loadedRecently, markLoaded } from "./shared/boot";
 
 // The monthly true-up's data side (GET /api/trueup and its To do rows), read by the dashboard's shell on
 // every section; the screens are in TrueUp.jsx, loaded with To do (list B #11).
@@ -13,15 +14,16 @@ export const store = { d: null, err: null, subs: new Set(), loading: null, recen
 export const emit = () => store.subs.forEach((f) => f());
 export function reloadTrueUp() {
   if (store.loading) return store.loading;
-  store.loading = fetch("/api/trueup", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("load"))))
-    .then((d) => { store.d = { ...d, recent: store.recent }; store.err = null; }).catch(() => { store.err = true; }).finally(() => { store.loading = null; emit(); });
+  store.loading = bootFetch("/api/trueup").then((r) => (r.ok ? r.json() : Promise.reject(new Error("load"))))
+    .then((d) => { store.d = { ...d, recent: store.recent }; store.err = null; markLoaded("trueup"); }).catch(() => { store.err = true; }).finally(() => { store.loading = null; emit(); });
   return store.loading;
 }
 const sub = (f) => { store.subs.add(f); return () => store.subs.delete(f); };
 const snap = () => store.d;
 export function useTrueUp(tab, on = true) {
   const data = useSyncExternalStore(sub, snap, () => null);
-  useEffect(() => { if (on && (tab === "home" || tab === "todo" || !store.d)) reloadTrueUp(); }, [tab, on]);
+  // (2026-11-24, speed) not again within 30 s of the last read (a save in between reads again)
+  useEffect(() => { if (on && !loadedRecently("trueup") && (tab === "home" || tab === "todo" || !store.d)) reloadTrueUp(); }, [tab, on]);
   return { data: on ? data : null, reload: reloadTrueUp };
 }
 
