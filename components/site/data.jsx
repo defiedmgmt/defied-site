@@ -135,9 +135,9 @@ export const STATS = [
   // Billboard 200 dated May 30, 2026: MAID OF HONOUR debuted at No. 3 (ICEMAN 1, HABIBTI 2); Stack!e is one of
   // the credited producers on "Q&A" (ca.billboard.com chart-beat; Wikipedia, Maid of Honour track listing)
   { num: "#3", label: "Billboard 200", ctx: "Drake “Q&A” · Prod. Stack!e", text: "Number 3 on the Billboard 200: Drake's Maid of Honour, with Q&A produced by Stack!e" },
-  // (2026-11-25, the owner: "all time for streams just make it consistent") the roster's all-time streams counted the one way the site counts them, each song once (Roster › Catalog's total,
-  // lib/roster-catalog.js rosterStreams: a song two producers share counts once): 205,490,931 on Nov 25, 2026 (the pub sheet's lifetime streams, as of Oct 29), so "200M+". It was "150M+",
-  // from the roster PDF (2026): the producers' stream totals added up, the way that counts a shared song twice. Still written here by hand, never above that total.
+  // (2026-11-25) the roster's all-time streams counted each song once, as Roster › Catalog counts them (lib/roster-catalog.js catalogRows + summary: a song two producers share counts once):
+  // 205,490,931 on Nov 25, 2026 (the pub sheet's lifetime streams, as of Oct 29), so "200M+". The dashboard's company-wide total adds the producers up (249,275,500 then, the owner's choice): 200M+ is
+  // true of both. It was "150M+", from the roster PDF (2026): the producers' stream totals added up. Still written here by hand, never above the each-song-once total.
   { num: "200M+", label: "Streams", ctx: "Across the roster", text: "Over 200 million streams across the roster" },
   // Billboard, chart dated June 28, 2025: No. 1 Top Rap Albums and Top R&B/Hip-Hop Albums (No. 3 on the Billboard 200)
   { num: "#1", label: "Top Rap Albums", ctx: "Lil Tecca “Dopamine”", text: "Number 1 on Billboard's Top Rap Albums: Dopamine by Lil Tecca" },

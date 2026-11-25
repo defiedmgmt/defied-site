@@ -891,7 +891,8 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
             {/* (2026-11-24, the owner: "just the key information") four numbers, no money: the roster's streams, MASTER's own total, this week's streams, the songs and the people on the roster. The pub earnings and the
                 potential admin fee (the old pub sheet's estimates) and the line explaining them are not shown. All four are drawn together, once MASTER has loaded (until then: "Loading master sheet data…" above, no tiles) */}
             <div className="cat-summary-grid pub-tiles">
-              {/* MASTER adds each writer's gross up: a song two roster writers share is in it twice */}
+              {/* MASTER adds each writer's gross up: a song two roster writers share is in it twice. (2026-11-25, the owner: "can we just have the company wide total be the 249M … maybe the catalog can only
+                  count it once") That is the company-wide total on purpose: only Catalog counts each song once (README, "Company-wide totals and Catalog") */}
               <div className="cat-stat" data-stat="streams" title="Added up by writer: a song two writers share counts once for each"><span className="cat-stat-label">Streams (all time)</span><span className="cat-stat-val">{fmt(state.data.totals.rosterGrossStreams)}</span></div>
               {/* the table's This week column added up (weekTotal); "—" until a week of numbers has come, as the column's cells say it. Under the number, in two short lines that never wrap: the source and the days, and how
                   much of the catalog the number covers (it is only the songs with both weeks) */}

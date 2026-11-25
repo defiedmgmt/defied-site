@@ -350,6 +350,10 @@ There was a **Releases** pill too until 2026-11-24 (the owner: "maybe we dont ne
   or in a song's window: no Pub earnings or Potential admin fee tile, row or column (not behind "More columns" either, which is gone), no "Estimates: streams × the writer's share × $0.00092"
   line, no "Sheet tab: <name>" under a client's name (a tab the sheet doesn't have is still said, as a warning), and a song's card says nothing about its split unless it is missing or doesn't
   add up to 100% (a client's own portal still says "Pub split · N people · 100%"). A song's window keeps its streams, its splits and everything else, and every write it had.
+- **Company-wide totals and Catalog count two ways, on purpose** (2026-11-25, the owner: "can we just have the company wide total be the 249M … maybe the catalog can only count it once but
+  otherwise it should be fine"): the Roster overview's tiles (Streams (all time), Streams this week, Songs) and its Roster total row, and Site › Sync's pub sheet line, add each client up (MASTER's
+  ROSTER GROSS STREAMS and the table's columns: a song two clients share counts once for each of them); only Catalog counts each song once (its biggest copy, never a sum). On Nov 24 the Overview
+  said 249,275,500 streams and 380 songs, Catalog 205,490,931 streams and 361 songs: both right, counted two ways. The public Home band's "200M+" is true of both.
 - **Each song's ISRC and "Not on streaming"** are the two facts the dashboard's own data doesn't carry for every account. `GET /api/songs` has them, but it is for every artist at
   once (an account limited to its own artists is refused), so for that account the pages read `GET /api/roster-catalog`: `{ tracking: { [placementId]: { isrc?, skip? } } }`, its own
   artists' songs only (`requireAccess(..., "publishing")`, `limited`/`ownSet`), read only, `Cache-Control: no-store`, no migration. Every other account uses the copy it has.
