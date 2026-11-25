@@ -43,7 +43,8 @@ const toCents = (n) => Math.round((Number(n) || 0) * 100 + (n >= 0 ? 1e-9 : -1e-
 async function pullAndMergeSheetData(db, clients, { background = false } = {}) {
   const res = await fetch("/api/sheets-pull", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" },
+    // (2026-11-25, review PERF2-1) the background pull is marked so the dashboard's reads don't wait for it (components/shared/boot.js)
+    headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site", ...(background ? { "X-Defied-Background": "1" } : {}) },
     body: JSON.stringify({ clients: clients.map((c) => ({ id: c.id, name: c.name, sheetTabName: c.sheetTabName })), ...(background ? { background: true } : {}) }),
   });
   const data = await res.json();

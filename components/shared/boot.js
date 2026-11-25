@@ -40,6 +40,15 @@ const trace = (k, v) => { try { const t = (window.__dashBoot = window.__dashBoot
 let watching = false;
 // a write's answer: did it change anything? Only an answer that says X-Defied-Changed: 0 didn't; a failed request may have, so it counts
 export const changedBy = (res) => !(res && typeof res.headers?.get === "function" && res.headers.get("x-defied-changed") === "0");
+// (2026-11-25, review PERF2-1) a write sent with X-Defied-Background: 1 (the Dashboard's background sheet pull, catalog-data.js) never holds a read:
+// it reads every artist's tab, seconds, and the boot's reads used to wait for all of it. Its answer still forgets what was read before it when it
+// changed something (or never came), as any write's does.
+export const isBackgroundWrite = (init) => {
+  const h = init?.headers;
+  if (!h) return false;
+  if (typeof h.get === "function") return h.get("x-defied-background") === "1";
+  return Object.entries(h).some(([k, v]) => String(k).toLowerCase() === "x-defied-background" && String(v) === "1");
+};
 export function watchWrites() {
   if (watching || typeof window === "undefined" || typeof window.fetch !== "function") return;
   watching = true;
@@ -48,6 +57,7 @@ export function watchWrites() {
     const method = String(init?.method || (typeof input === "object" && input?.method) || "GET").toUpperCase();
     const url = typeof input === "string" ? input : input?.url || String(input);
     if (method === "GET" || method === "HEAD" || !url.includes("/api/")) return orig.apply(this, arguments);
+    if (isBackgroundWrite(init)) return orig.apply(this, arguments).then((res) => { if (changedBy(res)) forgetBoot(); return res; }, (err) => { forgetBoot(); throw err; });
     if (!pending++) { let done; idle = { p: new Promise((r) => { done = r; }), done: () => done() }; }
     const settle = (changed) => { if (changed) forgetBoot(); if (!--pending) { const i = idle; idle = null; i?.done(); } };
     // decided before the caller sees the answer: code that awaits a save and then reads again reads after the forgetting, never before it
