@@ -8,7 +8,7 @@ import { AskCard, useDirtyGuard } from "../portal/ask";
 
 const BLANK_SONGS = [1, 2, 3, 4, 5].map((slot) => ({ slot, streams: "", writerShare: "" }));
 const FIELD_LABEL = { name: "Name", contact: "Contact", status: "Status", lastContact: "Last contacted", notes: "Notes", given: "'Advance given?'" };
-const fieldLabel = (f) => FIELD_LABEL[f] || f.replace(/^slot(\d)\.(streams|share)$/, (_, n, k) => `Song ${n} ${k === "streams" ? "streams" : "writer %"}`);
+const fieldLabel = (f) => FIELD_LABEL[f] || f.replace(/^slot(\d)\.(streams|share)$/, (_, n, k) => `Song ${n} ${k === "streams" ? "lifetime streams" : "writer %"}`);
 const showVal = (f, v) => (v === "" || v == null ? "blank" : /\.share$/.test(f) && typeof v === "number" ? `${Math.round(v * 1e6) / 1e4}%` : typeof v === "number" ? fmt(v) : String(v));
 
 // The prospect panel (spec 14 S2), and the same form for a new prospect. Name, contact, notes,
@@ -163,15 +163,17 @@ export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true
               <Area label="Notes (also in the OUTREACH sheet)" value={notes} onChange={(e) => setNotes(e.target.value)} />
 
               {!pipeline && <>
-              <p className="fld-label mb" style={{ marginTop: 18 }}>Songs (up to 5) — Gross Streams and Writer %</p>
+              {/* (2026-11-25) each slot's streams are the song's LIFETIME streams (the estimates below are all-time streams × writer share × the rate): labelled so, as in the
+                  advance calculator's Someone new */}
+              <p className="fld-label mb" style={{ marginTop: 18 }}>Songs (up to 5) — Lifetime streams (all platforms) and Writer %</p>
               {songs.map((s) => (
                 <div key={s.slot} className="ar-song-row">
                   <span className="ar-song-num">{s.slot}</span>
-                  <input type="number" placeholder="Gross streams" value={s.streams} onChange={(e) => setSong(s.slot, { streams: e.target.value })} aria-label={`Song ${s.slot} gross streams`} />
+                  <input type="number" placeholder="Lifetime streams" value={s.streams} onChange={(e) => setSong(s.slot, { streams: e.target.value })} aria-label={`Song ${s.slot} lifetime streams`} />
                   <input type="number" placeholder="Writer %" value={s.writerShare} onChange={(e) => setSong(s.slot, { writerShare: e.target.value })} aria-label={`Song ${s.slot} writer %`} />
                 </div>
               ))}
-              <p className="hint">The OUTREACH tab has 5 song slots; those feed the sheet's estimates.</p>
+              <p className="hint">Each song's all-time total on every platform, not a year's streams. The OUTREACH tab has 5 song slots; those feed the sheet's estimates.</p>
               </>}
             </div>
 
@@ -182,7 +184,7 @@ export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true
                 {/* the sheet's total first and full width; short numbers so nothing is cut off */}
                 <div className="cat-summary-grid ar-panel-tiles">
                   {!isNew && <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Total est. value</span><span className="cat-stat-val">≈ {wholeMoney(prospect.money.totalEstValue)}</span></div>}
-                  <div className="cat-stat"><span className="cat-stat-label">Gross streams</span><span className="cat-stat-val">{bigNum(grossStreams)}</span></div>
+                  <div className="cat-stat"><span className="cat-stat-label">Lifetime streams</span><span className="cat-stat-val">{bigNum(grossStreams)}</span></div>
                   <div className="cat-stat"><span className="cat-stat-label">Net streams (their share)</span><span className="cat-stat-val">{bigNum(netStreams)}</span></div>
                   {/* the writer's own all-time earnings, not ours: our cut (the sheet's admin fee) gets its own readable line under it */}
                   <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Their est. publishing earnings (all-time)</span><span className="cat-stat-val">{wholeMoney(estRevenue)}</span>{assume?.adminFeeRate != null && <span className="ar-tile-cut" data-our-cut>Our {Math.round(assume.adminFeeRate * 100)}% ≈ {wholeMoney(estRevenue * assume.adminFeeRate)}</span>}</div>
