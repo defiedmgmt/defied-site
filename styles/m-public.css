@@ -1,1 +1,55 @@
-/* m-public.css: phone and touch rules for the public site, sign-in and the client portal; filled in the next mobile phase. Loaded after m-global.css. */
+/* m-public.css (2026-11-25, the owner: "make sure everything is formatted good on mobile too, especially the web app version"): phone and
+   touch rules for the public site, sign-in and the client portal. Loaded last (pages/_app.jsx), after m-global.css, so a rule here wins a
+   tie with app.css's and m-global's. Desktop (900px and up with a mouse) is untouched: every rule sits under a phone, touch or no-hover
+   query. "A phone" here is the shared one (lib/phone.js) widened to the public site's own 899px switch: under 900px wide, or a touch
+   screen under 500px tall (a phone held sideways, 667-932px wide). The fields' 16px floor, Contact's touch chips, the Show toggle and
+   the "Not on streaming" box are m-global's. */
+
+/* 1. THE CLIENT PORTAL ON A PHONE. */
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
+  /* one page, not a card around the page: app.css's card was made for the Password block (now a header button) and today wraps
+     everything under the title (Your numbers, links, Commission, songs) in a second border on a phone, 42px narrower; the songs head
+     gets its own 20px back, so Add Song no longer sits on the streams tiles */
+  .app:not(.pub) .portal-main > .portal-block:last-child{padding:0;background:none;border:0;border-radius:0}
+  .app:not(.pub) .portal-main > .portal-block:last-child > .portal-block-head{margin:0 0 20px}
+  /* a song card's split line wraps instead of ending in "…": its total is the number that turns red when the splits don't add up
+     (the artists line above it wraps by m-roster.css, the same card on a Roster client page) */
+  .app:not(.pub) .portal-main .song-info em{white-space:normal;overflow:visible;text-overflow:clip}
+  /* the small labels: the numbers tiles (11px, as on a phone in portrait), "Your 20%" and the song editor's Publishing splits (12px) */
+  .app:not(.pub) .portal-main .cat-stat-label{font-size:11px}
+  .app:not(.pub) .portal-main .mc-owed .cat-stat-label{font-size:12px;letter-spacing:.1em}
+  .app:not(.pub) .portal-main .splits-ed-head{font-size:12px;letter-spacing:.1em}
+  /* a song's Streams value stays one piece ("Under 1,000"); the long label beside it wraps instead */
+  .app:not(.pub) .portal-main .song-nums .split-pct{flex:none;white-space:nowrap}
+}
+@media (max-width:599px){
+  /* Your numbers, two across: the streams tile's "(this week)" is a third line under its label, so the tile beside it keeps the same
+     room and both values sit on one line */
+  .app:not(.pub) .portal-main .as-grid > .as-tile:is([data-as=streams],[data-as=streams] + .as-tile) .cat-stat-label{min-height:calc(3.75em + 2px)}
+}
+/* a tile's "Add your link" and a Your links address (it opens the profile): 44px targets on a phone or touch screen, nothing moves
+   (the inline-link pattern: the box grows, a negative margin gives the room back) */
+@media (pointer:coarse),(max-width:639px){
+  .app:not(.pub) .portal-main .as-tile button.inline-link[data-add-link]{display:inline-flex;align-items:center;min-height:44px;margin:-14px 0}
+  .app:not(.pub) .portal-main a.ml-val{padding-block:12px;margin-block:-12px}
+}
+
+/* 2. THE PUBLIC SITE ON A PHONE: no text under 11px. The chips and pills keep the Defied display face; a credit chip wraps onto a
+      second line rather than shrink (app.css lets .rc-chips wrap). */
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
+  .app.pub .chip-tag{font-size:11px;letter-spacing:.06em}
+  .app.pub .rc:not(.rc-feat) .rc-chips .chip-tag{font-size:11px}
+  .app.pub .chip-tag-lg{font-size:12px}                                    /* the artist panel's role: Producer / Artist */
+  .app.pub .chip>span,.app.pub .ct-chips .chip>span{font-size:11px}      /* Roster's filter, Contact's subjects held sideways */
+  .app.pub .ros2-filter .chip>span{font-size:11px;letter-spacing:.06em}
+  .app.pub .pill{font-size:11.5px}                                        /* the desktop size: See the roster, Send message, Sign in */
+  .app.pub .rc-cta{font-size:11.5px}                                      /* Play on Spotify */
+  .app.pub .ct-direct-label{font-size:11.5px}
+  /* the Copied toast: 11px (one line for submissions@ from a 375px phone up), and clear of the screen's edges when a long address
+     needs a second line */
+  .app.pub .toast{max-width:calc(100% - 32px);box-sizing:border-box;padding:12px 16px;font-size:11px;letter-spacing:.04em;line-height:1.3;text-align:center}
+}
+/* a release card's play badge is its only sign that it opens Spotify or YouTube: on a touch screen (no hover) it always shows */
+@media (hover:none){
+  .app.pub .rc-play{opacity:1;translate:0 0}
+}
