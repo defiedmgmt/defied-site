@@ -51,7 +51,7 @@ export function EmpireCalc({ data, reload, init = null }) {
   const rulePct = pctText(lev?.runRate ?? 0);
   const pace = useMemo(() => {
     if (!lev?.ok) return null;
-    if (producer) return paceSource({ p: paceOfSongs(picks.filter((s) => s.share > 0)), rule: lev.runRate, decay: lev.decayRate, heldNames: picks.filter((s) => s.share > 0 && s.launch).map((s) => s.song) });
+    if (producer) return paceSource({ p: paceOfSongs(picks.filter((s) => s.share > 0)), rule: lev.runRate, decay: lev.decayRate, heldNames: picks.filter((s) => s.share > 0 && s.launch).map((s) => s.song), noSplit: picks.filter((s) => !(s.share > 0)).length });
     return { real: false, perYear: netStreams * lev.runRate, warning: null, source: `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${rulePct} a year.` };
   }, [lev, producer, scope, picked, netStreams]); // eslint-disable-line react-hooks/exhaustive-deps
   const R = clampMonths(monthsIn), amount = amountOf(amountIn), cut = cutFromText(cutText);
@@ -190,7 +190,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                   />
                   {checked && <p className="adv-check-out" data-tone={checked.tone} data-adv-check-result role="status">{checked.text}</p>}
                 </div>
-              ) : <p className="hint adv-nofee" data-adv-nofee>At this pace there are no royalties to pay an advance back from.</p>}
+              ) : <p className="hint adv-nofee" data-adv-nofee>{pace.noSplitOnly ? "No split yet, so there are no royalties to pay an advance back from." : "At this pace there are no royalties to pay an advance back from."}</p>}
 
               <div className="adv-block adv-compact" data-emp-save>
                 <h3 className="adv-h">Save as a planned deal</h3>

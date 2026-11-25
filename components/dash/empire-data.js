@@ -224,21 +224,28 @@ function newSongNote(p, r, decay, heldNames) {
   }
   return p.newShare > 0 ? `New songs, so this estimate is rough: ${partPct(p.newShare)} of this pace is from songs out under 3 months, and new songs usually drop faster than ${pctText(decay)} a year.` : null;
 }
-// p: paceOfSongs()'s answer for the songs picked (song by song: each measured song at its measured pace, the rest by the rule); rule: the sheet's run-rate (B9) as a
-// fraction; decay: B8; heldNames: the names of the new songs held down. -> { real (all of the pace measured), realShare, perYear, source, warning }
-export function paceSource({ p, rule, decay, heldNames = [] }) {
+// p: paceOfSongs()'s answer for the songs picked that have a split (song by song: each measured song at its measured pace, the rest by the rule); rule: the sheet's run-rate
+// (B9) as a fraction; decay: B8; heldNames: the names of the new songs held down; noSplit: how many songs picked have no split for the producer yet (they aren't in p).
+// -> { real (all of the pace measured), realShare, perYear, source, warning, noSplitOnly (every song picked has no split: nothing to count) }
+export function paceSource({ p, rule, decay, heldNames = [], noSplit = 0 }) {
   const r = pctText(rule);
+  // (2026-11-24, audit) songs without a split: said as such, not as "no daily tracking" (a $0 advance for a song with no split is about the split, not the readings)
+  if (noSplit > 0 && !(p.count > 0)) {
+    return { real: false, realShare: 0, perYear: 0, warning: null, noSplitOnly: true,
+      source: `No split yet: ${noSplit === 1 ? "the song picked has no split" : `none of the ${noSplit} songs picked has a split`} for this producer, so there are no royalties to count. Add the split on the song first.` };
+  }
+  const unsplit = noSplit > 0 ? ` ${noSplit === 1 ? "1 song has" : `${noSplit} songs have`} no split yet, so ${noSplit === 1 ? "it isn't" : "they aren't"} counted.` : "";
   if (p.tracked > 0) {
     const rest = p.count - p.tracked;
     const other = rest > 0 ? ` ${rest === 1 ? "The other song uses" : `The other ${rest} use`} the sheet's rule (${r} of lifetime a year)${p.real ? "" : `, so ${partPct(p.realShare)} of the pace is measured`}.` : "";
     return {
       real: p.real, realShare: p.realShare, perYear: p.perYear,
-      source: `${p.real ? "Real streams: " : ""}Spotify's daily counts for ${p.tracked} of ${p.count} ${p.count === 1 ? "song" : "songs"}, scaled to all platforms by each song's lifetime total.${other}`,
+      source: `${p.real ? "Real streams: " : ""}Spotify's daily counts for ${p.tracked} of ${p.count} ${p.count === 1 ? "song" : "songs"}, scaled to all platforms by each song's lifetime total.${other}${unsplit}`,
       warning: newSongNote(p, r, decay, heldNames),
     };
   }
   return {
     real: false, realShare: 0, perYear: p.perYear, warning: null,
-    source: `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${r} a year.`,
+    source: `Estimate: no daily tracking for their songs, so this uses the sheet's rule: lifetime streams × ${r} a year.${unsplit}`,
   };
 }
