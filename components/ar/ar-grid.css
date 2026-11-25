@@ -153,6 +153,8 @@
 .ard-bar { height: 10px; border-radius: 3px; background: var(--d-s3, #1e1e20); overflow: hidden; }
 .ard-bar i { display: block; height: 100%; background: var(--d-ink-3, #a3a3a3); }
 .ard-bar-row b { text-align: right; font-weight: 500; font-style: italic; }
+/* (2026-11-25, polish) Luminate's older count (before Sep 8, 2026), kept apart from the chart: a muted line set off by a rule */
+.ard-lum-older { padding-left: 8px; border-left: 2px solid var(--d-line-2, #2a2a2c); }
 .ard-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; min-height: 44px; }
 .ard-sec textarea { width: 100%; min-height: 72px; }
 .ard { padding-bottom: env(safe-area-inset-bottom); }

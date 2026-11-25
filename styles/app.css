@@ -3277,6 +3277,7 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .lum-hist-row > :not(:first-child){text-align:right}
 .app:not(.pub) .lum-hist-hd{min-height:28px;font:600 11px/1.2 var(--d-body);letter-spacing:.06em;text-transform:uppercase;color:var(--d-ink-4)}
 .app:not(.pub) .lum-hist-more{align-self:flex-start;margin-top:6px;min-height:32px}
+.app:not(.pub) .lum-hist-row.lum-hist-older{color:var(--d-ink-4)} /* (2026-11-25, polish) a week on Luminate's older count (before Sep 8, 2026), muted */
 .app:not(.pub) .lum-hist .nums-mode{margin-top:10px}
 @media (max-width:899px){ .app:not(.pub) .home > .home-side > .home-card{margin:0 0 12px} }
 .app:not(.pub) .home-all{margin-left:auto;font-size:12.5px;text-decoration:none;color:var(--d-ink-3)}

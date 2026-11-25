@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { swrJson, peekJson } from "../ui/fetch-cache";
 import { fmt } from "./ui";
 import { dataPost } from "./chips";
+import { LUM_BASIS_NOTE } from "../../lib/lum-basis";
 
 // r10: kept small on purpose, since a roster artist's Publishing page (components/portal/ClientPortal.jsx
 // SongManager, staff only) draws LumHistory: the automated numbers' writes (dataPost), campaign mode
@@ -40,6 +41,8 @@ export function LumHistory({ k, campaign = false }) {
   if (!d) return null;
   const weeks = d.series.filter((p) => p.kind === "week").reverse(); // newest first
   const atd = d.series.filter((p) => p.kind === "atd" && p.v != null).pop();
+  // (2026-11-25, polish) Luminate changed how it counts on Sep 8, 2026: a week before it (`older`, lib/data/lum.js) is muted and never compared with one after it
+  const olderWeeks = weeks.some((p) => p.older && p.v != null);
   const w = d.week;
   const shown = all ? weeks : weeks.slice(0, 6);
   return (
@@ -47,15 +50,15 @@ export function LumHistory({ k, campaign = false }) {
       <div className="lum-hist-head"><b>Luminate history</b><span className="hint">all platforms, read only{w?.src && /US only/.test(w.src) ? " · US only" : ""}</span></div>
       {!weeks.length && !atd ? <p className="hint" data-lum-none>No Luminate numbers for this one (no plays in the files we have, or not added).</p> : <>
         {w && <p className="lum-hist-week" data-lum-week>{weekText(w.from, w.to)}: <b>{fmt(w.v)}</b> streams{w.pct != null ? <> · <span className={w.pct >= 0 ? "pos" : "neg"}>{pctWord(w.pct / 100)}</span> on the week before</> : " · needs a second week to compare"}</p>}
-        {atd && <p className="hint" data-lum-atd>All-time: {fmt(atd.v)} streams on {weekText(atd.from)}</p>}
+        {atd && <p className="hint" data-lum-atd>All-time: {fmt(atd.v)} streams on {weekText(atd.from)}{atd.older ? ` (before ${LUM_BASIS_NOTE}, on its older, narrower count)` : ""}</p>}
         {weeks.length > 0 && (
           <div className="lum-hist-table" role="table" aria-label="Luminate weeks">
             <div className="lum-hist-row lum-hist-hd" role="row"><span role="columnheader">Week</span><span role="columnheader">Streams</span><span role="columnheader">vs week before</span></div>
             {shown.map((p, i) => {
               const prev = weeks[i + 1];
-              const pct = p.v != null && prev?.v > 0 && prev.from === new Date(Date.parse(`${p.from}T12:00:00Z`) - 7 * 864e5).toISOString().slice(0, 10) ? (p.v - prev.v) / prev.v : null;
+              const pct = p.v != null && prev?.v > 0 && !!prev.older === !!p.older && prev.from === new Date(Date.parse(`${p.from}T12:00:00Z`) - 7 * 864e5).toISOString().slice(0, 10) ? (p.v - prev.v) / prev.v : null;
               return (
-                <div key={p.from} className="lum-hist-row" role="row" data-week={p.from}>
+                <div key={p.from} className={p.older ? "lum-hist-row lum-hist-older" : "lum-hist-row"} role="row" data-week={p.from} data-older={p.older ? "" : undefined}>
                   <span role="cell">{weekText(p.from, p.to)}</span>
                   <span role="cell">{p.v == null ? <em className="hint">no number</em> : fmt(p.v)}</span>
                   <span role="cell" className={pct == null ? "hint" : pct >= 0 ? "pos" : "neg"}>{pct == null ? "—" : pctWord(pct)}</span>
@@ -65,6 +68,7 @@ export function LumHistory({ k, campaign = false }) {
             {weeks.length > 6 && <button type="button" className="inline-link lum-hist-more" onClick={() => setAll(!all)}>{all ? "Show fewer weeks" : `Show all ${weeks.length} weeks`}</button>}
           </div>
         )}
+        {olderWeeks && <p className="hint" data-lum-older>{LUM_BASIS_NOTE}: the muted weeks are from before it, on its older, narrower count, so they aren't compared with the later ones.</p>}
       </>}
       {campaign && d.mode != null && <ModeSwitch id={k} mode={d.mode === "auto" ? null : d.mode} onSaved={load} />}
     </div>

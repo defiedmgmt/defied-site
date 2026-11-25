@@ -11,6 +11,7 @@ import { n0, signed, pctText, dirOf, dayText, atText, post, spanText, typeOf, TY
 import { Photo, Links, DeltaCell, MetricCell, TypeChip } from "./ArGrid";
 import { BigChart, usePhone } from "./BigChart";
 import { CAPTION, countWords, momentumWords, momentumHead } from "../../lib/ar/chart";
+import { LUM_BASIS_NOTE } from "../../lib/lum-basis";
 
 const METRIC_NAME = { listeners: "Spotify monthly listeners", streams: "Spotify streams", spfollowers: "Spotify followers", tiktok: "TikTok followers", instagram: "Instagram followers", youtube: "YouTube subscribers", videos: "TikTok videos with this sound" };
 const useIso = typeof window !== "undefined" ? useLayoutEffect : useEffect;
@@ -20,13 +21,20 @@ const dayOfPoint = (p) => (Array.isArray(p) ? p[0] : p.d);
 const valueOfPoint = (p) => (Array.isArray(p) ? p[1] : p.v);
 const kindOf = (key, s) => s.kind || (key === "streams" || key === "videos" ? "total" : "level");
 
-// the Luminate history (all platforms, read-only): the weekly streams (and the all-time total, one tap away) on the big chart, the all-time line, the last two weeks
+// the Luminate history (all platforms, read-only): the weekly streams (and the all-time total, one tap away) on the big chart, the all-time line, the last two weeks.
+// (2026-11-25, polish) Luminate changed how it counts on Sep 8, 2026 (lib/lum-basis.js; the server marks every point before it `older`). The chart, its numbers, the
+// all-time line and the two weeks' bars are the new count only, so the change of count (a ~16M "step" on a big song) is never drawn or taken as growth. The older readings
+// and weeks are not dropped: one muted line under them says what they were, with the note.
+const OLD_WEEKS_SHOWN = 4;
 function LumHistory({ series, releases, variant }) {
   const [view, setView] = useState(null);
-  const atd = (series || []).filter((p) => p.kind === "atd" && p.v != null);
-  const weeks = (series || []).filter((p) => p.kind === "week");
+  const atdAll = (series || []).filter((p) => p.kind === "atd" && p.v != null), weeksAll = (series || []).filter((p) => p.kind === "week");
+  // the new count's weeks from its first one with a number (the empty weeks the server fills in between the older weeks and the new ones are not the new count's own gaps)
+  const weeksNew = weeksAll.filter((p) => !p.older), firstNum = weeksNew.findIndex((p) => p.v != null);
+  const atd = atdAll.filter((p) => !p.older), weeks = firstNum < 0 ? [] : weeksNew.slice(firstNum);
+  const atdOld = atdAll.filter((p) => p.older), weeksOld = weeksAll.filter((p) => p.older && p.v != null);
   const two = weeks.slice(-2);
-  if (!atd.length && !two.length) return <p className="hint">Not on Luminate's lists.</p>;
+  if (!atd.length && !two.length && !atdOld.length && !weeksOld.length) return <p className="hint">Not on Luminate's lists.</p>;
   // a week sits on its last day; a week with no number is a gap, so it isn't a point (r11 fix: a chart only from two points; one is a line of text)
   const weekPts = weeks.filter((p) => p.v != null).map((p) => ({ d: p.to, v: p.v, from: p.from }));
   const atdPts = atd.map((p) => ({ d: p.to, v: p.v }));
@@ -50,6 +58,12 @@ function LumHistory({ series, releases, variant }) {
         </>
       )}
       {atd.length > 0 && <p className="hint" data-lum-atd>All-time streams: {atd.map((p) => `${dayText(p.to)} ${n0(p.v)}`).join(" → ")}</p>}
+      {(atdOld.length > 0 || weeksOld.length > 0) && (
+        <p className="hint ard-lum-older" data-lum-older>{`${LUM_BASIS_NOTE}. Before it, on its older, narrower count (kept apart, never compared with the numbers above): ${[
+          atdOld.length && `all-time ${atdOld.map((p) => `${dayText(p.to)} ${n0(p.v)}`).join(" → ")}`,
+          weeksOld.length && `${weeksOld.length === 1 ? "the week" : "weeks"} ${weeksOld.slice(-OLD_WEEKS_SHOWN).map((p) => `${dayText(p.from)}–${dayText(p.to)} ${n0(p.v)}`).join(" · ")}${weeksOld.length > OLD_WEEKS_SHOWN ? ` and ${weeksOld.length - OLD_WEEKS_SHOWN} earlier` : ""}`,
+        ].filter(Boolean).join("; ")}.`}</p>
+      )}
       {two.length > 0 && (
         <div className="ard-bars" data-lum-weeks>
           {two.map((p) => (
