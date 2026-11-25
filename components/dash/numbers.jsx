@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { RefreshCw, AlertTriangle, ChevronDown } from "lucide-react";
 import { swrJson, peekJson } from "../ui/fetch-cache";
-import { clock } from "./chips";
 import { RowMenu, Sparkline, compact, shortDay } from "./helpers";
 import { fmt } from "./ui";
 import { dataPost, ModeSwitch } from "./lum-history";
 import { PREVIEW } from "../../lib/preview";
+// Site › Sync's times on New York's clock, like the checks above them (lib/ny-time.js)
+import { nyShortDay, nyWhen } from "../../lib/ny-time";
 export { dataPost, ModeSwitch, LumHistory } from "./lum-history";
 export { TodoChip } from "./chips";
 
@@ -171,10 +172,10 @@ export function SourceNums({ d, founder, canEdit, onSaved }) {
         <div className="nums-month" data-cost-month>
           <p className="nums-costline" data-costline>{pic.month}: about <b>{usd2(pic.est)}</b> at this schedule · <b>{usd2(pic.spent)}</b> spent so far (the site's count of its own runs)</p>
           {pic.other >= 0.01 && <p className="hint" data-cost-other>That includes {usd2(pic.other)} for links looked up in the paste box, which have no row below.</p>}
-          {pic.limit != null && <p className="hint" data-cost-cap>Runs stop at <b>{usd2(pic.limit)}</b> a month: {pic.limitWhy}.{acct ? ` Apify's own count: ${usd2(acct.usageUsd)} of ${usd2(acct.limitUsd)}${acct.at ? ` as of ${shortDay(acct.at)}, ${clock(acct.at)}` : ""}${pic.cycle ? `, for its billing month (${pic.cycle}). The site counts from the 1st, and runs after that read aren't in Apify's count yet.` : ", so runs after that aren't in it yet."}` : ""}</p>}
+          {pic.limit != null && <p className="hint" data-cost-cap>Runs stop at <b>{usd2(pic.limit)}</b> a month: {pic.limitWhy}.{acct ? ` Apify's own count: ${usd2(acct.usageUsd)} of ${usd2(acct.limitUsd)}${acct.at ? ` as of ${nyWhen(acct.at)}` : ""}${pic.cycle ? `, for its billing month (${pic.cycle}). The site counts from the 1st, and runs after that read aren't in Apify's count yet.` : ", so runs after that aren't in it yet."}` : ""}</p>}
           {/* r11 fix: a preview's plan is the copy it was given (it never asks Apify); the live site reads the plan
               (GET /users/me/limits) at the start of every run, so its line and warning follow the plan really on */}
-          {PREVIEW && acct && <p className="hint" data-cost-preview>In this preview Apify's plan is the copy read {acct.at ? shortDay(acct.at) : "earlier"}. The live site reads the plan from Apify on every run.</p>}
+          {PREVIEW && acct && <p className="hint" data-cost-preview>In this preview Apify's plan is the copy read {acct.at ? nyShortDay(acct.at) : "earlier"}. The live site reads the plan from Apify on every run.</p>}
           {pic.over && !PREVIEW && <p className="nums-warn" role="alert" data-cost-over>The estimate is over the {usd2(pic.limit)} cap: at this pace the updates stop around {pic.stopDay}. Set a source to weekly to stay under it.</p>}
           {pic.budgetsOver && <p className="hint" data-cost-budgets>The sources' own budgets add up to {usd2(pic.budgets)}, more than the {usd2(pic.total)} total. The total wins: a source with budget left still stops once all of them reach {usd2(pic.total)}.</p>}
         </div>
@@ -182,7 +183,7 @@ export function SourceNums({ d, founder, canEdit, onSaved }) {
       {d.sources.map((s) => (
         <div key={s.key} className="nums-srow" data-source={s.key}>
           <div className="nums-srow-t"><b>{s.label}</b><span className="hint">{s.tracked} tracked{s.campaign ? ` · ${s.campaign} in campaign mode` : ""}{founder ? ` · about ${usd(s.estMonthlyUsd)}/month${s.paid ? ` · ${usd(s.spentUsd)} this month` : " · free"}` : s.paid ? "" : " · free"}</span>
-            <span className={`hint${s.last?.status === "failed" ? " err-text" : missRate(s) > 0.1 ? " nums-warn" : ""}`} data-last data-miss={missRate(s) > 0.1 ? "warn" : undefined}>{missRate(s) > 0.1 ? "⚠ " : ""}{s.skipped ? `Skipped ${shortDay(s.skipped.at)}: ${s.skipped.why}` : s.last ? `${s.last.status === "failed" ? "Failed" : s.last.status === "started" ? "Running since" : "Last run"} ${shortDay(s.last.at)}${s.last.error ? `: ${s.last.error}` : ""}` : "Not run yet"}{missRate(s) > 0.1 ? ` That's ${Math.round(missRate(s) * 100)}% of the ${s.tracked}.` : ""}{missNote(s)}</span></div>
+            <span className={`hint${s.last?.status === "failed" ? " err-text" : missRate(s) > 0.1 ? " nums-warn" : ""}`} data-last data-miss={missRate(s) > 0.1 ? "warn" : undefined}>{missRate(s) > 0.1 ? "⚠ " : ""}{s.skipped ? `Skipped ${nyShortDay(s.skipped.at)}: ${s.skipped.why}` : s.last ? `${s.last.status === "failed" ? "Failed" : s.last.status === "started" ? "Running since" : "Last run"} ${nyShortDay(s.last.at)}${s.last.error ? `: ${s.last.error}` : ""}` : "Not run yet"}{missRate(s) > 0.1 ? ` That's ${Math.round(missRate(s) * 100)}% of the ${s.tracked}.` : ""}{missNote(s)}</span></div>
           {canEdit ? (
             <div className="nums-srow-f">
               {s.key !== "spotify_catalog" && <select aria-label="How often" value={f[s.key].schedule} onChange={(e) => set(s.key, { schedule: e.target.value })}><option value="daily">Daily</option><option value="weekly">Weekly</option></select>}
@@ -212,7 +213,7 @@ export function SyncSources({ ctx }) {
   useEffect(() => { if (ctx.can("publishing")) load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (!ctx.can("publishing")) return null;
   const st = d?.state;
-  const line = !st ? null : !st.refreshOn ? "Automatic updates are off." : !st.keys?.apify ? "Apify isn't connected, so streams and followers don't update." : `Streams and YouTube update daily, followers weekly${st.lastAt ? ` · last update ${shortDay(st.lastAt)}, ${clock(st.lastAt)}` : ""}`;
+  const line = !st ? null : !st.refreshOn ? "Automatic updates are off." : !st.keys?.apify ? "Apify isn't connected, so streams and followers don't update." : `Streams and YouTube update daily, followers weekly${st.lastAt ? ` · last update ${nyWhen(st.lastAt)}` : ""}`;
   return (
     <section className="sync-sources" data-sync-sources>
       <div className="sync-sec-head"><h3>Where the numbers come from</h3>

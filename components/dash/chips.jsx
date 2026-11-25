@@ -1,4 +1,5 @@
 import { ChevronRight } from "lucide-react";
+import { nyClock } from "../../lib/ny-time";
 
 // Small pieces every dashboard section and the shell use (list B #11: kept out of the sections' own
 // modules, so loading one section never pulls in another). dataPost: POST /api/data.
@@ -20,4 +21,6 @@ const flatPct = (p) => Math.abs(p) < 0.05;
 export const pctText = (p) => (flatPct(p) ? "0.0%" : `${p >= 0 ? "▲" : "▼"} ${Math.abs(p).toFixed(1)}%`);
 // the week-on-week % as one pill everywhere: ▲ green up, ▼ red down, grey when flat; nothing when there's no last week
 export const WowPill = ({ pct, big }) => (pct == null ? null : <span className={big ? "wow-pill big" : "wow-pill"} data-dir={flatPct(pct) ? "flat" : pct >= 0 ? "up" : "down"}>{pctText(pct)}</span>);
-export const clock = (iso) => (iso ? new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "");
+// (2026-11-25) a time of day on New York's clock, like every line the server writes (lib/ny-time.js), not the browser's own zone: "Checked 5:33 PM" on Site › Sync
+// matches "Schedule A: synced Nov 25, 5:33 PM" under it wherever the page is opened
+export const clock = (iso) => nyClock(iso);
