@@ -242,13 +242,16 @@ function DealRow({ deal, who, data, reload, init }) {
   const { terms, today } = data;
   const given = deal.status === "given";
   const [mode, setMode] = useState(init?.mode ?? null); // null | "edit" | "given" | "delete"
-  const [f, setF] = useState(() => init?.form ?? { advance: String(deal.advance), cut: String(Math.round(deal.cut * 10000) / 100), note: deal.note || "", day: deal.givenOn || today });
+  // the form starts from the deal as it is NOW each time it opens (2026-11-26 review): Cancel drops what was typed, and values a reload brought (another Founder's edit,
+  // Back to planned) are what Edit shows, so a later Save never sends a cancelled advance or cut
+  const fresh = () => ({ advance: String(deal.advance), cut: String(Math.round(deal.cut * 10000) / 100), note: deal.note || "", day: deal.givenOn || today });
+  const [f, setF] = useState(() => init?.form ?? fresh());
   const { busy, err, act, clear } = useAct(reload);
   const r = deal.recoup || {};
   const name = deal.clientId ? who || "A producer (not on Schedule A now)" : deal.prospectName || "A prospect";
   const cut = cutFromText(f.cut), advance = Number(String(f.advance).replace(/[$,\s]/g, ""));
   const okEdit = cut != null && Number.isFinite(advance) && advance > 0 && (!given || !!f.day);
-  const close = () => { setMode(null); clear(); };
+  const close = () => { setMode(null); clear(); setF(fresh()); };
   const save = () => act({ action: "saveDeal", id: deal.id, advance: f.advance, cut, note: f.note, ...(given ? { givenOn: f.day } : {}) }, close);
   const pct = given && r.pct != null ? Math.round(r.pct * 1000) / 10 : 0;
   const line = dealLine(deal), forecast = dealForecast(deal);
@@ -301,8 +304,8 @@ function DealRow({ deal, who, data, reload, init }) {
         <div className="emp-deal-acts">
           {given
             ? <button type="button" className="btn ghost sm" data-emp-unmark onClick={() => act({ action: "setDealStatus", id: deal.id, status: "planned" })} disabled={busy}>Back to planned</button>
-            : <button type="button" className="btn sm" data-emp-mark onClick={() => { clear(); setMode("given"); }} disabled={busy}>Mark as given</button>}
-          <button type="button" className="btn ghost sm" data-emp-edit onClick={() => { clear(); setMode("edit"); }} disabled={busy}>Edit</button>
+            : <button type="button" className="btn sm" data-emp-mark onClick={() => { clear(); setF(fresh()); setMode("given"); }} disabled={busy}>Mark as given</button>}
+          <button type="button" className="btn ghost sm" data-emp-edit onClick={() => { clear(); setF(fresh()); setMode("edit"); }} disabled={busy}>Edit</button>
           <button type="button" className="quiet-act" data-emp-delete onClick={() => { clear(); setMode("delete"); }} disabled={busy}>Delete</button>
         </div>
       )}
