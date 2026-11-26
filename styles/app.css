@@ -2468,6 +2468,9 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
    own ("(songs on the site)"): a label without one gets a blank line of the same size, so its value lines up too */
 .app:not(.pub) .portal-tiles:has(> .cat-stat > .cat-stat-note) .cat-stat{justify-content:flex-start}
 .app:not(.pub) .portal-tiles:has(> .cat-stat > .cat-stat-note):has(.cat-stat-label > .cat-stat-note) .cat-stat-label:not(:has(> .cat-stat-note))::after{content:"\00a0";display:block;margin-top:2px;font:400 11px/1.35 var(--d-body)}
+/* (2026-11-26) a client's row of four (Gross Streams, Songs, This Week, This Year): four across from 768px, where a quarter still holds "Gross Streams" on one line (a phone's
+   11px label is 134px wide, a tile's padding 36px), two by two under that (phones are two across already) */
+@media (min-width:600px) and (max-width:767px){ .app:not(.pub) .portal-tiles:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:repeat(2,minmax(0,1fr))} }
 .app:not(.pub) .acct-latest{margin-top:18px}
 .app:not(.pub) .acct-latest .fix-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 .app:not(.pub) .acct-all{font-size:13px;white-space:nowrap}

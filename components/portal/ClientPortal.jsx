@@ -422,13 +422,16 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                 working number and the Advance calculator's input, not one a page shows. (2026-11-24, the owner: "the old pub sheet
                 stuff can go... just the key information") And no Pub earnings or Potential admin fee card on a staff page: those were
                 the sheet's estimates. What's left: Gross alone (a Founder), Gross + Songs (staff without Money), Gross + Songs + This Week
-                (a client; Gross + Songs until there's a week), laid out by styles/app.css */}
+                + This Year (a client; no This Week until there's a week), laid out by styles/app.css */}
             {isStaff ? (!seeMoney && (
               <div className="cat-stat" data-songs-tile><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
             )) : (
               <>
                 <div className="cat-stat" data-songs-tile><span className="cat-stat-label">Songs</span><span className="cat-stat-val">{songs.length}</span></div>
                 {weekGain != null && <div className="cat-stat"><span className="cat-stat-label">This Week</span><span className="cat-stat-val grow-val">{signed(weekGain)}</span></div>}
+                {/* (2026-11-26, the owner: "seems like we're missing a stat on the client portal ... like this month or this year") their streams since Jan 1, Luminate's,
+                    from the same streams as Gross on the same day (db.yearStreams: pages/api/dashboard-data.js, lib/year-streams.js); a dash when none of their songs has the numbers */}
+                <div className="cat-stat" data-year-tile><span className="cat-stat-label">This Year</span>{db.yearStreams ? <span className="cat-stat-val grow-val">{signed(db.yearStreams.total)}</span> : <span className="cat-stat-val">—</span>}</div>
               </>
             )}
           </div>
