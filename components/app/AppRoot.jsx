@@ -295,9 +295,10 @@ export default function AppRoot({ Component, pageProps }) {
   // (2026-11-25, mobile) the installed app is kept in memory for days, with no reload button: the client portal, opened again after more
   // than 5 minutes away, reads its data again. Never mid-save (reloadDb waits for the queue and backs off) and never under an open window
   // (an add or remove dialog). The staff dashboard keeps the Messages-only refresh above, so nothing being edited there is touched.
-  // (2026-11-26 review) and the same return tells the screens (components/app/resume.js emitResume -> useOnResume): the portal's numbers and
-  // commission, and the staff dashboard's read-only loaders (counts, ClickUp, the sync checks, the song facts, Home's and Money's numbers), which
-  // used to wait for a tab switch. The staff dataset itself is still never swapped here (edits in progress)
+  // (2026-11-26 review) and the same return tells the screens (components/app/resume.js emitResume -> useOnResume): the portal's Spotify numbers
+  // (growth: This Week, the +N chips, Gross Streams' Spotify plays), Your numbers and Management Commission's Last paid, and the staff dashboard's
+  // read-only loaders (counts, ClickUp, the sync checks, the song facts, Home's and Money's numbers), which used to wait for a tab switch. Each draws
+  // what it has until the new answer lands. The staff dataset itself is still never swapped here (edits in progress)
   useEffect(() => {
     if (!((route === "client" && session?.role === "client") || (route === "staff" && session?.role === "staff"))) return;
     let hiddenAt = document.visibilityState === "hidden" ? Date.now() : null;

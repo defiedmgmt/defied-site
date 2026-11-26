@@ -9,7 +9,7 @@ import { ShareStats } from "./share";
 import { changedFields, goneText } from "../app/saves";
 import { ClientMore, SpotifyFill } from "../dash/clients";
 import { normalizeTitle, splitsToConfirm } from "../dash/catalog-data";
-import { GrowthChip, Sparkline, dayRange, shortDay, signed, songsPost, songsToUpdate, useGrowth } from "../dash/helpers";
+import { GrowthChip, Sparkline, dayRange, shortDay, signed, songsPost, songsToUpdate, useGrowthState } from "../dash/helpers";
 import { Avatar, DropNote, Field, PhotoUpload, SplitsEditor, SplitsPie, Wordmark, fmt, splitColors, splitPct, splitTotal, uid, useEscape } from "../dash/ui";
 import { streamsLine } from "../dash/streams-line";
 import { canUse } from "../dash/access";
@@ -176,7 +176,11 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   const songsTile = !isStaff || !seeMoney;
   const songs = useMemo(() => db.placements.filter((p) => p.clientId === clientId), [db.placements, clientId]);
   // (Gross streams are lib/portal-streams.js's, below.)
-  const growth = useGrowth();
+  const { growth, retry: reloadGrowth } = useGrowthState();
+  // (2026-11-26 review) the installed app opened again after 5+ minutes away (components/app/resume.js, a client's own page only): the Spotify numbers
+  // are read again with the songs, so This Week, the +N chips and Gross Streams' Spotify plays aren't the last launch's. The ones on screen stay until
+  // the new answer lands. (retry reads the hook's own ref, so the first one is every one.)
+  useOnResume(() => { if (!isStaff && !editorOnly) reloadGrowth(); });
   // this week = Spotify streams this week (the automated numbers, lib/data/growth.js), the songs whose week
   // ends last, as the Publishing table says
   const weekGain = useMemo(() => {
@@ -245,7 +249,9 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
     editFrom.current = p; setEditing({ ...p }); setSplitsFirst(onSplits ? fix.n : 0); setFieldFirst(onSplits ? null : { f: fix.field, n: fix.n });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fix?.n, clientId]);
-  useEscape(() => (editing ? setEditing(null) : setOpenId(null)), !!(active || editing) && !saving);
+  // Esc closes the song's window (read only). (2026-11-26 review) Not the Add / Edit song editor: like the site's other forms (components/dash/admin.jsx
+  // Editor), it closes only with its X or Cancel, so a stray Esc, or a tap on the dimmed strip above a phone's sheet, never throws away what was typed
+  useEscape(() => setOpenId(null), !!active && !editing && !saving);
   useEffect(() => {
     if (!active && !editing) return;
     const prev = document.body.style.overflow;
@@ -597,8 +603,9 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
           onDone={(n) => { setAsk(null); setOpenId(null); setDelNote(n); reloadSongInfo?.(); }} />
       )}
 
+      {/* (2026-11-26 review) no click outside: the editor closes with its X or Cancel only (Esc neither, above) */}
       {editing && (
-        <div className="modal" onClick={(e) => e.target === e.currentTarget && setEditing(null)}>
+        <div className="modal">
           <div className="modal-card">
             <div className="modal-head"><h3>{editing.id ? "Edit song" : "Add song"}</h3><button onClick={() => setEditing(null)} aria-label="Close"><X size={18} /></button></div>
             <div className="modal-body">
