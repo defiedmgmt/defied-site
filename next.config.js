@@ -81,23 +81,22 @@ const nextConfig = {
   },
   // the public "meet the team" page moved from /staff to /team — keep old
   // bookmarks/search results/backlinks working instead of 404ing.
-  async redirects() {
-    return [{ source: "/staff", destination: "/team", permanent: true }];
-  },
+  //
   // pay.defiedmgmt.com/<key> -> that manager's Stripe payment link, so links
   // shared out loud/in a DM stay short and on-brand instead of a raw
   // buy.stripe.com URL. (2026-11-26) The links are a Founders' setting in
-  // Site › Users now, not a list here: /api/pay/[key] reads it and answers
-  // with a 302 (never permanent, never cached: a link can be changed).
-  // `has: host` scopes it to the pay subdomain only — the main domain's own
-  // routes are untouched; beforeFiles, so it runs ahead of the pages, as the
-  // redirects it replaced did.
-  async rewrites() {
-    return {
-      beforeFiles: [
-        { source: "/:key([a-z][a-z0-9]{1,15})", has: [{ type: "host", value: "pay.defiedmgmt.com" }], destination: "/api/pay/:key" },
-      ],
-    };
+  // Site › Users now, not a list here: this sends the key (and its query:
+  // the amount and who's paying) to /api/pay/[key], which reads the setting
+  // and answers with a 302 to Stripe (never permanent, never cached: a link
+  // can be changed). `has: host` scopes it to the pay subdomain only — the
+  // main domain's own routes are untouched. A redirect, not a rewrite: any
+  // rewrite puts Next's rewrite matcher into every page's shared JS (+4.6 kB
+  // gzipped on the public site too), for a link only payers open.
+  async redirects() {
+    return [
+      { source: "/staff", destination: "/team", permanent: true },
+      { source: "/:key([a-z][a-z0-9]{1,15})", has: [{ type: "host", value: "pay.defiedmgmt.com" }], destination: "/api/pay/:key", permanent: false },
+    ];
   },
   // next/image only allows hosts listed here — otherwise it silently 404s on
   // any remote src instead of falling back to the (more permissive) default

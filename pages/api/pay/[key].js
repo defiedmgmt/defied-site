@@ -1,4 +1,4 @@
-// pay.defiedmgmt.com/<key> (next.config.js rewrites it here, 2026-11-26): a 302 to that manager's Stripe payment link, from the pay links
+// pay.defiedmgmt.com/<key> (next.config.js redirects it here, 2026-11-26): a 302 to that manager's Stripe payment link, from the pay links
 // setting (lib/pay-links-store.js; the seed until the first save). Public, as the redirects in next.config.js were. Only two things are
 // passed on: prefilled_amount (the portal card's amount, in cents) and client_reference_id (who is paying), each only when Stripe would
 // take it. Where it goes is never taken from the request: an unknown key is a 404, so this can't send anyone anywhere else.
