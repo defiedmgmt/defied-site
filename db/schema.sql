@@ -915,3 +915,7 @@ ALTER TABLE staff_bios ADD COLUMN IF NOT EXISTS visible boolean NOT NULL DEFAULT
 ALTER TABLE staff_bios ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT now();
 ALTER TABLE staff_bios ADD COLUMN IF NOT EXISTS sort_order integer;
 UPDATE staff_bios s SET sort_order = o.n FROM (SELECT id, (row_number() OVER (ORDER BY ctid))::int - 1 AS n FROM staff_bios) o WHERE s.id = o.id AND s.sort_order IS NULL;
+
+-- 023: the notable releases' order (the About page features the first ones; an artist's panel lists theirs in this order)
+ALTER TABLE notable_releases ADD COLUMN IF NOT EXISTS sort_order integer;
+UPDATE notable_releases n SET sort_order = o.n FROM (SELECT id, (row_number() OVER (ORDER BY ctid))::int - 1 AS n FROM notable_releases) o WHERE n.id = o.id AND n.sort_order IS NULL;

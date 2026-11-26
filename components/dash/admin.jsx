@@ -26,9 +26,10 @@ export { ClientMore, clientDeleteAsk, deleteClientCascade, NAME_TAKEN, nameTaken
 //   draftOf(row)  values | null: a row that isn't saved yet (INFO's manager with no account): its Edit opens a NEW row's form filled with
 //         these values, and it has no Delete
 //   notice  a node under the heading: the line after a save ("Added everywhere: …")
+//   itemName  what one row is called in its form's head ("Edit Client"), when the title isn't its plural (2026-11-26 review: "Roster page")
 // onSave may answer { stay: line, id }: the row WAS saved but the form has more to say (a sheet part that was refused); it stays open, now the
 // saved row's form, with the line. The order of `items` is the caller's: sorting is never done here.
-export function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete, openId = null, noAdd = false, groupOf = null, sort = null, fold = null, draftOf = null, notice = null }) {
+export function Editor({ title, items, columns, blank, onSave, onDelete, extra, maxItems, onReorder, confirmDelete, openId = null, noAdd = false, groupOf = null, sort = null, fold = null, draftOf = null, notice = null, itemName = null }) {
   const [editing, setEditing] = useState(null); // object or null
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState(null);
@@ -154,7 +155,7 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
         <div className="modal">
           <div className="modal-card">
             <div className="modal-head">
-              <h3>{editing.id ? "Edit" : "New"} {title.replace(/s$/, "")}</h3>
+              <h3>{editing.id ? "Edit" : "New"} {itemName || title.replace(/s$/, "")}</h3>
               <button onClick={() => setEditing(null)} aria-label="Close"><X size={18} /></button>
             </div>
             <div className="modal-body">{extra(editing, setEditing)}</div>
@@ -212,7 +213,7 @@ export function ClientsAdmin({ db, commit, openId = null, songInfo = null, reloa
     <div>
     {deleteWarn && <p className="hint err-text mb">{deleteWarn}</p>}
     {noTab.length > 1 && <p className="hint warn-text mb" data-tab-missing-note><AlertTriangle size={14} /> {noTab.length} clients have no tab on the pub sheet, so their numbers can't sync. Open each one marked "No sheet tab" and type its tab name.</p>}
-    <Editor title="Clients" items={db.clients} columns={cols}
+    <Editor title="Roster page" itemName="Client" items={db.clients} columns={cols}
       blank={{ name: "", role: "Producer", credit: "", bio: "", photo: "", spotify: "", apple: "", instagram: "", tiktok: "", youtube: "", soundcloud: "", sheetTabName: "", onRoster: false }}
       onSave={save} onDelete={canUse(db, "publishing") && !db.access?.ownOnly ? del : undefined} onReorder={db.access?.ownOnly ? undefined : reorder} noAdd={!!db.access?.ownOnly} openId={openId}
       confirmDelete={(c) => clientDeleteAsk(db, c)} notice={<AddedSaid said={said} onGo={onGo} />}
@@ -631,7 +632,7 @@ export function TeamAdmin({ db, commit, openId = null, reloadDb = null, onGo = n
   };
   const del = async (id) => commit({ ...db, staff: db.staff.filter((s) => s.id !== id) });
   return (
-    <Editor title="Team" items={db.staff} columns={cols} openId={openId} notice={<AddedSaid said={said} onGo={onGo} />}
+    <Editor title="Team page" itemName="Team member" items={db.staff} columns={cols} openId={openId} notice={<AddedSaid said={said} onGo={onGo} />}
       blank={{ name: "", role: "", email: "", instagram: "", bio: "", photo: "", visible: false }}
       onSave={save} onDelete={del}
       extra={(e, set) => (
