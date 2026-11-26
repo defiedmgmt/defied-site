@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { CheckCircle2 } from "lucide-react";
-import { ACCOUNT_CHANGED, RESUME_REFRESH_MS, SAVE_NOTE_MS, SAVE_OFFLINE, SIGNED_IN_HINT, SIGNED_OUT, accountChanged, addedNote, applyPatch, diffDb, holdUnload, inTabOrder, knownIds, refusal, saveFailure, saveKeys, withServerRows, withoutPasswords } from "./saves";
+import { ACCOUNT_CHANGED, RESUME_REFRESH_MS, SAVE_NOTE_MS, SAVE_OFFLINE, SIGNED_IN_HINT, SIGNED_OUT, accountChanged, addedNote, applyPatch, diffDb, emitResume, holdUnload, inTabOrder, knownIds, nextAfterSignIn, refusal, saveFailure, saveKeys, withServerRows, withoutPasswords } from "./saves";
 import { clearDashCaches, clearStoredDash, setCacheScope } from "../shared/dash-caches";
 import { bootFetch, setBootUser, startBoot } from "../shared/boot";
 import { ROUTE_TO_PATH, routeOf } from "../shared/routes";
@@ -295,15 +295,19 @@ export default function AppRoot({ Component, pageProps }) {
   // (2026-11-25, mobile) the installed app is kept in memory for days, with no reload button: the client portal, opened again after more
   // than 5 minutes away, reads its data again. Never mid-save (reloadDb waits for the queue and backs off) and never under an open window
   // (an add or remove dialog). The staff dashboard keeps the Messages-only refresh above, so nothing being edited there is touched.
+  // (2026-11-26 review) and the same return tells the screens (components/app/resume.js emitResume -> useOnResume): the portal's numbers and
+  // commission, and the staff dashboard's read-only loaders (counts, ClickUp, the sync checks, the song facts, Home's and Money's numbers), which
+  // used to wait for a tab switch. The staff dataset itself is still never swapped here (edits in progress)
   useEffect(() => {
-    if (route !== "client" || session?.role !== "client") return;
+    if (!((route === "client" && session?.role === "client") || (route === "staff" && session?.role === "staff"))) return;
     let hiddenAt = document.visibilityState === "hidden" ? Date.now() : null;
     const onVisibility = () => {
       if (document.visibilityState === "hidden") { hiddenAt = Date.now(); return; }
       const away = hiddenAt === null ? 0 : Date.now() - hiddenAt;
       hiddenAt = null;
       if (away < RESUME_REFRESH_MS || saves.current.pending || document.querySelector(".app:not(.pub) .modal")) return;
-      reloadDb();
+      if (route === "client") reloadDb();
+      emitResume();
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
@@ -332,14 +336,16 @@ export default function AppRoot({ Component, pageProps }) {
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data) return data?.error || (res.status >= 500 || res.ok ? "Sign-in isn't available right now — try again in a minute." : "Incorrect email or password.");
+    // (2026-11-26 review) a link into a section that sent a signed-out person here (/login?next=/dashboard/money) goes on to that section
+    const next = nextAfterSignIn(window.location.search, data.user.role);
     // in the same render as the route change: the new dashboard never draws the last account's data
     clearDashCaches();
     // (2026-11-24, speed) and its first reads start now, beside the route change (the session is known: no check of it)
     setBootUser(data.user.id);
-    if (data.user.role === "staff") startBoot("/dashboard", { me: false });
+    if (data.user.role === "staff") startBoot(next || "/dashboard", { me: false });
     setDb(null); setSession(data.user); setAuthDown(false); setLoadErr(null); setSignIns((n) => n + 1);
     signedInHere.current = true; // this push goes on from the sign-in page; the effect below needn't
-    go(data.user.role === "staff" ? "staff" : "client");
+    if (next) { setMenuOpen(false); window.scrollTo(0, 0); router.push(next); } else go(data.user.role === "staff" ? "staff" : "client");
     return null;
   };
   const logout = async () => {
@@ -370,14 +376,17 @@ export default function AppRoot({ Component, pageProps }) {
   // /api/auth/me has had its one round trip to answer. This is now purely
   // a UX nicety, not the security boundary — the data itself is unreachable
   // without a valid session regardless of what this effect does.
+  // (2026-11-26 review) the address it was sent from goes with it (/login?next=/dashboard/todo/log: ClickUp's and the weekly digest's links into a
+  // section), and sign-in goes on there (nextAfterSignIn: only a dashboard address for staff, a portal one for a client)
   useEffect(() => {
     if (session === undefined) return;
-    if (route === "staff" && session?.role !== "staff") router.replace("/login");
-    if (route === "client" && session?.role !== "client") router.replace("/login");
+    const toLogin = () => { const here = `${window.location.pathname}${window.location.search}${window.location.hash}`; router.replace(here === ROUTE_TO_PATH[route] ? ROUTE_TO_PATH.login : `${ROUTE_TO_PATH.login}?next=${encodeURIComponent(here)}`); };
+    if (route === "staff" && session?.role !== "staff") toLogin();
+    if (route === "client" && session?.role !== "client") toLogin();
     // already signed in: the sign-in page (Back from the dashboard, a bookmark) goes on to the
     // dashboard or portal instead of asking again
     if (route !== "login") signedInHere.current = false;
-    else if (session?.role && !signedInHere.current) router.replace(session.role === "staff" ? "/dashboard" : "/portal");
+    else if (session?.role && !signedInHere.current) router.replace(nextAfterSignIn(window.location.search, session.role) || (session.role === "staff" ? "/dashboard" : "/portal"));
   }, [route, session]);
   // ...and the neutral screen goes once there's something to show: the sign-in form (signed out, or the check failed), the dashboard or
   // portal with its data (or its error), or any other page
@@ -415,7 +424,12 @@ export default function AppRoot({ Component, pageProps }) {
   const canViewTransition = !navigated || (typeof document !== "undefined" && !!document.startViewTransition);
   const onDrop = () => publicDataRequest.then((d) => { if (!d || d === publicData) setPubErr("Couldn't load site data — try refreshing."); });
   const notice = authDown ? "We couldn't check your sign-in just now — try again in a minute." : null;
-  const shared = { route, publicData, pubErr, onDrop, session, db, commit, reloadDb, login, logout, signingOut, notice };
+  // (2026-11-26 review) the dashboard's or portal's own data didn't load (a cold database, a crash, "Client record not found."): the page draws the
+  // error screen with this text, Try again (retryLoad: reads it again; a changed account reloads the page, which checks the sign-in again) and
+  // Sign out, and the banner below stays off so it isn't said twice. SIGNED_OUT keeps its banner and link.
+  const loadFailed = !db && !!session && !!loadErr && loadErr !== SIGNED_OUT;
+  const retryLoad = () => { if (loadErr === ACCOUNT_CHANGED) { window.location.reload(); return; } setLoadErr(null); setSignIns((n) => n + 1); };
+  const shared = { route, publicData, pubErr, onDrop, session, db, commit, reloadDb, login, logout, signingOut, notice, loadErr, loadFailed, retryLoad };
 
   // the App persists across routes, so the mobile menu has to be told to
   // close on any navigation — including back/forward, not just link taps.
@@ -438,7 +452,7 @@ export default function AppRoot({ Component, pageProps }) {
         {!inPortal && <div className="grain" aria-hidden="true" />}
         {/* signed out mid-edit: the page stays put so typed text can be copied; the link (the sentence's last
             words) reloads it fresh. One span, so text and link wrap as one line of text */}
-        {inPortal ? loadErr && <div className="storage-warn" role="alert"><span>{loadErr}{loadErr === SIGNED_OUT && <> <a href={ROUTE_TO_PATH.login} className="inline-link">sign in again.</a></>}</span></div>
+        {inPortal ? loadErr && !loadFailed && <div className="storage-warn" role="alert"><span>{loadErr}{loadErr === SIGNED_OUT && <> <a href={ROUTE_TO_PATH.login} className="inline-link">sign in again.</a></>}</span></div>
           : pubErr && DATA_ROUTES.includes(route) && <div className="storage-warn" role="alert">{pubErr}</div>}
         {!inPortal && (
           <PublicNav route={route} menuOpen={menuOpen} setMenuOpen={setMenuOpen} session={session} />

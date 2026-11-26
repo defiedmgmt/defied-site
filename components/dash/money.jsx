@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { X, RefreshCw, AlertTriangle, CheckCircle2, CircleDollarSign, Info } from "lucide-react";
 import { foldMonths } from "../../lib/months";
 import { swrJson } from "../ui/fetch-cache";
+import { useOnResume } from "../app/resume";
 import { clock } from "./chips";
 import { payDay, shortDay } from "./helpers";
 import { HomeWait, monthName } from "./home-data";
@@ -297,6 +298,8 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
   const asked = useRef(false);
   const emp = sec === "empire" || sec === "advance";
   useEffect(() => { if (emp || asked.current) return; asked.current = true; load(); }, [sec]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (2026-11-26 review) the installed app opened again after a while away (components/app/resume.js): the numbers on show read again (not on the deal pills)
+  useOnResume(() => { if (asked.current && !emp) load(); });
   // To do's Log all: the preview of every payment Log it can place, as soon as they're read
   const started = useRef(false);
   useEffect(() => {

@@ -20,6 +20,8 @@ import { MyCommission } from "../dash/my-commission";
 import { ownSplit, personKey } from "../site/data";
 import { AskCard } from "./ask";
 import { InstallApp } from "../shared/install-app";
+import { AppErrorBoundary } from "../app/ErrorScreen";
+import { useOnResume } from "../app/resume";
 export { AskCard, useDirtyGuard } from "./ask";
 
 /* ------------------------------------------------------------------ */
@@ -335,6 +337,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   // (2026-11-10) the top of a roster artist's page: its campaign numbers, then the streams and money, then the songs
   // staff: every artist's numbers (GET /api/data); a client: their own only (GET /api/my-numbers, 2026-11-10)
   const nums = useArtistNumbers(!editorOnly ? clientId : null, isStaff ? "/api/data" : "/api/my-numbers");
+  // (2026-11-26 review) a client's numbers read again when the installed app is opened after a while away (components/app/resume.js; AppRoot reads their songs again)
+  useOnResume(() => { if (!isStaff && !editorOnly && clientId) nums.reload(); });
   // (2026-11-11, the owner: "can we use the spotify numbers for now until theyre on luminate") a song with no
   // streams from the sheet yet shows Spotify's: its plays (the daily numbers, all-time), or "under 1,000" when
   // Spotify was asked and shows no count (it doesn't below 1,000), said so wherever it's shown. null: nothing to add
@@ -644,9 +648,13 @@ export function ClientPortal({ db, commit, session, logout, signingOut }) {
       <main className="portal-main">
         <InstallApp />
         <h1 className="portal-title">{client?.name || session.name}</h1>
+        {/* (2026-11-26 review) a part that breaks shows the error screen in place of the songs only: the header's Password and Sign out stay usable,
+            and Try again draws it again without a reload */}
+        <AppErrorBoundary inline resetKey={session.id}>
         <div className="portal-block">
           <SongManager db={db} commit={commit} clientId={session.clientId} />
         </div>
+        </AppErrorBoundary>
       </main>
       {pwOpen && <PasswordCard onClose={() => setPwOpen(false)} />}
     </div>
