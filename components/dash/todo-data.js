@@ -104,6 +104,10 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
     out.push({ k: `refund:${r.id}`, area: "money", t: `Refunded after logging: ${r.payer} ${money(r.amount)}${r.row ? ` · row ${r.row}` : ""}`,
       d: `${money(r.refunded)} refunded${r.feeKept ? ", Defied's fee kept" : ""}${r.year ? ` · the ${r.year} book` : ""}`, cta: "Open", panel: "refund", refund: r, rank: { kind: "money", value: 0 } });
   }
+  // (review AL-N3) Auto-log turned itself off after a write that went wrong (a Founder's counts only): why, and Money › Settings to turn it back on once the
+  // sheet is right; the row goes when it's on again. Its ClickUp note may never have gone out, so this is where it's sure to be seen
+  if (acct?.autoLogOff?.why) out.push({ k: "autolog-off", area: "money", t: "Auto-log turned itself off", d: String(acct.autoLogOff.why).replace(/\.\s[\s\S]*$/, ".").slice(0, 140),
+    cta: "Open", panel: "autoLogOff", why: String(acct.autoLogOff.why), rank: { kind: "money", value: 0 } });
   // (2026-11-26) the clients gone quiet (lib/payers.js) and, on its day only (review UX-1: the owner's "a short row on the day"; Money › Paydays keeps the
   // follow-up), each payday whose commission is still to come in (lib/paydays.js), from Money's counts
   const quiet = acct?.payers?.quiet || [];

@@ -26,6 +26,7 @@ export { useCuTasks, useSyncChecks, todoItems, useSplitFixes, useAutoConfirm, sy
 const panel = (load, name) => dynamic(() => load().then((m) => m[name]), { ssr: false, loading: PanelWait });
 const AccountingAdmin = panel(() => import("./money"), "AccountingAdmin");
 const BooksPanel = panel(() => import("./books"), "BooksPanel"); // BOOKS-HOOK (books-1126): "Set the 2027 book"
+const BooksSheet = panel(() => import("./books"), "BooksSheet"); // (review AL-N3) Money's Settings, from "Auto-log turned itself off"
 const SubsAdmin = panel(() => import("./admin"), "SubsAdmin");
 const DupeMerge = panel(() => import("./catalog"), "DupeMerge");
 const SongsToUpdate = panel(() => import("./catalog"), "SongsToUpdate");
@@ -102,8 +103,22 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "quiet": return <QuietList ctx={ctx} />;
     case "payday": return <PaydayCard compact p={it.payday} onGo={onGo} onChange={() => ctx.reloadAcct?.()} />; // (review UX-4) Got it clears the row and the badge
     case "refund": return <RefundFix r={it.refund} ctx={ctx} />;
+    case "autoLogOff": return <AutoLogOffPanel why={it.why} onDone={() => ctx.reloadAcct?.()} />;
     default: return null;
   }
+}
+
+// (review AL-N3) "Auto-log turned itself off": why (its ClickUp note may never have gone out), and Money's Settings, the one switch, right here. Money's counts are
+// read again when Settings closes, so the row goes once it's back on
+function AutoLogOffPanel({ why, onDone }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="todo-sublist" data-auto-log-off>
+      <p className="home-muted">{why}</p>
+      <div className="todo-actions"><button type="button" className="btn sm" onClick={() => setOpen(true)} data-auto-log-settings>Settings</button></div>
+      {open && <BooksSheet onClose={() => { setOpen(false); onDone?.(); }} />}
+    </div>
+  );
 }
 
 // (2026-11-26 owner: automatic) "Refunded after logging": the book with the row to fix (Open the book ↗; the row number is in the row's title) and Handled, which a

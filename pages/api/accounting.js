@@ -6,12 +6,13 @@
 // behind ACCOUNTING_SHEET_WRITES. (2026-11-26 owner: automatic) Auto-log (lib/auto-log.js): a read with a payment no Auto-log note has told yet
 // runs it (autoLogSoon: at most once every 10 minutes, one run at a time), and a Founder's read (counts too) carries `counts.refunds` while there are
 // auto-logged payments refunded since, until each is marked handled: POST { action: "refundHandled", id }, Founders only. The switch is Money › Settings'
-// (/api/accounting-books).
+// (/api/accounting-books). (review AL-N3) While Auto-log is off because it turned itself off (a write that went wrong), a Founder's counts also carry
+// `autoLogOff: { why }`, To do's row, whether or not its ClickUp note went out; it goes once a Founder turns it back on (that clears offWhy).
 import { withSheetsQuick } from "../../lib/sheets";
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
 import { accountingState, markOk } from "../../lib/accounting-section";
-import { autoLogSoon, openRefunds, markRefundHandled } from "../../lib/auto-log";
+import { autoLogSoon, openRefunds, markRefundHandled, autoLogState } from "../../lib/auto-log";
 import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 
 export const config = { maxDuration: 60 };
@@ -25,10 +26,11 @@ export default async function handler(req, res) {
     if (req.method === "GET") {
       // beside the section's own read (the same shared Stripe + sheet read); waited for before the answer (work left after it may never run); never throws
       const soon = autoLogSoon({ started: t0 });
-      const [st, refunds] = await Promise.all([withSheetsQuick(() => accountingState({ fresh: !!req.query.fresh, counts: !!req.query.counts })), founder ? openRefunds() : null]);
+      const [st, refunds, al] = await Promise.all([withSheetsQuick(() => accountingState({ fresh: !!req.query.fresh, counts: !!req.query.counts })), founder ? openRefunds() : null, founder ? autoLogState() : null]);
       await soon;
-      if (!refunds?.length || !st.connected || !st.counts) return res.status(200).json(st);
-      return res.status(200).json({ ...st, counts: { ...st.counts, refunds } });
+      const off = al && !al.on && al.offWhy ? { why: al.offWhy } : null;
+      if ((!refunds?.length && !off) || !st.connected || !st.counts) return res.status(200).json(st);
+      return res.status(200).json({ ...st, counts: { ...st.counts, ...(refunds?.length ? { refunds } : {}), ...(off ? { autoLogOff: off } : {}) } });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
