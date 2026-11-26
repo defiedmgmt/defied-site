@@ -333,7 +333,7 @@ There was a **Releases** pill too until 2026-11-24 (the owner: "maybe we dont ne
     song is on two clients' pages. It goes through the same resizer the client photos use (`thumb()`); a song with no cover shows the first letter of its title in the app's own placeholder
     (`.avatar-ph`). Nothing is looked up: no Spotify call is made for a cover.
   - The big number is the streams of the songs listed (the pub sheet's lifetime streams, the figure a client's page shows for a song; never net streams) with "N songs" beside it and the day
-    they are from (`db.streamsOn`, as the portal says "Streams as of"). Since 2026-11-25 it adds every client's copy up (a song on two clients' tabs is one row but two songs in the total, as on the Roster overview), with no line about it. A song the
+    they are from ("Streams as of <day>", `db.streamsOn`, as the portal says it; the same line as the Overview and a client's page, see Roster below), then "· N songs not on Luminate yet". Since 2026-11-25 it adds every client's copy up (a song on two clients' tabs is one row but two songs in the total, as on the Roster overview), with no line about it. A song the
     sheet has no streams for yet shows "-" and is said to be "not on Luminate yet".
   - The table: every song of the roster, one row each, with its cover beside the title. A song on more than one client's page is one row naming all of them (the ISRC finder's rule: the same
     Spotify track, or the same title and artist, so "N songs with no ISRC" in To do and the No ISRC songs here are the same songs). It follows the search, the filter and the account: a
@@ -350,6 +350,11 @@ There was a **Releases** pill too until 2026-11-24 (the owner: "maybe we dont ne
   or in a song's window: no Pub earnings or Potential admin fee tile, row or column (not behind "More columns" either, which is gone), no "Estimates: streams × the writer's share × $0.00092"
   line, no "Sheet tab: <name>" under a client's name (a tab the sheet doesn't have is still said, as a warning), and a song's card says nothing about its split unless it is missing or doesn't
   add up to 100% (a client's own portal still says "Pub split · N people · 100%"). A song's window keeps its streams, its splits and everything else, and every write it had.
+  - The streams' date, one way on every staff Roster screen (2026-11-26, the owner, review finding BMR-5: the same 249M total said "Updated Nov 25" on the Overview and "Streams as
+    of …" on Catalog): the Overview, Catalog, a client's page and a song's window all say "Streams as of <day>", the day the numbers are from (`db.streamsOn`: Luminate's, e.g. Nov 14),
+    from one helper (`components/dash/streams-line.js` streamsLine). Never "Updated <the day the site last read the pub sheet>": that day is only the Refresh numbers button's title. With
+    no day known there is no as-of line (Catalog keeps its "· N songs not on Luminate yet"). A client or song shown with Spotify's plays because the sheet has no streams for it yet says
+    Spotify's day, as the client sees it. A client's own portal is unchanged.
 - **Every dashboard total adds each client up** (2026-11-25, the owner: "can we just have the company wide total be the 249M", then "the catalog stream total should still match the 249"): the
   Roster overview's tiles (Streams (all time), Streams this week, Songs) and its Roster total row, Catalog's header (its streams and songs), and Site › Sync's pub sheet line all count each client's
   copy of a song (MASTER's ROSTER GROSS STREAMS, the table's columns, every copy in Catalog): nothing counts a shared song once. On Nov 24 that is 249,275,500 streams and 380 songs everywhere. Catalog's

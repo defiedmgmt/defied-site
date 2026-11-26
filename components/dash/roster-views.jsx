@@ -96,7 +96,8 @@ export function RosterCatalog({ db, songInfo, onOpen }) {
   const [limit, setLimit] = useState(PHONE_ROWS);
   useEffect(() => { setLimit(PHONE_ROWS); }, [q, filter, by]);
   const list = phone ? shown.slice(0, limit) : shown;
-  // the day the streams are from, as the portal and the share card say it (db.streamsOn); else the day the site last read the pub sheet (streamsLine)
+  // the day the streams are from, as the portal and the share card say it (db.streamsOn, streamsLine); (2026-11-26, the owner: BMR-5) never the day the site last read the pub
+  // sheet: no day, no as-of part (the "not on Luminate yet" part stays)
   const asOf = streamsLine(db);
   const cols = [
     { id: "song", label: "Song", className: "rl-song", render: (r) => <span className="nr-song"><span className="nr-thumb"><Cover r={r} w={96} /></span><OpenSong r={r} /></span> },
