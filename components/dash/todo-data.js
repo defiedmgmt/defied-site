@@ -80,7 +80,7 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
     if (it.k === "dupes") out.push({ ...base, tap: true, cta: "Merge", panel: "dupes", rank: { kind: "fix", value: 0 } });
     else if (it.k === "splits") out.push({ ...base, panel: "splits", rank: { kind: "fix", value: streams(splitsToConfirm(db, songInfo).all.map((x) => x.p)) } });
     else if (it.k === "update") out.push({ ...base, panel: "update", rank: { kind: "fix", value: streams(songsToUpdate(db, songInfo).map((x) => x.p)) } });
-    else if (it.k === "tabs") out.push({ ...base, d: "The pub sheet has no tab by that name. Type the right one here.", cta: it.sub === "roster" ? "Set the sheet tabs" : it.cta, panel: "tabs", rank: { kind: "other" } });
+    else if (it.k === "tabs") out.push({ ...base, d: "The pub sheet has no tab by that name.", cta: it.sub === "roster" ? "Set the sheet tabs" : it.cta, panel: "tabs", rank: { kind: "other" } });
   }
   // r11: the songs with no ISRC, one row whose panel is the ISRC finder (it was Publishing's ISRCs tab).
   // Only once the song facts are in (an ISRC lives there), so the count never flashes the whole catalog.
@@ -88,18 +88,18 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   if (noIsrc) out.push({ k: "isrc", area: "roster", t: `${noIsrc} song${noIsrc === 1 ? " has" : "s have"} no ISRC`, cta: "Find them", panel: "isrc", rank: { kind: "other" } });
   // (2026-11-17) the songs lib/auto-add.js put on the site and the pub sheet by themselves, with the assumed split: each one checked here (Edit, or OK)
   const nAuto = autoAddedOf(db, songInfo).length;
-  if (nAuto) out.push({ k: "autoAdded", area: "roster", t: `${nAuto} song${nAuto === 1 ? "" : "s"} added automatically — check the splits`, d: "Assumed splits, already on the pub sheet. Edit one to change it, or press OK.", cta: "Check", panel: "autoAdded", rank: { kind: "fix", value: 0 } });
+  if (nAuto) out.push({ k: "autoAdded", area: "roster", t: `${nAuto} song${nAuto === 1 ? "" : "s"} added automatically — check the splits`, cta: "Check", panel: "autoAdded", rank: { kind: "fix", value: 0 } });
   // (2026-11-18) the possible placements the credits scan found (our clients credited on a new release): they only appear here. Add puts one on the site and the pub sheet with the
   // assumed split, Not ours dismisses it for good; nothing is added by itself
   const nPossible = possibleOf(db, songInfo).length;
-  if (nPossible) out.push({ k: "possible", area: "roster", t: `${nPossible} possible placement${nPossible === 1 ? "" : "s"}`, d: "Our clients credited on new releases (Apple Music, YouTube). Add one with the assumed split, or say it isn't ours.", cta: "Review", panel: "possible", rank: { kind: "fix", value: 0 } });
+  if (nPossible) out.push({ k: "possible", area: "roster", t: `${nPossible} possible placement${nPossible === 1 ? "" : "s"}`, cta: "Review", panel: "possible", rank: { kind: "fix", value: 0 } });
   // (r7) the shares with one clear answer: One tap, each with its preview first (ShareFix)
   const fx = shareFixesOf(db);
   const few = (xs) => (xs.length > 3 ? `${xs.slice(0, 2).map((x) => x.p.song || "Untitled").join(", ")} and ${xs.length - 2} more` : xs.map((x) => `${x.p.song || "Untitled"} (${x.client.name})`).join(", "));
   if (fx.site.length) out.push({ k: "shareSite", area: "roster", tap: true, t: fx.site.length === 1 ? `"${fx.site[0].p.song || "Untitled"}" has no split here; the sheet has 100%` : `${fx.site.length} songs have no split here; the sheet has 100%`,
     d: fx.site.length > 1 ? few(fx.site) : `${fx.site[0].client.name}'s tab`, cta: "Use the sheet's split", panel: "shareSite", rank: { kind: "fix", value: streams(fx.site.map((x) => x.p)) } });
   if (fx.sheet.length) out.push({ k: "shareSheet", area: "roster", tap: true, t: fx.sheet.length === 1 ? `"${fx.sheet[0].p.song || "Untitled"}" has a blank share on the sheet` : `${fx.sheet.length} songs have a blank share on the sheet`,
-    d: "A blank share earns nothing on the sheet. Type the share, 100% to start.", cta: fx.sheet.length === 1 ? "Fill in the share" : `Fill in ${fx.sheet.length}`, panel: "shareSheet", rank: { kind: "fix", value: streams(fx.sheet.map((x) => x.p)) } });
+    cta: fx.sheet.length === 1 ? "Fill in the share" : `Fill in ${fx.sheet.length}`, panel: "shareSheet", rank: { kind: "fix", value: streams(fx.sheet.map((x) => x.p)) } });
   // (r11: Outreach is gone, and with it the "N A&R follow-ups due" row)
   // the old Luminate portfolios' songs and artists not tracked yet (list B #3): one row per area, each
   // one finished in the list it opens (Yes to a match, a pasted Spotify link, Not on Spotify)
@@ -113,10 +113,10 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   }
   // A&R (r10): the previous watchlist's artists whose same-name Spotify match a person still has to confirm
   const confirm = ar?.toConfirm || 0;
-  if (confirm) out.push({ k: "arConfirm", area: "ar", t: `${confirm} Watchlist artist${confirm === 1 ? " needs its" : "s need their"} Spotify confirmed`, d: "Pick the right Spotify profile: nothing is tracked until a person taps.", cta: "Confirm", panel: "arConfirm", rank: { kind: "fix", value: 0 } });
+  if (confirm) out.push({ k: "arConfirm", area: "ar", t: `${confirm} Watchlist artist${confirm === 1 ? " needs its" : "s need their"} Spotify confirmed`, cta: "Confirm", panel: "arConfirm", rank: { kind: "fix", value: 0 } });
   // (2026-11-10) your A&R entries ending within 7 days, or ended: renew them here before they stop
   const ending = ar?.ending || [];
-  if (ending.length) out.push({ k: "arEnding", area: "ar", t: `A&R: ${endingWords(ending)}`, d: "Renew to keep tracking them. An ended one comes off the list 14 days later.", cta: "Renew", panel: "arEnding", ending, rank: { kind: "fix", value: 0 } });
+  if (ending.length) out.push({ k: "arEnding", area: "ar", t: `A&R: ${endingWords(ending)}`, cta: "Renew", panel: "arEnding", ending, rank: { kind: "fix", value: 0 } });
   const unread = (db.submissions || []).filter((x) => !x.read).length;
   if (unread) out.push({ k: "messages", area: "site", t: `${unread} new website message${unread === 1 ? "" : "s"}`, cta: "Read", panel: "messages", rank: { kind: "other" } });
   // the sync checks that aren't a row already (Stripe = payments to log, ClickUp = its tasks)

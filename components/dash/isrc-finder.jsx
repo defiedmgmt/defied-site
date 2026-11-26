@@ -114,7 +114,6 @@ export function IsrcFinder({ db, songInfo, reloadSongInfo }) {
           <ExtLink className="btn ghost sm" href={IFPI}>IFPI search ↗</ExtLink>
         </span>
       </div>
-      <p className="hint">The finder searches Spotify first, then Deezer and MusicBrainz. Tap the right song, or type the ISRC.</p>
       {note && <p className="hint err-text" role="alert">{note}</p>}
       {rows.length > 0 && <CardTable cols={cols} rows={shownRows} rowKey={(g) => g.key} sort={sort} onSort={onSort} className="isrc-table" data-isrc-table="" />}
       {phone && rows.length > shownRows.length && <button type="button" className="btn ghost sm isrc-more" data-isrc-more onClick={() => setLimit((n) => n + 20)}>Show {Math.min(20, rows.length - shownRows.length)} more ({fmt(rows.length - shownRows.length)} left)</button>}

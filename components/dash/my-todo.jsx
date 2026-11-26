@@ -92,7 +92,7 @@ export function MyTodoPage({ title = "My to-do", mine = null }) {
       <div className="admin-head"><h2>{title}</h2>{mine}
         <button type="button" className="btn ghost sm" onClick={() => load(true)} disabled={busy} data-my-refresh><RefreshCw size={14} className={busy ? "spin" : undefined} /> Refresh</button>
       </div>
-      {d?.list && <p className="muted mt-from">Your ClickUp list, <ExtLink href={d.list.url} className="inline-link" title="Open in ClickUp">{d.list.name}{" "}↗</ExtLink>. Add or tick things off here or in ClickUp; both stay the same.</p>}
+      {d?.list && <p className="muted mt-from">Your ClickUp list, <ExtLink href={d.list.url} className="inline-link" title="Open in ClickUp">{d.list.name}{" "}↗</ExtLink></p>}
       <div className="attn home-card todo" data-area="clickup">
         {d && !d.none && !d.error && <AddTask writes={writes} onAdded={add} />}
         {d && !d.none && !writes && <p className="todo-line">{PREVIEW ? PREVIEW_OFF : "Writing to ClickUp isn't switched on yet, so this list is read-only for now."}</p>}

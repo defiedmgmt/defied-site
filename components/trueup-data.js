@@ -48,7 +48,7 @@ export function trueUpTodoItems(d) {
   // (2026-11-12, the owner: "a list of the songs that arent on the report so i can add them before i export") every
   // update counted, so what's left is what the report doesn't have yet; the next export ticks them off
   if (n) out.push({ k: "trueup-new", area: "roster", t: `${fmt(n)} song${n === 1 ? "" : "s"} to add to the Luminate report`,
-    d: `${d.total ? `${fmt(n)} of the ${fmt(d.total)} roster songs · ` : ""}not in ${d.baseline?.kind === "trueup" ? `any Luminate file yet (${plural(d.baseline.runs || 1, "update")} so far)` : `the ${shortDay(d.baseline?.on) || "last"} portfolio exports`} · add them before you export`, cta: "Open", panel: "trueup-new", rank: { kind: "other" } });
+    d: `${d.total ? `${fmt(n)} of the ${fmt(d.total)} roster songs · ` : ""}not in ${d.baseline?.kind === "trueup" ? `any Luminate file yet (${plural(d.baseline.runs || 1, "update")} so far)` : `the ${shortDay(d.baseline?.on) || "last"} portfolio exports`}`, cta: "Open", panel: "trueup-new", rank: { kind: "other" } });
   // what the last update's setup on the pub sheet left (Google's read limit, its time): this carries on
   const su = d.setupLeft?.n || 0;
   if (su) out.push({ k: "trueup-setup", area: "roster", t: `${fmt(su)} song${su === 1 ? "" : "s"} to set up on the pub sheet`,

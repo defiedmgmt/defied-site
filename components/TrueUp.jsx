@@ -105,7 +105,7 @@ function TrueUpDrop({ d }) {
         <input type="file" accept=".csv,text/csv" multiple disabled={!!busy} aria-label="Choose this month's Luminate files" onChange={(e) => { take(e.target.files); e.target.value = ""; }} />
         {busy ? <RefreshCw size={22} className="spin" /> : <UploadCloud size={22} />}
         <strong>{busy === "checking" ? "Checking the files…" : busy === "applying" ? "Saving Luminate's numbers…" : "Drop this month's Trend Report here"}</strong>
-        <span>{busy ? "This takes a few seconds." : "or tap to choose it. Two reports at once work too, and so do the 4 portfolio exports. Nothing changes until you press Apply."}</span>
+        <span>{busy ? "This takes a few seconds." : "or tap to choose it."}</span>
       </label>
       <p className="hint tu-note" data-trend-note>{d.note}</p>
       {out && (
@@ -117,7 +117,7 @@ function TrueUpDrop({ d }) {
             <p className="tu-files">{(out.files || []).map((f) => (f.kind === "trend" ? `${f.list}, ${f.location} (${f.from === f.through ? shortDay(f.through) : `${shortDay(f.from)} – ${shortDay(f.through)}`})` : `${f.list} (${shortDay(f.exportedAt)})`)).join(" · ")}</p>
             {out.blocked && <p className="hint err-text" data-trueup-blocked><AlertTriangle size={13} /> {out.blocked}</p>}
             {p.jumpPrev?.songs > 0 && <p className="tu-line" data-jump={p.jumpPrev.pct ?? ""}>Against Luminate's last numbers ({p.jumpPrev.from === "portfolio" ? `the ${shortDay(p.jumpPrev.on)} portfolio files` : `the ${shortDay(p.jumpPrev.on)} update`}): <b>{fmt(p.jumpPrev.before)} → {fmt(p.jumpPrev.after)}</b>{p.jumpPrev.pct != null && <> ({p.jumpPrev.pct >= 0 ? "+" : ""}{p.jumpPrev.pct}%)</>} over {plural(p.jumpPrev.songs, "song")}.{p.jump?.noBefore > 0 && <> {plural(p.jump.noBefore, "song")} had no Luminate number here before.</>}</p>}
-            {p.byTitle > 0 && <p className="tu-line hint" data-by-title={p.byTitle}>{plural(p.byTitle, "song")} found by title and artist (no Luminate ID here yet){p.versions > 0 ? `, covering ${plural(p.versions, "more version")} (Luminate counts a song's versions as one)` : ""}.</p>}
+            {p.byTitle > 0 && <p className="tu-line hint" data-by-title={p.byTitle}>{plural(p.byTitle, "song")} found by title and artist (no Luminate ID here yet){p.versions > 0 ? `, covering ${plural(p.versions, "more version")}` : ""}.</p>}
             {p.songs > 0 && <p className="tu-line" data-changes={p.changed}><b>{changed.length ? `${plural(changed.length, "song")} change to Luminate's ${shortDay(p.exportOn)} number` : `${plural(p.songs, "song")} already match Luminate's ${shortDay(p.exportOn)} number`}</b>{p.songs - changed.length > 0 && changed.length > 0 && <> · {fmt(p.songs - changed.length)} already match</>}</p>}
             {shown.length > 0 && <ul className="tu-rows" data-change-rows>{shown.map((r) => (
               <li key={r.lumId} data-lum={r.lumId}><span className="tu-name">{r.name}</span><span className="tu-num">{r.before == null ? "new" : fmt(r.before)} → <b>{fmt(r.total)}</b>{r.pct != null && <em className="tu-pct">{r.pct >= 0 ? "+" : ""}{r.pct}%</em>}</span></li>
@@ -125,13 +125,13 @@ function TrueUpDrop({ d }) {
             {changed.length > shown.length && <button type="button" className="inline-link" onClick={() => setAll(true)}>Show all {fmt(changed.length)}</button>}
             {kept.length > 0 && <p className="tu-line" data-kept={kept.length}>{plural(kept.length, "song")} keep{kept.length === 1 ? "s" : ""} the ratio {kept.length === 1 ? "it has" : "they have"}: {kept.every((r) => r.why === kept[0].why) ? kept[0].why : "no Spotify count close enough to the file's day"}. The new total is still saved.</p>}
             {p.same > 0 && <p className="tu-line">{plural(p.same, "song")} were already updated from this file.</p>}
-            {p.ar.length > 0 && <p className="tu-line hint">{plural(p.ar.length, "A&R row")} left as {p.ar.length === 1 ? "it is" : "they are"}: A&R uses the automated numbers.</p>}
-            {p.artists > 0 && <p className="tu-line hint">{plural(p.artists, "artist row")} skipped: only songs are updated.</p>}
+            {p.ar.length > 0 && <p className="tu-line hint">{plural(p.ar.length, "A&R row")} left as {p.ar.length === 1 ? "it is" : "they are"}.</p>}
+            {p.artists > 0 && <p className="tu-line hint">{plural(p.artists, "artist row")} skipped.</p>}
             {p.unknown.length > 0 && <p className="tu-line hint" data-unknown={p.unknown.length}>{plural(p.unknown.length, p.unknown.every((u) => u.kind === "release") ? "release" : "song")} in the files {p.unknown.length === 1 ? "isn't" : "aren't"} linked to a roster song here, so {p.unknown.length === 1 ? "it's" : "they're"} left out: {p.unknown.slice(0, 5).map((u) => u.name).join(", ")}{p.unknown.length > 5 ? ` and ${fmt(p.unknown.length - 5)} more` : ""}.</p>}
-            {p.notIn?.n > 0 && <p className="tu-line hint" data-not-in-file={p.notIn.n}>{plural(p.notIn.n, "roster song")} {p.notIn.n === 1 ? "isn't" : "aren't"} in the files (no plays in these days, or not on the report): {p.notIn.n === 1 ? "it keeps its" : "they keep their"} last number.</p>}
+            {p.notIn?.n > 0 && <p className="tu-line hint" data-not-in-file={p.notIn.n}>{plural(p.notIn.n, "roster song")} {p.notIn.n === 1 ? "isn't" : "aren't"} in the files: {p.notIn.n === 1 ? "it keeps its" : "they keep their"} last number.</p>}
             {p.older.length > 0 && <p className="tu-line hint">{plural(p.older.length, "song")} left out: this file is older than the update they already have.</p>}
             {p.checklist?.n > 0 && <Checklist c={p.checklist} />}
-            {out.sheetMonthly && p.songs > 0 && !out.blocked && <p className="tu-line" data-trueup-sheet>Apply also puts these Luminate totals into the pub sheet's STREAM DATA (column D), so the sheet's earnings follow them.<span data-trueup-setup> It also sets up the songs it found that the pub sheet can't show yet: each one's Luminate ID goes into column M of its rows and it gets a STREAM DATA row, so its streams show there. You'll see which songs once it's done.</span></p>}
+            {out.sheetMonthly && p.songs > 0 && !out.blocked && <p className="tu-line" data-trueup-sheet>Apply also puts these Luminate totals into the pub sheet's STREAM DATA (column D), so the sheet's earnings follow them.<span data-trueup-setup> It also sets up the songs it found that the pub sheet can't show yet: each one's Luminate ID goes into column M of its rows and it gets a STREAM DATA row, so its streams show there.</span></p>}
             <div className="lm-result-acts">
               {p.songs > 0 && !out.blocked && <button className="btn sm" data-trueup-apply disabled={!!busy} onClick={apply}>{busy === "applying" ? "Applying…" : `Apply ${plural(p.songs, "song")}`}</button>}
               <button className="btn ghost sm" disabled={!!busy} onClick={() => { setOut(null); setFiles(null); }}>Cancel</button>
@@ -224,7 +224,6 @@ function NoIsrc({ songs }) {
     <div className="tu-part" data-no-isrc>
       <div className="tu-head"><b>{plural(songs.length, "song")} with no ISRC</b>
         <button type="button" className="btn ghost sm" data-find-isrcs disabled={busy || !songs.some((s) => s.placementIds.length)} onClick={find}>{busy ? "Looking…" : "Find ISRCs"}</button></div>
-      <p className="hint">Luminate finds a song fastest by its ISRC. The finder checks the song's Spotify link, Deezer and MusicBrainz.</p>
       <ul className="tu-songs">{songs.map((s) => { const r = res[s.key]; return (
         <li key={s.key} data-song={s.key}>
           <span className="tu-name"><b>{s.title || "Untitled"}</b><em>{s.artist}</em></span>
@@ -253,8 +252,8 @@ function NotInReport({ d }) {
   return (
     <div className="todo-sublist tu" data-not-in-report={list.length}>
       <div className="tu-head"><b>{plural(list.length, "song")} to add</b><span className="tu-acts"><CopyButton songs={list} label="Copy all" attr={{ "data-copy-new": "" }} /><CopyIsrcs songs={list} /></span></div>
-      <p className="hint" data-not-in-words>{d.notInWords || "Not in any Luminate file yet"}{d.baseline?.kind === "trueup" ? ` (${plural(d.baseline.runs || 1, "update")} so far)` : `: they weren't in the ${shortDay(d.baseline?.on)} portfolio exports`}. Add each one to your Luminate Trend Report (search it by its ISRC), then export the report and drop it in the monthly update: every song the file has gets checked off. Copy all pastes title, artist, ISRC and Spotify link as columns.</p>
-      <p className="hint" data-no-plays-note>Luminate leaves a song with no plays in the report's days out of the file, so a song like that can stay here until it has some.</p>
+      {/* (2026-11-25 declutter) what the list is ("not in any Luminate file yet (N updates so far)") is the row's own line just above: only what to do stays */}
+      <p className="hint" data-not-in-words>Add each one to your Luminate Trend Report (search it by its ISRC).</p>
       <SongList songs={list} max={12} attr={{ "data-new-list": "" }} />
       {noIsrc.length > 0 && <NoIsrc songs={noIsrc} />}
       <div className="tu-part" data-recheck>
@@ -289,7 +288,7 @@ function Checklist({ c }) {
     <div className="tu-check" data-checklist={c.n} data-found={c.found.length} data-missing={miss}>
       <p className="tu-line"><b>{miss ? `${fmt(c.found.length)} of the ${plural(c.n, "song")} to add ${c.found.length === 1 ? "is" : "are"} in this report` : <><CheckCircle2 size={14} /> All {plural(c.n, "song")} to add {c.n === 1 ? "is" : "are"} in this report</>}</b></p>
       {miss > 0 && <>
-        <p className="hint">Still not in it: add {miss === 1 ? "it" : "them"} in Luminate and export again. (A song with no plays in these days isn't in the file either.)</p>
+        <p className="hint">Still not in it: add {miss === 1 ? "it" : "them"} in Luminate and export again.</p>
         <TickList songs={c.missing} attr={{ "data-check-missing": "" }} />
         <div className="tu-acts"><CopyButton songs={c.missing} label={`Copy the ${fmt(miss)} missing`} attr={{ "data-copy-missing": "" }} /><CopyIsrcs songs={c.missing} /></div>
       </>}
@@ -371,17 +370,17 @@ function Schedule({ d, founder, full = false }) {
     catch (e) { setNote({ text: e.message, warn: true }); }
     finally { setBusy(false); }
   };
-  if (!s.ends && !full) return <p className="hint tu-sched" data-schedule="none">Luminate's schedule runs 12 weeks. The reminder to copy the report starts with the first update.</p>;
+  if (!s.ends && !full) return null;
   return (
     <div className={full ? "todo-sublist tu" : "tu-sched"} data-schedule={s.ends || "none"}>
-      <p className={full ? "tu-line" : "hint"}>Luminate's schedule ends {longDay(s.ends)}{s.set ? "" : " (12 weeks from the first update)"}.{full && " In Luminate, copy the report and schedule the copy, so next month's file still comes."}</p>
+      <p className={full ? "tu-line" : "hint"}>Luminate's schedule ends {longDay(s.ends)}.{full && " In Luminate, copy the report and schedule the copy."}</p>
       {founder ? (
         <div className="tu-acts">
           {full && <button type="button" className="btn sm" data-schedule-copied disabled={busy} onClick={() => save({ copied: true })}>I copied it</button>}
           <label className="tu-date"><span>Ends on</span><input type="date" value={day} onChange={(e) => setDay(e.target.value)} aria-label="The day Luminate's schedule ends" /></label>
           <button type="button" className="btn ghost sm" data-schedule-save disabled={busy || !day || day === s.ends} onClick={() => save({ ends: day })}>Save</button>
         </div>
-      ) : full && <p className="hint">A Founder can change the date.</p>}
+      ) : null}
       {note && <p className={note.warn ? "hint err-text" : "hint del-note"} role="status">{note.text}</p>}
     </div>
   );

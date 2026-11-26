@@ -127,7 +127,7 @@ export function TopGainers({ db, onGo, arTop, arLoaded }) {
   // r10 (H9): fewer than 8 days of Spotify numbers, so the songs and artists are Luminate's newest real week
   const lum = !isAR && top?.source === "luminate" ? (kind === "artists" ? top.artistsLabel : top.songsLabel) : null;
   // (an artist is their songs that have both weeks: two weeks of numbers, not one)
-  const empty = isAR ? (!rows ? (ar.failed ? "Couldn't load the A&R numbers." : "Loading…") : !rows.length && "No A&R moves yet: they need readings on two days in a row.")
+  const empty = isAR ? (!rows ? (ar.failed ? "Couldn't load the A&R numbers." : "Loading…") : !rows.length && "No A&R moves yet.")
     : !top ? (failed ? "Couldn't load this week's numbers." : "Loading…")
     : !rows.length && (kind === "artists" ? "Shows up once there are two weeks of daily Spotify numbers." : "Shows up once there's a week of daily Spotify numbers.");
   // the rows without a % sit after the ranked ones, under a caption saying why (the server's why, lib/weekly.js

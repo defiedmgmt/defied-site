@@ -88,7 +88,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "tabs": return <SheetTabFix ctx={ctx} />;
     case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log" && viaCta} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
     case "seeds": return <SeedList area={it.seedArea} ctx={ctx} />;
-    case "arConfirm": return <div className="todo-sublist"><p className="hint">Their Luminate numbers stay as history. Once you tap the right Spotify profile, its numbers start with the next update.</p><button type="button" className="btn sm" onClick={() => ctx.onGo("ar", "watch/confirm")} data-go-confirm>Open the Watchlist's confirm list</button></div>;
+    case "arConfirm": return <div className="todo-sublist"><button type="button" className="btn sm" onClick={() => ctx.onGo("ar", "watch/confirm")} data-go-confirm>Open the Watchlist's confirm list</button></div>;
     case "arEnding": return <ArEnding it={it} ctx={ctx} />;
     case "trueup": case "trueup-new": case "trueup-setup": case "trueup-schedule": return <TrueUpPanel kind={it.panel} ctx={ctx} />; // TRUEUP-HOOK
     case "isrc": return <IsrcFinder db={db} songInfo={ctx.songInfo} reloadSongInfo={ctx.reloadSongInfo} />;
@@ -362,7 +362,6 @@ function SeedList({ area, ctx }) {
   };
   return (
     <div className="todo-sublist seed-list" data-seed-list={area}>
-      <p className="hint">From the old Luminate {area === "ar" ? "Artist and Song Trackers" : "Admin Catalogs"}, not linked to Spotify yet. Paste its Spotify link, or press Not on Spotify. Its Luminate numbers stay as history either way.</p>
       {songs.length > 1 && <button className="btn ghost sm seed-all-gone" data-seed-all-gone onClick={() => setAskGone(true)}>All {songs.length} not on Spotify</button>}
       {askGone && (
         <AskCard title={`Mark ${songs.length} songs as not on Spotify?`} goLabel={`Mark ${songs.length} not on Spotify`} busyLabel="Saving…" plain go={allGone} onClose={() => setAskGone(false)}>
@@ -643,18 +642,15 @@ export function TodoPage({ ctx, todo, sub, onSub, areaN, mine = null }) {
   );
 }
 
-// "Done for you": what the dashboard did by itself, said once. Today that's the ClickUp tasks it keeps
-// current (each area's checklist ticks itself); A2 adds what it confirms on its own (an even split the sheet
-// already holds), each with Undo (ctx.doneForYou: [{ k, text, undo }]).
-const OWN_NAMES = { payments: "Log new payments", "area:publishing": "Publishing", "area:ar": "A&R", "area:money": "Money" };
+// "Done for you": what the dashboard did by itself, said once: what it confirms on its own (an even split the sheet
+// already holds), each with Undo (ctx.doneForYou: [{ k, text, undo }]). (2026-11-25 declutter: the "ClickUp's … tasks keep
+// themselves up to date" sentence is gone, the owner: "get rid of a lot of the simple one liner ai explanations")
 function DoneForYou({ ctx }) {
-  const own = (ctx.cu.data?.own || []).filter((t) => OWN_NAMES[t.kind]);
   const extra = ctx.doneForYou || [];
-  if (!own.length && !extra.length) return null;
+  if (!extra.length) return null;
   return (
     <p className="todo-line todo-done-for-you" data-done-for-you>
-      <CheckCircle2 size={14} /> <span>Done for you:{" "}
-        {own.length > 0 && <>ClickUp's {own.map((t, i) => <React.Fragment key={t.taskId}>{i ? (i === own.length - 1 ? " and " : ", ") : ""}<ExtLink className="inline-link" href={t.url}>{OWN_NAMES[t.kind]}</ExtLink></React.Fragment>)} {own.length === 1 ? "task keeps itself" : "tasks keep themselves"} up to date.</>}
+      <CheckCircle2 size={14} /> <span>Done for you:
         {extra.map((x) => <React.Fragment key={x.k}> {x.text}{x.undo && <> <button className="inline-link" data-undo={x.k} onClick={x.undo}>Undo</button></>}</React.Fragment>)}
       </span>
     </p>

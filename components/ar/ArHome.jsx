@@ -41,7 +41,7 @@ function AddsChart({ data }) {
   const i = tot.length - 1;
   return (
     <div className="arh-chart" data-adds-chart>
-      <p className="arh-adds-line" data-adds-line>This week {tot[i] || 0} · last week {tot[i - 1] || 0} <em>· old list not counted</em></p>
+      <p className="arh-adds-line" data-adds-line>This week {tot[i] || 0} · last week {tot[i - 1] || 0}</p>
       <div className="arh-bars" role="img" aria-label={`Adds per week: ${weeks.map((w, j) => `${w.label} ${tot[j]}`).join(", ")}`}>
         {weeks.map((w, j) => (
           <div key={w.week} className="arh-bar-col">
@@ -99,13 +99,13 @@ function DayCard({ day, onOpen }) {
   const reads = day.mode === "readings";
   const span = spanText(day.span?.from, day.span?.to);
   const row = (x, i) => <MoverRow key={`${x.key}|${x.metric}`} x={x} i={i} onOpen={onOpen} attr={{ "data-mover": x.key, ...(x.approx ? { "data-approx": "" } : {}) }} sub={moverSub(x)} />;
-  const none = (dir) => `Nothing ${dir} past the size floors.`;
+  const none = (dir) => `Nothing ${dir}.`;
   return (
     <div className="gainers home-card arh-card" data-day-movers>
       <div className="attn-head"><TrendingUp size={15} /> <span data-day-title>{reads ? "Last two readings" : "Day over day"}</span></div>
       {day.up.length || day.down.length ? (
         <>
-          <p className="gainer-sub" data-day-sub>{reads ? `${span} · day over day starts with a second day` : `${span} · New York days`}</p>
+          <p className="gainer-sub" data-day-sub>{reads ? span : `${span} · New York days`}</p>
           <div className="arh-halves">
             <Half title="Rising" kind="up" list={day.up.slice(0, N)} empty={none("rose")} row={row} />
             <Half title="Falling" kind="down" list={day.down.slice(0, N)} empty={none("fell")} row={row} />
@@ -131,14 +131,13 @@ function WeekCard({ movers, onOpen, sounds }) {
   const later = (id) => (id === "videos" && !sounds ? "add a sound first" : from(id) ? `from ${from(id)}` : `needs ${apart(id)}`);
   const secs = weekSections(movers?.week?.[tab] || { up: [], down: [] });
   const lumOnly = secs.length > 0 && secs.every((x) => x.lum);
-  const grey = !secs.length ? "" : lumOnly ? `Luminate weeks, all platforms.${from(tab) ? ` Spotify week on week starts ${from(tab)}.` : ""}`
-    : `${SHORT_TAB[tab]} · readings 7 days apart${secs.some((x) => x.lum) ? " · then Luminate weeks where there's no Spotify yet" : ""}`;
+  const grey = !secs.length ? "" : lumOnly ? "Luminate weeks, all platforms" : `${SHORT_TAB[tab]} · readings 7 days apart`;
   const row = (x, i) => (
     <MoverRow key={`${x.key}|${x.metric}`} x={x} i={i} onOpen={onOpen} attr={{ "data-week-mover": x.key, ...(x.lum ? { "data-lum": x.weeks } : {}) }}
       sub={x.lum ? `Streams · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}` : `${ROW_LABEL[x.metric] || x.label} · ${n0(x.lastWeek)} → ${n0(x.thisWeek)}`}
       title={x.lum ? `${x.name} · Luminate streams, all platforms · ${x.weeks}: ${n0(x.lastWeek)} → ${n0(x.thisWeek)}` : null} />
   );
-  const none = tab === "videos" && !sounds ? "Add a TikTok sound to the Watchlist first: its video count is tracked from then on."
+  const none = tab === "videos" && !sounds ? "Add a TikTok sound to the Watchlist first."
     : `${SHORT_TAB[tab] || "This"} week on week needs ${apart(tab)}${from(tab) ? `: it starts ${from(tab)}` : ""}.`;
   return (
     <div className="gainers home-card arh-card" data-week-section>
