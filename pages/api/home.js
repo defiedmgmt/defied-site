@@ -9,6 +9,7 @@ import { requireAccess } from "../../lib/access";
 import { moneyState, payerNamer, paymentRow, checkClickUpTasks } from "../../lib/money";
 import { logWritesOn } from "../../lib/accounting-log";
 import { sectionChecks } from "../../lib/accounting-section";
+import { loggedToday } from "../../lib/auto-log";
 
 // a first Stripe fill reads ~3 things a payment (saved as it goes, lib/stripe.js)
 export const config = { maxDuration: 60 };
@@ -26,7 +27,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ money: off, payments: off, accounting: off, tasks: null });
     }
     // (2026-11-20) a page someone waits on: its reads don't sit out Google's quota (lib/sheets.js withSheetsQuick)
-    const { pay, acct, match } = await withSheetsQuick(() => moneyState({ fresh }));
+    // (2026-11-26) autoLogged: the rows Auto-log added today (lib/auto-log.js), read beside the money; never throws
+    const [{ pay, acct, match }, autoLogged] = await Promise.all([withSheetsQuick(() => moneyState({ fresh })), req.query.all ? 0 : loggedToday()]);
     const nameOf = await payerNamer(match);
     const logged = match ? new Set([...match.matched, ...match.loggedTogether, ...(match.loggedHere || [])].map((p) => p.id)) : null;
 
@@ -58,7 +60,7 @@ export default async function handler(req, res) {
     // keep the two ClickUp tasks in step with what was just read (debounced; never blocks the page)
     let tasks = null;
     try { tasks = await checkClickUpTasks({ match, nameOf }); } catch (err) { console.error("home: clickup tasks", err); }
-    return res.status(200).json({ money, payments, accounting, tasks: tasks && { ran: !tasks.skipped } });
+    return res.status(200).json({ money, payments, accounting, tasks: tasks && { ran: !tasks.skipped }, autoLogged });
   } catch (err) {
     console.error("home failed:", err);
     return res.status(500).json({ error: "Couldn't load the Dashboard's numbers. Try again in a minute." });

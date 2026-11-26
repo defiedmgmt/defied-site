@@ -3,21 +3,37 @@
 // log, the rows to check, every payment, and the Income tab's own lists for Log with details.
 // ?counts=1 is the sidebar badge only. POST {ok: key} marks one To check row as fine (kept until that
 // row changes). Clients get 401. Nothing here writes to the sheet: logging is /api/accounting-log,
-// behind ACCOUNTING_SHEET_WRITES.
+// behind ACCOUNTING_SHEET_WRITES. (2026-11-26) Auto-log (lib/auto-log.js): a Founder's full read also has `autoLog` { on, offWhy, offAt },
+// and POST { action: "autoLog", on } is a Founder turning it on or off.
 import { withSheetsQuick } from "../../lib/sheets";
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
 import { accountingState, markOk } from "../../lib/accounting-section";
+import { autoLogState, setAutoLog } from "../../lib/auto-log";
+import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 
 export const config = { maxDuration: 60 };
 
 export default async function handler(req, res) {
   const session = await requireAccess(req, res, "money");
   if (!session) return;
+  const founder = req.access?.role === "founder";
   try {
-    if (req.method === "GET") return res.status(200).json(await withSheetsQuick(() => accountingState({ fresh: !!req.query.fresh, counts: !!req.query.counts })));
+    if (req.method === "GET") {
+      const st = await withSheetsQuick(() => accountingState({ fresh: !!req.query.fresh, counts: !!req.query.counts }));
+      if (req.query.counts || !founder || !st.connected) return res.status(200).json(st);
+      const a = await autoLogState();
+      return res.status(200).json({ ...st, autoLog: { on: a.on, offWhy: a.offWhy, offAt: a.offAt } });
+    }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
     if (!requireSameOrigin(req, res)) return;
+    if (req.body?.action === "autoLog") {
+      if (!founder) return res.status(403).json({ error: "Only a Founder can turn Auto-log on or off." });
+      if (typeof req.body.on !== "boolean") return res.status(400).json({ error: "On or off?" });
+      if (PREVIEW) return res.status(503).json({ error: PREVIEW_OFF });
+      const a = await setAutoLog(req.body.on, session.user.name || session.user.email || "staff");
+      return res.status(200).json({ autoLog: { on: a.on, offWhy: a.offWhy, offAt: a.offAt } });
+    }
     // Mark as OK: only a check that is on the list right now, keyed by the row's content
     const key = String(req.body?.ok || "");
     if (!/^[0-9a-f]{20}$/.test(key)) return res.status(400).json({ error: "Nothing to mark." });

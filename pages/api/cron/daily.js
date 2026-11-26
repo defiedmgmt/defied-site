@@ -26,6 +26,7 @@ import { keepRoom } from "../../../lib/sheet-rows";
 import { runPeopleLink } from "../../../lib/people-link";
 import { runAutoAdds } from "../../../lib/auto-add";
 import { runScheduleA, scheduleAOn } from "../../../lib/schedule-a";
+import { runAutoLog } from "../../../lib/auto-log";
 import { alert, alertDaily, plainWhy, WHOLE_RUN } from "../../../lib/alerts";
 
 // the sheet pull plus the Stripe read behind the ClickUp tasks (see pages/api/home.js)
@@ -89,6 +90,13 @@ async function run(req, res) {
     const r = await runPeopleLink({ by: "the nightly sync", auto: true });
     report.people = r.off ? { off: true } : r.busy ? { busy: true } : r.waiting ? { waiting: "the first Sync people now" } : { created: r.created, sheet: r.sheet, flags: (r.flags || []).length, ...(r.error ? { error: r.error } : {}) };
   } catch (err) { report.peopleError = err.message; }
+  // (2026-11-26) Auto-log (lib/auto-log.js): the sure Stripe payments go on the Income tab as Log it would add them, only with the Founders' switch on (and
+  // ACCOUNTING_SHEET_WRITES on, never on a preview). Before the ClickUp tasks, so "Log new payments" counts what it added. Skipped with under 15 s of the 45 s
+  // Sheets budget left (tomorrow adds them); in the report only when it ran
+  try {
+    const a = Date.now() - t0 > 30000 ? { skipped: "out of time" } : await runAutoLog();
+    if (!a.off) report.autoLog = a;
+  } catch (err) { report.autoLogError = err.message; }
   // "Log new payments" and the Publishing, A&R and Money tasks (one stored task each), written only with
   // CLICKUP_TASK_WRITES=on
   try { report.clickupTasks = await checkClickUpTasks({ force: true }); } catch (err) { report.clickupTasksError = err.message; }

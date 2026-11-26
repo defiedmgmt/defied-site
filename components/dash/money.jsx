@@ -13,6 +13,7 @@ import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 import { typedMoney, checkEdit, sheetSplit, coShare, COMMISSION, GENERAL } from "../../lib/log-fields";
 import { MyPaymentsPage } from "./my-payments";
 import { PanelWait } from "./sections";
+import { AutoLogSwitch } from "./auto-log-switch";
 
 // Money's last two pills, EMPIRE (/dashboard/money/empire) and Advance calculator (/dashboard/money/advance): the publishing-administration deal with EMPIRE and the calculator for the advances
 // Defied gives its producers out of the advance EMPIRE paid. (2026-11-21 pills; 2026-11-23 they were Deals, a section of their own; 2026-11-24, the owner: "maybe that whole deals tab can go in
@@ -469,15 +470,16 @@ export function AcctOverview({ d, onSec }) {
 // r11: in the same confirm as Log it, every field open to change)
 function AcctToLog({ d, onLog, onPick }) {
   const U = d.toLog?.items;
-  if (!U) return <p className="home-muted"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the payments missing from the sheet can't be checked.</p>;
-  if (!U.length) return <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every Stripe payment is in the accounting sheet.</p>;
+  if (!U) return <p className="home-muted acct-auto-line"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the payments missing from the sheet can't be checked.<AutoLogSwitch state={d.autoLog} /></p>;
+  if (!U.length) return <p className="home-muted acct-clear acct-auto-line"><CheckCircle2 size={15} /> Every Stripe payment is in the accounting sheet.<AutoLogSwitch state={d.autoLog} /></p>;
   // Log all takes only the ones Log it can place; the rest wait for Log with details
   const easy = U.filter((p) => !p.needsDetails), need = U.length - easy.length;
   return (
     <div className="fix-panel acct-panel" data-acct="log">
       <div className="fix-head"><h3>To log ({U.length})</h3>
         {/* (2026-11-25 declutter, integration) as Roster's lists to fix: no hint over the rows on what each button does; only logging that isn't switched on says what to do */}
-        {!d.toLog.canLog && <span className="hint">{PREVIEW ? PREVIEW_OFF : "Logging from here isn't switched on yet. Add each one to the sheet as a new row with the full amount paid."}</span>}</div>
+        {!d.toLog.canLog && <span className="hint">{PREVIEW ? PREVIEW_OFF : "Logging from here isn't switched on yet. Add each one to the sheet as a new row with the full amount paid."}</span>}
+        <AutoLogSwitch state={d.autoLog} /></div>
       <div className="fix-sub"><span className="fix-client">{money(d.toLog.total)} paid in total{need ? <span className="acct-via"> · {need} {need === 1 ? "needs" : "need"} details</span> : null}</span>
         {easy.length > 1 && <button className="btn sm" data-log-all onClick={() => onLog(easy.map((p) => p.id))}>Log all {easy.length}</button>}</div>
       {U.map((p) => (
