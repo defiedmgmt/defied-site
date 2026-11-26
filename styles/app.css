@@ -2884,6 +2884,11 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .home-pay .attn-head svg{color:var(--d-pos)}
 .app:not(.pub) .home-pay .attn-head .gainer-tabs{margin-left:10px}
 .app:not(.pub) .home-pay .attn-head .home-all{margin-left:auto}
+/* (2026-11-26) Auto-log: Home's "Logged N today", and To log's switch (components/dash/auto-log-switch.jsx) with what went wrong on a line of its own */
+.app:not(.pub) .home-pay .attn-head .hp-auto{font-weight:400}
+.app:not(.pub) .acct-auto{margin-left:auto}
+.app:not(.pub) .acct-auto-why{flex-basis:100%;margin:0}
+.app:not(.pub) .acct-auto-line{flex-wrap:wrap}
 .app:not(.pub) .hp-list{display:flex;flex-direction:column;border-top:1px solid var(--d-line)}
 .app:not(.pub) .hp-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto 112px;align-items:center;gap:14px;min-height:42px;padding:5px 16px;border-bottom:1px solid var(--d-line)}
 .app:not(.pub) .hp-day{font-size:13px;color:var(--d-ink-3);white-space:nowrap}

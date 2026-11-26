@@ -250,6 +250,8 @@ function HomePayments({ home, failed, retry, refresh, onGo }) {
   return (
     <div className="home-card home-pay" data-home-pay>
       <div className="attn-head"><CircleDollarSign size={15} /> Recent payments
+        {/* (2026-11-26) the rows Auto-log added today (lib/auto-log.js loggedToday) */}
+        {home?.autoLogged > 0 && <span className="hp-in hp-auto" data-auto-logged={home.autoLogged}><CheckCircle2 size={14} /> Logged {home.autoLogged} today</span>}
         <button type="button" className="inline-link home-all" data-all-payments onClick={() => onGo("money", "payments")}>{P?.total ? `All payments (${fmt(P.total)})` : "All payments"} ›</button></div>
       {body}
       {logIds && <LogConfirm ids={logIds} canLog={!!A?.canLog} onClose={() => setLogIds(null)} onDone={refresh} onDetails={() => onGo("todo", "log")} />}
