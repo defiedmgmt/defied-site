@@ -10,7 +10,7 @@ import { NAME_TAKEN, clientDeleteAsk, deleteClientCascade, nameTaken } from "./c
 import { WowPill } from "./chips";
 import { GAP_WORDS, WEEK_PCT_MIN, autoAddedOf, dayRange, dupeName, possibleOf, sheetWords, shortDay, songsPost, songsToUpdate, useGrowthState } from "./helpers";
 import { canUse } from "./access";
-import { Avatar, DropNote, Field, PctInput, fmt, landOn, revealChip, splitPct, splitTotal, uid, useEscape } from "./ui";
+import { Avatar, DropNote, Field, PctInput, fmt, landOn, revealChip, splitPct, splitTotal, uid } from "./ui";
 import { NotOursAsk, SongManager, noSheetTab, pushShare, releaseDay } from "../portal/ClientPortal";
 import { AskCard } from "../portal/ask";
 import { ExtLink, Photo } from "../shared/ui";
@@ -989,7 +989,6 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
   const [newClientForm, setNewClientForm] = useState({ name: "", role: "Producer" });
   const [adding, setAdding] = useState(false);
   const [deleteWarn, setDeleteWarn] = useState(null);
-  useEscape(() => setAddingClient(false), addingClient && !adding);
   const newNameTaken = nameTaken(db.clients, null, newClientForm.name);
   // the chip row scrolls sideways under 1200px: whichever way a client gets picked (a chip, a MASTER
   // row, a new client, a Dashboard task) its chip comes into view. Not on arriving at the tab on Overview
@@ -1082,7 +1081,8 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
         return <AskCard title={a.title} goLabel={a.goLabel} busyLabel="Deleting…" typeName={a.typeName} go={() => removeClient(delAsk)} onClose={() => setDelAsk(null)}><p>{a.body}</p></AskCard>;
       })()}
       {addingClient && (
-        <div className="modal" onClick={(e) => e.target === e.currentTarget && setAddingClient(false)}>
+        // (2026-11-26 review) like the site's other forms, New client closes only with its X or Cancel: no Esc, no tap on the backdrop
+        <div className="modal">
           <div className="modal-card">
             <div className="modal-head"><h3>New client</h3><button onClick={() => setAddingClient(false)} aria-label="Close"><X size={18} /></button></div>
             <div className="modal-body">

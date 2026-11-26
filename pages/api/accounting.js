@@ -24,7 +24,7 @@ export default async function handler(req, res) {
     const st = await accountingState({ fresh: true, counts: false });
     if (!st.toCheck?.items.some((x) => x.key === key)) return res.status(409).json({ error: "That row isn't on the list any more. Reload to see what's left." });
     await markOk(key, session.user.name || session.user.email || "staff");
-    return res.status(200).json({ ok: true, left: st.counts.toCheck - 1 });
+    return res.status(200).json({ ok: true, left: st.counts.toCheck == null ? null : st.counts.toCheck - 1 });
   } catch (err) {
     console.error("accounting failed:", err);
     return res.status(500).json({ error: "Couldn't load the accounting numbers. Try again in a minute." });
