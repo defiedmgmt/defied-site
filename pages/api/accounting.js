@@ -17,13 +17,14 @@ import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 export const config = { maxDuration: 60 };
 
 export default async function handler(req, res) {
+  const t0 = Date.now(); // (review AL-6) Auto-log's run on this load waits out Google's quota only until 40 s after this
   const session = await requireAccess(req, res, "money");
   if (!session) return;
   const founder = req.access?.role === "founder";
   try {
     if (req.method === "GET") {
       // beside the section's own read (the same shared Stripe + sheet read); waited for before the answer (work left after it may never run); never throws
-      const soon = autoLogSoon();
+      const soon = autoLogSoon({ started: t0 });
       const [st, refunds] = await Promise.all([withSheetsQuick(() => accountingState({ fresh: !!req.query.fresh, counts: !!req.query.counts })), founder ? openRefunds() : null]);
       await soon;
       if (!refunds?.length || !st.connected || !st.counts) return res.status(200).json(st);

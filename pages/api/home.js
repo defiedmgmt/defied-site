@@ -15,6 +15,7 @@ import { loggedToday, autoLogSoon } from "../../lib/auto-log";
 export const config = { maxDuration: 60 };
 
 export default async function handler(req, res) {
+  const t0 = Date.now(); // (review AL-6) Auto-log's run on this load waits out Google's quota only until 40 s after this
   const session = await requireAccess(req, res, "home");
   if (!session) return;
   if (req.method !== "GET") return res.status(405).json({ error: "GET only" });
@@ -31,7 +32,7 @@ export default async function handler(req, res) {
     const [{ pay, acct, match }, autoLogged0] = await Promise.all([withSheetsQuick(() => moneyState({ fresh })), req.query.all ? 0 : loggedToday()]);
     // (2026-11-26 owner: automatic) a payment no Auto-log note has told yet: Auto-log runs now, beside the rest of this read (at most once every 10 minutes, one
     // run at a time; lib/auto-log.js autoLogSoon never throws). Waited for before the answer: work left after it may never run
-    const soon = req.query.all ? Promise.resolve(null) : autoLogSoon({ match });
+    const soon = req.query.all ? Promise.resolve(null) : autoLogSoon({ match, started: t0 });
     const nameOf = await payerNamer(match);
     const logged = match ? new Set([...match.matched, ...match.loggedTogether, ...(match.loggedHere || [])].map((p) => p.id)) : null;
 
