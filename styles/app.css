@@ -2999,6 +2999,11 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .log-date input{flex:none;width:16px;height:16px;margin:0;accent-color:var(--d-ink)}
 .app:not(.pub) .log-tr.off > :not(.log-date), .app:not(.pub) .log-tr.off .log-date{color:var(--d-ink-4);text-decoration:line-through;text-decoration-color:var(--d-line-3)}
 .app:not(.pub) .pay-test{display:inline-block;padding:0 6px;border:1px solid var(--d-line-2);border-radius:999px;font-size:11px;font-weight:500;line-height:16px;letter-spacing:.02em;color:var(--d-ink-3);text-decoration:none;vertical-align:1px}
+/* (2026-11-26, paylinks-1126) Site › Users: a manager on INFO with no pay link (amber, the Test chip's shape), and the Pay link's short name */
+.app:not(.pub) .pay-none{display:inline-block;margin-left:8px;padding:0 6px;border:1px solid var(--d-warn-line);border-radius:999px;background:var(--d-warn-bg);font-size:11px;font-weight:500;line-height:16px;letter-spacing:.02em;color:var(--d-warn);white-space:nowrap;vertical-align:1px}
+.app:not(.pub) .fld .pay-none{margin-left:0}
+.app:not(.pub) .fld .pay-key{display:flex;flex-wrap:wrap;align-items:center;gap:2px;font-size:13px;color:var(--d-ink-2)}
+.app:not(.pub) .fld .pay-key input{width:150px;max-width:100%;font-size:13px}
 .app:not(.pub) .log-tr em{font-style:normal;color:var(--d-ink-4)}
 .app:not(.pub) .log-th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-ink-4);background:var(--d-hover)}
 .app:not(.pub) .log-acct{margin:10px 0 0}
