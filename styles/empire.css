@@ -102,6 +102,8 @@
 /* statements */
 .app:not(.pub) .emp-form{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(2,minmax(0,1fr)) auto;align-items:start;gap:12px;margin:0 0 6px}
 .app:not(.pub) .emp-form .fld{margin:0;min-width:0}
+/* (2026-11-25 declutter) the sentence under the Statements head is gone: the form keeps a little room under the head */
+.app:not(.pub) .emp-head + .emp-form{margin-top:12px}
 .app:not(.pub) .emp-form-go{align-self:start;margin-top:22px}
 @media (max-width:900px),(pointer:coarse) and (max-height:500px){ .app:not(.pub) .emp-form{grid-template-columns:repeat(2,minmax(0,1fr))} .app:not(.pub) .emp-form > .fld:first-child{grid-column:1 / -1} .app:not(.pub) .emp-form-go{margin-top:0} }
 @media (max-width:560px){ .app:not(.pub) .emp-form{grid-template-columns:minmax(0,1fr)} }

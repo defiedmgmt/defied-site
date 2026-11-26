@@ -163,7 +163,8 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
     body = (
       <>
         {pay && <p className="log-for" data-log-for>For the {shortDay(pay.at)} payment from {pay.client || pay.payer || "an unknown payer"}, {money(pay.amount)} paid.</p>}
-        {rowsN > 0 && <p className="log-lead">{n === 0 ? "No rows are ticked, so nothing goes" : n === 1 ? "This row goes" : `These ${n} rows go`} on the Income tab, under its last row.{opts ? " Each field is filled in already. Change any of them first if you need to." : ""} The sheet works out the month, manager and shares, the same as a row typed by hand{plan.rows.some((r) => r.manager) ? " (a test paid through a co-manager's link gets its manager and share typed in, like your own test rows)" : ""}.{rowsN > 1 ? " Untick one to leave it out for now." : ""}</p>}
+        {/* (2026-11-25 declutter, the owner: "get rid of a lot of the simple one liner ai explanations") only where the rows go: how the sheet fills them in, and that a row can be changed or unticked, are gone */}
+        {rowsN > 0 && <p className="log-lead">{n === 0 ? "No rows are ticked, so nothing goes" : n === 1 ? "This row goes" : `These ${n} rows go`} on the Income tab, under its last row.</p>}
         {rowsN > 0 && opts && (
           <div className="logedit-rows" data-log-edit>
             {rows.map((x) => <LogEditRow key={x.r.id} {...x} opts={opts} year={plan.year} off={off.has(x.r.id)} busy={busy} onTick={() => tick(x.r.id)} onField={(k, value) => setField(x.r, k, value)} />)}
@@ -180,7 +181,8 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
             ))}
           </div>
         )}
-        {rowsN > 0 && <p className="hint log-acct">{opts ? "" : `Account: ${plan.rows[0].account}. The sheet's lists couldn't be read just now, so these rows can't be changed here. `}The full amount paid goes in Gross Commission, like the rows already there. Names are written the way the sheet already spells them.</p>}
+        {/* (2026-11-25 declutter) only when the sheet's lists didn't read: the account, and why the rows can't be changed here */}
+        {rowsN > 0 && !opts && <p className="hint log-acct">{`Account: ${plan.rows[0].account}. The sheet's lists couldn't be read just now, so these rows can't be changed here.`}</p>}
         {reasons(plan.skipped)}
         {rowsN === 0 && !plan.skipped?.length && <p className="home-muted">Nothing to add.</p>}
       </>
@@ -231,7 +233,7 @@ function LogEditRow({ r, v, why, opts, year, off, busy, onTick, onField }) {
         <label className="fld logedit-wide"><span>Revenue Type</span>
           <select {...field("type")}>{choices(opts.types, r.type).map((t) => <option key={t} value={t}>{t}</option>)}</select>{say("type")}</label>
         <label className="fld logedit-wide"><span>Artist / Client</span>
-          <select {...field("client")}><option value="">(blank, as on Other Income rows)</option>{choices(opts.clients, r.client).map((c) => <option key={c} value={c}>{c}</option>)}</select>{say("client")}</label>
+          <select {...field("client")}><option value="">(blank)</option>{choices(opts.clients, r.client).map((c) => <option key={c} value={c}>{c}</option>)}</select>{say("client")}</label>
         <label className="fld logedit-wide"><span>Account</span>
           <select {...field("account")}>{choices(opts.accounts, r.account).map((a) => <option key={a} value={a}>{a}</option>)}</select>{say("account")}</label>
         <label className="fld logedit-wide"><span>Source / Notes</span>
@@ -243,12 +245,13 @@ function LogEditRow({ r, v, why, opts, year, off, busy, onTick, onField }) {
             <span className="logedit-money">$<input inputMode="decimal" autoComplete="off" {...field("managerShare")} onFocus={(e) => e.target.select()} /></span>{say("managerShare")}</label>
         </>}
       </fieldset>
-      {co ? amt != null && share != null && share <= amt && <p className="logedit-split" data-split>DEFIED SHARE: {money((amt - share) / 100)}. The sheet works it out (Gross Commission less Manager Share).</p>
+      {/* (2026-11-25 declutter) the shares the sheet will work out, as figures only: "The sheet works it out (...)" / "The sheet works out the rest:" are gone; the INFO warning stays whole */}
+      {co ? amt != null && share != null && share <= amt && <p className="logedit-split" data-split>DEFIED SHARE {money((amt - share) / 100)}</p>
         : split && <p className="logedit-split" data-split>{split.odd != null
           ? <span className="warn-text" data-split-odd>{`INFO's Manager Gets % for ${v.client} reads ${split.odd}, which isn't a fraction from 0 to 1 (66.7% is 0.667 there), so the sheet would work out a wrong Manager Share. Fix it on INFO first.`}</span>
-          : split.manager ? <>The sheet works out the rest: Manager {split.manager}, Manager Share {money(split.share / 100)}, DEFIED SHARE {money(split.defied / 100)}.</>
-          : <>The sheet works out the rest: no manager, so DEFIED SHARE is the full {money(amt / 100)}.</>}</p>}
-      {amt != null && r.stripe && amt !== centsOf(r.stripe.amount) && <p className="logedit-diff" data-diff>Stripe says {money(r.stripe.amount)}; the sheet will say {money(amt / 100)}. It still counts as logged. To check may list the difference: Mark as OK there if it's right.</p>}
+          : split.manager ? <>Manager {split.manager} · Manager Share {money(split.share / 100)} · DEFIED SHARE {money(split.defied / 100)}</>
+          : <>No manager · DEFIED SHARE {money(amt / 100)}</>}</p>}
+      {amt != null && r.stripe && amt !== centsOf(r.stripe.amount) && <p className="logedit-diff" data-diff>Stripe says {money(r.stripe.amount)}; the sheet will say {money(amt / 100)}.</p>}
     </div>
   );
 }
@@ -321,13 +324,13 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
   else if (sec === "mine") body = <MyPaymentsPage inMoney />;
   else if (!d) body = failed ? <p className="home-muted"><AlertTriangle size={15} /> <span>Couldn't load the accounting numbers. <button className="inline-link" onClick={() => load()}>Try again</button></span></p>
     : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>;
-  else if (!d.connected) body = <p className="home-muted">Accounting sheet: not connected yet. Once it's shared with the dashboard, this section fills in.</p>;
+  else if (!d.connected) body = <p className="home-muted">Accounting sheet: not connected yet.</p>; // (2026-11-25 declutter) "Once it's shared with the dashboard, this section fills in." is gone
   else if (d.error) body = <p className="home-muted"><AlertTriangle size={15} /> {d.error}</p>;
   else if (sec === "overview") body = <AcctOverview d={d} onSec={toSec} />;
   else if (sec === "log") body = <AcctToLog d={d} onLog={setLogIds} onPick={setPick} />;
   else if (sec === "check") body = <AcctToCheck d={d} busy={okBusy} err={okErr} onOk={markOk} />;
   else body = !d.payments ? <p className="home-muted"><AlertTriangle size={15} /> {d.stripe?.error || "Stripe couldn't be read just now."}</p>
-    : <div className="acct-panel" data-acct="payments"><p className="pay-legend">Green = Defied's share of each payment · {fmt(d.payments.total)} payments</p>{d.payments.items.map((p) => <PayRow key={p.id} p={p} onLog={(ids) => setLogIds(ids)} />)}</div>;
+    : <div className="acct-panel" data-acct="payments"><p className="pay-legend">{fmt(d.payments.total)} payments</p>{d.payments.items.map((p) => <PayRow key={p.id} p={p} onLog={(ids) => setLogIds(ids)} />)}</div>;
   const modals = (
     <>
       {logIds && <LogConfirm ids={logIds} canLog={!!d?.toLog?.canLog} onClose={() => setLogIds(null)} onDone={() => load(true)} onDetails={pickById} />}
@@ -412,8 +415,7 @@ export function AcctOverview({ d, onSec }) {
         {stats.map(([k, label, note]) => <div key={k} className="cat-stat" data-stat={k} data-empty={k === "monthNet" && monthEmpty ? "" : undefined}><span className="cat-stat-label">{label}</span><span className="cat-stat-val">{money(t[k])}</span>{note && <span className="acct-note">{note}</span>}</div>)}
       </div>
       <div className="fix-panel acct-panel" data-acct="months">
-        <div className="fix-head"><h3>Stripe and the sheet, month by month</h3>
-          <span className="hint">Defied's share: through Stripe, and in the sheet (the Income tab by each row's date, plus co-managers' share of Stripe's fees from the Stripe Fees tab).</span></div>
+        <div className="fix-head"><h3>Stripe and the sheet, month by month</h3></div>
         {!M ? <p className="home-muted"><AlertTriangle size={15} /> Stripe couldn't be read just now, so the months can't be compared.</p> : (
           <div className="acct-mtable" role="table" aria-label="Stripe and the sheet by month">
             <div className="acct-mrow acct-mhead" role="row"><span role="columnheader">Month</span><span role="columnheader" className="acct-amt">Through Stripe</span><span role="columnheader" className="acct-amt">In the sheet</span><span role="columnheader" className="acct-amt">Difference</span><span role="columnheader">Why</span></div>
@@ -433,7 +435,8 @@ export function AcctOverview({ d, onSec }) {
               <span role="cell" className="acct-amt" data-col="stripe">{money(yr.stripe)}</span>
               <span role="cell" className="acct-amt" data-col="sheet">{money(yr.sheet)}</span>
               <span role="cell" className={yr.diff ? "acct-amt acct-diff" : "acct-amt"} data-col="diff">{diffText(yr.diff)}</span>
-              <span role="cell" className="acct-why" data-col="why">{!yr.diff ? <span className="acct-match"><CheckCircle2 size={14} /> Matches</span> : "The months above explain it."}</span>
+              {/* (2026-11-25 declutter) a difference shows its amount only: "The months above explain it." is gone */}
+              <span role="cell" className="acct-why" data-col="why">{!yr.diff ? <span className="acct-match"><CheckCircle2 size={14} /> Matches</span> : null}</span>
             </div>
           </div>
         )}

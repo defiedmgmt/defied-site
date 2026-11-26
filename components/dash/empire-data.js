@@ -246,7 +246,8 @@ export function dealLine(deal) {
   if (deal.status !== "given") return "";
   if (r.none) return deal.clientId ? "None of its songs are on Schedule A right now, so there is nothing to count." : "Counting starts once they're a client with songs on Schedule A.";
   if (r.paid == null) return "";
-  return `Paid back ${usd(r.paid)} of ${usd(deal.advance)} (${pctText(r.pct, 0)}) from EMPIRE's statements, split by each song's streams. ${usd(r.remaining)} to go.${r.statements ? "" : " No statement covers it yet."}`;
+  // (2026-11-25 declutter) the source stays ("from EMPIRE's statements"); "split by each song's streams" (how a statement is shared out) is gone
+  return `Paid back ${usd(r.paid)} of ${usd(deal.advance)} (${pctText(r.pct, 0)}) from EMPIRE's statements. ${usd(r.remaining)} to go.${r.statements ? "" : " No statement covers it yet."}`;
 }
 // the small muted note on a given deal: when the royalties since its day would pay it back at today's pace (an estimate, said so), or that they never would
 export function dealForecast(deal) {
@@ -265,17 +266,20 @@ export const partPct = (x) => `${Math.min(99, Math.max(1, Math.round((Number(x) 
 const songNames = (xs) => (xs.length > 3 ? `${xs.length} songs` : xs.map((x) => `“${x}”`).join(", ").replace(/, ([^,]*)$/, " and $1"));
 // (2026-11-24, audit) the note for new songs: a song whose daily counts are from its first 3 months plans on its latest week when that is lower (lib/advance-pace.js songPace),
 // and the estimate is rough either way. heldNames: the held songs picked; p.newShare: the part of the pace from new songs.
+// -> { rough: the marker the calculator's main view shows ("New songs, so this estimate is rough."), text: the whole note, under Show the math (2026-11-25 declutter) } | null
+const roughWords = (one) => `New ${one ? "song" : "songs"}, so this estimate is rough`;
 function newSongNote(p, decay, heldNames) {
   const n = p.held || 0;
   if (n > 0) {
     const one = n === 1, who = heldNames?.length === n ? songNames(heldNames) : one ? "one song" : `${n} songs`;
-    return `New ${one ? "song" : "songs"}, so this estimate is rough: the daily counts for ${who} are from ${one ? "its" : "their"} first 3 months, when songs stream far more than they keep up, so ${one ? "it counts its" : "each counts its own"} latest week, not the launch spike. New songs usually keep falling faster than ${pctText(decay)} a year: check again once ${one ? "it's" : "they're"} past 3 months.`;
+    return { rough: `${roughWords(one)}.`, text: `${roughWords(one)}: the daily counts for ${who} are from ${one ? "its" : "their"} first 3 months, when songs stream far more than they keep up, so ${one ? "it counts its" : "each counts its own"} latest week, not the launch spike. New songs usually keep falling faster than ${pctText(decay)} a year: check again once ${one ? "it's" : "they're"} past 3 months.` };
   }
-  return p.newShare > 0 ? `New songs, so this estimate is rough: ${partPct(p.newShare)} of this pace is from songs out under 3 months, and new songs usually drop faster than ${pctText(decay)} a year.` : null;
+  return p.newShare > 0 ? { rough: `${roughWords(false)}.`, text: `${roughWords(false)}: ${partPct(p.newShare)} of this pace is from songs out under 3 months, and new songs usually drop faster than ${pctText(decay)} a year.` } : null;
 }
 // p: paceOfSongs()'s answer for the songs picked that have a split (song by song: each measured song at its measured pace, the rest by the rule); rule: the sheet's run-rate
 // (B9) as a fraction; decay: B8; heldNames: the names of the new songs held down; noSplit: how many songs picked have no split for the producer yet (they aren't in p).
-// -> { real (all of the pace measured), realShare, perYear, source, warning, noSplitOnly (every song picked has no split: nothing to count) }
+// -> { real (all of the pace measured), realShare, perYear, source, warning (the new-songs note in full, for Show the math), rough (its first words, for the main view),
+//      noSplitOnly (every song picked has no split: nothing to count) }
 export function paceSource({ p, rule, decay, heldNames = [], noSplit = 0 }) {
   const r = pctText(rule);
   // (2026-11-24, audit) songs without a split: said as such, not as "no daily tracking" (a $0 advance for a song with no split is about the split, not the readings)
@@ -287,10 +291,11 @@ export function paceSource({ p, rule, decay, heldNames = [], noSplit = 0 }) {
   if (p.tracked > 0) {
     const rest = p.count - p.tracked;
     const other = rest > 0 ? ` ${rest === 1 ? "The other song uses" : `The other ${rest} use`} the sheet's rule (${r} of lifetime a year)${p.real ? "" : `, so ${partPct(p.realShare)} of the pace is measured`}.` : "";
+    const note = newSongNote(p, decay, heldNames);
     return {
       real: p.real, realShare: p.realShare, perYear: p.perYear,
       source: `${p.real ? "Real streams: " : ""}Spotify's daily counts for ${p.tracked} of ${p.count} ${p.count === 1 ? "song" : "songs"}, scaled to all platforms by each song's lifetime total.${other}${unsplit}`,
-      warning: newSongNote(p, decay, heldNames),
+      warning: note ? note.text : null, rough: note ? note.rough : null,
     };
   }
   return {

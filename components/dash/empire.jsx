@@ -77,13 +77,14 @@ function RecoupCard({ data, reload, init }) {
           </div>
         </div>
       </div>
-      {/* where the timeline was: the last day to be paid back and the day Defied can buy out (dates from the terms; nothing projected), and what being paid back means */}
+      {/* where the timeline was: the last day to be paid back and the day Defied can buy out (dates from the terms; nothing projected). (2026-11-25 declutter) "Defied gets paid once
+          EMPIRE is paid back" is gone; the line says it only once it's true (a full bar, from statements) */}
       <p className="emp-dates" data-emp-dates>
         <span data-emp-dates-payby title={dates.payBy.title}>Pay back by <b>{dates.payBy.text}</b></span>
         <i className="emp-dates-dot" aria-hidden="true">·</i>
         <span data-emp-dates-buyout title={dates.buyout.title}>Buyout from <b>{dates.buyout.text}</b></span>
-        <i className="emp-dates-dot" aria-hidden="true">·</i>
-        <span data-emp-dates-paid>{dates.paid}</span>
+        {r.recouped && <><i className="emp-dates-dot" aria-hidden="true">·</i>
+          <span data-emp-dates-paid>{dates.paid}</span></>}
       </p>
       <ForecastBox data={data} reload={reload} init={init} />
     </section>
@@ -96,7 +97,7 @@ function ForecastBox({ data, reload, init }) {
   const lines = forecastLines(r, terms);
   return (
     <details className="emp-fc" data-emp="fc">
-      <summary>Forecast (an estimate from streams, not money)</summary>
+      <summary>Forecast</summary>
       <div className="emp-fc-body">
         {lines.length > 0 && <ul className="emp-fc-list" data-emp-fc-lines>{lines.map(([id, text]) => <li key={id} data-emp-fc={id}>{text}</li>)}</ul>}
         <NetIncomeBox data={data} reload={reload} init={init} />
@@ -148,7 +149,6 @@ function SpentCard({ data, reload, init }) {
   return (
     <section className="emp-card" data-emp="spent" aria-label="The advance EMPIRE gave Defied: what is spent">
       <div className="emp-head"><h3 className="emp-h">The {usd0(pot.total)} advance</h3><span className="emp-src" data-emp-spent title={usd(pot.spent)}>{usd0(pot.spent)} spent</span></div>
-      <p className="emp-sub">What EMPIRE advanced Defied to give out (the {usd0(terms.legal)} that went to the lawyer isn't part of it).</p>
       <div className="emp-bar emp-bar-sm" role="img" aria-label={`${pct} spent: ${usd0(pot.spent)} of ${usd0(pot.total)}${pot.over > 0 ? `, over by ${usd0(pot.over)}` : ""}`} data-emp-spent-bar>
         <span className="emp-bar-solid" data-emp-spent-solid style={{ width: `${bar.solid}%` }} />
       </div>
@@ -327,7 +327,6 @@ function StatementsCard({ data, reload, init }) {
   return (
     <section className="emp-card" data-emp="statements" aria-label="EMPIRE statements">
       <div className="emp-head"><h3 className="emp-h">Statements from EMPIRE</h3>{nextDue && <span className="emp-src" data-emp-next-due>{nextDue.over ? `${nextDue.id} statement ${dueWords(nextDue)}` : `${nextDue.id} ends ${dayText(nextDue.end)}, statement ${dueWords(nextDue)}`}</span>}</div>
-      <p className="emp-sub">Every quarter EMPIRE sends a statement: what it received (Net Income) and what it credited to Defied. Type each one in: it's what the first tile counts.</p>
       {open.length === 0 ? <p className="emp-empty" data-emp-no-open>No finished quarter is waiting for a statement.</p> : formOpen ? (
         <div className="emp-form" data-emp-statement-form>
           <label className="fld"><span>Quarter</span>
@@ -337,7 +336,7 @@ function StatementsCard({ data, reload, init }) {
             {chosen && <span className="hint" data-emp-due>Its statement is {dueWords(chosen)}.</span>}</label>
           <Field label="Net Income ($)" inputMode="decimal" autoComplete="off" placeholder="what EMPIRE received" value={f.ni} onChange={(e) => setF({ ...f, ni: e.target.value })} data-f="netIncome" />
           <Field label="Credited to Defied ($)" inputMode="decimal" autoComplete="off" placeholder="what it credited" value={f.credited} onChange={(e) => setF({ ...f, credited: e.target.value })} data-f="credited"
-            hint={ni > 0 ? <>Usually {pctText(terms.payout, 0)} of Net Income: {usd(usual)}. <button type="button" className="inline-link" data-emp-fill onClick={() => setF({ ...f, credited: String(usual) })}>Use that</button></> : `Usually ${pctText(terms.payout, 0)} of Net Income.`} />
+            hint={ni > 0 ? <>Usually {pctText(terms.payout, 0)} of Net Income: {usd(usual)}. <button type="button" className="inline-link" data-emp-fill onClick={() => setF({ ...f, credited: String(usual) })}>Use that</button></> : undefined} />
           <span className="emp-form-acts">
             <button type="button" className="btn sm emp-form-go" data-emp-add-statement onClick={add} disabled={busy || !ok}>{busy ? "Adding…" : "Add statement"}</button>
             <button type="button" className="btn ghost sm" data-emp-cancel-statement onClick={() => setFormOpen(false)} disabled={busy}>Cancel</button>

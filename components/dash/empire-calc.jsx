@@ -5,7 +5,6 @@ import { bigNum, pct1 } from "./ar-fmt";
 import { useAct, useEmpire } from "./empire-api";
 import { overlapOf, paceOfSongs, producerDeal } from "../../lib/empire-math";
 import { yearFactor } from "../../lib/advance-model";
-import { useIsPhone } from "../ui/responsive";
 import {
   amountOf, centsOf, checkSentence, clampMonths, cutFromText, dealPayload, floor10, monthsText, netIncomeHow, paceSource, partPct, pctText, shownParts, usd, usd0, usd10, verdictRule, verdictShown, verdictTone,
 } from "./empire-data";
@@ -41,9 +40,7 @@ export function EmpireCalc({ data, reload, init = null }) {
   const [note, setNote] = useState(init?.note ?? "");
   const [said, setSaid] = useState(init?.said ?? null);
   const { busy, err, act, clear } = useAct(reload);
-  // (2026-11-25, mobile) on a phone the picker's "Someone new" leaves its "(type their streams)" off: the closed picker cut it to "…their stre…";
-  // the Name and Lifetime streams fields under it say the same. Desktop keeps the words (false on the server and on first paint).
-  const phone = useIsPhone();
+  // (2026-11-25, mobile) the picker's "Someone new" lost its "(type their streams)" on a phone; (2026-11-25 declutter) on desktop too, so the calculator no longer reads useIsPhone
 
   const producer = who.startsWith("p:") ? producers.find((p) => p.id === who.slice(2)) : null;
   const picks = (scope === "songs" ? (producer?.songs || []).filter((s) => picked.has(s.id)) : producer?.songs || []);
@@ -119,7 +116,6 @@ export function EmpireCalc({ data, reload, init = null }) {
   return (
     <section className="emp-card emp-calc" data-emp="calc" aria-label="Advance calculator">
       <div className="emp-head"><h3 className="emp-h">Advance calculator</h3></div>
-      <p className="emp-sub" data-emp-calc-sub>How big an advance one of our producers can get, paid back from their royalties, out of EMPIRE's {usd0(terms.execution)} advance.</p>
       {!lev?.ok && <p className="hint err-text" role="alert" data-emp-calc-off>Couldn't load the rates just now, so the calculator can't work out its numbers. Reload in a minute.</p>}
 
       <div className="adv-cols">
@@ -132,7 +128,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                   {producers.map((p) => <option key={p.id} value={`p:${p.id}`}>{p.name} ({p.songs.length} {p.songs.length === 1 ? "song" : "songs"})</option>)}
                 </optgroup>
               )}
-              <option value="n">{phone ? "Someone new" : "Someone new (type their streams)"}</option>
+              <option value="n">Someone new</option>
             </select>
           </label>
 
@@ -167,13 +163,14 @@ export function EmpireCalc({ data, reload, init = null }) {
               <Field label="Name" value={typed.name} onChange={(e) => setTyped({ ...typed, name: e.target.value })} placeholder="Who are you looking at?" data-f="name" />
               {/* (2026-11-24, audit) the pace for someone new is the sheet's rule, lifetime streams × the run-rate, so this box is their LIFETIME streams: it said "Gross streams",
                   and a year's streams typed in came out at 30% of what they should */}
-              <Field label="Lifetime streams (all platforms)" type="number" value={typed.gross} onChange={(e) => setTyped({ ...typed, gross: e.target.value })} data-f="gross"
-                hint="Their all-time total on every platform, not a year's streams." />
+              {/* (2026-11-25 declutter) the label says it ("Lifetime streams (all platforms)"): the hint repeating it is gone */}
+              <Field label="Lifetime streams (all platforms)" type="number" value={typed.gross} onChange={(e) => setTyped({ ...typed, gross: e.target.value })} data-f="gross" />
               <Field label="Writer %" type="number" value={typed.share} onChange={(e) => setTyped({ ...typed, share: e.target.value })} data-f="share" />
               {netStreams > 0 && <p className="hint">Their share, lifetime: {bigNum(Math.round(netStreams))} streams</p>}
             </>
           )}
-          {!empty && pace?.warning && <p className="hint adv-warn" data-tone="warn" data-adv-warn role="note">{pace.warning}</p>}
+          {/* (2026-11-25 declutter) the marker only ("New songs, so this estimate is rough."); the why, in full, is under Show the math */}
+          {!empty && pace?.rough && <p className="hint adv-warn" data-tone="warn" data-adv-warn role="note">{pace.rough}</p>}
           {!empty && existing.length > 0 && <p className="hint adv-warn" data-tone="warn" data-emp-has-deal role="note">{existing.length === 1 ? `Already has a ${usd(held)} deal (${usd(owing)} still to pay back, estimated)` : `Already has ${existing.length} deals worth ${usd(held)} (${usd(owing)} still to pay back, estimated)`}</p>}
 
           <div className="fld emp-chipfld" role="group" aria-labelledby="adv-months-label">
@@ -212,7 +209,7 @@ export function EmpireCalc({ data, reload, init = null }) {
                   <Field
                     label="Check an amount" type="text" inputMode="decimal" autoComplete="off" placeholder="$ amount, like 25,000" value={amountIn}
                     onChange={(e) => setAmountIn(e.target.value)} data-f="amount"
-                    hint={String(amountIn).trim() !== "" && amount == null ? "Type the amount as a number, like 25000." : "An advance you have in mind: how long would the royalties take to pay it back?"}
+                    hint={String(amountIn).trim() !== "" && amount == null ? "Type the amount as a number, like 25000." : undefined}
                   />
                   {checked && <p className="adv-check-out" data-tone={checked.tone} data-adv-check-result role="status">{checked.text}</p>}
                 </div>
@@ -221,8 +218,7 @@ export function EmpireCalc({ data, reload, init = null }) {
               <div className="adv-block adv-compact" data-emp-save>
                 <h3 className="adv-h">Save as a planned deal</h3>
                 <div className="adv-save-fields">
-                  <Field label="Advance to save ($)" inputMode="decimal" autoComplete="off" placeholder={usd(toSave)} value={saveIn} onChange={(e) => setSaveIn(e.target.value)} data-f="saveAmount"
-                    hint="Starts from the amount you're checking, or the advance above. Type another if the deal is different." />
+                  <Field label="Advance to save ($)" inputMode="decimal" autoComplete="off" placeholder={usd(toSave)} value={saveIn} onChange={(e) => setSaveIn(e.target.value)} data-f="saveAmount" />
                   <Field label="Note (optional)" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} data-f="note" />
                 </div>
                 <button type="button" className="btn sm" data-emp-save-planned onClick={save} disabled={busy || !canSave}>{busy ? "Saving…" : "Save as a planned deal"}</button>
@@ -250,6 +246,8 @@ export function EmpireCalc({ data, reload, init = null }) {
             </div>
             {/* where today's pace comes from: real daily streams for songs with enough of them, otherwise the sheet's rule */}
             <p className="hint adv-source" data-adv-source={paceKind}>{pace.source}</p>
+            {/* (2026-11-25 declutter) the new-songs note in full: the main view keeps only its first words */}
+            {pace.warning && <p className="hint adv-rough" data-adv-rough>{pace.warning}</p>}
             <p className="hint adv-rate" data-emp-rate title="The rate is ASSUMPTIONS!B7 on the pub sheet">{`At $${+lev.blendedRate.toFixed(6)} a stream for the whole song (your pub sheet's rate).`}</p>
 
             <div className="adv-block" data-emp-flow>

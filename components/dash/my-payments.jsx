@@ -39,7 +39,8 @@ export function MyPaymentsPage({ inMoney = false }) {
       {!inMoney && <div className="admin-head"><h2>My payments</h2>
         <button type="button" className="btn ghost sm" onClick={load} disabled={busy} data-my-pay-refresh><RefreshCw size={14} className={busy ? "spin" : undefined} /> Refresh</button>
       </div>}
-      {d?.link && <p className="muted mp-from">Payments through <ExtLink href={d.link.page} className="inline-link">pay.defiedmgmt.com/{d.link.key}</ExtLink>. {made ? "What your link has made; Defied keeps it." : "What you keep is the payment less Defied's cut; Stripe's own fee is paid by Defied."}</p>}
+      {/* (2026-11-25 declutter) the link only: the sentence on how what you keep is worked out is gone (the tiles and rows say it in figures) */}
+      {d?.link && <p className="muted mp-from">Payments through <ExtLink href={d.link.page} className="inline-link">pay.defiedmgmt.com/{d.link.key}</ExtLink></p>}
       {!d && !failed && <p className="todo-line"><RefreshCw size={14} className="spin" /> Loading your payments…</p>}
       {failed && !d && <p className="todo-line"><AlertTriangle size={14} /> Couldn't load your payments. <button className="inline-link" onClick={load}>Try again</button></p>}
       {d?.none && <p className="todo-line" data-my-pay-none>Your login isn't matched to a pay link.</p>}
