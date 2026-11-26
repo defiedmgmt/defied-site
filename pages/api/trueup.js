@@ -6,10 +6,11 @@
 //   POST { action: "undo", runId }        the newest run only, and everything it wrote
 //   POST { action: "setup", runId }       carries on setting the newest update's songs up on the pub sheet (lib/lum-setup.js)
 //   POST { action: "schedule", ends | copied }   a Founder moves the day Luminate's schedule ends
+//   POST { action: "dueDay", day }        a Founder sets the day of the month the Luminate report is due (1-31)
 // Nothing here writes the sheet: the STREAM DATA writer does, behind STREAM_SHEET_WRITES (default off).
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
-import { trueUpState, previewTrueUp, applyTrueUp, undoTrueUp, setSchedule } from "../../lib/trueup";
+import { trueUpState, previewTrueUp, applyTrueUp, undoTrueUp, setSchedule, setDueDay } from "../../lib/trueup";
 import { streamSheetMonthly } from "../../lib/stream-sheet";
 import { setupNewSongs } from "../../lib/lum-setup";
 
@@ -56,6 +57,11 @@ export default async function handler(req, res) {
     if (body.action === "schedule") {
       if (!founder) return res.status(403).json({ error: "Only a Founder can change Luminate's schedule date." });
       const out = await setSchedule({ ends: body.ends, copied: body.copied === true, by });
+      return res.status(out.error ? 400 : 200).json(out);
+    }
+    if (body.action === "dueDay") {
+      if (!founder) return res.status(403).json({ error: "Only a Founder can change the Luminate report's due day." });
+      const out = await setDueDay(body.day, by);
       return res.status(out.error ? 400 : 200).json(out);
     }
     return res.status(400).json({ error: "Unknown action." });

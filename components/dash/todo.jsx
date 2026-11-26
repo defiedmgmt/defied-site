@@ -17,6 +17,7 @@ import { ownAt, typedShare, pctText } from "../../lib/split-fixes";
 import { shareChanged } from "../../lib/pct";
 import { PanelWait } from "./sections";
 import { phoneQuery } from "../ui/responsive";
+import { trueUpCalendar } from "../trueup-data";
 export { useCuTasks, useSyncChecks, todoItems, useSplitFixes, useAutoConfirm, syncFix, useSeeds } from "./todo-data";
 
 // The panels a row opens in place come from other areas (Money's log preview, Publishing's split and merge
@@ -672,6 +673,7 @@ function DoneForYou({ ctx }) {
 // Each source gives [{ day: "YYYY-MM-DD" (New York), label, kind, late?, task? }]; Opportunities (B)
 // adds its deadlines by adding a source here.
 export const CAL_SOURCES = [
+  trueUpCalendar,
   // ClickUp: each open task on its due day
   ({ cu }) => (cu.data?.tasks || []).filter((t) => t.due).map((t) => ({ day: nyDay(t.due), label: t.name, kind: "clickup", late: dueBucket(t.due) === "overdue", task: t })),
   // Money: the days payments came in that the Income tab doesn't have yet

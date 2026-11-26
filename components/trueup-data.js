@@ -1,5 +1,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { fate, loadedRecently, markLoaded, readFresh, stamp } from "./shared/boot";
+import { dueChips } from "../lib/trueup-due";
+import { nyDay } from "../lib/todo-rank";
 
 // The monthly true-up's data side (GET /api/trueup and its To do rows), read by the dashboard's shell on
 // every section; the screens are in TrueUp.jsx, loaded with To do (list B #11).
@@ -41,7 +43,8 @@ export function trueUpTodoItems(d) {
   const out = [];
   const last = d.runs?.[0];
   const saved = d.recent && last?.id === d.recent.id && !d.due;
-  if (d.due || saved) out.push({ k: "trueup", area: "roster", t: saved ? "Monthly Luminate update: saved" : "Monthly Luminate update: drop this month's report",
+  // (2026-11-26, the owner) due on the 1st: the row from 3 days before until a file for it is applied (lib/trueup-due.js)
+  if (d.due || saved) out.push({ k: "trueup", area: "roster", t: saved ? "Luminate report saved" : `Luminate report ${d.late ? "was due" : "due"} ${shortDay(d.dueOn)}`,
     d: saved ? `Luminate's ${shortDay(last.export_on)} numbers, ${plural(last.counts?.songs || 0, "song")}` : last ? `Last one: the ${shortDay(last.export_on)} file` : `All ${fmt(d.total)} roster songs go in the report first`,
     cta: "Open", panel: "trueup", rank: { kind: "other" } });
   const n = d.notInReport?.length || 0;
@@ -57,3 +60,7 @@ export function trueUpTodoItems(d) {
     cta: "Open", panel: "trueup-schedule", rank: { kind: "other" } });
   return out;
 }
+
+// ---- To do's Calendar and Home's week (components/dash/todo.jsx CAL_SOURCES): "Luminate report" on each due day whose
+// report isn't in yet; the same accounts as the row (ctx.trueup is null for anyone GET /api/trueup isn't for)
+export const trueUpCalendar = ({ trueup: d }, from, to) => (d && d.dueDay ? dueChips(from, to, { exportOn: d.runs?.[0]?.export_on || "", today: nyDay(Date.now()), D: d.dueDay }) : []);

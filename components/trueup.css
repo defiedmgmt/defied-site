@@ -36,6 +36,8 @@
 .app:not(.pub) .tu-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .app:not(.pub) .tu-date { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--d-ink-3); }
 .app:not(.pub) .tu-date input { height: var(--d-ctl-sm); padding: 0 8px; border: 1px solid var(--d-line-2); border-radius: var(--d-r-sm); background: var(--d-field); color: var(--d-ink); font: inherit; font-size: 13px; }
+/* (2026-11-26) a Founder's due day: the same box, with the select arrow To do's ClickUp tools use */
+.app:not(.pub) .tu-date select { height: var(--d-ctl-sm); padding: 0 26px 0 10px; border: 1px solid var(--d-line-2); border-radius: var(--d-r-sm); background-color: var(--d-field); background-image: var(--d-chev); background-size: 5px 5px, 5px 5px; background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%; background-repeat: no-repeat; color: var(--d-ink); font: inherit; font-size: 13px; appearance: none; -webkit-appearance: none; cursor: pointer; }
 .app:not(.pub) .tu-last { margin: 8px 0 0; }
 /* (2026-11-12) the drop's checklist (To do's songs to add, ticked off by the file) and the pub sheet setup */
 .app:not(.pub) .tu-check { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--d-line-2); border-radius: var(--d-r-sm); background: var(--d-s2); min-width: 0; }
@@ -50,7 +52,7 @@
 .app:not(.pub) .tu-head .tu-acts { gap: 6px; }
 .app:not(.pub) .tu-sub { font-size: 13px; font-weight: 600; color: var(--d-ink); }
 @media (max-width: 599px) {
-  .app:not(.pub) .tu-toggle, .app:not(.pub) .tu-date input { min-height: 44px; }
+  .app:not(.pub) .tu-toggle, .app:not(.pub) .tu-date input, .app:not(.pub) .tu-date select { min-height: 44px; }
   .app:not(.pub) .tu-meta { flex-basis: 100%; }
   .app:not(.pub) .tu-ticks li { flex-wrap: wrap; }
   .app:not(.pub) .tu-ticks .tu-meta { flex-basis: auto; margin-left: 28px; }
