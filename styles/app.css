@@ -962,7 +962,9 @@ html:has(.app:not(.pub) .modal){overflow:hidden}
 .app:not(.pub) .portal-block{margin:0 0 48px}
 /* the Password block is the last child of .portal-main (ClientPortal 3265) */
 .app:not(.pub) .portal-main > .portal-block:last-child{padding:20px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}
-.app:not(.pub) .portal-main > .portal-block:last-child > .portal-block-head{align-items:center;margin:0}
+/* (2026-11-25 declutter) the songs head (the last block now the Password block is a header button) keeps 16px under it: without the "Click any to see
+   the breakdown." line it is only as tall as Add Song, which otherwise sat on the streams tiles (m-public.css gives phones their 20px) */
+.app:not(.pub) .portal-main > .portal-block:last-child > .portal-block-head{align-items:center;margin:0 0 16px}
 .app:not(.pub) .portal-main > .portal-block:last-child .form-card{max-width:440px;margin:16px 0 0;padding:0;background:none;border:0}
 
 @media (max-width:1199px){
