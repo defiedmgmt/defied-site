@@ -511,6 +511,8 @@ function NewTaskCard({ cu, onClose }) {
   const lists = cu.data?.lists || [], people = cu.data?.people || [];
   const [f, setF] = useState({ name: "", list: "internal", due: "", assignee: "" });
   const [err, setErr] = useState(null);
+  // (2026-11-26 review) the card opens ready to type the name: AskCard puts its focus on Cancel (for a delete), after the Name box's own autoFocus
+  useEffect(() => { document.querySelector(".ask-card [data-new-name]")?.focus(); }, []);
   const go = async () => {
     setErr(null);
     const r = await fetch("/api/tasks", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "create", ...f, assignee: f.assignee || null }) }).catch(() => null);
@@ -593,6 +595,7 @@ export function TodoPage({ ctx, todo, sub, onSub, areaN, mine = null }) {
     if (TODO_AREAS.includes(sub)) setArea(sub);
     else if (sub === "calendar") setView("calendar");
     else if (sub) { setArea("all"); setView("list"); setOpen((o) => (o.has(sub) ? o : new Set([...o, sub]))); }
+    else { setArea("all"); setView("list"); } // (2026-11-26 review) plain /dashboard/todo (the sidebar's To do while on the calendar or an area): the list, All
   }, [sub]);
   // an opened item asked for by a link: brought into view once it's drawn
   const landed = useRef(false);
@@ -608,6 +611,11 @@ export function TodoPage({ ctx, todo, sub, onSub, areaN, mine = null }) {
   const cuOn = area === "all" || area === "clickup";
   const { songInfo, songInfoErr, reloadSongInfo } = ctx;
   const allN = todo.length + areaN("clickup");
+  // (2026-11-26 review) a source that couldn't be read says so in its area, with Try again, and that area never says "Nothing to do here."
+  const inArea = (a) => area === "all" || area === a;
+  const acctDown = !!ctx.acctFailed && inArea("money");
+  const arDown = !!ctx.ar?.failed && ctx.can("ar") && inArea("ar");
+  const syncDown = !!ctx.sync?.failed && !ctx.sync.data && !ctx.db?.access?.ownOnly && ((ctx.can("money") && inArea("money")) || (ctx.can("publishing") && inArea("roster")));
   return (
     <div className="todo-page">
       <div className="admin-head"><h2>To do</h2>{mine}
@@ -631,7 +639,10 @@ export function TodoPage({ ctx, todo, sub, onSub, areaN, mine = null }) {
             {need.map((it) => <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />)}
             {!songInfo && !songInfoErr && !ctx.songInfoOff && area !== "clickup" && <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking the songs…</p>}
             {songInfoErr && !songInfo && <p className="todo-line"><AlertTriangle size={14} /> Couldn't load the songs' to-dos. <button className="inline-link" onClick={reloadSongInfo}>Try again</button></p>}
-            {!shown.length && (songInfo || ctx.songInfoOff || area === "clickup") && area !== "clickup" && <p className="todo-line todo-clear"><CheckCircle2 size={14} /> Nothing to do here.</p>}
+            {acctDown && <p className="todo-line" data-down="money"><AlertTriangle size={14} /> Couldn't check payments. <button className="inline-link" onClick={() => ctx.reloadAcct()}>Try again</button></p>}
+            {arDown && <p className="todo-line" data-down="ar"><AlertTriangle size={14} /> Couldn't check A&amp;R. <button className="inline-link" onClick={() => ctx.ar.reload()}>Try again</button></p>}
+            {syncDown && <p className="todo-line" data-down="sync"><AlertTriangle size={14} /> Couldn't run the sync checks. <button className="inline-link" onClick={() => ctx.sync.load(true)}>Try again</button></p>}
+            {!shown.length && !acctDown && !arDown && !syncDown && (songInfo || ctx.songInfoOff || area === "clickup") && area !== "clickup" && <p className="todo-line todo-clear"><CheckCircle2 size={14} /> Nothing to do here.</p>}
             {cuOn && <CuSection cu={ctx.cu} list={list} person={person} setList={setList} setPerson={setPerson} onNew={() => setNewTask(true)} />}
           </div>
           <DoneForYou ctx={ctx} />
@@ -671,7 +682,8 @@ export const CAL_SOURCES = [
   },
 ];
 export const addDays = (iso, n) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
-export const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]; // by getUTCDay()
+const MON_FIRST = [...WEEKDAY_SHORT.slice(1), WEEKDAY_SHORT[0]]; // the month grid's head
 function TodoCalendar({ ctx }) {
   // (2026-11-25, mobile) a phone held sideways gets the week too, not the 600px-tall month grid
   const phone = useMedia(phoneQuery(599));
@@ -681,7 +693,8 @@ function TodoCalendar({ ctx }) {
   const [picked, setPicked] = useState(today);
   const dow = (iso) => new Date(`${iso}T12:00:00Z`).getUTCDay();
   const first = `${anchor.slice(0, 7)}-01`;
-  const start = phone ? addDays(anchor, -dow(anchor)) : addDays(first, -dow(first));
+  // (2026-11-26 review) Monday to Sunday, as the Dashboard's week
+  const start = phone ? addDays(anchor, -((dow(anchor) + 6) % 7)) : addDays(first, -((dow(first) + 6) % 7));
   const days = [];
   if (phone) for (let i = 0; i < 7; i++) days.push(addDays(start, i));
   else for (let d = start; days.length < 42 && (days.length % 7 || d.slice(0, 7) <= anchor.slice(0, 7)); d = addDays(d, 1)) days.push(d);
@@ -726,7 +739,7 @@ function TodoCalendar({ ctx }) {
       ) : (
         <>
           <div className="cal-grid" role="grid">
-            {WEEKDAY_SHORT.map((w) => <span key={w} className="cal-dow" role="columnheader">{w}</span>)}
+            {MON_FIRST.map((w) => <span key={w} className="cal-dow" role="columnheader">{w}</span>)}
             {days.map((d) => {
               const evs = on(d);
               return (

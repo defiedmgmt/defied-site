@@ -118,11 +118,14 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
     card.current?.focus();
     return () => document.removeEventListener("keydown", esc);
   }, []);
+  // (2026-11-26 review) true once it went through, false when it didn't (its reason is the note): a remove that failed keeps the drawer open
   const act = async (body, ok) => {
     setBusy(true); setNote(null);
-    try { const j = await post("/api/ar-trackers", body); setNote({ ok: true, text: typeof ok === "function" ? ok(j) : ok }); await load(); onChanged?.(); }
-    catch (e) { setNote({ ok: false, text: e.message }); }
+    let done = false;
+    try { const j = await post("/api/ar-trackers", body); done = true; setNote({ ok: true, text: typeof ok === "function" ? ok(j) : ok }); await load(); onChanged?.(); }
+    catch (e) { if (!done) setNote({ ok: false, text: e.message }); }
     setBusy(false);
+    return done;
   };
   const r = d?.row;
   const mine = r?.addedBy.find((w) => w.id === me);
@@ -170,12 +173,12 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
                 )}
                 {askOff === w.entryId ? (
                   <span className="ard-ask" role="alert" data-ask-remove>Take {r.name} off {w.name}'s list?
-                    <button type="button" className="btn sm err-text" disabled={busy} onClick={() => { setAskOff(null); act({ action: "remove", entryId: w.entryId }, `Taken off ${w.name}'s list.`).then(() => { if (r.addedBy.length === 1) onClose(); }); }} data-remove-yes>Take it off</button>
+                    <button type="button" className="btn sm err-text" disabled={busy} onClick={() => { setAskOff(null); act({ action: "remove", entryId: w.entryId }, `Taken off ${w.name}'s list.`).then((ok) => { if (ok && r.addedBy.length === 1) onClose(); }); }} data-remove-yes>Take it off</button>
                     <button type="button" className="btn ghost sm" onClick={() => setAskOff(null)}>Keep</button>
                   </span>
                 ) : (
                   <button type="button" className="btn ghost sm err-text" disabled={busy} data-remove-entry
-                    onClick={() => { if (w.id !== me) { setAskOff(w.entryId); return; } act({ action: "remove", entryId: w.entryId }, "Taken off your list.").then(() => { if (r.addedBy.length === 1) onClose(); }); }}>
+                    onClick={() => { if (w.id !== me) { setAskOff(w.entryId); return; } act({ action: "remove", entryId: w.entryId }, "Taken off your list.").then((ok) => { if (ok && r.addedBy.length === 1) onClose(); }); }}>
                     {w.id === me ? "Remove from my list" : w.id === "team:luminate" ? "Take off" : `Take off ${w.name}'s list`}
                   </button>
                 )}

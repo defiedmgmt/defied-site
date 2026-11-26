@@ -187,7 +187,8 @@ function AddsCard({ adds, addsByWeek, onOpen }) {
 }
 function ExpiringCard({ list, onOpen, reload }) {
   const [busy, setBusy] = useState(false);
-  const renew = async (x) => { setBusy(true); try { await post("/api/ar-trackers", { action: "renew", entryId: x.entryId }); await reload(); } catch { /* the row stays */ } setBusy(false); };
+  const [err, setErr] = useState(null); // (2026-11-26 review) a renew that didn't go through says why, as To do's Renew does
+  const renew = async (x) => { setBusy(true); setErr(null); try { await post("/api/ar-trackers", { action: "renew", entryId: x.entryId }); await reload(); } catch (e) { setErr(e.message); } setBusy(false); };
   return (
     <div className="home-card arh-card" data-expiring>
       <div className="attn-head"><Clock size={15} /> About to expire</div>
@@ -198,6 +199,7 @@ function ExpiringCard({ list, onOpen, reload }) {
           <button type="button" className="btn sm" disabled={busy} onClick={() => renew(x)} data-renew>Renew</button>
         </div>
       )) : <p className="gainers-empty" data-expiring-empty>Nothing ends in the next 7 days.</p>}
+      {err && <p className="hint err-text" role="alert" data-expiring-err>{err}</p>}
     </div>
   );
 }
