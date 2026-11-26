@@ -11,6 +11,7 @@ import { payDay, shortDay } from "./helpers";
 import { HomeWait, monthName } from "./home-data";
 import { fmt, money, useEscape } from "./ui";
 import { ExtLink } from "../shared/ui";
+import { WhosPaid } from "./payers";
 import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 import { typedMoney, checkEdit, sheetSplit, coShare, COMMISSION, GENERAL } from "../../lib/log-fields";
 import { MyPaymentsPage } from "./my-payments";
@@ -23,6 +24,8 @@ import { AutoLogSwitch } from "./auto-log-switch";
 // only to a Founder with Money access that sees every artist (seeDeals in StaffDashboard; the API refuses everyone else).
 const EmpireDeal = dynamic(() => import("./empire").then((m) => m.EmpireDeal), { ssr: false, loading: PanelWait });
 const AdvanceDeal = dynamic(() => import("./empire-calc").then((m) => m.AdvanceDeal), { ssr: false, loading: PanelWait });
+// (2026-11-26) Paydays (/dashboard/money/paydays): its own chunk and its own read (GET /api/paydays)
+const Paydays = dynamic(() => import("./paydays").then((m) => m.Paydays), { ssr: false, loading: PanelWait });
 
 // "Nov", "Oct": this month and the one before, from the day the page is viewed, on New York's clock: the totals are counted by New York month (lib/stripe.js
 // commissionTotals), so near midnight at a month's end the viewer's own clock would name the wrong months (2026-11-24, audit)
@@ -277,7 +280,7 @@ export function detailsDefaults(p, options) {
 // part="log" (every payment the sheet doesn't have: Log all, Log it or Log with details; startLogAll
 // opens the Log all preview at once) or part="check" (rows worth a look: Open row ↗ and Mark as OK).
 // Nothing in the sheet is ever edited from here: problems are shown with a link to the row.
-const ACCT_SECS = [["overview", "Overview"], ["payments", "All payments"]];
+const ACCT_SECS = [["overview", "Overview"], ["payments", "All payments"], ["paydays", "Paydays"]]; // (2026-11-26) Paydays: the royalty payout tracker
 // myMoney: the login's own pay link's payments as a third pill, My payments (2026-11-11, components/dash/my-payments.jsx; its address is still /dashboard/money/mine)
 // empire (2026-11-24): the two deal pills after the rest, EMPIRE and Advance calculator (/dashboard/money/empire, /dashboard/money/advance), for the one account that has them (a Founder with Money
 // and every artist: StaffDashboard decides, and the one decision gates both). Any other account that opens those addresses gets the Overview. Money opens on the Overview (its address has no part).
@@ -300,7 +303,7 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
   };
   // the accounting numbers are read when a part that shows them opens (not for the two deal pills: they have their own read), once
   const asked = useRef(false);
-  const emp = sec === "empire" || sec === "advance";
+  const emp = sec === "empire" || sec === "advance" || sec === "paydays"; // (2026-11-26) Paydays reads its own too
   useEffect(() => { if (emp || asked.current) return; asked.current = true; load(); }, [sec]); // eslint-disable-line react-hooks/exhaustive-deps
   // (2026-11-26 review) the installed app opened again after a while away (components/app/resume.js): the numbers on show read again (not on the deal pills)
   useOnResume(() => { if (asked.current && !emp) load(); });
@@ -329,6 +332,7 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
   if (sec === "empire") body = <EmpireDeal onPlan={() => onSub("advance")} />;
   else if (sec === "advance") body = <AdvanceDeal />;
   else if (sec === "mine") body = <MyPaymentsPage inMoney />;
+  else if (sec === "paydays") body = <Paydays />;
   else if (!d) body = failed ? <p className="home-muted"><AlertTriangle size={15} /> <span>Couldn't load the accounting numbers. <button className="inline-link" onClick={() => load()}>Try again</button></span></p>
     : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>;
   else if (!d.connected) body = <p className="home-muted">Accounting sheet: not connected yet.</p>; // (2026-11-25 declutter) "Once it's shared with the dashboard, this section fills in." is gone
@@ -376,7 +380,6 @@ export function AcctOverview({ d, onSec }) {
   // a month with no rows yet says so, instead of "$0.00 in · $0.00 out" (list A 8)
   const monthEmpty = !t.monthRevenue && !t.monthExpenses;
   const stats = [["monthNet", `Net · ${month}`, monthEmpty ? "Nothing logged yet this month" : `${money(t.monthRevenue)} in · ${money(t.monthExpenses)} out`], ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]];
-  const latest = (d.payments?.items || []).slice(0, 5); // the newest payments, as records (Log it lives in To do and All payments)
   const yr = M && { stripe: cents2(M.reduce((a, m) => a + m.stripe, 0)), sheet: cents2(M.reduce((a, m) => a + m.sheet, 0)) };
   if (yr) yr.diff = cents2(yr.stripe - yr.sheet);
   const nLog = d.counts?.toLog || 0, nCheck = d.counts?.toCheck || 0;
@@ -458,13 +461,8 @@ export function AcctOverview({ d, onSec }) {
           </div>
         )}
       </div>
-      {latest.length > 0 && (
-        <div className="fix-panel acct-panel acct-latest" data-acct="latest">
-          <div className="fix-head"><h3>Latest payments</h3>
-            <button className="inline-link acct-all" data-acct-all onClick={() => onSec("payments")}>All payments ({fmt(d.payments.total)}) ›</button></div>
-          {latest.map((p) => <PayRow key={p.id} p={p} />)}
-        </div>
-      )}
+      {/* (2026-11-26, the owner) Who's paid in place of Latest payments (All payments has them all) */}
+      <WhosPaid d={d} />
     </>
   );
 }

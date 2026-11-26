@@ -19,6 +19,7 @@ import { LumHistory } from "../dash/lum-history";
 import { ArtistStats, useArtistNumbers, setTracking } from "../dash/artist-stats";
 import { MyLinks } from "../dash/my-links";
 import { MyCommission } from "../dash/my-commission";
+import { RequestPay } from "../dash/request-pay";
 import { ownSplit, personKey } from "../site/data";
 import { AskCard } from "./ask";
 import { InstallApp } from "../shared/install-app";
@@ -463,6 +464,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                 : <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span>}<span className="m-why">{`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}</span></>
               : null}</div>
           </div>
+          {/* (2026-11-26) Request payment: their pay link, shared from a phone or copied (Money accounts; client.payKey comes with the dashboard's clients) */}
+          {canUse(db, "money") && <RequestPay clientId={client.id} payKey={client.payKey} withAmount look="ghost" />}
           {(onDeleteClient || moreItems.length > 0) && <ClientMore onDelete={onDeleteClient ? () => onDeleteClient(client) : undefined} items={moreItems} />}
         </div>
       )}

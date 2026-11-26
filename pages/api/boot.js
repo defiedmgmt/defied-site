@@ -18,6 +18,7 @@ import sync from "./sync";
 import home from "./home";
 import growth from "./growth";
 import sheetsPull from "./sheets-pull";
+import paydays from "./paydays";
 
 // the slowest of these (the first Stripe fill, the Sync checks) have 60 s on their own routes; streaming lets each line leave when ready
 // (responseLimit: the lines are streamed; Next's 4 MB warning is for one buffered answer)
@@ -41,6 +42,8 @@ const PARTS = partTable([
   ["/api/growth?top=1", growth],
   // (2026-11-25) whether the Dashboard's background sheet pull is due (its GET is read only)
   ["/api/sheets-pull?due=1", sheetsPull],
+  // (2026-11-26) Money › Paydays' own read
+  ["/api/paydays", paydays],
 ]);
 
 export default function handler(req, res) {

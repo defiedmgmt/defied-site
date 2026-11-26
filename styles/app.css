@@ -2473,6 +2473,89 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 @media (min-width:600px) and (max-width:767px){ .app:not(.pub) .portal-tiles:has(> .cat-stat:nth-child(4):last-child){grid-template-columns:repeat(2,minmax(0,1fr))} }
 .app:not(.pub) .acct-latest{margin-top:18px}
 .app:not(.pub) .acct-latest .fix-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+/* (2026-11-26) Who's paid (Money › Overview, in place of Latest payments), Request payment, To do's quiet list and Money › Paydays */
+.app:not(.pub) .payers-table{display:flex;flex-direction:column}
+.app:not(.pub) .payers-row{display:grid;grid-template-columns:minmax(0,1fr) 120px 110px 170px;gap:12px;align-items:center;min-height:44px;padding:4px 0;border-top:1px solid var(--d-line);font-size:13.5px;color:var(--d-ink-2)}
+.app:not(.pub) .payers-mgr .payers-row{grid-template-columns:minmax(0,1fr) 72px 120px 110px}
+.app:not(.pub) .payers-head{min-height:0;border-top:0;padding:2px 0 6px;font-size:12px;color:var(--d-ink-4)}
+.app:not(.pub) .payers-name{min-width:0;overflow-wrap:anywhere;color:var(--d-ink);font-weight:500}
+.app:not(.pub) .payers-row .acct-amt{text-align:right;font-variant-numeric:tabular-nums}
+.app:not(.pub) .payers-last{font-variant-numeric:tabular-nums;color:var(--d-ink-3)}
+.app:not(.pub) .payers-last.late{color:var(--d-warn)}
+.app:not(.pub) .payers-act{display:flex;justify-content:flex-end}
+.app:not(.pub) .payers-partial{margin:0 0 8px}
+.app:not(.pub) .no-pay-link{color:var(--d-warn);border-color:var(--d-warn-line)}
+.app:not(.pub) .req-pay{display:inline-flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+.app:not(.pub) .req-amt{width:104px;height:var(--d-ctl-sm);padding:0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field);background:var(--d-field);color:var(--d-ink);font:inherit;font-size:13.5px}
+.app:not(.pub) .req-state{font-size:12.5px;color:var(--d-ink-3);white-space:nowrap}
+.app:not(.pub) .req-state.paid{color:var(--d-pos)}
+.app:not(.pub) .req-quiet{min-height:36px;padding:6px 8px;margin-right:-8px}
+@media (pointer:coarse){ .app:not(.pub) .req-quiet{min-height:44px} }
+.app:not(.pub) .req-err{flex-basis:100%;margin:0;text-align:right;font-size:12.5px}
+.app:not(.pub) .client-head .req-pay{margin-left:auto;flex:none;margin-top:4px}
+.app:not(.pub) .client-head .req-pay ~ .client-more{margin-left:0}
+.app:not(.pub) .fix-row.quiet-row{grid-template-columns:minmax(0,1fr) auto}
+.app:not(.pub) .quiet-who{white-space:normal}
+.app:not(.pub) .quiet-why{color:var(--d-ink-4)}
+.app:not(.pub) .pd-card{padding:10px 0;border-top:1px solid var(--d-line)}
+.app:not(.pub) .pd-next > .fix-head + .pd-card,.app:not(.pub) .todo-panel .pd-card{border-top:0}
+.app:not(.pub) .pd-card-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;font-size:14px;color:var(--d-ink)}
+.app:not(.pub) .pd-card.compact .pd-card-head{justify-content:flex-end}
+.app:not(.pub) .pd-edit{margin-left:auto}
+.app:not(.pub) .pd-card-acts{display:flex;align-items:center;gap:12px}
+.app:not(.pub) .pd-people{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column}
+.app:not(.pub) .pd-people li{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;font-size:13.5px;color:var(--d-ink-2)}
+.app:not(.pub) .pd-closed{display:flex;align-items:center;gap:8px;margin:0;font-size:13.5px;color:var(--d-ink-3)}
+.app:not(.pub) .pd-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;padding:10px 0;border-top:1px solid var(--d-line);font-size:13.5px}
+.app:not(.pub) .pd-next > .fix-head + .pd-line{border-top:0}
+.app:not(.pub) .pd-when{font-weight:500;color:var(--d-ink)}
+.app:not(.pub) .pd-who{color:var(--d-ink-3)}
+.app:not(.pub) .pd-src{display:grid;grid-template-columns:170px minmax(0,1fr);gap:6px 12px;align-items:baseline;padding:10px 0;border-top:1px solid var(--d-line);font-size:13.5px}
+.app:not(.pub) .pd-dates > .fix-head + .pd-src,.app:not(.pub) .pd-dates > .fix-head + .hint + .pd-src{border-top:0}
+.app:not(.pub) .pd-src-name{color:var(--d-ink);font-weight:500}
+.app:not(.pub) .pd-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.app:not(.pub) .pd-chip{display:inline-flex;align-items:center;gap:2px;padding:0 8px;border:1px solid var(--d-line-2);border-radius:999px;font-size:12px;line-height:22px;color:var(--d-ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.app:not(.pub) .pd-chip.past{border-color:var(--d-line);color:var(--d-ink-4)}
+.app:not(.pub) .pd-chip.notset{border-color:var(--d-warn-line);background:var(--d-warn-bg);color:var(--d-warn)}
+.app:not(.pub) .pd-chip-x{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin:0 -6px 0 0;padding:0;border:0;border-radius:999px;background:none;color:var(--d-ink-4);cursor:pointer}
+.app:not(.pub) .pd-chip-x:hover{color:var(--d-neg)}
+.app:not(.pub) .pd-src-link{display:inline-flex;align-items:center;justify-content:center;min-width:32px;min-height:32px;margin:-5px 0;font-size:13px;text-decoration:none}
+@media (pointer:coarse){ .app:not(.pub) .pd-src-link{min-width:44px;min-height:44px;margin:-11px 0} .app:not(.pub) .pd-chip-x{width:36px;height:36px;margin:-7px -12px -7px -4px} }
+.app:not(.pub) .pd-add{grid-column:1 / -1;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.app:not(.pub) .pd-add input{flex:1 1 240px;min-width:0;height:var(--d-ctl-sm);padding:0 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-field);background:var(--d-field);color:var(--d-ink);font:inherit;font-size:13.5px}
+.app:not(.pub) .pd-add .hint{flex-basis:100%;margin:0}
+.app:not(.pub) .pd-grid{display:flex;flex-direction:column}
+.app:not(.pub) .pd-grow{display:grid;grid-template-columns:minmax(120px,1fr) repeat(5,104px);gap:8px;align-items:center;min-height:44px;padding:2px 0;border-top:1px solid var(--d-line);font-size:13.5px}
+.app:not(.pub) .pd-ghead{min-height:0;border-top:0;padding:0 0 6px;font-size:12px;color:var(--d-ink-4)}
+.app:not(.pub) .pd-ghead span:not(:first-child),.app:not(.pub) .pd-gcell{text-align:center;display:flex;justify-content:center}
+.app:not(.pub) .pd-gname{min-width:0;overflow-wrap:anywhere;color:var(--d-ink)}
+.app:not(.pub) .pd-tick{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:44px;height:32px;padding:0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-md);background:none;color:var(--d-pos);font:inherit;font-size:13px;cursor:pointer}
+.app:not(.pub) .pd-tick.on{border-color:var(--d-pos-line);background:var(--d-pos-bg)}
+.app:not(.pub) .pd-tick:not(.on){border-color:var(--d-line)}
+.app:not(.pub) .pd-grid:not(.edit) .pd-tick{border:0;background:none;cursor:default}
+.app:not(.pub) .pd-tick-l{display:none}
+.dg-sec[data-hue="yellow"]{--dg-c:var(--d-warn,#e0b48f)}
+@media (max-width:599px){
+  .app:not(.pub) .payers-row{grid-template-columns:minmax(0,1fr) auto;row-gap:2px;padding:8px 0}
+  .app:not(.pub) .payers-head{display:none}
+  .app:not(.pub) .payers-row .payers-last{grid-column:1}
+  .app:not(.pub) .payers-mgr .payers-row{grid-template-columns:minmax(0,1fr) auto}
+  .app:not(.pub) .payers-mgr .payers-n{display:none}
+  .app:not(.pub) .client-head:has(.req-pay){flex-wrap:wrap}
+  .app:not(.pub) .client-head .req-pay{order:1;flex:1 1 100%;justify-content:flex-start;margin:0 0 0 54px}
+  .app:not(.pub) .client-head .req-pay ~ .client-more{margin-left:auto}
+  .app:not(.pub) .req-err{text-align:left}
+  .app:not(.pub) .pd-src{grid-template-columns:minmax(0,1fr)}
+  .app:not(.pub) .pd-grow{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0}
+  .app:not(.pub) .pd-grow.pd-ghead{display:none}
+  .app:not(.pub) .pd-gname{flex:1 1 100%}
+  .app:not(.pub) .pd-gcell{display:block}
+  .app:not(.pub) .pd-gcell:empty{display:none}
+  .app:not(.pub) .pd-tick{height:var(--d-ctl-sm);color:var(--d-ink-3)}
+  .app:not(.pub) .pd-tick.on{color:var(--d-pos)}
+  .app:not(.pub) .pd-grid:not(.edit) .pd-tick{border:1px solid var(--d-pos-line);background:var(--d-pos-bg);cursor:default}
+  .app:not(.pub) .pd-tick-l{display:inline}
+}
 .app:not(.pub) .acct-all{font-size:13px;white-space:nowrap}
 .app:not(.pub) .acct-mtable{display:flex;flex-direction:column}
 .app:not(.pub) .acct-mrow{display:grid;grid-template-columns:96px 112px 112px 104px minmax(0,1fr);gap:12px;align-items:baseline;padding:8px 0;border-top:1px solid var(--d-line);font-size:13.5px;color:var(--d-ink-2)}
