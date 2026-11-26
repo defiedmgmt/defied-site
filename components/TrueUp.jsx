@@ -1,8 +1,9 @@
 "use client";
 // The monthly Luminate true-up in To do (lib/trueup.js, /api/trueup). Three rows, each finished in place:
-//   trueup           "Monthly Luminate update: drop this month's report": the drop box (dry run, Apply, one Undo),
-//                    the songs to put in the Luminate report (Copy all, N of 500, Report 1/2 past 500, the songs with
-//                    no ISRC and the ISRC finder) and the schedule's end day
+//   trueup           "Luminate report due Dec 1" (from 3 days before the 1st, lib/trueup-due.js): the drop box (dry run,
+//                    Apply, one Undo), the songs to put in the Luminate report (Copy all, N of 500, Report 1/2 past 500,
+//                    the songs with no ISRC and the ISRC finder) and the schedule's end day. (review UX-9) The report is due
+//                    on the 1st, the owner's call: no due-day setting here
 //   trueup-new       "N songs to add to the Luminate report": the ones no Luminate file has had yet (every update
 //                    counted), Copy all (title, artist, ISRC, Spotify) and Copy ISRCs, the ISRC finder for the rest,
 //                    and the drop box: the next export ticks them off (the drop's checklist), any day of the month
