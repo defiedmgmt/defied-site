@@ -210,7 +210,6 @@ export function ClientsAdmin({ db, commit, openId = null, songInfo = null, reloa
   };
   return (
     <div>
-    <p className="muted mb">Order here is the order they appear on the public Roster page — use the arrows to move someone up or down.</p>
     {deleteWarn && <p className="hint err-text mb">{deleteWarn}</p>}
     {noTab.length > 1 && <p className="hint warn-text mb" data-tab-missing-note><AlertTriangle size={14} /> {noTab.length} clients have no tab on the pub sheet, so their numbers can't sync. Open each one marked "No sheet tab" and type its tab name.</p>}
     <Editor title="Clients" items={db.clients} columns={cols}
@@ -241,7 +240,7 @@ export function ClientsAdmin({ db, commit, openId = null, songInfo = null, reloa
           <Field label="SoundCloud URL" value={e.soundcloud} onChange={(ev) => set({ ...e, soundcloud: ev.target.value })} />
           {/* opened from To do's "Set X's sheet tab": this field has the focus and says what's wrong */}
           <Field label="Sheet tab name" value={e.sheetTabName} onChange={(ev) => set({ ...e, sheetTabName: ev.target.value })} autoFocus={tabFocus && e.id === openId} data-sheet-tab=""
-            hint={`${(tabFocus && e.id === openId) || noTabIds.has(e.id) ? `The pub sheet has no tab called ${db.clients.find((c) => c.id === e.id)?.sheetTabName?.trim() || db.clients.find((c) => c.id === e.id)?.name}. ` : ""}Only needed if their tab on the pub sheet goes by a different name. Case, accents, punctuation and a “!” used as an i don't count — Stack!e already finds a tab named Stackie.`} />
+            hint={`${(tabFocus && e.id === openId) || noTabIds.has(e.id) ? `The pub sheet has no tab called ${db.clients.find((c) => c.id === e.id)?.sheetTabName?.trim() || db.clients.find((c) => c.id === e.id)?.name}. ` : ""}Only needed if their tab on the pub sheet goes by a different name.`} />
           {taken(e, "sheetTabName") && <p className="hint err-text">{NAME_TAKEN}</p>}
           <SheetsPart e={e} set={set} db={db} reloadDb={reloadDb} focus={focus === "accounting" && e.id === openId} />
         </>
@@ -345,7 +344,7 @@ function AccountingPart({ client, unsaved, ps, reloadDb, founders = [] }) {
         <>
           <label className="fld"><span>Commission %</span>
             <input inputMode="decimal" autoComplete="off" value={f.rate} aria-invalid={rateSent && !pctOk(f.rate)} onChange={(ev) => setF({ ...f, rate: ev.target.value })} data-acct-rate />
-            {b && b.rate === "" && !f.rate.trim() && <span className="hint">Blank on INFO. It stays blank unless you type one.</span>}</label>
+            {b && b.rate === "" && !f.rate.trim() && <span className="hint">Blank on INFO.</span>}</label>
           <label className="fld"><span>Manager</span>
             <select value={f.manager} onChange={(ev) => setF({ ...f, manager: ev.target.value })} data-acct-manager>
               {f.manager === PICK_MANAGER && <option value={PICK_MANAGER} disabled>Pick one</option>}
@@ -355,7 +354,7 @@ function AccountingPart({ client, unsaved, ps, reloadDb, founders = [] }) {
             </select>
             {offList && <span className="hint">INFO says {row.manager}, which isn't on its manager list.</span>}
           </label>
-          {f.manager === NEW_MANAGER && <Field label="New manager's name" value={f.newName} onChange={(ev) => setF({ ...f, newName: ev.target.value })} hint="Spelled as the sheet should have it. It goes on INFO's manager list first." data-acct-new-manager="" />}
+          {f.manager === NEW_MANAGER && <Field label="New manager's name" value={f.newName} onChange={(ev) => setF({ ...f, newName: ev.target.value })} hint="Spelled as the sheet should have it." data-acct-new-manager="" />}
           {founderPick && <p className="hint" data-acct-founder>{FOUNDER_LINE}</p>}
           {hasManager && !founderPick && (
             <div className="fld"><span>Manager's cut</span>
@@ -380,7 +379,6 @@ function TabPart({ client, unsaved, ps, reloadDb, onTab }) {
   const [busy, setBusy] = useState(false), [res, setRes] = useState(null);
   if (!d || d.noTab == null) return null;
   if (client.id && !d.noTab.includes(client.id) && !res) return null; // they have one
-  const title = (client.sheetTabName || "").trim() || (client.name || "").trim();
   const why = unsaved || (!d.writes?.pub ? d.off?.pub : null) || (d.freeTabs === 0 ? "No free WRITER tab left on the pub sheet." : null);
   const go = async () => {
     setBusy(true); setRes(null);
@@ -390,11 +388,11 @@ function TabPart({ client, unsaved, ps, reloadDb, onTab }) {
   };
   return (
     <div className="sheet-part sheet-tab-part" data-tab-part>
-      {!res?.ok && <p className="hint">No tab on the pub sheet yet, so their numbers can't sync.</p>}
+      {!res?.ok && <p className="hint">No tab on the pub sheet yet.</p>}
       {!res?.ok && (
         <div className="sheet-go">
           <button type="button" className="btn ghost sm" disabled={!!why || busy} onClick={go} data-tab-make>{busy ? "Making the tab…" : "Give them a pub sheet tab"}</button>
-          <span className="hint">{why || `A free WRITER tab is renamed ${title}. Its MASTER row comes with it.`}</span>
+          {why && <span className="hint">{why}</span>}
         </div>
       )}
       <Said res={res} />
@@ -487,7 +485,7 @@ function ArtistsBox({ manager, part, pick, ps, reg, reloadDb }) {
   const now = nowLine(f); // what INFO has for their artists, while they aren't all on one split and none is picked
   return (
     <>
-      <p className="hint">{off ? off : `Their artists are the ones INFO lists with ${manager} as Assigned Manager. Save writes what you change to the accounting sheet.`}</p>
+      {off && <p className="hint">{off}</p>}
       {part === "new" && !off && !full && <p className="hint" data-manager-new>{manager} isn't on the accounting sheet's Managers list yet. {pick === "comanager" ? "Save adds them." : "Save adds them if you give them an artist."}</p>}
       {part === "new" && !off && full && <p className="hint err-text" data-manager-full>INFO's manager list is full (L4 to L13), so {manager} can't be added.</p>}
       {!f ? <p className="hint">Reading the accounting sheet…</p> : (
@@ -593,11 +591,7 @@ function PlacementsAdmin({ db, commit }) {
 // (2026-11-15) Site › Team's "Account": the account a team entry gets from the people link. A NEW entry (or an old one with no account yet) picks: Manager
 // (a Co-manager account, on INFO's manager list), Intern (an Intern account, not on INFO) or No account; it starts at what the entry's Role text says
 // (lib/roles.js teamAccountOf: "Artist Manager" is a Manager, "Designer" an Intern). An entry that has an account already shows its role, read only.
-const ACCOUNT_WORDS = {
-  comanager: "A Co-manager account with no login yet, and a place on the accounting sheet's manager list.",
-  intern: "An Intern account with no login yet (A&R and Site). Not on the accounting sheet.",
-  none: "No account is made for them, now or later.",
-};
+// (2026-11-25 declutter, the owner: the one-line explanations are confusing) the picker has no line of words under it any more
 function TeamAccount({ e, set, db }) {
   if (e.id && e.userId) {
     const u = db.users.find((x) => x.id === e.userId);
@@ -613,7 +607,6 @@ function TeamAccount({ e, set, db }) {
         <option value="intern">Intern</option>
         <option value="none">No account</option>
       </select>
-      <span className="hint" data-team-account-words>{value ? ACCOUNT_WORDS[value] : "No account has been picked for them: until one is, none is made."}</span>
     </label>
   );
 }
@@ -669,18 +662,8 @@ const SECTION_OF = Object.fromEntries(SECTIONS);
 // My payments come with their name (lib/own-pages.js), not with these two. So these two read that way in this block only: [label, muted note]. The sidebar tabs keep their names.
 const SHOWN = { todo: ["Team to-do", "everyone's"], money: ["All money", "Defied's books"] };
 const shownLabel = (k) => (SHOWN[k] ? SHOWN[k][0] : SECTION_OF[k]);
-const andList = (words) => (words.length < 3 ? words.join(" and ") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`);
-// What a role starts with, in those words, built from its preset (lib/roles.js ROLES), so a preset changed there reads right here: "Intern starts with A&R and Site."
-// (Plain loops: the production build inlines a once-used function like this into the component, and an arrow function inside it that reads its argument loses the name.)
-function startsWith(role) {
-  const preset = ROLES[role], words = [], left = [];
-  if (preset.sections.length === SECTIONS.length) return `${preset.label} starts with everything.`;
-  for (const k of preset.sections) words.push(role === "comanager" && k === "publishing" ? `${shownLabel(k)} (their own artists)` : shownLabel(k));
-  for (const k of ["todo", "money"]) if (!preset.sections.includes(k)) left.push(shownLabel(k));
-  let text = `${preset.label} starts with ${andList(words)}.`;
-  if (role === "comanager") text += ` My to-do and My payments come with their name.${left.length ? ` ${andList(left)} stay${left.length === 1 ? "s" : ""} with Founders.` : ""}`;
-  return text;
-}
+// (2026-11-25 declutter, the owner: the one-line explanations are confusing) "What they can open" no longer ends in a line saying what the role starts with:
+// the ticks show it
 function useManagers(reloadDb) {
   const [st, setSt] = useState({ at: undefined, busy: false, err: null });
   const update = async () => {
@@ -719,10 +702,10 @@ function PasswordLink({ userId }) {
       {link ? (
         <>
           <span className="pw-link-row"><input readOnly value={link.url} onFocus={(e) => e.target.select()} aria-label="Set-password link" data-pw-link-url /><button type="button" className="btn sm" onClick={copy} data-pw-link-copy>{copied ? <><Check size={13} /> Copied</> : "Copy"}</button></span>
-          <span className="hint">Text it to them. It works once, for 24 hours, and signs them in after they choose a password. A new link ends this one.</span>
+          <span className="hint">Text it to them. It works once, for 24 hours.</span>
         </>
       ) : (
-        <span className="pw-link-row"><button type="button" className="btn ghost sm" disabled={busy} onClick={make} data-pw-link-make>{busy ? "Making…" : "Make a set-password link"}</button><span className="hint">They choose their own password: nobody else sees it.</span></span>
+        <span className="pw-link-row"><button type="button" className="btn ghost sm" disabled={busy} onClick={make} data-pw-link-make>{busy ? "Making…" : "Make a set-password link"}</button></span>
       )}
       {err && <span className="hint err-text">{err}</span>}
     </div>
@@ -834,7 +817,7 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null })
           <Field label="Name" value={e.name || ""} onChange={(ev) => set({ ...e, name: ev.target.value })} />
           <Field
             label="Password" value={e.password} onChange={(ev) => set({ ...e, password: ev.target.value })}
-            hint={e.id ? "Leave blank to keep their current password, or make them a set-password link below. At least 8 characters if you type a new one." : "Leave it blank for no login yet: send a set-password link later (they need an email first). Or type one: at least 8 characters."}
+            hint={e.id ? "Leave blank to keep their current password. At least 8 characters if you type a new one." : "Leave it blank for no login yet, or type one: at least 8 characters."}
           />
           {e.id && founder && (db.users.find((u) => u.id === e.id)?.email ? <PasswordLink userId={e.id} /> : <p className="hint" data-pw-link-noemail>No login yet: add their email and save, then make them a set-password link.</p>)}
           <label className="fld"><span>Role</span>
@@ -853,7 +836,7 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null })
           {e.role === "staff" && founder && pick === "comanager" && (
             <label className="check-row" data-own-only>
               <input type="checkbox" checked={!!a?.ownOnly} onChange={(ev) => set({ ...e, access: cleanAccess("comanager", { ...e.access, ownOnly: ev.target.checked }) })} />
-              <span>Only their own artists: the ones with this name as Assigned Manager on the accounting sheet's INFO tab.</span>
+              <span>Only their own artists.</span>
             </label>
           )}
           {sheetPicks && (pick === "comanager" || pick === "founder")
@@ -883,15 +866,13 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null })
                   <span>{label}{!has && <span className="muted"> (none for {(e.name || "").trim().split(/\s+/)[0] || "them"} yet)</span>}</span>
                 </label>
               ))}
-              <p className="hint" data-sections-hint>{startsWith(pick)} Tick or untick to change it for this person.</p>
             </fieldset>
           )}
-          <p className="hint">Clients only see their own placements and splits. They can never edit the website.</p>
         </>
         );
       }}
     />
-    {founder && <p className="hint users-managers" data-managers-at>Each artist's manager comes from the accounting sheet's INFO tab{managers.at ? `, read ${shortDay(managers.at)}` : ""}. <button type="button" className="inline-link" onClick={managers.update} disabled={managers.busy}>{managers.busy ? "Reading the sheet…" : "Update from the sheet"}</button>{managers.err && <span className="err-text"> {managers.err}</span>}</p>}
+    {founder && <p className="hint users-managers" data-managers-at>Managers from INFO{managers.at ? `, read ${shortDay(managers.at)}` : ""}. <button type="button" className="inline-link" onClick={managers.update} disabled={managers.busy}>{managers.busy ? "Reading the sheet…" : "Update from the sheet"}</button>{managers.err && <span className="err-text"> {managers.err}</span>}</p>}
     </>
   );
 }

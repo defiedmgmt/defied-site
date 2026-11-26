@@ -84,8 +84,8 @@ export function DigestPreview() {
   const me = d.people?.find((p) => p.id === d.personal.user?.id);
   return (
     <div className="dg" data-digest-preview>
-      <p className="dg-status" data-dg-status>{d.writesOn ? `Posts to ClickUp ${d.schedule}.` : `Posting is off for now (DIGEST_WRITES), so nothing is sent. This is exactly what ${d.schedule.replace(/^Mondays/, "Monday")} would send.`}{d.writesOn && !d.team.channelSet ? " The team channel isn't set yet (DIGEST_CHANNEL_ID)." : ""}</p>
-      <DigestBlock d={d.team} label="Team digest (one message in ClickUp's Weekly Digest channel)" />
+      <p className="dg-status" data-dg-status>{d.writesOn ? `Posts to ClickUp ${d.schedule}.` : "Posting is off for now (DIGEST_WRITES), so nothing is sent."}{d.writesOn && !d.team.channelSet ? " The team channel isn't set yet (DIGEST_CHANNEL_ID)." : ""}</p>
+      <DigestBlock d={d.team} label="Team digest" />
       {d.people && (
         <label className="fld dg-who"><span>Personal digest for</span>
           <select value={who || d.personal.user?.id || ""} onChange={(e) => setWho(e.target.value)} aria-label="Personal digest for">
@@ -93,9 +93,9 @@ export function DigestPreview() {
           </select>
         </label>
       )}
-      {d.personal.sections.length ? <DigestBlock d={d.personal} label={`${d.personal.user?.name ? `${d.personal.user.name}'s` : "Your"} digest (a ClickUp direct message)`} />
-        : <p className="hint" data-dg-no-personal>No personal digest: it holds A&R trackers, and this account has no A&R.</p>}
-      {me && !me.getsPersonal && <p className="hint" data-dg-personal-off={d.personalOn ? undefined : ""}>{d.personalOn ? 'Personal digests are opt-in: nobody gets one unless DIGEST_PERSONAL_TO names them ("all", or names or emails).' : "Personal digests are switched off (DIGEST_PERSONAL), so nobody gets one."}</p>}
+      {d.personal.sections.length ? <DigestBlock d={d.personal} label={`${d.personal.user?.name ? `${d.personal.user.name}'s` : "Your"} digest`} />
+        : <p className="hint" data-dg-no-personal>No personal digest for this account.</p>}
+      {me && !me.getsPersonal && <p className="hint" data-dg-personal-off={d.personalOn ? undefined : ""}>{d.personalOn ? "Personal digests are opt-in (DIGEST_PERSONAL_TO)." : "Personal digests are switched off (DIGEST_PERSONAL)."}</p>}
     </div>
   );
 }
@@ -170,14 +170,14 @@ export function SourceNums({ d, founder, canEdit, onSaved }) {
           warning when the estimate is over it */}
       {founder && d.cost && (
         <div className="nums-month" data-cost-month>
-          <p className="nums-costline" data-costline>{pic.month}: about <b>{usd2(pic.est)}</b> at this schedule · <b>{usd2(pic.spent)}</b> spent so far (the site's count of its own runs)</p>
+          <p className="nums-costline" data-costline>{pic.month}: about <b>{usd2(pic.est)}</b> at this schedule · <b>{usd2(pic.spent)}</b> spent so far</p>
           {pic.other >= 0.01 && <p className="hint" data-cost-other>That includes {usd2(pic.other)} for links looked up in the paste box, which have no row below.</p>}
           {pic.limit != null && <p className="hint" data-cost-cap>Runs stop at <b>{usd2(pic.limit)}</b> a month: {pic.limitWhy}.{acct ? ` Apify's own count: ${usd2(acct.usageUsd)} of ${usd2(acct.limitUsd)}${acct.at ? ` as of ${nyWhen(acct.at)}` : ""}${pic.cycle ? `, for its billing month (${pic.cycle}). The site counts from the 1st, and runs after that read aren't in Apify's count yet.` : ", so runs after that aren't in it yet."}` : ""}</p>}
           {/* r11 fix: a preview's plan is the copy it was given (it never asks Apify); the live site reads the plan
               (GET /users/me/limits) at the start of every run, so its line and warning follow the plan really on */}
           {PREVIEW && acct && <p className="hint" data-cost-preview>In this preview Apify's plan is the copy read {acct.at ? nyShortDay(acct.at) : "earlier"}. The live site reads the plan from Apify on every run.</p>}
           {pic.over && !PREVIEW && <p className="nums-warn" role="alert" data-cost-over>The estimate is over the {usd2(pic.limit)} cap: at this pace the updates stop around {pic.stopDay}. Set a source to weekly to stay under it.</p>}
-          {pic.budgetsOver && <p className="hint" data-cost-budgets>The sources' own budgets add up to {usd2(pic.budgets)}, more than the {usd2(pic.total)} total. The total wins: a source with budget left still stops once all of them reach {usd2(pic.total)}.</p>}
+          {pic.budgetsOver && <p className="hint" data-cost-budgets>The sources' own budgets add up to {usd2(pic.budgets)}, more than the {usd2(pic.total)} total.</p>}
         </div>
       )}
       {d.sources.map((s) => (
@@ -197,8 +197,7 @@ export function SourceNums({ d, founder, canEdit, onSaved }) {
         <div className="nums-save"><label className="nums-cap">All sources together: $<input type="number" min="0" max="19" step="0.5" value={total} onChange={(e) => setTotal(e.target.value)} />/month</label>
           <button className="btn sm" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
           {msg && <span className={`hint${msg.err ? " err-text" : ""}`} role="status">{msg.err || msg.ok}</span>}</div>
-      ) : founder ? <p className="hint">Changing schedules and budgets needs Money access.</p> : null}
-      {founder && <p className="hint">Apify's own hard limit stops every run at the plan's cap. A run that would go past this month's budget waits until next month.</p>}
+      ) : null}
     </div>
   );
 }

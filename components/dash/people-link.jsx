@@ -68,12 +68,12 @@ export function PeopleBlock({ check, ctx }) {
             )}
             {can && f.kind === "near" && f.pair && !String(f.key).startsWith("same:") && (
               <button type="button" className="btn ghost sm" disabled={!!busy} data-people-two={f.key}
-                onClick={() => run(f.key, [{ action: "distinct", a: f.pair[0], b: f.pair[1] }], `${f.pair[0]} and ${f.pair[1]} are kept as two people. The next sync adds what's missing for them.`)}>
+                onClick={() => run(f.key, [{ action: "distinct", a: f.pair[0], b: f.pair[1] }], `${f.pair[0]} and ${f.pair[1]} are kept as two people.`)}>
                 {busy === f.key ? "Working…" : "Two different people"}</button>
             )}
             {can && f.kind === "near" && f.link && (
               <button type="button" className="btn ghost sm" disabled={!!busy} data-people-same={f.key}
-                onClick={() => run(`${f.key}:same`, [{ action: "pair", link: f.link }], `${f.pair?.[0]} and ${f.pair?.[1]} are linked as one person. Their names stay as they are.`)}>
+                onClick={() => run(`${f.key}:same`, [{ action: "pair", link: f.link }], `${f.pair?.[0]} and ${f.pair?.[1]} are linked as one person.`)}>
                 {busy === `${f.key}:same` ? "Working…" : "Same person"}</button>
             )}
             {can && ["removed", "info", "duplicate", "differ"].includes(f.kind) && (
@@ -91,7 +91,7 @@ export function PeopleBlock({ check, ctx }) {
             {p.links ? ` It links ${n(p.links, "record", "records")} that already match (nothing renamed).` : ""}
             {p.updates.length ? ` It copies ${listOf(p.updates.map((x) => `${x.name}'s ${x.what}`))}.` : ""}
             {p.flags.length ? ` ${n(p.flags.length, "thing", "things")} will be asked here instead of added.` : ""}
-            {preview.first ? " This is the first run: until it's done, nothing is added by itself." : ""} Nothing is deleted.
+            {" "}Nothing is deleted.
           </span>
           <span className="people-flag-acts">
             <button type="button" className="btn sm" disabled={!!busy} data-people-go onClick={() => run("go", [{ action: "link" }], p.count ? "Done: they're added, hidden and with no login." : "Done: everyone is linked.")}>
