@@ -159,6 +159,27 @@ export const sheetShareToKeep = (fact, mine) =>
 
 // (a placement's Spotify track as the numbers' entity key, trackKey, is lib/portal-streams.js's: the share card's too)
 
+// (2026-11-26, the owner: "for the client songs we can have an option to sort by latest release or by most streamed") the switch on the songs head, the same for staff on a client's page and
+// for a client on their own: Most streamed (byStreams, in SongManager: the default) or Latest (the newest release first, a song with no date last, a tie by title). What the viewer picked is
+// kept in this browser, one key for every client (a convenience only: storage can be blocked or empty, then it is the default and nothing is kept: every read and write is in a try).
+// (Plain functions with no arrow inside: see components/dash/manager-artists.js on Next's minifier.)
+export const SONG_SORT_KEY = "dm-songs-sort"; // "streams" | "latest"
+const SONG_SORTS = [["streams", "Most streamed"], ["latest", "Latest"]];
+export const readSongSort = () => { try { return window.localStorage.getItem(SONG_SORT_KEY) === "latest" ? "latest" : "streams"; } catch { return "streams"; } };
+export const saveSongSort = (how) => { try { window.localStorage.setItem(SONG_SORT_KEY, how); } catch { /* storage blocked: it just isn't remembered */ } };
+// a song's release day as a number to order by (a calendar day, read as releaseDay reads it); null: no date, or none that reads as a day
+const releaseTime = (p) => {
+  const s = String(p?.releaseDate || "").trim();
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  const t = ymd ? Date.UTC(+ymd[1], ymd[2] - 1, +ymd[3]) : Date.parse(s);
+  return Number.isFinite(t) ? t : null;
+};
+export const latestFirst = (a, b) => {
+  const x = releaseTime(a), y = releaseTime(b);
+  if (x !== y) return x === null ? 1 : y === null ? -1 : y - x;
+  return String(a.song || "").localeCompare(String(b.song || ""));
+};
+
 // editorOnly (To do's Fix / Update): only the song's editor and the strip after its Save, none of the client's page
 export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSongInfo, fix, onFix, onFixList, onGo, onDeleteClient, editorOnly = false }) {
   // staff's db has a `clients` array; a client session's db has just their
@@ -359,6 +380,11 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   // a client's own links (2026-11-11): what's on their profile, and the one being added or changed
   const [myLinks, setMyLinks] = useState(() => ({ spotify: client?.spotify || "", instagram: client?.instagram || "", tiktok: client?.tiktok || "", youtube: client?.youtube || "" }));
   const [linkEdit, setLinkEdit] = useState(null);
+  // (2026-11-26) the songs' order: byStreams (above) or Latest, as the switch on the songs head says (SONG_SORTS); read once, the saved choice already in the first draw, so the cards never jump
+  const [songSort, setSongSort] = useState(readSongSort);
+  const pickSongSort = (how) => { setSongSort(how); saveSongSort(how); };
+  const byLatest = useMemo(() => [...songs].sort(latestFirst), [songs]);
+  const shownSongs = songSort === "latest" ? byLatest : byStreams;
   const tracking = nums.artist?.mode !== "off";
   const moreItems = isStaff && nums.artist ? [{ key: "tracking", label: tracking ? "Stop tracking this artist" : "Start tracking again", icon: tracking ? <PauseCircle size={14} /> : <PlayCircle size={14} />, onClick: () => (tracking ? setStopAsk(true) : setTracking(clientId, true).then(nums.reload)) }] : [];
   // (2026-11-11) the artist line starts with the client's name only when they're an artist: a producer types the
@@ -454,7 +480,15 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
           {(!songsTile || !db.sheetSync?.lastSyncedAt) && <p className="muted">{`${songs.length} Song${songs.length === 1 ? "" : "s"}`}</p>}
           {isStaff && pushWarn && <p className="hint err-text">{pushWarn}</p>}
         </div>
-        <button className="btn sm" onClick={startAdd}><Plus size={15} /> Add Song</button>
+        {/* (2026-11-26) the sort switch beside Add Song: on the heading's row when it fits, else right under it (styles/app.css .portal-block-acts); with fewer than two songs there is nothing to order */}
+        <div className="portal-block-acts">
+          {songs.length > 1 && (
+            <span className="gainer-tabs song-sort" role="group" aria-label="Sort songs" data-song-sort={songSort}>
+              {SONG_SORTS.map(([k, label]) => <button key={k} type="button" className={songSort === k ? "active" : undefined} aria-pressed={songSort === k} data-sort={k} onClick={() => pickSongSort(k)}>{label}</button>)}
+            </span>
+          )}
+          <button className="btn sm" onClick={startAdd}><Plus size={15} /> Add Song</button>
+        </div>
       </div>
 
       {!isStaff && summaryBlock}
@@ -463,8 +497,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
         <p className="muted">No songs yet — add the first one.</p>
       ) : (
         <div className="song-grid">
-          {/* (2026-11-25, the owner: "... and in their client portals") a client's own page too: biggest streams first (byStreams, above) */}
-          {byStreams.map((p) => (
+          {/* (2026-11-25, the owner: "... and in their client portals") a client's own page too: biggest streams first (byStreams, above). (2026-11-26) Or the newest release first: shownSongs */}
+          {shownSongs.map((p) => (
             <button key={p.id} className="song-card" onClick={() => setOpenId(p.id)}>
               <div className="song-cover">
                 {p.cover ? <Photo src={p.cover} alt={p.song} /> : <div className="song-cover-empty"><Disc3 size={26} /></div>}
