@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { CardTable, PHONE_Q } from "../ui/responsive";
 import { peekJson, swrJson } from "../ui/fetch-cache";
 import { splitsToConfirm } from "./catalog-data";
-import { streamsAsOf, fmt } from "./ui";
+import { fmt } from "./ui";
+import { streamsLine } from "./streams-line";
 import { useMedia } from "./helpers";
 import { Photo, thumb } from "../shared/ui";
 import { FILTERS, catalogRows, filterCounts, filterRows, newReleases, searchRows, sortRows, summary, todayNY } from "../../lib/roster-catalog";
 
 // Roster › Catalog (2026-11-23, the owner: a catalog and a release desk under the roster, "i dont wanna change it up too bad"; 2026-11-24: "maybe we dont need releases if we have catalog yk", so the
-// Releases pill is gone and its dates are the "New releases" strip on top of Catalog): the same songs as the Clients pages, every client's in one list. Read only: a click opens the song in
-// its client's own page and editor (CatalogAdmin's openFix); nothing here saves anything.
+// Releases pill is gone and its dates are the "New releases" strip on top of Catalog): the same songs as the Clients pages, every client's in one list. Read only: a click opens the song's
+// window on its client's own page (CatalogAdmin's openSong); nothing here saves anything.
 // The rows come from the dashboard's own data (db.clients, db.placements: an account limited to its own artists already has only theirs), the rules are lib/roster-catalog.js's.
 const TRACKING_URL = "/api/roster-catalog";
 const PHONE_ROWS = 25; // a phone shows this many cards, then "Show more" (as the ISRC finder does: 136 cards were 25,000px)
@@ -57,7 +58,7 @@ function Waiting({ loading, failed, retry }) {
 }
 
 // "New releases", on top of Catalog: the songs coming up (a release date after today, tagged "Coming up") first, the soonest first, then the ones out in the last 30 days, the newest first
-// (lib/roster-catalog.js newReleases), as cover cards in a row that scrolls sideways inside itself. A card opens the song in its client's page and editor, as the table's rows do.
+// (lib/roster-catalog.js newReleases), as cover cards in a row that scrolls sideways inside itself. A card opens the song's window on its client's page, as the table's rows do.
 function NewReleases({ rows, onOpen }) {
   const today = useMemo(() => todayNY(), []);
   const list = useMemo(() => newReleases(rows, today), [rows, today]);
@@ -95,8 +96,8 @@ export function RosterCatalog({ db, songInfo, onOpen }) {
   const [limit, setLimit] = useState(PHONE_ROWS);
   useEffect(() => { setLimit(PHONE_ROWS); }, [q, filter, by]);
   const list = phone ? shown.slice(0, limit) : shown;
-  // the day the streams are from, as the portal and the share card say it (db.streamsOn); else the day the site last read the pub sheet
-  const asOf = db.streamsOn ? `Streams as of ${dayWords(db.streamsOn)}` : db.sheetSync?.lastSyncedAt ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt }) : "";
+  // the day the streams are from, as the portal and the share card say it (db.streamsOn); else the day the site last read the pub sheet (streamsLine)
+  const asOf = streamsLine(db);
   const cols = [
     { id: "song", label: "Song", className: "rl-song", render: (r) => <span className="nr-song"><span className="nr-thumb"><Cover r={r} w={96} /></span><OpenSong r={r} /></span> },
     { id: "artist", label: "Artist", render: (r) => r.artist || "—" },

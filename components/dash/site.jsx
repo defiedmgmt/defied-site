@@ -42,8 +42,9 @@ const WEB_SEC_KEY = "dm-web-sec";
 function WebsiteAdmin({ db, commit, sub, onSub, songInfo = null, reloadDb = null, onGo = null, embedded = false }) {
   const secs = WEBSITE_SECS;
   // a Dashboard task's sub wins, then the last tab used in this browser tab, then Roster (the weekly work)
-  // roster:<id> is To do's "Set X's sheet tab"; roster:<id>/accounting (2026-11-13) Site › Sync's "Add X to the sheet"
-  const [, openId = null, focus = null] = /^roster:([^/]+)(?:\/(accounting))?$/.exec(sub || "") || [];
+  // roster:<id> is To do's "Set X's sheet tab"; roster:<id>/accounting (2026-11-13) Site › Sync's "Add X to the sheet"; roster:<id>/profile (2026-11-26 review) a Roster client page's
+  // More › Edit profile: the form open, nothing focused
+  const [, openId = null, focus = null] = /^roster:([^/]+)(?:\/(accounting|profile))?$/.exec(sub || "") || [];
   // staff:<id> (2026-11-14, Site › Sync's people line) opens that team entry
   const [, staffOpen = null] = /^staff:(.+)$/.exec(sub || "") || [];
   const [sec, setSecOnly] = useState(() => {

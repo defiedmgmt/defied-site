@@ -170,9 +170,9 @@ export function Editor({ title, items, columns, blank, onSave, onDelete, extra, 
   );
 }
 
-// focus "accounting" (Site › Sync's "Add X to the sheet"): the form opens on its accounting sheet part, not the sheet tab
+// focus "accounting" (Site › Sync's "Add X to the sheet"): the form opens on its accounting sheet part, not the sheet tab; "profile" (2026-11-26 review, a Roster client page's Edit profile): just the form
 export function ClientsAdmin({ db, commit, openId = null, songInfo = null, reloadDb = null, focus = null, onGo = null }) {
-  const tabFocus = !!openId && focus !== "accounting";
+  const tabFocus = !!openId && !focus;
   // the clients the "numbers can't sync" To do names: each row says so, and its form says why
   const noTab = noTabNames(db, songInfo).map((n) => findTabClient(db, n)).filter(Boolean);
   const noTabIds = new Set(noTab.map((c) => c.id));
