@@ -60,7 +60,7 @@ export function SetPassword() {
           </div>
         ) : (
           <form className="lg-form" onSubmit={submit} aria-busy={busy} data-set-password>
-            <p className="lg-help lg-who">For <b>{who.name || who.email}</b> ({who.email}). Choose a password you'll remember: at least 8 characters.</p>
+            <p className="lg-help lg-who">For <b>{who.name || who.email}</b> ({who.email}). At least 8 characters.</p>
             {/* the email, hidden, so a password manager saves the new password to the right login */}
             <input type="email" name="username" autoComplete="username" value={who.email} readOnly hidden />
             <PwBox id="sp-new" label="New password" value={pw} onChange={(e) => setPw(e.target.value)} show={show} onShow={() => setShow((v) => !v)} autoFocus />

@@ -23,7 +23,6 @@ export function MyCommission({ clientId }) {
     <div className="cat-summary as-card mc-card" data-commission>
       <div className="as-head">
         <h3>Management Commission</h3>
-        <span className="hint">{pct}% of what you made</span>
       </div>
       {failed && <p className="hint">Couldn't load this right now. Reload the page to try again.</p>}
       <form className="mc-form" onSubmit={(e) => e.preventDefault()}>
@@ -40,8 +39,9 @@ export function MyCommission({ clientId }) {
           ? <a className="btn mc-pay" href={payUrl(d.manager.key, owed, clientId)} target="_blank" rel="noopener noreferrer" data-commission-pay>Pay {who} {usd(owed)} <ArrowUpRight size={16} /></a>
           : <button type="button" className="btn mc-pay" disabled data-commission-pay>Pay {who}</button>}
       </form>
-      {d && <p className="hint mc-note">Opens {who}'s Stripe page (pay.defiedmgmt.com/{d.manager.key}) with the amount filled in.{" "}
-        <span data-commission-last>{d.last ? `Last paid: ${usd(d.last.amount)} on ${day(d.last.at)}.` : d.count === 0 ? "No payments from you yet." : ""}</span></p>}
+      {/* (2026-11-25 declutter) the last payment only: no "Opens <manager>'s Stripe page … with the amount filled in." (the Pay button says who, and opens it) */}
+      {d && (d.last || d.count === 0) && <p className="hint mc-note">
+        <span data-commission-last>{d.last ? `Last paid: ${usd(d.last.amount)} on ${day(d.last.at)}.` : "No payments from you yet."}</span></p>}
     </div>
   );
 }

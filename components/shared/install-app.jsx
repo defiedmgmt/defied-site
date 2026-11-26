@@ -47,7 +47,8 @@ export function InstallApp() {
       <span className="install-icon" aria-hidden="true"><Smartphone size={18} /></span>
       <div className="install-text">
         <b>Add Defied to your phone</b>
-        {prompt ? <span>Opens full screen from your home screen, like an app.</span>
+        {/* (2026-11-25 declutter) Chrome's own Install button needs no line under the title (it said "Opens full screen from your home screen, like an app.") */}
+        {prompt ? null
           /* (2026-11-25) iOS 26's compact Safari keeps Share under the ••• button beside the address; the classic layout and iPad have it in the toolbar */
           : ios === "other" ? <span>Tap <Share size={14} aria-label="Share" className="install-glyph" /> Share in the address bar, then <SquarePlus size={14} aria-hidden="true" className="install-glyph" /> <b>Add to Home Screen</b>.</span>
           : ios ? <span>Tap <Share size={14} aria-label="Share" className="install-glyph" /> Share (in the toolbar, or under ••• next to the address), then <SquarePlus size={14} aria-hidden="true" className="install-glyph" /> <b>Add to Home Screen</b>. You may need to tap View More first.</span>

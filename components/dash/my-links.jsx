@@ -17,7 +17,6 @@ export function MyLinks({ client, links, edit, setEdit, onSaved }) {
     <div className="cat-summary as-card ml-card" data-my-links>
       <div className="as-head">
         <h3>Your links</h3>
-        <span className="hint">Your numbers are read from these</span>
       </div>
       <ul className="ml-list">
         {MY_LINKS.map((p) => {

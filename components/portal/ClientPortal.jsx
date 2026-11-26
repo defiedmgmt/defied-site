@@ -463,7 +463,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
         <p className="muted">No songs yet — add the first one.</p>
       ) : (
         <div className="song-grid">
-          {(isStaff ? byStreams : songs).map((p) => (
+          {/* (2026-11-25, the owner: "... and in their client portals") a client's own page too: biggest streams first (byStreams, above) */}
+          {byStreams.map((p) => (
             <button key={p.id} className="song-card" onClick={() => setOpenId(p.id)}>
               <div className="song-cover">
                 {p.cover ? <Photo src={p.cover} alt={p.song} /> : <div className="song-cover-empty"><Disc3 size={26} /></div>}
