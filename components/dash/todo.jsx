@@ -25,6 +25,7 @@ export { useCuTasks, useSyncChecks, todoItems, useSplitFixes, useAutoConfirm, sy
 // so To do and Home don't download every area's code up front (list B #11).
 const panel = (load, name) => dynamic(() => load().then((m) => m[name]), { ssr: false, loading: PanelWait });
 const AccountingAdmin = panel(() => import("./money"), "AccountingAdmin");
+const BooksPanel = panel(() => import("./books"), "BooksPanel"); // BOOKS-HOOK (books-1126): "Set the 2027 book"
 const SubsAdmin = panel(() => import("./admin"), "SubsAdmin");
 const DupeMerge = panel(() => import("./catalog"), "DupeMerge");
 const SongsToUpdate = panel(() => import("./catalog"), "SongsToUpdate");
@@ -88,6 +89,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "shareSite": case "shareSheet": return <ShareFix kind={it.panel} ctx={ctx} viaCta={viaCta} />;
     case "tabs": return <SheetTabFix ctx={ctx} />;
     case "log": case "check": return <AccountingAdmin part={it.panel} startLogAll={it.panel === "log" && viaCta} onCounts={(c) => ctx.setAcct((x) => ({ ...x, ...c }))} onGo={onGo} />;
+    case "books": return <BooksPanel />; // BOOKS-HOOK
     case "seeds": return <SeedList area={it.seedArea} ctx={ctx} />;
     case "arConfirm": return <div className="todo-sublist"><button type="button" className="btn sm" onClick={() => ctx.onGo("ar", "watch/confirm")} data-go-confirm>Open the Watchlist's confirm list</button></div>;
     case "arEnding": return <ArEnding it={it} ctx={ctx} />;

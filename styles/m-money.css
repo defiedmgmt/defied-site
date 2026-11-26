@@ -62,5 +62,12 @@
 @media (max-width:599px){
   .app:not(.pub) .acct-src a.btn{margin-left:-10px}
 }
+/* (2026-11-26, books-1126) Each year's accounting book on a phone (the rest is app.css's, after .todo-sublist): under 600px the paste box takes the
+   line's width and Save goes under it, and on Money's source row the Books button sits beside Open the sheet ↗, its text on the 16px gutter too. */
+@media (max-width:599px){
+  .app:not(.pub) .book-form{flex-wrap:wrap}
+  .app:not(.pub) .book-form input{flex-basis:100%}
+  .app:not(.pub) .acct-src:has(> .acct-books){justify-content:flex-start}
+}
 /* All payments is a card, like Overview's Latest payments and every list beside it: the "74 payments" line and the rows inside one box */
 .app:not(.pub) .acct-panel[data-acct=payments]{border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden}
