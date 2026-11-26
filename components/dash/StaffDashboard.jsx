@@ -12,6 +12,8 @@ import { SECTION_CODE, HomeDashboard, TodoPage, CatalogAdmin, AccountingAdmin, A
 import { todoItems, useAutoConfirm, useCuTasks, useSeeds, useSplitFixes, useSyncChecks } from "./todo-data";
 import { Wordmark, revealChip } from "./ui";
 import { useTrueUp, trueUpTodoItems } from "../trueup-data"; // TRUEUP-HOOK: the monthly Luminate true-up
+// BOOKS-HOOK (books-1126): each year's accounting book, a Founder's "Set the 2027 book"
+import { useBooks, booksTodoItems } from "./books-data";
 import { canUse } from "./access";
 export { canUse, TODO_AREAS } from "./access";
 import { arSecOf } from "../shared/ar-routes";
@@ -165,8 +167,9 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   useOnResume(() => { loadAcctN(); if (!songInfoOff) reloadSongInfo(); });
   const doneForYou = useAutoConfirm({ db, commit, songInfo, fixes });
   const trueup = useTrueUp(tab, can("publishing") && !db?.access?.ownOnly); // TRUEUP-HOOK: its To do rows (GET /api/trueup)
+  const books = useBooks(can("money") && db?.access?.role === "founder"); // BOOKS-HOOK: its To do row (GET /api/accounting-books, Founders only)
   // only the areas this account may use (lib/roles.js)
-  const todo = useMemo(() => todoItems({ db, songInfo, acct: acctN, ar: arSum, sync: sync.data, seeds: seeds.data }).concat(trueUpTodoItems(trueup.data)).filter((it) => can(AREA_SECTION[it.area] || "todo")), [db, songInfo, acctN, arSum, sync.data, seeds.data, trueup.data]); /* TRUEUP-HOOK: + the true-up rows */ // eslint-disable-line react-hooks/exhaustive-deps
+  const todo = useMemo(() => todoItems({ db, songInfo, acct: acctN, ar: arSum, sync: sync.data, seeds: seeds.data }).concat(trueUpTodoItems(trueup.data), booksTodoItems(books) || []).filter((it) => can(AREA_SECTION[it.area] || "todo")), [db, songInfo, acctN, arSum, sync.data, seeds.data, trueup.data, books]); /* TRUEUP-HOOK: + the true-up rows; BOOKS-HOOK: + the books row */ // eslint-disable-line react-hooks/exhaustive-deps
   // r10 fix: every open ClickUp task To do lists counts (the pill, All and the badge said 0 next to "ClickUp · 2":
   // the two had no due date); due ones still rank first in Biggest tasks
   const cuDue = cu.data?.tasks || [];

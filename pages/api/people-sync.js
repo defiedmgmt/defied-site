@@ -30,7 +30,7 @@
 // landed but read back differently answers 200 with `alarm`.
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess, mayUseClient, limited, ownSet } from "../../lib/access";
-import { accountingSheetId } from "../../lib/accounting";
+import { accountingSheetId, currentBookId } from "../../lib/accounting";
 import { logWritesOn } from "../../lib/accounting-log";
 import { shareWritesOn } from "../../lib/split-fixes-store";
 import { loadClientTabNames } from "../../lib/sheets";
@@ -91,6 +91,8 @@ function googleError(res, err, sheet) {
 export default async function handler(req, res) {
   const session = await requireAccess(req, res, null);
   if (!session) return;
+  // (books-1126) INFO is this year's book's: the Founders' setting is read first, so every INFO read and write below (accountingSheetId()) is that book
+  await currentBookId();
   if (req.method === "GET") return get(req, res);
   if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
   if (!requireSameOrigin(req, res)) return;

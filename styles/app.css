@@ -3234,6 +3234,25 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .todo-panel .lm-part .lm-block{margin:8px 0 0}
 .app:not(.pub) .todo-panel .acct-part .fix-panel{padding:0}
 .app:not(.pub) .todo-sublist{display:flex;flex-direction:column;gap:6px;padding-top:6px}
+/* (2026-11-26, books-1126) Each year's accounting book (components/dash/books.jsx): a Founder's Books button on Money's source row (December and January;
+   "Set the 2027 book" in amber when a year needs one, the quiet look of Open the sheet ↗ beside it), its sheet and To do's panel: a line per year, the year,
+   then its book's link (and Change) or the box its link is pasted into with Save. The phone's wrap is m-money.css's. */
+.app:not(.pub) .acct-src button.acct-books{padding:0 10px;border-color:transparent;background:transparent;color:var(--d-ink-3)}
+.app:not(.pub) .acct-src button.acct-books.need{color:var(--d-warn)}
+@media (hover:hover){ .app:not(.pub) .acct-src button.acct-books:hover{background:var(--d-active);border-color:transparent;color:var(--d-ink)} }
+.app:not(.pub) .acct-src:has(> .acct-books) .home-src{margin-right:auto}
+.app:not(.pub) .books{display:flex;flex-direction:column;gap:12px;min-width:0}
+.app:not(.pub) .book-line{display:grid;grid-template-columns:44px minmax(0,1fr);align-items:start;gap:6px 12px;min-width:0}
+.app:not(.pub) .book-year{color:var(--d-ink-2);font-variant-numeric:tabular-nums;line-height:var(--d-ctl-sm,32px)}
+.app:not(.pub) .book-acts{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.app:not(.pub) .book-form{display:flex;align-items:center;gap:8px;min-width:0;max-width:640px}
+.app:not(.pub) .book-form input{flex:1 1 auto;min-width:0;height:var(--d-ctl-sm,32px);padding:0 10px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm,8px);background:var(--d-field);color:var(--d-ink);font:inherit}
+.app:not(.pub) .book-form input[aria-invalid=true]{border-color:var(--d-neg-line)}
+.app:not(.pub) .book-err{grid-column:2;margin:0}
+/* To do's row already says the year ("Set the 2027 book"): its panel is the paste box alone */
+.app:not(.pub) [data-books-panel] .book-line{grid-template-columns:minmax(0,1fr)}
+.app:not(.pub) [data-books-panel] .book-year{display:none}
+.app:not(.pub) [data-books-panel] .book-err{grid-column:1}
 /* list B #3: the old Luminate rows to find on Spotify, one card each, finished in place */
 .app:not(.pub) .seed-list{gap:8px}
 .app:not(.pub) .seed-row{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid var(--d-line-2);border-radius:var(--d-r-sm);background:var(--d-s2)}

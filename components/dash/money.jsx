@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
 import { X, RefreshCw, AlertTriangle, CheckCircle2, CircleDollarSign, Info } from "lucide-react";
 import { foldMonths } from "../../lib/months";
+// (books-1126) each year's accounting book: a Founder's button on the source row, December and January
+import { BooksButton, rowsWord } from "./books";
 import { swrJson } from "../ui/fetch-cache";
 import { useOnResume } from "../app/resume";
 import { clock } from "./chips";
@@ -119,7 +121,8 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
   const rows = (plan?.rows || []).map((r) => {
     const v = vals[r.id] || fieldsOf(r);
     const edit = opts ? editOf(r, v) : null;
-    const chk = edit ? checkEdit(edit, r, opts, { year: plan.year, co: r.co }) : null;
+    // (books-1126) a row says its own year when it goes into last year's book (January): its date is checked against that book's year
+    const chk = edit ? checkEdit(edit, r, opts, { year: r.year || plan.year, co: r.co }) : null;
     return { r, v, edit, why: chk?.problems || {} };
   });
   const ticked = rows.filter((x) => !off.has(x.r.id));
@@ -152,7 +155,7 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
   else if (done) {
     body = done.error && !done.logged?.length ? <p className="home-muted"><AlertTriangle size={15} /> {done.error}</p> : (
       <>
-        {done.logged?.length > 0 && <p className="log-done" data-log-done><CheckCircle2 size={15} /> Added to the Income tab: {done.logged.length === 1 ? `row ${done.logged[0].row}` : `rows ${done.logged[0].row}–${done.logged[done.logged.length - 1].row}`}.{done.left > 0 ? ` ${done.left} still to log.` : " Every Stripe payment is in the sheet now."}</p>}
+        {done.logged?.length > 0 && <p className="log-done" data-log-done><CheckCircle2 size={15} /> Added to the Income tab: {rowsWord(done.logged)}.{done.left > 0 ? ` ${done.left} still to log.` : " Every Stripe payment is in the sheet now."}</p>}
         {done.alarm && <p className="logedit-alarm" role="alert" data-log-alarm><AlertTriangle size={15} /> <span>{done.alarm}</span></p>}
         {done.error && <p className="home-muted"><AlertTriangle size={15} /> {done.error}</p>}
         {reasons(done.skipped)}
@@ -168,7 +171,7 @@ export function LogConfirm({ ids, canLog, onClose, onDone, details = null, pay =
         {rowsN > 0 && <p className="log-lead">{n === 0 ? "No rows are ticked, so nothing goes" : n === 1 ? "This row goes" : `These ${n} rows go`} on the Income tab, under its last row.</p>}
         {rowsN > 0 && opts && (
           <div className="logedit-rows" data-log-edit>
-            {rows.map((x) => <LogEditRow key={x.r.id} {...x} opts={opts} year={plan.year} off={off.has(x.r.id)} busy={busy} onTick={() => tick(x.r.id)} onField={(k, value) => setField(x.r, k, value)} />)}
+            {rows.map((x) => <LogEditRow key={x.r.id} {...x} opts={opts} year={x.r.year || plan.year} off={off.has(x.r.id)} busy={busy} onTick={() => tick(x.r.id)} onField={(k, value) => setField(x.r, k, value)} />)}
           </div>
         )}
         {rowsN > 0 && !opts && (
@@ -348,6 +351,7 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
     <div className="acct-src" data-acct-src>
       {d.readAt && <span className="home-src">Stripe and the {d.year} accounting sheet · read {clock(d.readAt)}</span>}
       {d.sheetUrl && <ExtLink className="btn ghost sm acct-sheet-link" href={d.sheetUrl}>Open the sheet ↗</ExtLink>}
+      {empire && <BooksButton />}
     </div>
   ) : null;
   return (

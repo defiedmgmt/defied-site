@@ -6,7 +6,9 @@
 // against those lists first. Writes are off unless ACCOUNTING_SHEET_WRITES=on (503 with a plain line).
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
-import { logPayments, LogError } from "../../lib/accounting-log";
+import { LogError } from "../../lib/accounting-log";
+// (books-1126) in January last year's payments go into last year's book (lib/accounting-books.js); otherwise this is logPayments itself
+import { logPaymentsByBook } from "../../lib/accounting-books";
 
 // a fresh Stripe + sheet read, then the append and its read-back
 export const config = { maxDuration: 60 };
@@ -19,7 +21,7 @@ export default async function handler(req, res) {
   const body = req.body || {};
   try {
     const by = session.user.name || session.user.email || "staff";
-    return res.status(200).json(await logPayments({ ids: body.ids, by, dryRun: !!body.dryRun, details: body.details, edits: body.edits }));
+    return res.status(200).json(await logPaymentsByBook({ ids: body.ids, by, dryRun: !!body.dryRun, details: body.details, edits: body.edits }));
   } catch (err) {
     if (err instanceof LogError) return res.status(err.status).json({ error: err.message });
     console.error("accounting-log failed:", err);
