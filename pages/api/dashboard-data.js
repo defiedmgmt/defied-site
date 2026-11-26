@@ -24,6 +24,7 @@ import { readFlips } from "../../lib/submission-reactions";
 import { placementRow, upsertPlacement, deletePlacements, samePlacement } from "../../lib/placement-rows";
 import { knownOf, planRows } from "../../lib/known-ids";
 import { scheduleAAfterSave, clientsTouchSchedule, settleWithin, SAVE_WAIT_MS } from "../../lib/schedule-a";
+import { jan1For, yearStreamsOf } from "../../lib/year-streams";
 
 // photos uploaded before list B #2 are data: URIs inside the rows (new ones are Blob links,
 // /api/upload-image), so Next's default 1 MB body cap turned every staff save into a 413 once ~5-8 had
@@ -201,7 +202,7 @@ async function handleGet(req, res, session) {
   }
 
   // client: own record + own placements only, redacted
-  const [clients, placements, [settings], sheetFacts, lumDay, flagged] = await Promise.all([
+  const [clients, placements, [settings], sheetFacts, lumDay, flagged, jan1] = await Promise.all([
     sql`SELECT * FROM clients WHERE id = ${clientId}`,
     sql`SELECT * FROM placements WHERE client_id = ${clientId}`,
     sql`SELECT last_synced_at FROM site_settings WHERE id = 1`,
@@ -211,6 +212,8 @@ async function handleGet(req, res, session) {
     // only fills a checkbox, so a failed read never keeps the portal from loading
     rowsOrNoneIfNoTable(sql`SELECT t.placement_id FROM song_tracking t JOIN placements p ON p.id = t.placement_id WHERE p.client_id = ${clientId} AND t.skip`)
       .catch((err) => { console.error("client GET: songs not on streaming:", err?.message); return []; }),
+    // (2026-11-26) their songs' Jan 1 counts from Luminate, for the This Year tile (lib/year-streams.js): a failed read only leaves the tile a dash
+    jan1For(clientId).catch((err) => { console.error("client GET: streams this year:", err?.message); return null; }),
   ]);
   if (!clients[0]) return res.status(404).json({ error: "Client record not found." });
   return res.status(200).json({
@@ -220,6 +223,8 @@ async function handleGet(req, res, session) {
     notOnStreaming: flagged.map((r) => r.placement_id),
     sheetSync: { lastSyncedAt: settings.last_synced_at },
     streamsOn: lumDay,
+    // (2026-11-26) their streams this year, from the same streams as Gross Streams on the same day ({ total, songs, year }); null: a dash
+    yearStreams: yearStreamsOf(placements, jan1, lumDay),
     // their own songs' rows and their own net streams on the sheet: streams and shares only, no money
     sheetFacts,
   });
