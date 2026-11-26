@@ -24,6 +24,13 @@ export function useArtistNumbers(clientId, url = "/api/data") {
   const [err, setErr] = useState(false);
   const load = () => swrJson(url, (j) => { setD(j); setErr(false); }).catch(() => setErr(true));
   useEffect(() => { if (clientId) load(); }, [clientId]); // eslint-disable-line react-hooks/exhaustive-deps -- no clientId: the editor alone
+  // (2026-11-26 review) the installed app opened again after 5+ minutes away (components/app/AppRoot.jsx "defied:resume"): read again, the last answer drawn until then
+  useEffect(() => {
+    if (!clientId) return;
+    const again = () => { load(); };
+    window.addEventListener("defied:resume", again);
+    return () => window.removeEventListener("defied:resume", again);
+  }, [clientId]); // eslint-disable-line react-hooks/exhaustive-deps
   const artist = (d?.artists || []).find((a) => a.clientId === clientId) || null;
   return { artist, loaded: !!d, err, reload: load };
 }

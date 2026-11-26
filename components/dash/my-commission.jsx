@@ -11,8 +11,14 @@ export function MyCommission({ clientId }) {
   const [d, setD] = useState(null);
   const [failed, setFailed] = useState(false);
   const [text, setText] = useState("");
+  // read on the way in, and again when the installed app is opened after 5+ minutes away (2026-11-26 review: components/app/AppRoot.jsx "defied:resume").
+  // A read again that fails keeps the answer on screen: "Couldn't load" is only for a card with nothing to show
   useEffect(() => {
-    fetch("/api/my-commission", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject())).then(setD).catch(() => setFailed(true));
+    let alive = true;
+    const load = () => { setFailed(false); fetch("/api/my-commission", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject())).then((j) => alive && setD(j)).catch(() => alive && setFailed(true)); };
+    load();
+    window.addEventListener("defied:resume", load);
+    return () => { alive = false; window.removeEventListener("defied:resume", load); };
   }, []);
   const made = dollarsToCents(text);
   const owed = made ? commissionOf(made) : null;
@@ -24,7 +30,7 @@ export function MyCommission({ clientId }) {
       <div className="as-head">
         <h3>Management Commission</h3>
       </div>
-      {failed && <p className="hint">Couldn't load this right now. Reload the page to try again.</p>}
+      {failed && !d && <p className="hint">Couldn't load this right now. Reload the page to try again.</p>}
       <form className="mc-form" onSubmit={(e) => e.preventDefault()}>
         <label className="fld mc-made"><span>What you made</span>
           <span className="mc-money"><span aria-hidden="true">$</span><input inputMode="decimal" autoComplete="off" placeholder="0.00" value={text} onChange={(e) => setText(e.target.value)} aria-invalid={!!bad} data-commission-made /></span>

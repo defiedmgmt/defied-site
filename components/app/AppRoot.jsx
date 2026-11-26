@@ -295,6 +295,9 @@ export default function AppRoot({ Component, pageProps }) {
   // (2026-11-25, mobile) the installed app is kept in memory for days, with no reload button: the client portal, opened again after more
   // than 5 minutes away, reads its data again. Never mid-save (reloadDb waits for the queue and backs off) and never under an open window
   // (an add or remove dialog). The staff dashboard keeps the Messages-only refresh above, so nothing being edited there is touched.
+  // (2026-11-26 review) and the page's other reads with it, the same moment: "defied:resume" tells the Spotify numbers (growth: This Week, the
+  // +N chips, Gross Streams' Spotify plays), Your numbers and Management Commission's Last paid to read theirs again (components/portal/ClientPortal.jsx,
+  // components/dash/artist-stats.jsx, components/dash/my-commission.jsx). Each draws what it has until the new answer lands.
   useEffect(() => {
     if (route !== "client" || session?.role !== "client") return;
     let hiddenAt = document.visibilityState === "hidden" ? Date.now() : null;
@@ -304,6 +307,7 @@ export default function AppRoot({ Component, pageProps }) {
       hiddenAt = null;
       if (away < RESUME_REFRESH_MS || saves.current.pending || document.querySelector(".app:not(.pub) .modal")) return;
       reloadDb();
+      window.dispatchEvent(new Event("defied:resume"));
     };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
