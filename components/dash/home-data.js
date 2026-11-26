@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { RefreshCw, AlertTriangle } from "lucide-react";
 import { dashCache, settleRestored } from "../shared/dash-caches";
 import { loadedOnce, loadedRecently, markLoaded, readFresh } from "../shared/boot";
+import { useOnResume } from "../app/resume";
 
 // Home's data hooks, read by the shell too (list B #11: here, not in home.jsx, so every section can use
 // them without loading Home). useHome: GET /api/home.
@@ -27,6 +28,8 @@ export function useHome() {
     if (!(dashCache.home && loadedRecently("home"))) load();
     return () => { alive = false; };
   }, []);
+  // (2026-11-26 review) the installed app opened again after a while away (components/app/resume.js): read again, as Try again does
+  useOnResume(() => loader.current?.());
   return { home, failed, retry: () => loader.current?.(), refresh: () => loader.current?.(true) };
 }
 export const monthName = (ym) => (ym ? new Date(`${ym}-15T12:00:00`).toLocaleDateString(undefined, { month: "long" }) : "This month");

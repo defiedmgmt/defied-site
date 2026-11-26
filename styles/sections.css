@@ -35,3 +35,15 @@
 .app:not(.pub) .isrc-in input::placeholder{color:var(--d-ph);font-family:var(--d-body,inherit);font-weight:400}
 .app:not(.pub) .isrc-in input:focus{outline:none;border-color:#f5f5f5;box-shadow:0 0 0 3px rgba(255,255,255,.08)}
 .app:not(.pub) .isrc-more{align-self:center;min-height:44px}
+
+/* (2026-11-26 review) the error screen inside the dashboard or the portal (components/app/ErrorScreen.jsx inline: a section that broke): the full
+   screen's look (styles/m-global.css .err-screen) without its logo or its 60vh, under the sidebar / header that stay usable */
+.app:not(.pub) .err-screen.err-inline{flex:none;min-height:0;padding:56px 16px}
+
+/* (2026-11-26 review V5) the page title sits at one height on every tab of a desktop: the Dashboard's head lines its other items up on their text
+   (baseline), which lifted its title 5px above the others' (centred in the 36px head); A&R's head holds its 46px pill bar, which centred its title
+   10px lower. Both titles now sit where a centred title in a 36px head (44px on a touch screen) does; the A&R pills stay where they are */
+@media (min-width:900px) and (min-height:501px),(min-width:900px) and (pointer:fine),(min-width:900px) and (pointer:none){
+  .app:not(.pub) .home .admin-head > h2{align-self:center}
+  .app:not(.pub) .dash-main .admin-head.ar-top > h2{align-self:flex-start;margin-top:calc((var(--d-ctl-sm) - 1.1em) / 2)}
+}

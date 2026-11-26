@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { COMMISSION_RATE, commissionOf, dollarsToCents, payUrl, usd } from "../../lib/commission";
+import { useOnResume } from "../app/resume";
 
 // Management Commission (2026-11-11, the owner): a client types what they made, sees the 20%, and pays it to their
 // manager on Stripe with the amount already filled in (GET /api/my-commission; lib/commission.js). Their last
@@ -11,9 +12,12 @@ export function MyCommission({ clientId }) {
   const [d, setD] = useState(null);
   const [failed, setFailed] = useState(false);
   const [text, setText] = useState("");
-  useEffect(() => {
-    fetch("/api/my-commission", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject())).then(setD).catch(() => setFailed(true));
-  }, []);
+  // (2026-11-26 review) read again when the installed app is opened after a while away (components/app/resume.js): a payment made since shows as the
+  // last one. A failed read again keeps what's on show
+  const load = (again = false) => fetch("/api/my-commission", { cache: "no-store" }).then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((x) => { setD(x); setFailed(false); }).catch(() => { if (!again) setFailed(true); });
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useOnResume(() => load(true));
   const made = dollarsToCents(text);
   const owed = made ? commissionOf(made) : null;
   const pct = Math.round((d?.rate ?? COMMISSION_RATE) * 100);
