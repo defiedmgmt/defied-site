@@ -10,7 +10,7 @@ import { NAME_TAKEN, clientDeleteAsk, deleteClientCascade, nameTaken } from "./c
 import { WowPill } from "./chips";
 import { GAP_WORDS, WEEK_PCT_MIN, autoAddedOf, dayRange, dupeName, possibleOf, sheetWords, shortDay, songsPost, songsToUpdate, useGrowthState } from "./helpers";
 import { canUse } from "./access";
-import { Avatar, DropNote, Field, PctInput, fmt, landOn, revealChip, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "./ui";
+import { Avatar, DropNote, Field, PctInput, fmt, landOn, revealChip, splitPct, splitTotal, uid, useEscape } from "./ui";
 import { NotOursAsk, SongManager, noSheetTab, pushShare, releaseDay } from "../portal/ClientPortal";
 import { AskCard } from "../portal/ask";
 import { ExtLink, Photo } from "../shared/ui";
@@ -19,6 +19,7 @@ import { findByName, ownSplit } from "../site/data";
 import { normalizeTitle, splitsToConfirm, fullSiteSync } from "./catalog-data";
 import { dashCache } from "../shared/dash-caches";
 import { RosterCatalog } from "./roster-views";
+import { streamsLine } from "./streams-line";
 export { normalizeTitle, isSheetSyncStale, fullSiteSync, shareFixesOf, splitsToConfirm } from "./catalog-data";
 
 // a song's row on its client's tab, in the same order the sheet pull matches them (pullAndMergeSheetData):
@@ -869,13 +870,15 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
         <h2>Overview</h2>
         {/* (2026-11-10, the owner) Refresh numbers and the pub sheet's Drive folder are the Founders' */}
         {seeMoney && <div className="overview-links">
-          <button className="btn ghost sm" onClick={runStreamSync} disabled={streamSync.syncing} title="Pull every client's numbers from the pub sheet again">
+          <button className="btn ghost sm" onClick={runStreamSync} disabled={streamSync.syncing} title={db.sheetSync?.lastSyncedAt ? `Last read from the pub sheet ${new Date(db.sheetSync.lastSyncedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "Pull every client's numbers from the pub sheet again"}>
             <RefreshCw size={14} className={streamSync.syncing ? "spin" : ""} /> {streamSync.syncing ? "Refreshing numbers…" : "Refresh numbers"}
           </button>
           {links.folder && <ExtLink href={links.folder} className="btn ghost sm" title="Open the pub sheet's Drive folder"><Folder size={14} /> Folder</ExtLink>}
         </div>}
       </div>
-      <p className="hint overview-subhint">{streamsAsOf({ pulledAt: db.sheetSync?.lastSyncedAt })}</p>
+      {/* (2026-11-26 review) the day the streams are from (Luminate's, db.streamsOn), as Catalog, a client's page and the client's own portal say it; the day the site last read the pub sheet is
+          the Refresh numbers button's title */}
+      <p className="hint overview-subhint">{streamsLine(db)}</p>
       {streamSync.error && <p className="hint err-text overview-subhint">{streamSync.error}</p>}
       {state.loading && <p className="muted">Loading master sheet data…</p>}
       {state.error && <p className="hint err-text">{state.error}</p>}
@@ -947,7 +950,7 @@ function CatalogOverview({ db, commit, songInfo, reloadSongInfo, onSelectClient 
 
 // Roster (was Clients, 2026-11-23: the same section, address /dashboard/catalog and id "catalog"): the clients, their songs and splits, and the MASTER totals. A Dashboard task can open it on a client ("client:<id>").
 // Its pills (the one pill row every section has): Roster (the clients' page, the default: it was the Clients pill) and Catalog (every client's songs in one list, with the "New releases" strip on top,
-// /dashboard/catalog/songs): components/dash/roster-views.jsx, rules in lib/roster-catalog.js. A song in Catalog opens in its client's page and editor (openFix below).
+// /dashboard/catalog/songs): components/dash/roster-views.jsx, rules in lib/roster-catalog.js. A song in Catalog opens its window on its client's page (openSong below).
 // (2026-11-24, the owner: "maybe we dont need releases if we have catalog") There is no Releases pill: its address, /dashboard/catalog/releases, opens Catalog (StaffDashboard placeOf).
 // The Advance calculator (components/dash/empire-calc.jsx: Defied's advances to producers, planned against the advance EMPIRE gave) is not on this page. It is a Founders' page elsewhere in the
 // dashboard, and its old address, /dashboard/catalog/advance, opens it there (StaffDashboard placeOf); this page no longer has a line pointing to it (2026-11-24: "just the key information").
@@ -975,8 +978,9 @@ export function CatalogAdmin({ db, commit, reloadDb = null, songInfo, reloadSong
   // Back to the Roster pill shows what was open there (the client picked, or the Overview), and the address says so
   const view = sub === "songs" || sub === "releases" ? "songs" : "clients";
   const toView = (k) => onSub?.(k === "clients" ? (clientId ? `client:${clientId}` : null) : k);
-  // a song in Catalog opens in its client's own page and editor (openFix); with a field the editor starts on it
-  const openSong = (r, field) => openFix(r.open, field || null);
+  // a song in Catalog (a row, or a New releases card) opens its window on its client's own page (openFix's "window": the window, with Edit, Delete and Remove from catalog, not the
+  // editor scrolled to the splits a Splits to confirm Fix opens. 2026-11-26 review: a tap focused the first % box and raised a phone's keyboard, and Save showed the Fix strip)
+  const openSong = (r) => openFix(r.open, "window");
   const toFix = useMemo(() => splitsToConfirm(db, songInfo).all.reduce((a, x) => ({ ...a, [x.p.clientId]: (a[x.p.clientId] || 0) + 1 }), {}), [db, songInfo]);
   const client = db.clients.find((c) => c.id === clientId);
   const count = (cid) => db.placements.filter((p) => p.clientId === cid).length;

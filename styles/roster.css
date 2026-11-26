@@ -18,3 +18,6 @@
 .app:not(.pub) .rl-more{margin:10px 0 0}
 /* the song's column keeps room for its name (and the row's ›) and the client's for two names, so the artist column doesn't take it */
 @media (min-width:640px){ .app:not(.pub) .rl-table th.rl-song,.app:not(.pub) .rl-table td.rl-song{width:27%;min-width:240px} .app:not(.pub) .rl-table th.rl-client,.app:not(.pub) .rl-table td.rl-client{min-width:176px} }
+/* (2026-11-26 review) a client page's More ▾: its menu is drawn in the warning red for what takes something away (Delete client, Stop tracking); Edit profile (Site › Website › Roster) takes
+   nothing away, so it is in the page's ink */
+.app:not(.pub) .client-more-menu button[data-more-item="profile"]{color:var(--d-ink)}

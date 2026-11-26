@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { X, LogOut, Plus, Disc3, RefreshCw, AlertTriangle, CheckCircle2, Eye, PauseCircle, PlayCircle, KeyRound } from "lucide-react";
+import { X, LogOut, Plus, Disc3, RefreshCw, AlertTriangle, CheckCircle2, Eye, PauseCircle, PlayCircle, KeyRound, SquarePen } from "lucide-react";
 import { PasswordCard } from "../dash/password";
 import { songSplit, splitWords, filledSplits, orderSplits } from "../../lib/splits";
 import { snapSplits, ROUNDING_GAP } from "../../lib/pct";
@@ -10,7 +10,9 @@ import { changedFields, goneText } from "../app/saves";
 import { ClientMore, SpotifyFill } from "../dash/clients";
 import { normalizeTitle, splitsToConfirm } from "../dash/catalog-data";
 import { GrowthChip, Sparkline, dayRange, shortDay, signed, songsPost, songsToUpdate, useGrowth } from "../dash/helpers";
-import { Avatar, DropNote, Field, PhotoUpload, SplitsEditor, SplitsPie, Wordmark, fmt, splitColors, splitPct, splitTotal, streamsAsOf, uid, useEscape } from "../dash/ui";
+import { Avatar, DropNote, Field, PhotoUpload, SplitsEditor, SplitsPie, Wordmark, fmt, splitColors, splitPct, splitTotal, uid, useEscape } from "../dash/ui";
+import { streamsLine } from "../dash/streams-line";
+import { canUse } from "../dash/access";
 import { ROUTE_TO_PATH } from "../shared/routes";
 import { ExtLink, Photo } from "../shared/ui";
 import { LumHistory } from "../dash/lum-history";
@@ -200,8 +202,9 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   const skipOf = (id) => (!id ? false : id in skipSaved ? skipSaved[id] : isStaff ? !!songInfo?.tracking?.[id]?.skip : (db.notOnStreaming || []).includes(id));
   const [noStream, setNoStream] = useState(null);
   const [flagWarn, setFlagWarn] = useState(null);
-  // a closed form takes its message with it, and a Fix's "open on the Splits" with it
-  useEffect(() => { if (!editing) { setFormErr(null); setSplitsFirst(0); setFieldFirst(null); setNoStream(null); } }, [editing]);
+  // a closed form takes its message with it, and a Fix's "open on the Splits" with it. (2026-11-26 review) And the Fix itself: a Fix closed with Cancel is over, so a later Edit and Save
+  // of the same song shows no "Saved. N left" strip (Save reads fixing before it closes the form)
+  useEffect(() => { if (!editing) { setFormErr(null); setSplitsFirst(0); setFieldFirst(null); setNoStream(null); fixing.current = null; } }, [editing]);
   // an Update from Songs to update opens on its first missing field (the window's own scroll only)
   useEffect(() => {
     const el = fieldFirst && document.querySelector(`.modal-body [data-field="${fieldFirst.f}"]`), body = el?.closest(".modal-body");
@@ -233,6 +236,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   useEffect(() => {
     const p = fix && db.placements.find((x) => x.id === fix.id);
     if (!p || p.clientId !== clientId) return;
+    // (2026-11-26 review) a song picked in Catalog (field "window"): its window, as a tap on its card here opens it; not the editor a splits Fix opens, and no strip after
+    if (fix.field === "window") { setEditing(null); setFixNote(null); fixing.current = null; updating.current = null; setOpenId(p.id); return; }
     // a split Fix says what's left after Save; an Update from Songs to update says what's next when it closes
     const onSplits = !fix.field || fix.field === "splits";
     setOpenId(null); setFixNote(null); fixing.current = fix.field ? null : p.id;
@@ -364,7 +369,12 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
   const [myLinks, setMyLinks] = useState(() => ({ spotify: client?.spotify || "", instagram: client?.instagram || "", tiktok: client?.tiktok || "", youtube: client?.youtube || "" }));
   const [linkEdit, setLinkEdit] = useState(null);
   const tracking = nums.artist?.mode !== "off";
-  const moreItems = isStaff && nums.artist ? [{ key: "tracking", label: tracking ? "Stop tracking this artist" : "Start tracking again", icon: tracking ? <PauseCircle size={14} /> : <PlayCircle size={14} />, onClick: () => (tracking ? setStopAsk(true) : setTracking(clientId, true).then(nums.reload)) }] : [];
+  // (2026-11-26 review) staff who can use Site get their profile from here too (photo, bio, links, sheet tab, on the public roster): Site › Website › Roster with this client's form open
+  const toProfile = isStaff && onGo && canUse(db, "site") ? (sub) => onGo("site", sub) : null;
+  const moreItems = [
+    toProfile && { key: "profile", label: "Edit profile", icon: <SquarePen size={14} />, onClick: () => toProfile(`roster:${clientId}/profile`) },
+    isStaff && nums.artist && { key: "tracking", label: tracking ? "Stop tracking this artist" : "Start tracking again", icon: tracking ? <PauseCircle size={14} /> : <PlayCircle size={14} />, onClick: () => (tracking ? setStopAsk(true) : setTracking(clientId, true).then(nums.reload)) },
+  ].filter(Boolean);
   // (2026-11-11) the artist line starts with the client's name only when they're an artist: a producer types the
   // song's artist, whose share the default split names
   const startAdd = () => setEditing({ id: null, clientId, song: "", artist: /artist/i.test(client?.role || "") ? client?.name || "" : "", releaseDate: "", link: "", cover: "", notable: false, luminateId: "", splits: [{ id: uid(), name: client?.name || "", role: client?.role || "", percent: 0 }] });
@@ -394,7 +404,8 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               (components/portal/share.jsx); nothing to share before there are streams */}
           <div className="cat-asof-row">
             <p className="hint cat-asof">
-              {isStaff ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt })
+              {/* (2026-11-26 review) staff: the day the streams are from, as the client's own page says it (streamsLine), not the day the site last read the sheet */}
+              {isStaff ? streamsLine(db, streamsDay(streamsNow.sheetGross, spotifyFill.on, numbersOn))
                 : `Streams as of ${asOfWords(streamsDay(streamsNow.sheetGross, spotifyFill.on, numbersOn))}`}
             </p>
             {streamsNow.gross > 0 && <ShareStats clientId={clientId} name={client?.name} isStaff={!!isStaff} />}
@@ -412,7 +423,9 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
             {/* (2026-11-24) no "Sheet tab: <name>" line: the role alone, and only when there's something to say after it: a tab the sheet doesn't have (a warning).
                 (2026-11-25 declutter) a client with no songs: the role alone (the song list's own empty line says there are none; no line on when their sheet tab is made) */}
             <div className="client-head-meta">{client.role || "Client"}{!songs.length ? null
-              : noSheetTab(songInfo, client) ? <> · <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span><span className="m-why">{`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}</span></>
+              : noSheetTab(songInfo, client) ? <> · {toProfile
+                ? <button type="button" className="inline-link warn-text" data-sheet-tab-go onClick={() => toProfile(`roster:${clientId}`)} title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</button>
+                : <span className="warn-text" title={`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}>Sheet tab: not found</span>}<span className="m-why">{`The pub sheet has no tab called ${client.sheetTabName?.trim() || client.name}.`}</span></>
               : null}</div>
           </div>
           {(onDeleteClient || moreItems.length > 0) && <ClientMore onDelete={onDeleteClient ? () => onDeleteClient(client) : undefined} items={moreItems} />}
@@ -510,7 +523,9 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               </div>
               {/* streams but $0: the sheet row's Writer Share is blank (Spots. on the Stackie tab), so its earnings formulas
                   give nothing. Up here under the title, so it's read before anything else and never sits behind the buttons */}
-              {isStaff && db.sheetSync?.lastSyncedAt && active.streams > 0 && !active.revenue && Number(ownSplit(active, client)?.percent) > 0 && (
+              {/* (2026-11-26 review) read off the sheet's own Writer Share (the song's sheet fact, as To do's "No writer share in the sheet"), not off $0 earnings: a song with a few streams
+                  rounds to $0.00 with its share set */}
+              {isStaff && db.sheetSync?.lastSyncedAt && active.streams > 0 && db.sheetFacts?.songs?.[active.id] && !(Number(db.sheetFacts.songs[active.id].share) > 0) && Number(ownSplit(active, client)?.percent) > 0 && (
                 <p className="hint song-sheet-warn"><AlertTriangle size={14} /> <span>The pub sheet has no writer share for this song ({client?.sheetTabName?.trim() || client?.name} tab), so it earns $0 there. Edit and Save to send the split to the sheet, or use Remove from catalog.</span></p>
               )}
               {/* an even split the rule can fill: shown as it would be confirmed, in a neutral note, never as a broken 0% */}
@@ -527,13 +542,14 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
                     const sp = spotifyOnly(active);
                     return <div className="split-list-row" data-song-streams={sp ? (sp.under1k ? "spotify-under-1k" : "spotify") : "sheet"}><span className="split-name">Streams{sp && <em> (Spotify)</em>}</span><span className="split-pct">{sp?.under1k ? "Under 1,000" : fmt(sp?.n ?? active.streams)}</span></div>;
                   })()}
-                  <p className="hint song-asof">{isStaff ? streamsAsOf({ pulledAt: db.sheetSync.lastSyncedAt })
+                  <p className="hint song-asof">{isStaff ? streamsLine(db, streamsDay(active.streams, spotifyOnly(active)?.on, numbersOn))
                     : `as of ${asOfWords(streamsDay(active.streams, spotifyOnly(active)?.on, numbersOn))}`}</p>
                 </div>
               )}
               {/* (2026-11-11, the owner: "make it clear that the splits are pub splits for each song") (2026-11-25 declutter) the heading says it: no hint line beside it */}
               <div className="song-splits-head" data-splits-head><h4>Publishing splits</h4></div>
-              <SplitsPie splits={activeEven ? activeEven.splits : active.splits} size={230} />
+              {/* (2026-11-26 review) no legend under the donut (components/SplitsPieChart.jsx): the list below names each colour with its %. 200 tall: the same donut, without the legend's 30px */}
+              <SplitsPie splits={activeEven ? activeEven.splits : active.splits} size={200} />
               <div className="split-list">
                 {(() => { const hue = splitColors(activeEven ? activeEven.splits : active.splits); return orderSplits(activeEven ? activeEven.splits : active.splits || []).map((s, i) => (
                   <div key={s.unnamed ? `u${i}` : s.id} className="split-list-row">
