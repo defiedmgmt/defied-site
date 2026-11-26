@@ -46,6 +46,7 @@ function DigestItem({ k, it }) {
     ? [it.streams && <span key="s"><b>{fmt(it.streams.thisWeek)}</b> streams this week{it.streams.pct != null && <> <span className={it.streams.pct >= 0 ? "pos" : "neg"}>{pctSigned(it.streams.pct)}</span></>}</span>]
     : k === "radar" ? [<span key="v"><b>{fmt(it.newVideos)}</b> new videos{it.pct != null && <> <span className={it.pct >= 0 ? "pos" : "neg"}>{pctSigned(Math.round(it.pct * 10) / 10)}</span></>}</span>]
       : k === "expiring" ? [<span key="e">{it.expiresAt || it.expires ? `ends ${String(it.expiresAt || it.expires).slice(0, 10)}` : ""}</span>]
+      : k === "paydays" ? [<span key="d">{it.when}</span>] // (2026-11-26) "BMI · Fri Nov 20"
         : [<span key="m">score <b>{fmt(Math.round(it.score))}</b></span>, it.why && <span key="w">{it.why}</span>];
   return (
     <li className="dg-item" data-dg-item>

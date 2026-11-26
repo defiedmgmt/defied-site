@@ -172,6 +172,7 @@ export function bootPlan(pathname, { me = true } = {}) {
   // Money reads the accounting numbers on its Overview, All payments and My payments (its deal pills read their own data); A&R's other
   // views read their own lists
   if (at.tab === "money" && !MONEY_ACCOUNTING_SUBS.includes(at.sub)) own = [];
+  if (at.tab === "money" && at.sub === "paydays") own = ["/api/paydays"]; // (2026-11-26) Paydays reads its own
   if (at.tab === "ar" && at.sub) own = [];
   return [[...(me ? ["/api/auth/me"] : []), ...SHELL_FIRST], [...SHELL_REST, ...own, ...(PULL_TABS.includes(at.tab) ? [PULL_DUE_URL] : [])]];
 }

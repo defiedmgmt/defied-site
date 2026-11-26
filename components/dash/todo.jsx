@@ -33,6 +33,8 @@ const SplitsToFix = panel(() => import("./catalog"), "SplitsToFix");
 const SongManager = panel(() => import("../portal/ClientPortal"), "SongManager");
 const TrueUpPanel = panel(() => import("../TrueUp"), "TrueUpPanel"); // TRUEUP-HOOK: the monthly Luminate true-up
 const IsrcFinder = panel(() => import("./isrc-finder"), "IsrcFinder"); // r11: the ISRC finder, out of Publishing
+const PaydayCard = panel(() => import("./paydays"), "PaydayCard"); // (2026-11-26) a payday's row, opened (Money › Paydays' own card)
+const QuietList = panel(() => import("./payers"), "QuietList"); // (2026-11-26) the clients gone quiet
 
 // One To do row: the sentence opens it, the button does its one thing; open, the panel below holds
 // exactly the controls it needs (the same ones the tabs used to hold). Home's biggest tasks use it too.
@@ -94,6 +96,8 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "isrc": return <IsrcFinder db={db} songInfo={ctx.songInfo} reloadSongInfo={ctx.reloadSongInfo} />;
     case "messages": return <SubsAdmin db={db} commit={commit} />;
     case "syncfix": return <SyncFix check={it.check} ctx={ctx} />;
+    case "quiet": return <QuietList ctx={ctx} />;
+    case "payday": return <PaydayCard compact p={it.payday} onGo={onGo} />;
     default: return null;
   }
 }
@@ -680,6 +684,8 @@ export const CAL_SOURCES = [
     for (const p of home?.accounting?.unlogged || []) { const d = nyDay(p.at); by.set(d, [...(by.get(d) || []), p]); }
     return [...by].map(([day, ps]) => ({ day, label: `Log ${ps.length === 1 ? `${ps[0].client || ps[0].payer || "a payment"} ${money(ps[0].amount)}` : `${ps.length} payments`}`, kind: "money", late: true }));
   },
+  // (2026-11-26) Paydays: BMI, ASCAP and The MLC on their days (Money's counts carry every date on the schedule)
+  ({ acct }) => (acct?.payers?.paydays?.dates || []).map((d) => ({ day: d.day, label: d.label, kind: "money" })),
 ];
 export const addDays = (iso, n) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
 export const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]; // by getUTCDay()
