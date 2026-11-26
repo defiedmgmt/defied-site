@@ -174,7 +174,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
   // a good count from anywhere since (Money's page, Home's payments) wins over a failed read; an outage's count (toLog null) is a failure too
   const acctDown = can("money") && (acctN ? acctN.toLog === null : acctFailed);
-  const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, acctFailed: acctDown, reloadAcct: loadAcctN, setAcct, fixes, doneForYou, can, seeds };
+  const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, acctFailed: acctDown, reloadAcct: loadAcctN, setAcct, fixes, doneForYou, can, seeds, trueup: trueup.data };
   // (2026-11-23, 2026-11-24) the EMPIRE and Advance calculator pills of Money, for the one kind of account that has them: a Founder with Money access and every artist (the API refuses everyone else).
   // The Roster page's pointer line (catalog.jsx seeEmpire) is the same decision
   const seeDeals = can("money") && !db.access?.ownOnly && db.access?.role === "founder";
