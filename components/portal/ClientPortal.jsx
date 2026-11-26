@@ -633,8 +633,8 @@ export function ClientPortal({ db, commit, session, logout, signingOut }) {
   return (
     <div className="portal">
       <header className="portal-nav">
-        {/* (2026-11-25, mobile) the logo stays in the portal (the top of it), as the dashboard's does: an installed app has no Back to come home with */}
-        <Link href={ROUTE_TO_PATH.client} className="logo-link" aria-label="Your portal"><Wordmark height={26} /></Link>
+        {/* (2026-11-26, the owner: "the Defied logo on the top left should take you back to the main site") the logo is a plain link to the public home page, as the dashboard's is (2026-11-25 had kept it in the portal); the public nav's My portal link brings a client back, as an installed app has no Back */}
+        <Link href={ROUTE_TO_PATH.home} className="logo-link" aria-label="Defied Management — home"><Wordmark height={26} /></Link>
         <div className="portal-who">
           <span>{client?.name || session.name}</span>
           <button onClick={() => setPwOpen(true)} data-change-password><KeyRound size={16} /> <span className="portal-pw-label">Password</span></button>

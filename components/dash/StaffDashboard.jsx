@@ -209,8 +209,8 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   return (
     <div className="dash">
       <aside className="dash-side">
-        {/* r10 (H15): the logo stays in the dashboard (the Dashboard page), it doesn't leave for the public site */}
-        <div className="dash-brand"><Link href="/dashboard" className="logo-link" aria-label="Dashboard" onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return; e.preventDefault(); go("home"); }}><Wordmark height={26} /></Link></div>
+        {/* (2026-11-26, the owner: "the Defied logo on the top left should take you back to the main site") the logo is a plain link to the public home page (r10 H15 had kept it in the dashboard); the public nav's Dashboard link brings a signed-in visitor back, as an installed app has no Back */}
+        <div className="dash-brand"><Link href="/" className="logo-link" aria-label="Defied Management — home"><Wordmark height={26} /></Link></div>
         <nav>
           {side.map(([id, label, Icon, badge, area]) => (
             <button key={id} className={[home === id && "active", PHONE_MORE.has(id) && "nav-more-item"].filter(Boolean).join(" ")} data-area={area} data-tab={id} aria-current={home === id ? "page" : undefined} onClick={() => setTab(id)} onPointerEnter={() => SECTION_CODE[id]?.()} onMouseEnter={() => warm(id)} onFocus={() => { SECTION_CODE[id]?.(); warm(id); }}>
