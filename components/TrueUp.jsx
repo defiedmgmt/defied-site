@@ -1,8 +1,8 @@
 "use client";
 // The monthly Luminate true-up in To do (lib/trueup.js, /api/trueup). Three rows, each finished in place:
-//   trueup           "Luminate report due Dec 1" (from 3 days before the due day, lib/trueup-due.js): the drop box (dry run,
-//                    Apply, one Undo), the songs to put in the Luminate report (Copy all, N of 500, Report 1/2 past 500,
-//                    the songs with no ISRC and the ISRC finder), the schedule's end day and a Founder's due day
+//   trueup           "Monthly Luminate update: drop this month's report": the drop box (dry run, Apply, one Undo),
+//                    the songs to put in the Luminate report (Copy all, N of 500, Report 1/2 past 500, the songs with
+//                    no ISRC and the ISRC finder) and the schedule's end day
 //   trueup-new       "N songs to add to the Luminate report": the ones no Luminate file has had yet (every update
 //                    counted), Copy all (title, artist, ISRC, Spotify) and Copy ISRCs, the ISRC finder for the rest,
 //                    and the drop box: the next export ticks them off (the drop's checklist), any day of the month
@@ -17,8 +17,6 @@ import { store, emit, useTrueUp, reloadTrueUp, shortDay, plural, fmt } from "./t
 import { AskCard } from "./portal/ask";
 export { reloadTrueUp, useTrueUp, trueUpTodoItems } from "./trueup-data";
 
-const nth = (n) => `${n}${[11, 12, 13].includes(n % 100) ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th"}`;
-const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 const longDay = (iso) => (iso ? new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "");
 const ISRC_SOURCES = { "spotify-link": "the song's Spotify link", deezer: "Deezer", "deezer-artist": "the artist's Deezer page", musicbrainz: "MusicBrainz", manual: "typed in" };
 const setRecent = (x) => { store.recent = x; if (store.d) store.d = { ...store.d, recent: x }; emit(); };
@@ -370,7 +368,7 @@ function SetupNow({ d }) {
   );
 }
 
-// ---- Luminate's schedule: 12 weeks from the first update; a Founder moves the day, and (2026-11-26) the report's due day
+// ---- Luminate's schedule: 12 weeks from the first update; a Founder moves the day
 function Schedule({ d, founder, full = false }) {
   const s = d.schedule || {};
   const [day, setDay] = useState(s.ends || "");
@@ -383,28 +381,15 @@ function Schedule({ d, founder, full = false }) {
     catch (e) { setNote({ text: e.message, warn: true }); }
     finally { setBusy(false); }
   };
-  const saveDue = async (n) => {
-    setBusy(true); setNote(null);
-    try { const r = await post("/api/trueup", { action: "dueDay", day: n }); setNote({ text: `Saved: due on the ${nth(r.day)}.` }); await reloadTrueUp(); }
-    catch (e) { setNote({ text: e.message, warn: true }); }
-    finally { setBusy(false); }
-  };
-  const ends = !!s.ends || full;
-  const dueDay = founder && !full && d.dueDay ? (
-    <label className="tu-date" data-due-day={d.dueDay}><span>Due day</span>
-      <select value={d.dueDay} disabled={busy} onChange={(e) => saveDue(Number(e.target.value))} aria-label="The day of the month the Luminate report is due">{DAYS.map((n) => <option key={n} value={n}>{n}</option>)}</select>
-    </label>
-  ) : null;
-  if (!ends && !dueDay) return null;
+  if (!s.ends && !full) return null;
   return (
     <div className={full ? "todo-sublist tu" : "tu-sched"} data-schedule={s.ends || "none"}>
-      {ends && <p className={full ? "tu-line" : "hint"}>Luminate's schedule ends {longDay(s.ends)}.{full && " In Luminate, copy the report and schedule the copy."}</p>}
+      <p className={full ? "tu-line" : "hint"}>Luminate's schedule ends {longDay(s.ends)}.{full && " In Luminate, copy the report and schedule the copy."}</p>
       {founder ? (
         <div className="tu-acts">
           {full && <button type="button" className="btn sm" data-schedule-copied disabled={busy} onClick={() => save({ copied: true })}>I copied it</button>}
-          {ends && <label className="tu-date"><span>Ends on</span><input type="date" value={day} onChange={(e) => setDay(e.target.value)} aria-label="The day Luminate's schedule ends" /></label>}
-          {ends && <button type="button" className="btn ghost sm" data-schedule-save disabled={busy || !day || day === s.ends} onClick={() => save({ ends: day })}>Save</button>}
-          {dueDay}
+          <label className="tu-date"><span>Ends on</span><input type="date" value={day} onChange={(e) => setDay(e.target.value)} aria-label="The day Luminate's schedule ends" /></label>
+          <button type="button" className="btn ghost sm" data-schedule-save disabled={busy || !day || day === s.ends} onClick={() => save({ ends: day })}>Save</button>
         </div>
       ) : null}
       {note && <p className={note.warn ? "hint err-text" : "hint del-note"} role="status">{note.text}</p>}
