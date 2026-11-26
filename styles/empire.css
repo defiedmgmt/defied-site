@@ -1,6 +1,7 @@
 /* Money › EMPIRE recoupment and Advance calculator (2026-11-21, 2026-11-23): components/dash/empire.jsx and empire-calc.jsx. The dashboard's own tokens (--d-*, set in app.css); the
    calculator keeps the Advance calculator's classes (adv-*, cat-stat, form-card). Phone first: one column, nothing wider than the screen (min-width:0 on every grid child, long words may break). */
-.app:not(.pub) .emp-page{display:flex;flex-direction:column;gap:20px;min-width:0;max-width:1100px}
+/* (2026-11-26 review) no max-width of its own: EMPIRE and the Advance calculator fill the main column like Money's other pills, so the cards don't change width between tabs */
+.app:not(.pub) .emp-page{display:flex;flex-direction:column;gap:20px;min-width:0}
 .app:not(.pub) .emp-card{min-width:0;padding:18px 20px;background:var(--d-s1);border:1px solid var(--d-line-2);border-radius:var(--d-r-card)}
 .app:not(.pub) .emp-head{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 16px;margin:0 0 6px}
 .app:not(.pub) .emp-h{margin:0;padding:0;font:400 14px/1.2 var(--d-display);font-synthesis:none;letter-spacing:.08em;text-transform:uppercase;color:var(--d-ink)}
@@ -134,6 +135,9 @@
 .app:not(.pub) .emp-song-n{grid-column:2;font-size:12px;font-variant-numeric:tabular-nums;color:var(--d-ink-4)}
 .app:not(.pub) .emp-calc .adv-cols{margin-top:6px}
 .app:not(.pub) .emp-calc .form-card{max-width:560px}
+/* (2026-11-26 review) beside the form (1100px and up) the "Pick a producer…" box fills its column like the results that replace it (app.css caps it at 560px, which left a
+   wider gap on the card's right than its left once the page fills the main column) */
+@media (min-width:1100px){ .app:not(.pub) .emp-calc .adv-out > .adv-empty{max-width:none} }
 .app:not(.pub) .emp-calc .cat-stat-val[data-over]{color:var(--d-neg)}
 .app:not(.pub) .emp-calc .hint[data-over]{color:var(--d-neg)}
 

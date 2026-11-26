@@ -1,6 +1,7 @@
 /* m-money.css (2026-11-25, mobile phase 2): phone and touch rules for Money (Overview, All payments, My payments and the two deal pages, the
    recoupment page and the Advance calculator). Loaded after m-global.css, so a tie with it or with app.css / the deal pages' stylesheet goes
-   to this file. Desktop (900px and up with a mouse) is untouched: every rule sits under a phone, touch or phone-width query. */
+   to this file. Desktop (900px and up with a mouse) is untouched by sections 1-3: every rule there sits under a phone, touch or phone-width query.
+   Section 4 (2026-11-26 review) is Money's own layout at every width: the source row under the pills and the All payments card. */
 
 /* 1. THE ADVANCE CALCULATOR'S "SHOW THE MATH" ON A PHONE. Three padded boxes inside each other left the payback ladder 240px, so its
       Verdict column sat on the card's right edge at 375 and 390: the boxes give back a little padding, the column heads may wrap between
@@ -46,3 +47,20 @@
   .app:not(.pub) .pay-amt em,.app:not(.pub) .pay-test{font-size:var(--d-fs-micro)}
   .app:not(.pub) .my-pay :is(.mp-keep-label,.todo-group){font-size:var(--d-fs-micro)}
 }
+
+/* 4. MONEY'S PAGE AT EVERY WIDTH (2026-11-26 review).
+      The source row (components/dash/money.jsx: "Stripe and the 2026 accounting sheet · read …" and Open the sheet ↗) sits under the pills, not in the head, so the
+      pills stay put when one of the two deal pills is tapped. The words on the left, the link on the right (as it was in the head), the link keeping the head's quiet
+      look (app.css's .admin-head a.btn rule doesn't reach it here). Under 600px the words take their own line and the link's text starts on the 16px gutter. */
+.app:not(.pub) .acct-src{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 16px;margin:-14px 0 12px;min-width:0}
+.app:not(.pub) .acct-src .home-src{margin:0;min-width:0}
+.app:not(.pub) .acct-src a.btn{padding:0 10px;border-color:transparent;background:transparent;color:var(--d-ink-3)}
+@media (hover:hover){ .app:not(.pub) .acct-src a.btn:hover{background:var(--d-active);border-color:transparent;color:var(--d-ink)} }
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
+  .app:not(.pub) .acct-src{margin-top:-10px}
+}
+@media (max-width:599px){
+  .app:not(.pub) .acct-src a.btn{margin-left:-10px}
+}
+/* All payments is a card, like Overview's Latest payments and every list beside it: the "74 payments" line and the rows inside one box */
+.app:not(.pub) .acct-panel[data-acct=payments]{border:1px solid var(--d-line-2);border-radius:var(--d-r-card);background:var(--d-s1);overflow:hidden}
