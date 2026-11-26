@@ -9,7 +9,7 @@ import { requireAccess } from "../../lib/access";
 import { moneyState, payerNamer, paymentRow, checkClickUpTasks } from "../../lib/money";
 import { logWritesOn } from "../../lib/accounting-log";
 import { sectionChecks } from "../../lib/accounting-section";
-import { loggedToday } from "../../lib/auto-log";
+import { loggedToday, autoLogSoon } from "../../lib/auto-log";
 
 // a first Stripe fill reads ~3 things a payment (saved as it goes, lib/stripe.js)
 export const config = { maxDuration: 60 };
@@ -28,7 +28,10 @@ export default async function handler(req, res) {
     }
     // (2026-11-20) a page someone waits on: its reads don't sit out Google's quota (lib/sheets.js withSheetsQuick)
     // (2026-11-26) autoLogged: the rows Auto-log added today (lib/auto-log.js), read beside the money; never throws
-    const [{ pay, acct, match }, autoLogged] = await Promise.all([withSheetsQuick(() => moneyState({ fresh })), req.query.all ? 0 : loggedToday()]);
+    const [{ pay, acct, match }, autoLogged0] = await Promise.all([withSheetsQuick(() => moneyState({ fresh })), req.query.all ? 0 : loggedToday()]);
+    // (2026-11-26 owner: automatic) a payment no Auto-log note has told yet: Auto-log runs now, beside the rest of this read (at most once every 10 minutes, one
+    // run at a time; lib/auto-log.js autoLogSoon never throws). Waited for before the answer: work left after it may never run
+    const soon = req.query.all ? Promise.resolve(null) : autoLogSoon({ match });
     const nameOf = await payerNamer(match);
     const logged = match ? new Set([...match.matched, ...match.loggedTogether, ...(match.loggedHere || [])].map((p) => p.id)) : null;
 
@@ -60,6 +63,8 @@ export default async function handler(req, res) {
     // keep the two ClickUp tasks in step with what was just read (debounced; never blocks the page)
     let tasks = null;
     try { tasks = await checkClickUpTasks({ match, nameOf }); } catch (err) { console.error("home: clickup tasks", err); }
+    const ran = await soon;
+    const autoLogged = autoLogged0 + (Number(ran?.logged) || 0);
     return res.status(200).json({ money, payments, accounting, tasks: tasks && { ran: !tasks.skipped }, autoLogged });
   } catch (err) {
     console.error("home failed:", err);

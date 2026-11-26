@@ -90,9 +90,9 @@ async function run(req, res) {
     const r = await runPeopleLink({ by: "the nightly sync", auto: true });
     report.people = r.off ? { off: true } : r.busy ? { busy: true } : r.waiting ? { waiting: "the first Sync people now" } : { created: r.created, sheet: r.sheet, flags: (r.flags || []).length, ...(r.error ? { error: r.error } : {}) };
   } catch (err) { report.peopleError = err.message; }
-  // (2026-11-26) Auto-log (lib/auto-log.js): the sure Stripe payments go on the Income tab as Log it would add them, only with the Founders' switch on (and
-  // ACCOUNTING_SHEET_WRITES on, never on a preview). Before the ClickUp tasks, so "Log new payments" counts what it added. Skipped with under 15 s of the 45 s
-  // Sheets budget left (tomorrow adds them); in the report only when it ran
+  // (2026-11-26) Auto-log (lib/auto-log.js): the Stripe payments Log it places with certainty go on the Income tab by themselves (2026-11-26 owner: automatic;
+  // unless a Founder turned it off, never without ACCOUNTING_SHEET_WRITES, never on a preview), with one ClickUp note of what it did. Before the ClickUp tasks, so
+  // "Log new payments" counts what it added. Skipped with under 15 s of the 45 s Sheets budget left (a page load or tomorrow adds them); in the report when it ran
   try {
     const a = Date.now() - t0 > 30000 ? { skipped: "out of time" } : await runAutoLog();
     if (!a.off) report.autoLog = a;
