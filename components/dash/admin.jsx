@@ -10,8 +10,11 @@ import { Area, Avatar, EmailButton, Field, PhotoUpload, SplitsEditor, splitPct, 
 import { AskCard } from "../portal/ask";
 import { nameTaken, deleteClientCascade, clientDeleteAsk, NAME_TAKEN, SpotifyFill } from "./clients";
 import { pctText, pctOk, SPLITS, splitOf, FOUNDER_LINE, founderNames, isFounderManager, clientCut, nowLine, refillChecklist, checklistChanges, checklistRows, checklistWhy, rowNote, changeWords, nearManager, artistsPart, sheetSteps, pickNote, pickRows, savedLine, notSavedLine, tickRow } from "./manager-artists";
-import { hasMyTodo, hasMyPay } from "../../lib/own-pages";
-import { orderUsers, nextSort, sortWords, SORT_CHOICES, loadSort, saveSort, loadOpen, saveOpen, sheetOnlyManagers } from "./users-list";
+import { hasMyTodo } from "../../lib/own-pages";
+import { hasMyPay, keyOfManager, payLinkEdit, OWNER, PAY_HOST, KEY_RE } from "../../lib/pay-links";
+import { payPage } from "../../lib/commission";
+import { personKey } from "../../lib/names";
+import { orderUsers, nextSort, sortWords, SORT_CHOICES, loadSort, saveSort, loadOpen, saveOpen, sheetOnlyManagers, noPayLink } from "./users-list";
 import { usePeopleSync, peoplePost, Said, AddedSaid, syncEverywhere } from "./people-added";
 export { ClientMore, clientDeleteAsk, deleteClientCascade, NAME_TAKEN, nameTaken, SpotifyFill } from "./clients";
 
@@ -712,6 +715,52 @@ function PasswordLink({ userId }) {
     </div>
   );
 }
+// (2026-11-26, paylinks-1126) A manager's pay.defiedmgmt.com link (lib/pay-links.js), in their Users form. A Founder sets or changes it and
+// the form's one Save sends it after the account (its own save: POST /api/pay-links); emptying the link removes it (never the owner's).
+// Anyone else who can open Users sees the link. owner: the name as INFO's manager list spells it; reg: UsersAdmin's ref, which this fills
+// with what Save needs (as ArtistsBox does)
+const freeKey = (owner, links) => {
+  const base = personKey(String(owner).split(/\s+/)[0]).replace(/[^a-z0-9]/g, "").replace(/^[^a-z]+/, "").slice(0, 14);
+  if (!base) return "";
+  for (let n = 0; n < 50; n++) { const k = n ? `${base}${n + 1}` : base; if (KEY_RE.test(k) && !links?.[k]) return k; }
+  return "";
+};
+export function PayLinkPart({ owner, links, managers, founder, reg, reloadDb }) {
+  const curKey = keyOfManager(owner, links), cur = curKey ? links[curKey] : null;
+  const [key, setKey] = useState(() => curKey || freeKey(owner, links));
+  const [url, setUrl] = useState(cur?.url || "");
+  const me = useRef({}).current;
+  const edit = founder ? payLinkEdit({ owner, links, managers, key, url }) : { changed: false, block: null, body: null };
+  const { changed, block, body } = edit;
+  const send = async () => {
+    const r = await fetch("/api/pay-links", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify(body) }).catch(() => null);
+    const d = r && (await r.json().catch(() => null));
+    if (!r?.ok) return { error: d?.error || "Couldn't reach the site." };
+    await reloadDb?.();
+    return { ok: true };
+  };
+  useEffect(() => { reg.current = { owner: me, changed, block, send }; });
+  useEffect(() => () => { if (reg.current?.owner === me) reg.current = null; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!founder) {
+    return (
+      <div className="fld" data-pay-link={owner}>
+        <span>Pay link</span>
+        {cur ? <ExtLink href={payPage(curKey)} className="inline-link">{PAY_HOST}/{curKey}</ExtLink> : <span><span className="pay-none">No pay link</span></span>}
+      </div>
+    );
+  }
+  return (
+    <div className="fld pay-link" data-pay-link={owner}>
+      <span>Pay link</span>
+      <span className="pay-key" data-pay-key-row>{PAY_HOST}/{cur ? curKey : <input value={key} onChange={(ev) => setKey(ev.target.value)} aria-label={`${owner}'s short name`} autoComplete="off" spellCheck={false} data-pay-key />}</span>
+      <span className="pw-link-row">
+        <input value={url} onChange={(ev) => setUrl(ev.target.value)} placeholder="https://buy.stripe.com/…" aria-label={`${owner}'s Stripe payment link`} autoComplete="off" spellCheck={false} data-pay-url />
+        {cur && <ExtLink href={cur.url} className="btn ghost sm" title="Open the Stripe page">Open ↗</ExtLink>}
+      </span>
+      {block && <p className="hint err-text" data-pay-block>{block}</p>}
+    </div>
+  );
+}
 const dayOf = (d) => (d ? new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "");
 const NO_LOGIN = "No login yet"; // the heading over the people who can't sign in yet (and the group the list folds)
 export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null }) {
@@ -726,6 +775,10 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null })
   const money = canUse(db, "money"), sheetPicks = money && !db.access?.ownOnly;
   const ps = usePeopleSync(money);
   const sheetRef = useRef(null); // the open form's artists part, when it has one: what its Save sends to the sheet (ArtistsBox registers here)
+  const payRef = useRef(null); // the open form's Pay link, when it has one (PayLinkPart registers here)
+  // (2026-11-26) INFO's manager list as the clients carry it (each one's Assigned Manager), and the owner: whose form has a Pay link
+  const infoManagers = [OWNER, ...db.clients.map((c) => String(c.manager || "").trim()).filter(Boolean)].filter((m, i, all) => all.indexOf(m) === i);
+  const payOwnerOf = (e) => (e.role === "staff" && (e.name || "").trim() ? infoManagers.find((m) => sameManager(m, e.name)) || null : null);
   const [said, setSaid] = useState(null); // the line after a save that wrote to the sheet or added someone
   const who = (u) => {
     if (u.role === "client") return `Client · ${db.clients.find((c) => c.id === u.clientId)?.name || "no client linked"}`;
@@ -742,7 +795,7 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null })
   const toggleFold = () => { setOpen(!open); saveOpen(!open); };
   const cols = [
     { key: "email", label: "Email", sort: "name", sortTitle: "Sort by name", render: (u) => <span className="cell-name">{u.email || u.name || "No name"}{u.email && u.name ? <span className="muted"> · {u.name}</span> : null}</span> },
-    { key: "role", label: "Role", sort: "access", sortTitle: "Sort by role", render: (u) => <span data-user-access={u.id}>{who(u)}</span> },
+    { key: "role", label: "Role", sort: "access", sortTitle: "Sort by role", render: (u) => <span data-user-access={u.id}>{who(u)}{noPayLink(u, db.noPayLink) && <span className="pay-none" data-no-pay-link>No pay link</span>}</span> },
     // (2026-11-10) who's set up: their last sign-in and when their password was last set
     { key: "signin", label: "Sign-in", sort: "signin", sortTitle: "Sort by last sign-in", render: (u) => <span className="muted" data-user-signin={u.id}>{u.sheetOnly ? "On the accounting sheet, no account yet" : u.noLogin ? (u.email ? "No password yet" : "No email yet") : u.lastLoginAt ? `Last in ${dayOf(u.lastLoginAt)}` : "Never signed in"}{u.passwordChangedAt ? ` · password set ${dayOf(u.passwordChangedAt)}` : ""}</span> },
   ];
@@ -758,9 +811,10 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null })
   // that is refused leaves the account saved: the form stays open, as that account's, with "Saved. Their artists weren't saved: …" and
   // its ticks, so Save again is the retry.
   const save = async (o) => {
-    const sheet = sheetRef.current;
+    const sheet = sheetRef.current, pay = payRef.current?.changed ? payRef.current : null;
     // a cut that can't be written holds the whole Save: nothing is saved half way for a typo
     if (sheet?.block) return `Their artists: ${sheet.block}`;
+    if (pay?.block) return `Pay link: ${pay.block}`;
     // (2026-11-14) no password is a person with no login yet (a set-password link later); a password needs an email
     if ((o.password || "").trim() && !(o.email || "").trim()) return "Add their email first: a password needs an email to sign in with.";
     // (what the list shows until the next load: noLogin isn't saved, the server works it out)
@@ -787,6 +841,11 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null })
       const a = await syncEverywhere({ kind: pick === "client" ? "login" : "staff", id: newId, name: name || shown.email, pick, noLogin: shown.noLogin }, reloadDb);
       added = a.text; flags = a.flags;
     }
+    // (2026-11-26) the Pay link last: one that is refused leaves the account saved, the form open with why (Save again is the retry)
+    if (pay) {
+      const r = await pay.send();
+      if (r.error) return { stay: savedLine([...texts, ...(added ? [added.replace(/^Saved\.\s*/, "")] : []), `The pay link wasn't saved: ${r.error.replace(/[.\s]+$/, "")}.`], alarm), id: newId };
+    }
     // one line: "Added everywhere: …" alone for a person just added, else "Saved." and what went to the sheet (and that line after it)
     if (added && !texts.length && !alarm) setSaid({ text: added, flags });
     else if (texts.length || alarm || added) setSaid({ text: savedLine(added ? [...texts, added.replace(/^Saved\.\s*/, "")] : texts, alarm), alarm: !!alarm, flags });
@@ -811,7 +870,7 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null })
       blank={{ email: "", password: "", role: "staff", staffRole: "comanager", access: {}, name: "", clientId: null }}
       onSave={save} onDelete={del}
       extra={(e, set) => {
-        const pick = pickOf(e), a = e.role === "staff" ? accessOf(e) : null, mine = a?.ownOnly ? artistsOf(e.name) : [];
+        const pick = pickOf(e), a = e.role === "staff" ? accessOf(e) : null, mine = a?.ownOnly ? artistsOf(e.name) : [], payOwner = payOwnerOf(e);
         return (
         <>
           <Field label="Email" value={e.email || ""} onChange={(ev) => set({ ...e, email: ev.target.value })} />
@@ -847,6 +906,7 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null })
                 {" "}<button type="button" className="inline-link" onClick={managers.update} disabled={managers.busy}>{managers.busy ? "Reading the sheet…" : "Update from the sheet"}</button>
                 {managers.err && <span className="err-text"> {managers.err}</span>}</p>
             )}
+          {payOwner && <PayLinkPart key={payOwner} owner={payOwner} links={db.payLinks} managers={infoManagers} founder={founder} reg={payRef} reloadDb={reloadDb} />}
           {e.role === "staff" && founder && (
             <fieldset className="fld sec-picks" data-sections>
               <legend>What they can open</legend>
@@ -861,7 +921,7 @@ export function UsersAdmin({ db, commit, reloadDb, openId = null, onGo = null })
               })}
               {/* (2026-11-16) a login's own pages come with their name, not with a tick: shown so it is clear they have them (lib/own-pages.js) */}
               <p className="sec-sub" data-own-head>Their own</p>
-              {[["mytodo", "My to-do", hasMyTodo(e.name)], ["mypay", "My payments", hasMyPay(e.name)]].map(([k, label, has]) => (
+              {[["mytodo", "My to-do", hasMyTodo(e.name)], ["mypay", "My payments", hasMyPay(e.name, db.payLinks)]].map(([k, label, has]) => (
                 <label key={k} className="sec-pick locked" data-own-page={k} data-own-has={has ? "yes" : "no"}>
                   <input type="checkbox" checked={has} disabled />
                   <span>{label}{!has && <span className="muted"> (none for {(e.name || "").trim().split(/\s+/)[0] || "them"} yet)</span>}</span>

@@ -119,3 +119,11 @@ export function sheetOnlyManagers(managers, users) {
   }
   return out;
 }
+
+// (2026-11-26, paylinks-1126) the amber "No pay link" chip: a row (a login, or INFO's manager with no account yet) that is one of INFO's
+// managers with no pay link (the dataset's noPayLink, pages/api/dashboard-data.js; today Caden). By the own-artists rule, so "Cayden" isn't
+export function noPayLink(row, managers) {
+  if (!row || row.role === "client") return false;
+  for (const m of managers || []) if (sameManager(m, row.name)) return true;
+  return false;
+}

@@ -81,28 +81,23 @@ const nextConfig = {
   },
   // the public "meet the team" page moved from /staff to /team — keep old
   // bookmarks/search results/backlinks working instead of 404ing.
-  //
-  // pay.defiedmgmt.com/<name> -> that person's Stripe payment link, so
-  // links shared out loud/in a DM stay short and on-brand instead of a raw
-  // buy.stripe.com URL. `has: host` scopes each rule to the pay subdomain
-  // only — the main domain's own routes are untouched. Not permanent: a
-  // Stripe Payment Link can be deactivated and regenerated with a new URL,
-  // and a 308 would get cached by browsers/crawlers past that point.
   async redirects() {
-    const payLinks = {
-      mag: "https://buy.stripe.com/eVq4greNXaRp9NF7QQ9sk00",
-      ella: "https://buy.stripe.com/7sYfZ9fSG9Pocol1Kf33W00",
-      devin: "https://buy.stripe.com/aFa4gr7eyaLEdrdeJfcV200",
-      hank: "https://buy.stripe.com/3cIeV5ct53z2bHb0zXenS00",
-      jordan: "https://buy.stripe.com/00w5kv8nS5bg7rO5pNcZa00",
+    return [{ source: "/staff", destination: "/team", permanent: true }];
+  },
+  // pay.defiedmgmt.com/<key> -> that manager's Stripe payment link, so links
+  // shared out loud/in a DM stay short and on-brand instead of a raw
+  // buy.stripe.com URL. (2026-11-26) The links are a Founders' setting in
+  // Site › Users now, not a list here: /api/pay/[key] reads it and answers
+  // with a 302 (never permanent, never cached: a link can be changed).
+  // `has: host` scopes it to the pay subdomain only — the main domain's own
+  // routes are untouched; beforeFiles, so it runs ahead of the pages, as the
+  // redirects it replaced did.
+  async rewrites() {
+    return {
+      beforeFiles: [
+        { source: "/:key([a-z][a-z0-9]{1,15})", has: [{ type: "host", value: "pay.defiedmgmt.com" }], destination: "/api/pay/:key" },
+      ],
     };
-    const payRedirects = Object.entries(payLinks).map(([name, destination]) => ({
-      source: `/${name}`,
-      has: [{ type: "host", value: "pay.defiedmgmt.com" }],
-      destination,
-      permanent: false,
-    }));
-    return [{ source: "/staff", destination: "/team", permanent: true }, ...payRedirects];
   },
   // next/image only allows hosts listed here — otherwise it silently 404s on
   // any remote src instead of falling back to the (more permissive) default

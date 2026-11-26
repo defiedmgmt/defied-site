@@ -17,7 +17,9 @@ import { afterAction } from "../../lib/area-tasks";
 import { MAX_DATA_BYTES } from "../../lib/image-links";
 import { streamsOn } from "../../lib/streams-on";
 import { mgmtListOf } from "../../lib/clickup-tasks";
-import { ownLinkOf } from "../../lib/commission";
+import { ownLinkOf, payKeyOf } from "../../lib/commission";
+import { readPayLinks } from "../../lib/pay-links-store";
+import { noPayLinkOf, publicLinks } from "../../lib/pay-links";
 import { linkAfterSave, accountsMerge, addedMerge } from "../../lib/people-link";
 import { reactToMessage } from "../../lib/clickup";
 import { readFlips } from "../../lib/submission-reactions";
@@ -165,10 +167,19 @@ async function growsPastLimit(change, clientIds) {
 // (2026-11-10) and the money is the Founders' (Money access): a Co-manager gets the songs without it
 const songsFor = (placements, can) => (!can("publishing") ? placements.map(({ luminateId, revenue, adminFee, ...p }) => p)
   : !can("money") ? placements.map(({ revenue, adminFee, ...p }) => p) : placements);
+// (2026-11-26, paylinks-1126) a.links: the pay links setting (lib/pay-links-store.js). With it, each client carries payKey (the key of the
+// pay link their payments go through: their manager's, else the owner's) for Money and for a Co-manager's own artists; Users gets the
+// links (payLinks) and Users or Money the INFO managers with none (noPayLink)
 export function payloadFor(full, users, a) {
   const can = (k) => a.sections.includes(k);
   const out = { ...full, access: { role: a.role, sections: a.sections, ownOnly: a.ownOnly, manager: a.manager || "", mgmtList: a.mgmtList || null, payLink: a.payLink || null } };
-  out.clients = full.clients.map((c, i) => ({ ...c, manager: full.managers?.[c.id] || "" }));
+  const keys = a.links && (can("money") || a.ownOnly);
+  out.clients = full.clients.map((c, i) => {
+    const manager = full.managers?.[c.id] || "";
+    return keys ? { ...c, manager, payKey: payKeyOf(manager, a.links) } : { ...c, manager };
+  });
+  if (a.links && can("users")) out.payLinks = publicLinks(a.links);
+  if (a.links && (can("users") || can("money"))) out.noPayLink = noPayLinkOf(Object.values(full.managers || {}), a.links);
   delete out.managers;
   out.users = can("users") ? users : [];
   if (!can("site")) out.submissions = [];
@@ -200,11 +211,11 @@ async function handleGet(req, res, session) {
   const { role, clientId } = session.user;
 
   if (role === "staff") {
-    const [full, extra, managers] = await Promise.all([staffPayload(), req.access.sections.includes("users") ? usersWithRoles() : {}, managersOf()]);
+    const [full, extra, managers, links] = await Promise.all([staffPayload(), req.access.sections.includes("users") ? usersWithRoles() : {}, managersOf(), readPayLinks()]);
     const users = full.users.map((u) => ({ ...u, staffRole: extra[u.id]?.staff_role || null, access: extra[u.id]?.access || {} }));
     // mgmtList: this login's own ClickUp list, for My to-do (lib/clickup-tasks.js); payLink: its own pay link, for My
-    // payments (lib/commission.js)
-    return res.status(200).json(payloadFor({ ...full, managers }, users, { ...req.access, mgmtList: mgmtListOf(session.user.name), payLink: ownLinkOf(session.user.name)?.key || null }));
+    // payments (lib/commission.js, from the pay links setting)
+    return res.status(200).json(payloadFor({ ...full, managers }, users, { ...req.access, mgmtList: mgmtListOf(session.user.name), payLink: ownLinkOf(session.user.name, links)?.key || null, links }));
   }
 
   // client: own record + own placements only, redacted

@@ -9,6 +9,8 @@ import { commissionSummary, feeVsSheet, nyMonth, toMs, STATE_KEY } from "../../l
 import { sheetNamer } from "../../lib/money";
 import { isTestPay } from "../../lib/accounting";
 import { ownLinkOf, payPage } from "../../lib/commission";
+import { readPayLinks } from "../../lib/pay-links-store";
+import { withLinkOwners } from "../../lib/pay-links";
 import { loadAccess } from "../../lib/access";
 
 const sum = (xs) => xs.reduce((a, p) => ({ paid: a.paid + p.amount, fee: a.fee + p.fee, keep: a.keep + p.keep, n: a.n + 1 }), { paid: 0, fee: 0, keep: 0, n: 0 });
@@ -18,7 +20,9 @@ export default async function handler(req, res) {
   const session = await requireUser(req, res);
   if (!session) return;
   if (session.user.role !== "staff") return res.status(403).json({ error: "Staff only." });
-  const me = ownLinkOf(session.user.name);
+  // (2026-11-26) their link, from the pay links setting
+  const links = await readPayLinks();
+  const me = ownLinkOf(session.user.name, links);
   if (!me) return res.status(200).json({ none: true });
   res.setHeader("Cache-Control", "no-store");
   // a co-manager sees what they keep; a founder, what their link has made (Defied keeps it, 2026-11-11)
@@ -31,7 +35,7 @@ export default async function handler(req, res) {
       const [st] = await sql`SELECT value FROM app_state WHERE key = ${STATE_KEY}`.catch(() => []);
       const v = typeof st?.value === "string" ? JSON.parse(st.value) : st?.value;
       if (!v) return res.status(200).json({ link: me, error: s.connected === false ? "Stripe isn't connected." : "Couldn't reach Stripe. Try again in a minute." });
-      list = [...Object.values(v.fees || {}), ...Object.values(v.charges || {})]; stale = true;
+      list = withLinkOwners([...Object.values(v.fees || {}), ...Object.values(v.charges || {})], links); stale = true;
     }
     const nameOf = await sheetNamer(list);
     const mine = list.filter((p) => p.link?.owner === me.owner).sort((a, b) => toMs(b.at) - toMs(a.at)).map((p) => {

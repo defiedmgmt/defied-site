@@ -4,7 +4,8 @@
 // fees, no emails.
 import { requireUser } from "../../lib/session";
 import { sql } from "../../lib/db";
-import { PAY_LINKS } from "../../lib/pay-links";
+import { keyOfManager } from "../../lib/pay-links";
+import { readPayLinks } from "../../lib/pay-links-store";
 import { STATE_KEY } from "../../lib/stripe";
 import { COMMISSION_RATE, payKeyOf, payPage } from "../../lib/commission";
 import { isTestPay } from "../../lib/accounting";
@@ -18,12 +19,15 @@ export default async function handler(req, res) {
   if (role !== "client" || !clientId) return res.status(403).json({ error: "This is a client's own page." });
   res.setHeader("Cache-Control", "no-store");
   try {
-    const [[c], [st]] = await Promise.all([
+    const [[c], [st], links] = await Promise.all([
       sql`SELECT id, name, credit, manager FROM clients WHERE id = ${clientId}`,
       sql`SELECT value FROM app_state WHERE key = ${STATE_KEY}`.catch(() => []),
+      readPayLinks(),
     ]);
     if (!c) return res.status(404).json({ error: "Client record not found." });
-    const key = payKeyOf(c.manager);
+    // (2026-11-26) the pay links setting: their manager's link, else the owner's (fallback: their manager has none yet, prodzo's Caden)
+    const key = payKeyOf(c.manager, links);
+    const fallback = !!String(c.manager || "").trim() && !keyOfManager(c.manager, links);
     const v = typeof st?.value === "string" ? JSON.parse(st.value) : st?.value;
     const list = v ? [...Object.values(v.fees || {}), ...Object.values(v.charges || {})] : null;
     // (2026-11-11) who paid, named the way Money names them (lib/money.js sheetNamer), so a payment made under the
@@ -34,7 +38,7 @@ export default async function handler(req, res) {
       mine = list.filter((p) => !isTestPay(p) && nameOf(p).client === c.name).sort((a, b) => b.at - a.at);
     }
     const last = mine?.[0] ? { amount: mine[0].amount, at: new Date(mine[0].at < 1e11 ? mine[0].at * 1000 : mine[0].at).toISOString() } : null;
-    return res.status(200).json({ rate: COMMISSION_RATE, manager: { key, name: PAY_LINKS[key].owner, page: payPage(key) }, last, count: mine ? mine.length : null });
+    return res.status(200).json({ rate: COMMISSION_RATE, manager: { key, name: links[key].owner, page: payPage(key), ...(fallback ? { fallback: true } : {}) }, last, count: mine ? mine.length : null });
   } catch (err) {
     console.error("my-commission failed:", err);
     return res.status(503).json({ error: "Couldn't load this. Try again in a minute." });
