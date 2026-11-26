@@ -446,7 +446,8 @@ export function InstagramPanel() {
             {found && people.length > 0 && (
               <section className="ig-sec" data-ig-people>
                 <h3>Collaborators &amp; tags</h3>
-                <p className="hint">Instagram allows {MAX_COLLABORATORS} collaborators.</p>
+                {/* (2026-11-25 declutter, integration) the playbook's rule stays: it's what to do, not why ("ALWAYS tag AND collaborate with all artists and producers") */}
+                <p className="hint">Always tag and collaborate with all artists and producers. Instagram allows {MAX_COLLABORATORS} collaborators.</p>
                 <div className="ig-people">
                   {ppl.map((p, i) => {
                     const on = collabKeys.includes(p.key);

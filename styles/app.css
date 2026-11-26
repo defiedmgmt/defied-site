@@ -2582,7 +2582,6 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .arb-panel .cat-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .app:not(.pub) .arb-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 16px}
 .app:not(.pub) .arb-follow{font-size:13px;color:var(--d-ink-3)}
-.app:not(.pub) .arb-money-tip{margin:0 0 16px;color:var(--d-ink-3)}   /* readable on the dark panel */
 .app:not(.pub) .adv-rate{margin:-8px 0 16px}
 .app:not(.pub) .ar-given-none{color:var(--d-ink-4);letter-spacing:0}
 .app:not(.pub) .ar-tile-cut{font-size:12.5px;line-height:1.35;color:var(--d-ink-3)}

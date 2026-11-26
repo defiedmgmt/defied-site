@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { X, Check } from "lucide-react";
-import { arWrite, bigNum, followChip, pct1, stageOfStatus, statusForStage, wholeMoney, yearOne } from "./ar";
+import { arWrite, bigNum, followChip, stageOfStatus, statusForStage, wholeMoney } from "./ar";
 import { AR_STAGES } from "./ar-stages";
 import { shortDay } from "./helpers";
 import { Area, Field, fmt, useEscape } from "./ui";
@@ -19,6 +19,9 @@ const showVal = (f, v) => (v === "" || v == null ? "blank" : /\.share$/.test(f) 
 // pipeline (A&R › Outreach, r10): the board's panel is a pipeline only: name, contact, stage, notes, last contact and
 // follow-up. The 5 song slots (streams + writer share, columns R–AA), the estimates and 'Advance given?' are hidden
 // and never sent from it. (2026-11-21: the Advance calculator that used to live in this file moved to Money › Advance calculator, components/dash/empire-calc.jsx; A&R's panel is this form alone.)
+// (2026-11-25 declutter, the owner: "get rid of a lot of the simple one liner ai explanations") the form says what to type, not how the sheet counts it: no hint under the
+// song slots (their label says lifetime streams, all platforms, as the advance calculator's does), no formula line under the estimate tiles on how they are worked out
+// (each tile says "est."), and Notes without "(also in the OUTREACH sheet)"
 export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true, reload, onClose, onChanged, title, picker, extra, pipeline = false }) {
   const isNew = !prospect;
   const [base] = useState(prospect); // what this panel opened with: the `expect` of every Save
@@ -160,7 +163,7 @@ export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true
               ) : (
                 <Field label="Last contacted" type="date" value={lastContact} onChange={(e) => setLastContact(e.target.value)} hint={!prospect.lastContact?.date && prospect.lastContact?.text ? `The sheet says "${prospect.lastContact.text}"` : undefined} />
               )}
-              <Area label="Notes (also in the OUTREACH sheet)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <Area label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
 
               {!pipeline && <>
               {/* (2026-11-25) each slot's streams are the song's LIFETIME streams (the estimates below are all-time streams × writer share × the rate): labelled so, as in the
@@ -173,7 +176,6 @@ export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true
                   <input type="number" placeholder="Writer %" value={s.writerShare} onChange={(e) => setSong(s.slot, { writerShare: e.target.value })} aria-label={`Song ${s.slot} writer %`} />
                 </div>
               ))}
-              <p className="hint">Each song's all-time total on every platform, not a year's streams. The OUTREACH tab has 5 song slots; those feed the sheet's estimates.</p>
               </>}
             </div>
 
@@ -190,7 +192,6 @@ export function ProspectForm({ prospect, pg, blendedRate, assume, canSave = true
                   <div className="cat-stat ar-tile-wide"><span className="cat-stat-label">Their est. publishing earnings (all-time)</span><span className="cat-stat-val">{wholeMoney(estRevenue)}</span>{assume?.adminFeeRate != null && <span className="ar-tile-cut" data-our-cut>Our {Math.round(assume.adminFeeRate * 100)}% ≈ {wholeMoney(estRevenue * assume.adminFeeRate)}</span>}</div>
                 </div>
               </div>
-              <p className="hint arb-money-tip">Estimates, not payouts: all-time streams × their writer share × ${blendedRate} a stream (the rate in ASSUMPTIONS), from the OUTREACH tab's own formulas. Year 1 = {yearOne(assume) ? `${yearOne(assume).share} of their all-time earnings (${yearOne(assume).how})` : "a set share of their all-time earnings"}, then {assume?.decayRate != null ? pct1(assume.decayRate) : "a set amount"} less each year; we keep {assume?.adminFeeRate != null ? `${Math.round(assume.adminFeeRate * 100)}%` : "our cut"}. Real income depends on platform, country and deal.</p>
               {!isNew && (
                 <label className="fld"><span>Advance given?</span>
                   <select value={adv?.given || ""} onChange={(e) => saveGiven(e.target.value)} disabled={busy || !canSave || !adv?.editable} title={adv?.editable ? paused : adv?.why || undefined}>

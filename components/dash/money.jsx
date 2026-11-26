@@ -464,7 +464,8 @@ function AcctToLog({ d, onLog, onPick }) {
   return (
     <div className="fix-panel acct-panel" data-acct="log">
       <div className="fix-head"><h3>To log ({U.length})</h3>
-        <span className="hint">{d.toLog.canLog ? "Log it shows the row, then adds it to the Income tab. Log with details is for studio work or a payer not on INFO." : PREVIEW ? PREVIEW_OFF : "Logging from here isn't switched on yet. Add each one to the sheet as a new row with the full amount paid."}</span></div>
+        {/* (2026-11-25 declutter, integration) as Roster's lists to fix: no hint over the rows on what each button does; only logging that isn't switched on says what to do */}
+        {!d.toLog.canLog && <span className="hint">{PREVIEW ? PREVIEW_OFF : "Logging from here isn't switched on yet. Add each one to the sheet as a new row with the full amount paid."}</span>}</div>
       <div className="fix-sub"><span className="fix-client">{money(d.toLog.total)} paid in total{need ? <span className="acct-via"> · {need} {need === 1 ? "needs" : "need"} details</span> : null}</span>
         {easy.length > 1 && <button className="btn sm" data-log-all onClick={() => onLog(easy.map((p) => p.id))}>Log all {easy.length}</button>}</div>
       {U.map((p) => (
@@ -491,7 +492,8 @@ function AcctToCheck({ d, busy, err, onOk }) {
   return (
     <div className="fix-panel acct-panel" data-acct="check">
       <div className="fix-head"><h3>{X.length ? `To check (${X.length})` : "To check"}</h3>
-        <span className="hint">Read only. Fix it in the sheet, or mark it as OK.{d.toCheck?.okCount ? ` ${d.toCheck.okCount} marked as OK.` : ""}</span></div>
+        {/* (2026-11-25 declutter, integration) the count of rows marked OK only: no read-only / fix-it-in-the-sheet line over the rows (each has Open row ↗ and Mark as OK) */}
+        {d.toCheck?.okCount ? <span className="hint">{`${d.toCheck.okCount} marked as OK.`}</span> : null}</div>
       {err && <p className="hint err-text">{err}</p>}
       {!X.length ? <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Nothing to check in the Income tab.</p> : X.map((x) => (
         <div key={x.key} className="fix-row acct-crow" data-check={x.rule} data-row={x.row ?? ""}>

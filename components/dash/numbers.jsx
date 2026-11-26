@@ -170,9 +170,10 @@ export function SourceNums({ d, founder, canEdit, onSaved }) {
           warning when the estimate is over it */}
       {founder && d.cost && (
         <div className="nums-month" data-cost-month>
+          {/* (2026-11-25 declutter, after tzfix-1125 landed) no "That includes $X for links looked up in the paste box" line, and Apify's own count ends at its billing
+              month: no sentence on which runs it hasn't counted yet */}
           <p className="nums-costline" data-costline>{pic.month}: about <b>{usd2(pic.est)}</b> at this schedule · <b>{usd2(pic.spent)}</b> spent so far</p>
-          {pic.other >= 0.01 && <p className="hint" data-cost-other>That includes {usd2(pic.other)} for links looked up in the paste box, which have no row below.</p>}
-          {pic.limit != null && <p className="hint" data-cost-cap>Runs stop at <b>{usd2(pic.limit)}</b> a month: {pic.limitWhy}.{acct ? ` Apify's own count: ${usd2(acct.usageUsd)} of ${usd2(acct.limitUsd)}${acct.at ? ` as of ${nyWhen(acct.at)}` : ""}${pic.cycle ? `, for its billing month (${pic.cycle}). The site counts from the 1st, and runs after that read aren't in Apify's count yet.` : ", so runs after that aren't in it yet."}` : ""}</p>}
+          {pic.limit != null && <p className="hint" data-cost-cap>Runs stop at <b>{usd2(pic.limit)}</b> a month: {pic.limitWhy}.{acct ? ` Apify's own count: ${usd2(acct.usageUsd)} of ${usd2(acct.limitUsd)}${acct.at ? ` as of ${nyWhen(acct.at)}` : ""}${pic.cycle ? `, for its billing month (${pic.cycle}).` : "."}` : ""}</p>}
           {/* r11 fix: a preview's plan is the copy it was given (it never asks Apify); the live site reads the plan
               (GET /users/me/limits) at the start of every run, so its line and warning follow the plan really on */}
           {PREVIEW && acct && <p className="hint" data-cost-preview>In this preview Apify's plan is the copy read {acct.at ? nyShortDay(acct.at) : "earlier"}. The live site reads the plan from Apify on every run.</p>}
