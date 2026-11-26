@@ -6,17 +6,22 @@ import { autoAddedOf, dashTasks, dupeIds, possibleOf, songsToUpdate } from "./he
 import { money } from "./ui";
 import { songsWithoutIsrc } from "./isrc-data";
 import { cuCache, syncCache, settleRestored } from "../shared/dash-caches";
-import { SYNC_TABS, loadedOnce, loadedRecently, markLoaded, readFresh } from "../shared/boot";
+import { SYNC_TABS, loadedOnce, loadedRecently, markLoaded, onDataChange, readFresh } from "../shared/boot";
+import { useOnResume } from "../app/resume";
 
 // To do's data: the hooks and the row list the shell reads on every section (the sidebar's one count,
 // each tab's chip, Home's biggest tasks). Kept apart from To do's screens (todo.jsx) by list B #11, so
 // a section loads only its own code.
 
 /* staff: To do (r7) — every to-do from every area, finished where it's listed ------------------ */
-export function useCuTasks(tab) {
-  const [data, setData] = useState(() => cuCache.d);
+// (2026-11-26 review) on: this account may read it (StaffDashboard: To do or Dashboard). Off, nothing is asked for and data stays null (a co-manager or an
+// intern used to get a 403 on every tab change, never counted as read, so asked again each time). The installed app opened again after a while away
+// reads it again (useOnResume), whichever tab is on show: the sidebar's count includes it
+export function useCuTasks(tab, on = true) {
+  const [data, setData] = useState(() => (on ? cuCache.d : null));
   const [failed, setFailed] = useState(false);
   const load = (fresh = false) => {
+    if (!on) return Promise.resolve();
     setFailed(false);
     // (2026-11-25) an answer from before a write is read again (readFresh), one from before a sign-in is never used; a copy put back after a
     // reload whose first read fails comes off the screen, so "Couldn't reach ClickUp" shows as it used to
@@ -27,18 +32,22 @@ export function useCuTasks(tab) {
     }).catch(miss);
   };
   // (2026-11-24, speed) not again within 30 s of the last read (a save in between reads again); a copy put back after a reload is read again
-  useEffect(() => { if (!loadedRecently("tasks") && (tab === "home" || tab === "todo" || !loadedOnce("tasks"))) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (on && !loadedRecently("tasks") && (tab === "home" || tab === "todo" || !loadedOnce("tasks"))) load(); }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useOnResume(() => { load(); });
   // (2026-11-25) Done ✓ and New task change the shared copy too (what another section and a reload start from)
   const drop = (id) => setData((d) => { const n = d ? { ...d, tasks: d.tasks.filter((t) => t.id !== id) } : d; cuCache.d = n; return n; });
   const add = (t) => setData((d) => { const n = d ? { ...d, tasks: [...d.tasks, t] } : d; cuCache.d = n; return n; });
   return { data, failed, load, drop, add };
 }
-export function useSyncChecks(tab) {
-  const [data, setData] = useState(() => syncCache.d);
+// (2026-11-26 review) on: this account may read them (StaffDashboard: Site or Dashboard, and every artist); off, nothing is asked for and data stays null.
+// again: past the 2-minute copy without asking the server for a fresh run (the installed app opened again after a while away, useOnResume)
+export function useSyncChecks(tab, on = true) {
+  const [data, setData] = useState(() => (on ? syncCache.d : null));
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const load = (force = false) => {
-    if (!force && syncCache.d && Date.now() - syncCache.at < 120000) { setData(syncCache.d); return Promise.resolve(); }
+  const load = (force = false, again = force) => {
+    if (!on) return Promise.resolve();
+    if (!again && syncCache.d && Date.now() - syncCache.at < 120000) { setData(syncCache.d); return Promise.resolve(); }
     setFailed(false); setBusy(true);
     const miss = () => { setFailed(true); settleRestored("sync", false, () => { syncCache.d = null; syncCache.at = 0; setData(null); }); };
     return readFresh(force ? "/api/sync?fresh=1" : "/api/sync", undefined, () => { syncCache.at = 0; load(force); }).then(({ dropped, ok, j }) => {
@@ -50,11 +59,27 @@ export function useSyncChecks(tab) {
   // (2026-11-24, speed) Dashboard, To do and Site show them on their first screen; anywhere else they're only that count, so they're read
   // 2 s later, after the section's own reads (they read the sheets, Stripe and ClickUp, and run INFO's manager copy and the people link)
   useEffect(() => {
+    if (!on) return undefined;
     if (SYNC_TABS.includes(tab)) { load(); return undefined; }
     if (syncCache.d && syncCache.at) return undefined;
     const t = setTimeout(() => load(), 2000);
     return () => clearTimeout(t);
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useOnResume(() => { load(false, true); });
+  // (2026-11-26 review) a save that changed something (Log it, Done ✓, a merge…) makes the checks old: the next Dashboard, To do or Site visit reads
+  // them again (they were kept two minutes whatever happened), and the one on screen reads them once, 3 s after the last of those saves
+  const tabNow = useRef(tab);
+  tabNow.current = tab;
+  useEffect(() => {
+    let t = 0;
+    const off = onDataChange(({ session } = {}) => {
+      if (session) return;
+      syncCache.at = 0;
+      clearTimeout(t);
+      t = setTimeout(() => { if (SYNC_TABS.includes(tabNow.current)) load(); }, 3000);
+    });
+    return () => { off(); clearTimeout(t); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return { data, failed, busy, load };
 }
 
@@ -137,10 +162,11 @@ async function splitFixPost(body) {
   const r = await fetch("/api/split-fixes", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify(body) }).catch(() => null);
   return r?.ok ? r.json().catch(() => ({})) : null;
 }
-export function useSplitFixes() {
+// (2026-11-26 review) on: this account may read them (StaffDashboard: Roster); off, nothing is asked for and data stays null (nothing is done by itself)
+export function useSplitFixes(on = true) {
   const [data, setData] = useState(null);
   // (2026-11-25) never an answer from before a write (an Undo just sent) or a sign-in: what's done by itself reads this
-  const load = () => readFresh("/api/split-fixes", undefined, () => load()).then(({ dropped, ok, j }) => { if (!dropped && ok && j?.auto) setData(j); }).catch(() => {});
+  const load = () => !on ? Promise.resolve() : readFresh("/api/split-fixes", undefined, () => load()).then(({ dropped, ok, j }) => { if (!dropped && ok && j?.auto) setData(j); }).catch(() => {});
   useEffect(() => { load(); }, []);
   return { data, setData, load };
 }

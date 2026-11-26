@@ -20,6 +20,8 @@ import { InstallApp } from "../shared/install-app";
 import { bootSectionOf, loadedRecently, markLoaded, readFresh } from "../shared/boot";
 import { dashCache, settleRestored } from "../shared/dash-caches";
 import { prefetchJson } from "../ui/fetch-cache";
+import { AppErrorBoundary } from "../app/ErrorScreen";
+import { useOnResume } from "../app/resume";
 
 // r7: Home (numbers), To do (every to-do, finished in place), the dashboards, and Site (Website, Users,
 // Messages, Sync). The old tabs and links keep working: placeOf says where each one lives now.
@@ -142,17 +144,25 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   const [acctN, setAcctN] = useState(() => (can("money") ? dashCache.acct || null : null));
   // (2026-11-25) every change of the counts (a read, Money's page, a payment logged from Home or To do) is the copy a reload starts from too
   const setAcct = (u) => setAcctN((x) => { const n = typeof u === "function" ? u(x) : u; dashCache.acct = n || null; return n; });
-  const dropAcct = () => settleRestored("acct", false, () => setAcct(null));
+  // (2026-11-26 review) acctFailed: the counts couldn't be read (no answer, an error, or Stripe and the sheet not both read: toLog null), so To do says
+  // so instead of "Nothing to do here."; Stripe or the sheet not connected at all is not a failure
+  const [acctFailed, setAcctFailed] = useState(false);
+  const dropAcct = (failed = true) => { setAcctFailed(failed); settleRestored("acct", false, () => setAcct(null)); };
   const loadAcctN = () => !can("money") ? Promise.resolve() : readFresh("/api/accounting?counts=1", undefined, () => loadAcctN()).then(({ dropped, ok, j, t }) => {
     if (dropped) return;
-    if (ok && j?.counts) { setAcct(j.counts); markLoaded("acctN", t); settleRestored("acct", true); } else dropAcct();
-  }).catch(dropAcct);
+    if (ok && j?.counts) { setAcct(j.counts); setAcctFailed(j.counts.toLog == null); markLoaded("acctN", t); settleRestored("acct", true); } else dropAcct(!(ok && j?.connected === false));
+  }).catch(() => dropAcct());
   // once as the dashboard opens, and again when To do opens (not within 30 s of the last read)
   const acctAsked = useRef(false);
   useEffect(() => { if (!acctAsked.current || (tab === "todo" && !loadedRecently("acctN"))) { acctAsked.current = true; loadAcctN(); } }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
-  const cu = useCuTasks(tab);
-  const sync = useSyncChecks(tab);
-  const fixes = useSplitFixes();
+  // (2026-11-26 review) each read only for an account the server answers it for (/api/tasks: To do or Dashboard; /api/sync: Site or Dashboard, every
+  // artist; /api/split-fixes: Roster): a co-manager or an intern no longer asks for a refusal on every tab change. Off, they read nothing (null data)
+  const cu = useCuTasks(tab, can("todo") || can("home"));
+  const sync = useSyncChecks(tab, (can("site") || can("home")) && !db.access?.ownOnly);
+  const fixes = useSplitFixes(can("publishing"));
+  // (2026-11-26 review) the installed app opened again after a while away (components/app/resume.js): the sidebar's counts and the song facts read again
+  // (ClickUp's tasks and the sync checks do in their own hooks); the dataset and anything being edited stay as they are
+  useOnResume(() => { loadAcctN(); if (!songInfoOff) reloadSongInfo(); });
   const doneForYou = useAutoConfirm({ db, commit, songInfo, fixes });
   const trueup = useTrueUp(tab, can("publishing") && !db?.access?.ownOnly); // TRUEUP-HOOK: its To do rows (GET /api/trueup)
   // only the areas this account may use (lib/roles.js)
@@ -162,7 +172,9 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   const cuDue = cu.data?.tasks || [];
   const todoN = todo.length + cuDue.length;
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
-  const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct, fixes, doneForYou, can, seeds };
+  // a good count from anywhere since (Money's page, Home's payments) wins over a failed read; an outage's count (toLog null) is a failure too
+  const acctDown = can("money") && (acctN ? acctN.toLog === null : acctFailed);
+  const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, acctFailed: acctDown, reloadAcct: loadAcctN, setAcct, fixes, doneForYou, can, seeds };
   // (2026-11-23, 2026-11-24) the EMPIRE and Advance calculator pills of Money, for the one kind of account that has them: a Founder with Money access and every artist (the API refuses everyone else).
   // The Roster page's pointer line (catalog.jsx seeEmpire) is the same decision
   const seeDeals = can("money") && !db.access?.ownOnly && db.access?.role === "founder";
@@ -229,6 +241,9 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
       <main className="dash-main">
         <InstallApp />
         {!at && <div className="admin-empty" data-no-sections>Your account has nothing turned on yet. Ask a Founder to turn on what you need in Site › Users.</div>}
+        {/* (2026-11-26 review) a section that breaks shows the error screen here, in place of the section only: the sidebar, the phone tab bar, Password and
+            Sign out stay usable, another tab (or part) draws again, and Try again draws this one again without a reload */}
+        <AppErrorBoundary inline resetKey={`${at}/${sub ?? ""}`}>
         {at === "home" && <HomeDashboard ctx={ctx} todo={todo} cuTasks={cu.data?.tasks || []} todoN={todoN} onAcct={setAcct} />}
         {at === "todo" && <TodoPage ctx={ctx} todo={todo} sub={sub} onSub={setSub} areaN={areaN} mine={pair("todo")} />}
         {at === "mytodo" && (paired("mytodo") ? <MyTodoPage title="To do" mine={pair("todo")} /> : <MyTodoPage />)}
@@ -237,6 +252,7 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
         {at === "site" && <SiteAdmin ctx={ctx} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("site")} area="site" onGo={go} />} />}
         {at === "catalog" && <CatalogAdmin db={db} commit={commit} reloadDb={reloadDb} songInfo={songInfo} reloadSongInfo={reloadSongInfo} sub={sub} onGo={go} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("roster")} area="roster" onGo={go} />} />}
         {at === "ar" && <ARAdmin onGo={go} sub={sub} onSub={setSub} chip={can("todo") && <TodoChip n={areaN("ar")} area="ar" onGo={go} />} />}
+        </AppErrorBoundary>
       </main>
       {pwOpen && <PasswordCard onClose={() => setPwOpen(false)} />}
     </div>

@@ -48,7 +48,9 @@ export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
     if (n.has(k)) n.delete(k); else { n.add(k); requestAnimationFrame(() => box.current?.querySelector(`[data-item="${CSS.escape(k)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" })); }
     return n;
   });
-  const settled = (ctx.songInfo || ctx.songInfoErr || ctx.songInfoOff) && ctx.ar && ctx.cu.data;
+  // (2026-11-26 review) a failed ClickUp read settles it too (it used to wait for ClickUp forever), and says so with its Try again
+  const settled = (ctx.songInfo || ctx.songInfoErr || ctx.songInfoOff) && ctx.ar && (ctx.cu.data || ctx.cu.failed);
+  const cuDown = ctx.cu.failed && !ctx.cu.data;
   const money = ctx.can("money"), syncOn = ctx.can("site") && !ctx.db.access?.ownOnly;
   // r10 (C2): the lists ClickUp won't show the Defied Bot (not shared with it): one line, opening To do › ClickUp
   const unread = (ctx.cu.data?.lists || []).filter((l) => l.error);
@@ -65,8 +67,9 @@ export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
               <AlertTriangle size={14} /> <span>{unread.length === 1 ? `ClickUp's ${unread[0].name} can't be read` : `${unread.length} ClickUp lists can't be read`}</span> <span className="home-cu-go" aria-hidden="true">›</span>
             </button>
           )}
+          {cuDown && <CuDown cu={ctx.cu} />}
           <div className="home-scroll home-top-list" ref={box}>
-            {!top.length ? (settled ? <p className="todo-line todo-clear"><CheckCircle2 size={14} /> All caught up.</p> : <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking what needs doing…</p>)
+            {!top.length ? (cuDown ? null : settled ? <p className="todo-line todo-clear"><CheckCircle2 size={14} /> All caught up.</p> : <p className="todo-line"><RefreshCw size={14} className="spin" /> Checking what needs doing…</p>)
               : top.map((it) => (it.kind === "clickup" ? <CuTodoRow key={`cu:${it.id}`} t={it} cu={ctx.cu} /> : <TodoRow key={it.k} it={it} open={open.has(it.k)} onToggle={() => toggle(it.k)} ctx={ctx} />))}
           </div>
           <ScrollFoot n={hidden} box={box} />
@@ -78,6 +81,11 @@ export function HomeDashboard({ ctx, todo, cuTasks, todoN, onAcct }) {
       {money && <LazySection minHeight={130}><HomePayments home={home} failed={failed} retry={retry} refresh={refresh} onGo={ctx.onGo} /></LazySection>}
     </div>
   );
+}
+
+// To do's own line for a ClickUp read that failed (CuSection's), with its Try again
+function CuDown({ cu }) {
+  return <p className="todo-line" data-cu-down><AlertTriangle size={14} /> Couldn't reach ClickUp. <button className="inline-link" onClick={() => cu.load()}>Try again</button></p>;
 }
 
 // r11 (owner-img14: room left at the foot of Biggest tasks and This week; "dont fill the empty space w more rows"):
@@ -149,15 +157,18 @@ function HomeWeek({ ctx, home, todo }) {
   useEscape(close, !!pick);
   const show = (day, el) => { const b = el.closest(".hw-day").getBoundingClientRect(); setOpenK(null); setPick(pick?.day === day ? null : { day, b }); };
   const loading = !ctx.cu.data && !ctx.cu.failed;
+  const cuDown = ctx.cu.failed && !ctx.cu.data; // (2026-11-26 review) never "Nothing due this week." when ClickUp's tasks couldn't be read
+  const empty = !loading && !cuDown && days.every((d) => !on(d).length);
   const label = (e) => <><span className="hw-chip-t">{e.label}</span></>;
   const grid = useRef(null);
   const chips = useChipsFit(grid);
   return (
-    <div className="home-card home-week" data-chips={chips} data-home-week data-empty={!loading && days.every((d) => !on(d).length) ? "" : undefined}>
+    <div className="home-card home-week" data-chips={chips} data-home-week data-empty={empty ? "" : undefined}>
       <div className="attn-head hw-head"><CalendarDays size={15} /> This week's calendar <span className="hw-range">{shortDay(days[0])} – {shortDay(days[6])}</span>
         <button type="button" className="inline-link home-all" data-open-cal onClick={() => ctx.onGo("todo", "calendar")}>Open calendar ›</button></div>
       {/* r10 fix: on a phone an empty week is this one line (the seven empty days took about 300px) */}
-      {!loading && days.every((d) => !on(d).length) && <p className="hw-empty-line" data-hw-empty>Nothing due this week.</p>}
+      {empty && <p className="hw-empty-line" data-hw-empty>Nothing due this week.</p>}
+      {cuDown && <CuDown cu={ctx.cu} />}
       <div className="hw-grid" role="list" ref={grid}>
         {days.map((d) => {
           const evs = on(d), more = evs.length - chips;

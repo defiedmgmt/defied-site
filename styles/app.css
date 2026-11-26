@@ -2441,6 +2441,19 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .acct-page .acct-tiles{margin:0 0 18px}
 .app:not(.pub) .acct-page .acct-tiles .cat-stat{justify-content:flex-start}   /* every value on one line; a note sits under its own */
 .app:not(.pub) .acct-page .acct-tiles .cat-stat[data-empty] .cat-stat-val{color:var(--d-ink-4)}   /* nothing logged this month yet */
+/* (2026-11-26 review) the four tiles in one row from 600px: "Tax set-aside (this quarter)" wraps where the row is narrow and pushed its value
+   below the other three. Every label keeps the room of the longest one, so the four values line up: two lines under 1440px, three where it
+   takes three (600-699px, and 900-959px beside the side menu). On a phone (two by two) the second row's labels keep two lines, as
+   "Tax set-aside (this quarter)" takes two there and "Business Checking" takes one on a wider phone */
+@media (max-width:599px){
+  .app:not(.pub) .acct-tiles:has(> .cat-stat:nth-child(4):last-child) > .cat-stat:nth-child(n+3) .cat-stat-label{min-height:2.7em}
+}
+@media (min-width:600px) and (max-width:1439px){
+  .app:not(.pub) .acct-tiles:has(> .cat-stat:nth-child(4):last-child) .cat-stat-label{min-height:2.7em}
+}
+@media (min-width:600px) and (max-width:699px),(min-width:900px) and (max-width:959px) and (min-height:501px),(min-width:900px) and (max-width:959px) and (pointer:fine),(min-width:900px) and (max-width:959px) and (pointer:none){
+  .app:not(.pub) .acct-tiles:has(> .cat-stat:nth-child(4):last-child) .cat-stat-label{min-height:4.05em}
+}
 /* a client's page (components/portal/ClientPortal.jsx): when a card carries a note under its value ("incl. Spotify plays for 1
    song not on Luminate yet"), label and value sit at the top of every card, so the values line up across the row; space-between
    dropped the value of each card without a note to its foot. Where no card has a note space-between stays: it lines the values
@@ -3525,6 +3538,24 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .as-tile .as-chg[data-dir=up]{color:var(--d-pos,#7ddc9c)}
 .app:not(.pub) .as-tile .as-chg[data-dir=down]{color:var(--d-neg,#ef8f8f)}
 .app:not(.pub) .as-tile .as-chg .inline-link{font:inherit;color:var(--d-ink-2);background:none;border:0;padding:0;cursor:pointer}
+/* (2026-11-26 review) three across from 600px (the Campaign card, a client's Your numbers): Spotify streams' "(this week)" made its label a
+   line taller and pushed 285.8K below its neighbours. The first row's labels keep the room of a label and its note, and a value sits right
+   under its label (not spread down the tile), so each row's values line up. Where the second row's labels wrap in some tiles and not in
+   others (600-767px, and the Campaign card beside the side menu up to 1023px) they keep the same room; on a client's page under 620px
+   "Spotify streams" itself takes two lines. Phones (two across) are m-global.css's and m-public.css's */
+@media (min-width:600px){
+  .app:not(.pub) .as-tile{justify-content:flex-start}
+  .app:not(.pub) .as-grid:has(> .as-tile .cat-stat-note) > .as-tile:nth-child(-n+3) .cat-stat-label{min-height:calc(1.35em + 2px + 11px * 1.35)}
+}
+@media (min-width:600px) and (max-width:619px){
+  .app:not(.pub) .portal-main .as-grid:has(> .as-tile .cat-stat-note) > .as-tile:nth-child(-n+3) .cat-stat-label{min-height:calc(2.7em + 2px + 11px * 1.35)}
+}
+@media (min-width:600px) and (max-width:767px){
+  .app:not(.pub) .as-grid:has(> .as-tile .cat-stat-note) > .as-tile .cat-stat-label{min-height:calc(1.35em + 2px + 11px * 1.35)}
+}
+@media (min-width:900px) and (max-width:1023px) and (min-height:501px),(min-width:900px) and (max-width:1023px) and (pointer:fine),(min-width:900px) and (max-width:1023px) and (pointer:none){
+  .app:not(.pub) .dash-main .as-grid:has(> .as-tile .cat-stat-note) > .as-tile .cat-stat-label{min-height:calc(1.35em + 2px + 11px * 1.35)}
+}
 /* (2026-11-11) My to-do: a staff login's own ClickUp list (components/dash/my-todo.jsx) */
 .app:not(.pub) .my-todo .mt-from{margin:-4px 0 12px;font-size:13.5px}
 .app:not(.pub) .my-todo .mt-add{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 12px 12px 16px;border-bottom:1px solid var(--d-line)}

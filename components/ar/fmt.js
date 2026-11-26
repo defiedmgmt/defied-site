@@ -38,8 +38,9 @@ export function trackingText(t, entry) {
   if (e.state === "expired") return "Expired";
   return `${e.days ? `${e.days}d · ` : ""}${e.daysLeft} left`;
 }
-export const post = (url, body) => fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-requested-with": "defied-site" }, body: JSON.stringify(body) })
-  .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok || j.error) throw new Error(j.error || "That didn't save — try again."); return j; });
+// (2026-11-26 review) no answer at all (offline, a dropped connection) is the same "That didn't save — try again.", not the browser's "Failed to fetch"
+export const post = (url, body) => fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-requested-with": "defied-site" }, body: JSON.stringify(body) }).catch(() => null)
+  .then(async (r) => { const j = r ? await r.json().catch(() => ({})) : {}; if (!r?.ok || j.error) throw new Error(j.error || "That didn't save — try again."); return j; });
 // one localStorage key per grid (a per-viewer convenience only; it can come back empty)
 export const store = {
   get(k, d) { try { const v = window.localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },

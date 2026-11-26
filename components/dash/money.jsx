@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { X, RefreshCw, AlertTriangle, CheckCircle2, CircleDollarSign, Info } from "lucide-react";
 import { foldMonths } from "../../lib/months";
 import { swrJson } from "../ui/fetch-cache";
+import { useOnResume } from "../app/resume";
 import { clock } from "./chips";
 import { payDay, shortDay } from "./helpers";
 import { HomeWait, monthName } from "./home-data";
@@ -297,6 +298,8 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
   const asked = useRef(false);
   const emp = sec === "empire" || sec === "advance";
   useEffect(() => { if (emp || asked.current) return; asked.current = true; load(); }, [sec]); // eslint-disable-line react-hooks/exhaustive-deps
+  // (2026-11-26 review) the installed app opened again after a while away (components/app/resume.js): the numbers on show read again (not on the deal pills)
+  useOnResume(() => { if (asked.current && !emp) load(); });
   // To do's Log all: the preview of every payment Log it can place, as soon as they're read
   const started = useRef(false);
   useEffect(() => {
@@ -338,13 +341,22 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
     </>
   );
   if (part) return <div className="acct-part" data-acct-part={part}>{body}{modals}</div>;
+  // (2026-11-26 review) where the numbers come from and the sheet's link are one row UNDER the pills, not in the head: on a phone they wrapped onto two extra lines on
+  // Overview and All payments only, so the pills jumped 95px when EMPIRE or Advance calculator (their own read, /api/empire) was tapped. The head is the title (and the
+  // To do chip) on every pill now. Not on the deal pills: their numbers don't come from Stripe or the accounting sheet
+  const src = !emp && d && (d.readAt || d.sheetUrl) ? (
+    <div className="acct-src" data-acct-src>
+      {d.readAt && <span className="home-src">Stripe and the {d.year} accounting sheet · read {clock(d.readAt)}</span>}
+      {d.sheetUrl && <ExtLink className="btn ghost sm acct-sheet-link" href={d.sheetUrl}>Open the sheet ↗</ExtLink>}
+    </div>
+  ) : null;
   return (
     <div className="acct-page">
-      <div className="admin-head"><h2>Money</h2>{chip}{!emp && d?.readAt && <span className="home-src">Stripe and the {d.year} accounting sheet · read {clock(d.readAt)}</span>}
-        {!emp && d?.sheetUrl && <ExtLink className="btn ghost sm acct-sheet-link" href={d.sheetUrl}>Open the sheet ↗</ExtLink>}</div>
+      <div className="admin-head"><h2>Money</h2>{chip}</div>
       <div className="subnav" role="tablist" aria-label="Money">
         {secs.map(([k, l]) => <button key={k} role="tab" aria-selected={sec === k} data-acct-tab={k} className={sec === k ? "subpill active" : "subpill"} onClick={() => onSub(k === home ? null : k)}>{l}</button>)}
       </div>
+      {src}
       {body}
       {modals}
     </div>

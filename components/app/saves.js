@@ -1,6 +1,8 @@
 import { MAX_DATA_BYTES } from "../../lib/image-links";
 // (2026-11-25, mobile) the installed app's launch screen and the portal's refresh on coming back (components/app/resume.js): AppRoot reads them here, its one module of its own
 export { RESUME_REFRESH_MS, SIGNED_IN_HINT } from "./resume";
+// (2026-11-26 review) the return after a while away (the screens' refresh) and where sign-in goes on to, from the same module
+export { emitResume, nextAfterSignIn } from "./resume";
 
 /* ------------------------------------------------------------------ */
 /*  STAFF DASHBOARD                                                     */
@@ -65,8 +67,9 @@ function applyRows(fresh = [], d) {
 }
 // these GETs have no ORDER BY, so they come back in whatever order Postgres stored the last
 // rewrite; a tab keeps the order it loaded them in (what it shows, and writes back), as saves
-// always have. Clients come back in roster order and submissions newest first.
-const UNORDERED = ["placements", "staff", "users", "notableReleases"];
+// always have. Clients come back in roster order and submissions newest first; (2026-11-26 review)
+// the notable releases in their saved order (sort_order), so the server's order is the one kept.
+const UNORDERED = ["placements", "staff", "users"];
 export function inTabOrder(fresh, tab) {
   const out = { ...fresh };
   for (const k of UNORDERED) {

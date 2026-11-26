@@ -1,8 +1,8 @@
 /* m-site.css: phone and touch rules for Site (Website, Users, Messages, Instagram, Sync). Loaded after m-global.css. */
 /* (2026-11-25, the owner: "make sure everything is formatted good on mobile too, especially the web app version") Imported last in pages/_app.jsx, after
-   m-global.css, so a rule here wins a tie. Desktop (900px and up with a mouse) is untouched: every rule sits under a phone width (max-width:899px, or
-   Instagram's own 560px column) or a touch query. The shared fixes (16px fields, 44px rows, two-line list cells, the m-hit tap areas) are m-global's
-   and aren't repeated here. */
+   m-global.css, so a rule here wins a tie. Desktop (900px and up with a mouse) is untouched by sections 1-7: each of their rules sits under a phone width
+   (max-width:899px, or Instagram's own 560px column) or a touch query. Section 8 (2026-11-26 review) is for every width. The shared fixes (16px fields,
+   44px rows, two-line list cells, the m-hit tap areas) are m-global's and aren't repeated here. */
 
 /* 1. SMALL LABELS (Site only): nothing under 11px on a phone, and the labels that say something 12px. The wide display caps stay
       (Live / Hidden, a message's subject); only the size changes, and a long subject wraps inside its pill instead of ending in "…". */
@@ -72,4 +72,29 @@
       line, the text wrapping before it rather than through it. */
 @media (max-width:899px),(pointer:coarse) and (max-height:500px){
   .app:not(.pub) .sync-row[data-check=scheduleA] .attn-main > em > a{white-space:nowrap}
+}
+
+/* 8. EVERY WIDTH (2026-11-26 review): Site's levels read as levels.
+      - A section's own heading (Users, Messages, and Website's parts; To do's Messages panel, which is Site › Messages) is second level under the
+        page's title, as Website's parts always were (app.css .website-main): 14px display caps, not a second title the page's own size. */
+.app:not(.pub) :is(.site-page > .subnav ~ *, .todo-panel) .admin-head h2{margin:0;padding:0;font:400 14px/1.2 var(--d-display);font-synthesis:none;letter-spacing:.08em;text-transform:uppercase;color:var(--d-ink);background:none;-webkit-text-fill-color:currentColor}
+/*    - Website's four parts (Roster page, Notable releases, Team page, About page) are a switch inside Website: the segmented control To do's
+        List / Calendar is (.gainer-tabs), not a second row of pills like Site's own. 44px tall on a touch screen or a phone, two by two on a phone. The
+        About editor keeps its reading width (app.css gave it that as a sibling of the pill row). */
+.app:not(.pub) .web-tabs{display:inline-flex;flex-wrap:wrap;max-width:100%;margin:0 0 24px}
+.app:not(.pub) .web-tabs ~ div:has(> .about-editor){max-width:760px}
+@media (pointer:coarse){ .app:not(.pub) .web-tabs button{min-height:44px} }
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
+  .app:not(.pub) .web-tabs{margin-bottom:20px}
+  .app:not(.pub) .web-tabs button{min-height:44px}
+}
+@media (max-width:599px){ .app:not(.pub) .web-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));width:100%;border-radius:24px} }
+/*    - Sync's People line: "Sync people now" sits on the line's first row, beside its text, its top on the text's top as every other line's button
+        (it was a row of its own under the text). Anything more the line shows (a person to look at, the preview, a result) still goes under it, full
+        width. Phones keep the stacked line, as the other lines do there. */
+@media (min-width:700px){
+  .app:not(.pub) .sync-row[data-check=people] > .attn-main{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:2px;align-items:start}
+  .app:not(.pub) .sync-row[data-check=people] > .attn-main > *{grid-column:1 / -1}
+  .app:not(.pub) .sync-row[data-check=people] > .attn-main > b{grid-column:1}
+  .app:not(.pub) .sync-row[data-check=people] > .attn-main > .people-flags:has(> .people-flag-acts:only-child){grid-column:2;grid-row:1;margin:0}
 }

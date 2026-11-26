@@ -76,3 +76,21 @@
 @media (max-width:700px),(pointer:coarse){
   .app:not(.pub) .cal-today{min-width:44px;justify-content:flex-end}
 }
+
+/* (2026-11-26 review) a ClickUp task's name on a phone or touch screen: inline, so a one-line name sits 2px over its details as the other rows' do
+   (its 40px box pushed the text 10px down and left a gap under it); its tap area stays 44px or more tall, drawn around it (::after: 14px over and under
+   a 17px line; 12px made it 41px, measured on the review-1126 renders). Its line shows
+   whole, as Home's rows do on a phone (the title's clamp clipped that tap area to the text in To do) */
+@media (max-width:700px),(pointer:coarse){
+  .app:not(.pub) .cu-todo .cu-name{display:inline;min-height:0;padding:0;position:relative}
+  .app:not(.pub) .cu-todo .cu-name::after{content:"";position:absolute;inset:-14px -4px}
+  .app:not(.pub) .cu-todo .attn-main > b{overflow:visible;display:block;-webkit-line-clamp:unset}
+}
+/* (2026-11-26 review) To do's List / Calendar sharing the row with All tasks / My tasks on a phone: the words only (the Calendar icon was squashed to
+   nothing at 375); anywhere else an icon never shrinks */
+@media (max-width:899px),(pointer:coarse) and (max-height:500px){
+  .app:not(.pub) .todo-view button svg{flex:none}
+}
+@media (max-width:599px){
+  .app:not(.pub) .dash-main .admin-head:has(> .pair-switch) > .todo-view svg{display:none}
+}

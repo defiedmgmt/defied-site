@@ -83,7 +83,11 @@ export default async function handler(req, res) {
       const r = await E.setMode(id, b.mode === "campaign" ? "campaign" : "auto", { by: user.name });
       return r.error ? res.status(400).json(r) : res.status(200).json(r);
     }
-    if (b.action === "weights") return res.status(200).json({ ok: true, weights: await M.saveMomentumWeights(b.weights || {}) });
+    if (b.action === "weights") {
+      // (2026-11-26 review) the score's weights are everyone's: a Founder's to change, as the page offers
+      if (req.access?.role !== "founder") return res.status(403).json({ error: "Only a Founder can change the weights." });
+      return res.status(200).json({ ok: true, weights: await M.saveMomentumWeights(b.weights || {}) });
+    }
     return res.status(400).json({ error: "Unknown action." });
   } catch (err) {
     if (err instanceof T.TrackerError || (err?.status && err.status < 500)) return res.status(err.status).json({ error: err.message });

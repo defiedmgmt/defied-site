@@ -19,6 +19,10 @@
 // that the nightly sync stamps such rows for one of the two) is left as it
 // is, and said so (`shared`), and an account limited to its own artists never
 // looks past the Site Sync ID on another artist's tab.
+// (2026-11-26 review) A client's own Delete whose row stays on the sheet (refused by the guard, not found, or the request failed here) tells the
+// Founders: one ClickUp message in Dashboard Alerts, listed in Site › Sync (lib/alerts.js: never throws, 5 s at the most, once a day per song and tab).
+// The client's page only says the song is gone, and the next sync would bring it back with nobody knowing which row to clear by hand. A formula that
+// changed with the clear is told the same way. Staff see what happened under the client's header (ClientPortal.jsx dropNote), so theirs aren't sent.
 import {
   getSheetsClient, getSheetId, listTabs, findTab, loadClientTabNames, tabsOfOthers, findRowBySyncId, findRowByLuminateId,
   findUnclaimedRowByTitle, rowStillSong, rowCells, liveCardOnRow,
@@ -28,6 +32,16 @@ import { requireSameOrigin } from "../../lib/session";
 import { requireAccess, limited, mayUseClient } from "../../lib/access";
 import { ownerOf } from "../../lib/names";
 import { sql } from "../../lib/db";
+import { alert } from "../../lib/alerts";
+
+// what a client's Delete left on the sheet, for the Founders: [{ tab, error }] (a row another song still reads, `shared`, is left on purpose; no tab, no row)
+export function leftOnSheet(results) {
+  return (results || []).flatMap((r) => (r.refused ? [{ tab: r.tab, error: r.refused }]
+    : r.alarm ? [{ tab: r.tab, error: r.alarm }]
+    : r.tab && !r.cleared && !r.shared ? [{ tab: r.tab, error: "its row wasn't found" }] : []));
+}
+const tellFounders = (song, left) => Promise.all(left.map(({ tab, error }) =>
+  alert({ job: "Song delete", step: `clearing "${(typeof song === "string" && song.trim()) || "Untitled"}" on the ${tab} tab`, error })));
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
@@ -103,12 +117,14 @@ export default async function handler(req, res) {
       }
     }
 
+    if (!isStaff) await tellFounders(song, leftOnSheet(results));
     const refused = results.filter((r) => r.refused), alarms = results.map((r) => r.alarm).filter(Boolean);
     if (refused.length) return res.status(409).json({ error: refused.map((r) => r.refused).join(" "), refused: true, results });
     return res.status(200).json({ ok: true, results, ...(alarms.length ? { alarm: alarms.join(" ") } : {}) });
   } catch (err) {
     const back = err.readBack;
     if (back && !back.ok) console.error(`sheets-delete: ${back.alarm}`);
+    if (!isStaff) await tellFounders(song, [{ tab: splits.map((x) => String(x?.name || "").trim()).filter(Boolean).join(", ") || "client's", error: [err.message || "Sheet delete failed.", back && !back.ok && back.alarm].filter(Boolean).join(" ") }]);
     return res.status(502).json({ error: err.message || "Sheet delete failed.", ...(back ? { checked: true, ...(back.ok ? {} : { alarm: back.alarm }) } : {}) });
   }
 }
