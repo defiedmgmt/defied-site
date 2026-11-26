@@ -414,7 +414,7 @@ export function SongManager({ db, commit, clientId, isStaff, songInfo, reloadSon
               {isStaff ? streamsLine(db, streamsDay(streamsNow.sheetGross, spotifyFill.on, numbersOn))
                 : `Streams as of ${asOfWords(streamsDay(streamsNow.sheetGross, spotifyFill.on, numbersOn))}`}
             </p>
-            {streamsNow.gross > 0 && <ShareStats clientId={clientId} name={client?.name} isStaff={!!isStaff} />}
+            {streamsNow.gross > 0 && <ShareStats clientId={clientId} name={client?.name} isStaff={!!isStaff} preview={{ gross: streamsNow.gross, songs: streamsNow.songs, photo: client?.photo }} />}
           </div>
         </div>
   );
