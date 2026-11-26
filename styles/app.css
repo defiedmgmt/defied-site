@@ -640,6 +640,13 @@ html:has(.app:not(.pub) .dash),html:has(.app:not(.pub) .portal){scrollbar-gutter
 .app:not(.pub) .client-head-meta .warn-text{color:var(--d-warn)}
 .app:not(.pub) .portal-block-head{gap:12px 16px;margin:0 0 20px}
 .app:not(.pub) .portal-block-head .muted{margin:0;font-size:13.5px;color:var(--d-ink-3)}
+/* (2026-11-26, the owner: "for the client songs we can have an option to sort by latest release or by most streamed") the songs head's right side: the Most streamed / Latest switch (the dashboard's
+   segmented .gainer-tabs, as Roster's Catalog sort) beside Add Song. The pair shares the title's row when it fits (staff's page and the client's, desktop and tablet); on a phone it drops right under
+   the title, still side by side where they fit, and its buttons are 44px tall (a touch screen or a narrow window), the pill itself the same size in both states so nothing moves when one is picked */
+.app:not(.pub) .portal-block-acts{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px}
+.app:not(.pub) .portal-block-acts .song-sort{margin-left:0}
+@media (max-width:599px){ .app:not(.pub) .portal-block-acts .song-sort{width:auto} .app:not(.pub) .portal-block-acts .song-sort button{flex:none} }
+@media (max-width:700px),(pointer:coarse){ .app:not(.pub) .portal-block-acts .song-sort button{min-height:44px} }
 
 .app:not(.pub) .song-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:24px 16px}
 .app:not(.pub) .song-card{min-width:0;gap:10px;color:var(--d-ink)}
