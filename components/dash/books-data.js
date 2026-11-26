@@ -20,8 +20,8 @@ export function reloadBooks() {
   store.loading = p;
   return p;
 }
-// a save's own answer is the new copy (no second read)
-export function setBooks(d) { if (d?.books) { store.d = d; emit(); } }
+// a save's own answer is the new copy (no second read); a book's save keeps the Auto-log switch the copy already has (its answer is the books only)
+export function setBooks(d) { if (d?.books) { store.d = { ...(store.d?.autoLog && !d.autoLog ? { autoLog: store.d.autoLog } : {}), ...d }; emit(); } }
 // on: a Founder with Money (the API refuses everyone else, so nobody else asks)
 export function useBooks(on = true) {
   const data = useSyncExternalStore(sub, snap, () => null);

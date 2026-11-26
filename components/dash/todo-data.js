@@ -99,6 +99,11 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   if (nLog) out.push({ k: "log", area: "money", tap: true, t: `${nLog} payment${nLog === 1 ? "" : "s"} to log`, d: testD || (acct.toLogTotal ? `${money(acct.toLogTotal)} paid, not in the Income tab yet` : undefined),
     cta: nLog === 1 ? "Log it" : `Log all ${nLog}`, panel: "log", rank: { kind: "money", value: acct.toLogTotal || nLog } });
   if (nCheck) out.push({ k: "check", area: "money", t: `${nCheck} row${nCheck === 1 ? "" : "s"} in the Income tab to check`, cta: "Review", panel: "check", rank: { kind: "money", value: 0 } });
+  // (2026-11-26 owner: automatic) an auto-logged payment refunded since (lib/auto-log.js; a Founder's counts only): its row in the book to fix, until one marks it handled
+  for (const r of acct?.refunds || []) {
+    out.push({ k: `refund:${r.id}`, area: "money", t: `Refunded after logging: ${r.payer} ${money(r.amount)}${r.row ? ` · row ${r.row}` : ""}`,
+      d: `${money(r.refunded)} refunded${r.feeKept ? ", Defied's fee kept" : ""}${r.year ? ` · the ${r.year} book` : ""}`, cta: "Open", panel: "refund", refund: r, rank: { kind: "money", value: 0 } });
+  }
   // (2026-11-26) the clients gone quiet (lib/payers.js) and, on its day only (review UX-1: the owner's "a short row on the day"; Money › Paydays keeps the
   // follow-up), each payday whose commission is still to come in (lib/paydays.js), from Money's counts
   const quiet = acct?.payers?.quiet || [];

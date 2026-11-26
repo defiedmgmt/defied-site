@@ -101,8 +101,33 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "syncfix": return <SyncFix check={it.check} ctx={ctx} />;
     case "quiet": return <QuietList ctx={ctx} />;
     case "payday": return <PaydayCard compact p={it.payday} onGo={onGo} onChange={() => ctx.reloadAcct?.()} />; // (review UX-4) Got it clears the row and the badge
+    case "refund": return <RefundFix r={it.refund} ctx={ctx} />;
     default: return null;
   }
+}
+
+// (2026-11-26 owner: automatic) "Refunded after logging": the book with the row to fix (Open the book ↗; the row number is in the row's title) and Handled, which a
+// Founder presses once the row is right (nothing in the book is changed here). The row goes once the counts are read again
+function RefundFix({ r, ctx }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const done = async () => {
+    setBusy(true); setErr(null);
+    const res = await fetch("/api/accounting", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "refundHandled", id: r.id }) }).catch(() => null);
+    const j = res ? await res.json().catch(() => ({})) : {};
+    setBusy(false);
+    if (res?.ok) ctx.reloadAcct?.(); else setErr(j.error || "Couldn't reach the server. Try again in a minute.");
+  };
+  return (
+    <div className="todo-sublist" data-refund={r.id}>
+      {err && <p className="hint err-text" role="alert">{err}</p>}
+      <div className="todo-actions">
+        {r.url ? <ExtLink className="btn ghost sm" href={r.url} data-refund-open>Open the book ↗</ExtLink>
+          : <button type="button" className="btn ghost sm" onClick={() => ctx.onGo("money", "payments")} data-refund-open>All payments</button>}
+        <button type="button" className="btn sm" disabled={busy} onClick={done} data-refund-done>{busy ? "Saving…" : "Handled"}</button>
+      </div>
+    </div>
+  );
 }
 
 // Publishing's lists in place: Splits to confirm, Songs to update, the merge card, (2026-11-17) the songs added automatically and (2026-11-18) the possible placements.

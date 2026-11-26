@@ -8,6 +8,8 @@ export { rowsWord } from "./books-data";
 // (2026-11-26, books-1126) Each year's accounting book (lib/accounting-books.js): Money's Books button and its sheet, and To do's
 // "Set the 2027 book" panel. A Founder pastes the book's link; the server checks it has this year's tabs and headers (and that the site's
 // Google account can edit it) before it's saved, and says what's wrong otherwise.
+// (2026-11-26 owner: automatic) The sheet is Money's Settings: the books, and Auto-log's one switch under them (lib/auto-log.js; on unless a Founder
+// turns it off). The button is always on a Founder's source row ("Settings", or "Set the 2027 book" while a year needs one), so the switch is always there.
 
 const post = (year, link) => fetch("/api/accounting-books", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ year, link }) })
   .then((r) => r.json().catch(() => ({})).then((j) => (r.ok && j?.books ? j : { error: j.error || "Couldn't reach the server. Try again in a minute." })))
@@ -54,27 +56,48 @@ function BooksList({ d, only = null }) {
 }
 const wait = <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>;
 
+// Auto-log's switch: "Auto-log", then On / Off (the server's answer is what shows; a refused save says why under it)
+export function AutoLogLine({ d }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const on = d?.autoLog?.on !== false;
+  if (!d?.autoLog) return null;
+  const flip = async () => {
+    setBusy(true); setErr(null);
+    const r = await fetch("/api/accounting-books", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "autoLog", on: !on }) }).catch(() => null);
+    const j = r ? await r.json().catch(() => ({})) : {};
+    setBusy(false);
+    if (r?.ok && j.autoLog) setBooks({ ...d, autoLog: j.autoLog }); else setErr(j.error || "Couldn't reach the server. Try again in a minute.");
+  };
+  return (
+    <div className="set-line" data-auto-log-line>
+      <span className="set-name" id="auto-log-name">Auto-log</span>
+      <button type="button" role="switch" aria-checked={on} aria-labelledby="auto-log-name" className={on ? "btn sm set-switch" : "btn ghost sm set-switch"} data-auto-log={on ? "on" : "off"} disabled={busy} onClick={flip}>{busy ? "Saving…" : on ? "On" : "Off"}</button>
+      {err && <p className="hint err-text set-err" role="alert">{err}</p>}
+    </div>
+  );
+}
+
 export function BooksSheet({ onClose }) {
   const d = useBooks(true);
   useEscape(onClose);
   return (
     <div className="modal" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-card books-modal" role="dialog" aria-label="Accounting books">
-        <div className="modal-head"><h3>Accounting books</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
-        <div className="modal-body">{d ? <BooksList d={d} /> : wait}</div>
+      <div className="modal-card books-modal" role="dialog" aria-label="Settings">
+        <div className="modal-head"><h3>Settings</h3><button onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+        <div className="modal-body">{d ? <><BooksList d={d} /><AutoLogLine d={d} /></> : wait}</div>
       </div>
     </div>
   );
 }
 
-// Money's source row (a Founder's: AccountingAdmin decides): from Dec 1 through January, or whenever a year needs its book
+// Money's source row (a Founder's: AccountingAdmin decides): always, "Set the 2027 book" in amber while a year needs its book, else "Settings"
 export function BooksButton() {
   const d = useBooks(true);
   const [open, setOpen] = useState(false);
-  if (!d?.open) return null;
   return (
     <>
-      <button type="button" className={d.need ? "btn ghost sm acct-books need" : "btn ghost sm acct-books"} data-acct-books onClick={() => setOpen(true)}>{d.need ? `Set the ${d.need} book` : "Books"}</button>
+      <button type="button" className={d?.need ? "btn ghost sm acct-books need" : "btn ghost sm acct-books"} data-acct-books onClick={() => setOpen(true)}>{d?.need ? `Set the ${d.need} book` : "Settings"}</button>
       {open && <BooksSheet onClose={() => setOpen(false)} />}
     </>
   );
