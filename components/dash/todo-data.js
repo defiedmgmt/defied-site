@@ -8,7 +8,6 @@ import { songsWithoutIsrc } from "./isrc-data";
 import { cuCache, syncCache, settleRestored } from "../shared/dash-caches";
 import { SYNC_TABS, loadedOnce, loadedRecently, markLoaded, onDataChange, readFresh } from "../shared/boot";
 import { useOnResume } from "../app/resume";
-import { dayText } from "../../lib/paydays";
 
 // To do's data: the hooks and the row list the shell reads on every section (the sidebar's one count,
 // each tab's chip, Home's biggest tasks). Kept apart from To do's screens (todo.jsx) by list B #11, so
@@ -100,13 +99,14 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   if (nLog) out.push({ k: "log", area: "money", tap: true, t: `${nLog} payment${nLog === 1 ? "" : "s"} to log`, d: testD || (acct.toLogTotal ? `${money(acct.toLogTotal)} paid, not in the Income tab yet` : undefined),
     cta: nLog === 1 ? "Log it" : `Log all ${nLog}`, panel: "log", rank: { kind: "money", value: acct.toLogTotal || nLog } });
   if (nCheck) out.push({ k: "check", area: "money", t: `${nCheck} row${nCheck === 1 ? "" : "s"} in the Income tab to check`, cta: "Review", panel: "check", rank: { kind: "money", value: 0 } });
-  // (2026-11-26) the clients gone quiet (lib/payers.js) and each payday whose commission is still to come in (lib/paydays.js), from Money's counts
+  // (2026-11-26) the clients gone quiet (lib/payers.js) and, on its day only (review UX-1: the owner's "a short row on the day"; Money › Paydays keeps the
+  // follow-up), each payday whose commission is still to come in (lib/paydays.js), from Money's counts
   const quiet = acct?.payers?.quiet || [];
   if (quiet.length) out.push({ k: "quiet", area: "money", t: quiet.length === 1 ? `${quiet[0].name}: ${quiet[0].why}` : `${quiet.length} clients have gone quiet`,
     d: quiet.length > 1 ? quiet.map((q) => q.name).join(", ") : undefined, cta: "Open", panel: "quiet", rank: { kind: "money", value: 0 } });
-  for (const p of acct?.payers?.paydays?.open || []) {
+  for (const p of (acct?.payers?.paydays?.open || []).filter((x) => x.today)) {
     const due = p.people.filter((x) => !x.paid).map((x) => x.name);
-    out.push({ k: `payday:${p.id}`, area: "money", t: `${p.name} paid ${p.today ? "today" : dayText(p.day, p.approx)}`, d: due.length ? `Expect commission from ${due.join(", ")}` : undefined,
+    out.push({ k: `payday:${p.id}`, area: "money", t: `${p.name} paid today`, d: due.length ? `Expect commission from ${due.join(", ")}` : undefined,
       cta: "Open", panel: "payday", payday: p, rank: { kind: "money", value: 0 } });
   }
   const streams = (ps) => ps.reduce((a, p) => a + (p.streams || 0), 0);

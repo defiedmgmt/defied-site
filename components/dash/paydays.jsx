@@ -15,6 +15,7 @@ const post = (body) => fetch("/api/paydays", { method: "POST", headers: { "Conte
   .catch(() => ({ error: "Couldn't reach the server. Try again in a minute." }));
 
 // One payday: its day and source, each client it pays (Paid, Requested, or Request payment), Got it. compact: To do's / Home's, with Paydays ›
+// onChange(action): after Got it ("done"), its Undo ("undo") or a request sent ("request"), so the page or To do's counts read again (review UX-4, UX-7)
 export function PaydayCard({ p, compact = false, onGo, onChange }) {
   const keyOf = usePayKeys();
   const [busy, setBusy] = useState(false);
@@ -26,7 +27,7 @@ export function PaydayCard({ p, compact = false, onGo, onChange }) {
     setBusy(false);
     if (j.error) { setErr(j.error); return; }
     setClosed(action === "done");
-    onChange?.();
+    onChange?.(action);
   };
   const head = `${dayText(p.day, p.approx)} · ${p.name}`;
   if (closed) return <p className="pd-card pd-closed" data-payday={p.id} data-closed><span>{head}: got it.</span> <button type="button" className="inline-link" disabled={busy} onClick={() => act("undo")}>Undo</button></p>;
@@ -45,7 +46,7 @@ export function PaydayCard({ p, compact = false, onGo, onChange }) {
             <span className="pd-name">{x.name}</span>
             {x.paid ? <span className="req-state paid" data-req-paid={x.id}>Paid {nyShortDay(x.paid)}</span>
               : x.unknown ? null
-              : <RequestPay clientId={x.id} payKey={keyOf(x.id)} paydayId={p.id} asked={x.asked} look="ghost" />}
+              : <RequestPay clientId={x.id} payKey={keyOf(x.id)} paydayId={p.id} asked={x.asked} look="ghost" onSent={() => onChange?.("request")} />}
           </li>
         ))}
       </ul>
@@ -129,6 +130,8 @@ export function Paydays() {
   const [editWho, setEditWho] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  // (review UX-4) the paydays Got it on this visit: each card stays, closed with its Undo, after the read that drops it from Next
+  const [kept, setKept] = useState([]);
   const load = () => {
     setFailed(false);
     return swrJson("/api/paydays", (x) => { if (x?.sources) setD(x); }, { keep: (x) => !!x?.sources }).then((x) => { if (!x?.sources) setFailed(true); }).catch(() => setFailed(true));
@@ -136,6 +139,13 @@ export function Paydays() {
   useEffect(() => { load(); }, []);
   if (!d) return failed ? <p className="home-muted"><AlertTriangle size={15} /> <span>Couldn't load the paydays. <button className="inline-link" onClick={() => load()}>Try again</button></span></p>
     : <p className="home-muted"><RefreshCw size={15} className="spin" /> Loading…</p>;
+  const changed = (p, action) => {
+    if (action === "done") setKept((xs) => [...xs.filter((x) => x.id !== p.id), p]);
+    const read = load();
+    if (action === "undo") read.then(() => setKept((xs) => xs.filter((x) => x.id !== p.id)));
+  };
+  const cards = [...d.open, ...kept.filter((k) => !d.open.some((p) => p.id === k.id))];
+  const partial = { both: "Stripe and the sheet couldn't be read just now, so who's paid isn't shown.", stripe: "Stripe couldn't be read just now: the sheet's payments only.", sheet: "The sheet couldn't be read just now: Stripe's payments only." }[d.partial];
   const remove = async (src, day) => {
     setBusy(true); setErr(null);
     const j = await post({ action: "removeDate", source: src, day });
@@ -146,15 +156,15 @@ export function Paydays() {
     <div className="paydays" data-paydays>
       <div className="fix-panel acct-panel pd-next" data-paydays-part="next">
         <div className="fix-head"><h3>Next</h3></div>
-        {d.partial === "both" && <p className="home-muted"><AlertTriangle size={15} /> Stripe and the sheet couldn't be read just now, so who's paid isn't shown.</p>}
-        {d.open.map((p) => <PaydayCard key={p.id} p={p} onChange={load} />)}
+        {partial && <p className="home-muted" data-paydays-partial={d.partial}><AlertTriangle size={15} /> {partial}</p>}
+        {cards.map((p) => <PaydayCard key={p.id} p={p} onChange={(action) => changed(p, action)} />)}
         {d.upcoming.map((u) => (
           <div key={u.id} className="pd-line" data-upcoming={u.id}>
             <b className="pd-when">{dayText(u.day, u.approx)} · {u.name}</b>
             <span className="pd-who">{u.people.map((x) => x.name).join(" · ")}</span>
           </div>
         ))}
-        {!d.open.length && !d.upcoming.length && <p className="home-muted">No paydays set.</p>}
+        {!cards.length && !d.upcoming.length && <p className="home-muted">No paydays set.</p>}
       </div>
       <div className="fix-panel acct-panel pd-dates" data-paydays-part="dates">
         <div className="fix-head"><h3>Dates</h3>{d.canEdit && <button type="button" className="btn ghost sm pd-edit" data-edit-dates aria-pressed={edit} onClick={() => setEdit((x) => !x)}>{edit ? "Done" : "Edit"}</button>}</div>

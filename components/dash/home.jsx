@@ -8,7 +8,7 @@ import { ScrollFoot, TopGainers, useScrollMore } from "./gainers";
 import { LogConfirm, MoneyRow, TestChip } from "./money";
 import { SyncSources } from "./numbers";
 import { swrJson, peekJson } from "../ui/fetch-cache";
-import { CAL_SOURCES, CuTodoRow, TodoRow, WEEKDAY_SHORT, addDays } from "./todo";
+import { CAL_SOURCES, CalLine, CuTodoRow, TodoRow, WEEKDAY_SHORT, addDays } from "./todo";
 import { syncFix } from "./todo-data";
 import { syncScheduleANow } from "./schedule-a-data";
 import { DropNote, fmt, money, useEscape } from "./ui";
@@ -190,9 +190,10 @@ function HomeWeek({ ctx, home, todo }) {
             <button type="button" className="hw-x" aria-label="Close" onClick={close}><X size={16} /></button></div>
           {on(pick.day).map((e, i) => {
             if (e.task) return <CuTodoRow key={e.task.id} t={e.task} cu={ctx.cu} />;
-            const it = SITE_ITEM_OF[e.kind] && todo.find(SITE_ITEM_OF[e.kind]);
+            // (review UX-2) a chip with its own row (a payday, on its day) opens that one; a money chip without one is the To log row
+            const it = e.item ? todo.find((t) => t.k === e.item) : SITE_ITEM_OF[e.kind] && todo.find(SITE_ITEM_OF[e.kind]);
             return it ? <TodoRow key={it.k} it={it} open={openK === it.k} onToggle={() => setOpenK((k) => (k === it.k ? null : it.k))} ctx={ctx} />
-              : <div key={i} className="attn-row" data-area={e.kind}><span className="attn-main"><b>{e.label}</b></span></div>;
+              : <CalLine key={i} e={e} onGo={ctx.onGo} />;
           })}
           {!on(pick.day).length && <p className="todo-line">Nothing on this day.</p>}
         </HomeWeekPanel>

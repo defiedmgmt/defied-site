@@ -100,7 +100,7 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "messages": return <SubsAdmin db={db} commit={commit} />;
     case "syncfix": return <SyncFix check={it.check} ctx={ctx} />;
     case "quiet": return <QuietList ctx={ctx} />;
-    case "payday": return <PaydayCard compact p={it.payday} onGo={onGo} />;
+    case "payday": return <PaydayCard compact p={it.payday} onGo={onGo} onChange={() => ctx.reloadAcct?.()} />; // (review UX-4) Got it clears the row and the badge
     default: return null;
   }
 }
@@ -688,9 +688,19 @@ export const CAL_SOURCES = [
     for (const p of home?.accounting?.unlogged || []) { const d = nyDay(p.at); by.set(d, [...(by.get(d) || []), p]); }
     return [...by].map(([day, ps]) => ({ day, label: `Log ${ps.length === 1 ? `${ps[0].client || ps[0].payer || "a payment"} ${money(ps[0].amount)}` : `${ps.length} payments`}`, kind: "money", late: true }));
   },
-  // (2026-11-26) Paydays: BMI, ASCAP and The MLC on their days (Money's counts carry every date on the schedule)
-  ({ acct }) => (acct?.payers?.paydays?.dates || []).map((d) => ({ day: d.day, label: d.label, kind: "money" })),
+  // (2026-11-26) Paydays: BMI, ASCAP and The MLC on their days (Money's counts carry every date on the schedule). item: its own To do row (review UX-2),
+  // there only on the day; any other day the chip's line goes to Money › Paydays (CalLine)
+  ({ acct }) => (acct?.payers?.paydays?.dates || []).map((d) => ({ day: d.day, label: d.label, kind: "money", item: `payday:${d.id}` })),
 ];
+// A calendar chip that is no ClickUp task and has no To do row open to it: its words, and for a payday Paydays › (Home's day panel, To do's day list)
+export function CalLine({ e, onGo }) {
+  return (
+    <div className="attn-row" data-area={e.kind}>
+      <span className="attn-main"><b>{e.label}</b></span>
+      {e.item?.startsWith("payday:") && onGo && <button type="button" className="inline-link" data-go-paydays onClick={() => onGo("money", "paydays")}>Paydays ›</button>}
+    </div>
+  );
+}
 export const addDays = (iso, n) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
 export const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]; // by getUTCDay()
 const MON_FIRST = [...WEEKDAY_SHORT.slice(1), WEEKDAY_SHORT[0]]; // the month grid's head
@@ -722,7 +732,7 @@ function TodoCalendar({ ctx }) {
     <div className="cal-list" data-picked={picked}>
       <h3 className="lm-h3">{new Date(`${picked}T12:00:00Z`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" })}</h3>
       {!on(picked).length ? <p className="todo-line">Nothing on this day.</p> : on(picked).map((e, i) => (e.task ? <CuTodoRow key={e.task.id} t={e.task} cu={ctx.cu} />
-        : <div key={i} className="attn-row" data-area={e.kind}><span className="attn-main"><b>{e.label}</b></span></div>))}
+        : <CalLine key={i} e={e} onGo={ctx.onGo} />))}
     </div>
   );
   return (
