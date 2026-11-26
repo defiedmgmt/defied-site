@@ -144,11 +144,14 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   const [acctN, setAcctN] = useState(() => (can("money") ? dashCache.acct || null : null));
   // (2026-11-25) every change of the counts (a read, Money's page, a payment logged from Home or To do) is the copy a reload starts from too
   const setAcct = (u) => setAcctN((x) => { const n = typeof u === "function" ? u(x) : u; dashCache.acct = n || null; return n; });
-  const dropAcct = () => settleRestored("acct", false, () => setAcct(null));
+  // (2026-11-26 review) acctFailed: the counts couldn't be read (no answer, an error, or Stripe and the sheet not both read: toLog null), so To do says
+  // so instead of "Nothing to do here."; Stripe or the sheet not connected at all is not a failure
+  const [acctFailed, setAcctFailed] = useState(false);
+  const dropAcct = (failed = true) => { setAcctFailed(failed); settleRestored("acct", false, () => setAcct(null)); };
   const loadAcctN = () => !can("money") ? Promise.resolve() : readFresh("/api/accounting?counts=1", undefined, () => loadAcctN()).then(({ dropped, ok, j, t }) => {
     if (dropped) return;
-    if (ok && j?.counts) { setAcct(j.counts); markLoaded("acctN", t); settleRestored("acct", true); } else dropAcct();
-  }).catch(dropAcct);
+    if (ok && j?.counts) { setAcct(j.counts); setAcctFailed(j.counts.toLog == null); markLoaded("acctN", t); settleRestored("acct", true); } else dropAcct(!(ok && j?.connected === false));
+  }).catch(() => dropAcct());
   // once as the dashboard opens, and again when To do opens (not within 30 s of the last read)
   const acctAsked = useRef(false);
   useEffect(() => { if (!acctAsked.current || (tab === "todo" && !loadedRecently("acctN"))) { acctAsked.current = true; loadAcctN(); } }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -169,7 +172,9 @@ export function StaffDashboard({ db, commit, reloadDb, logout, signingOut, name 
   const cuDue = cu.data?.tasks || [];
   const todoN = todo.length + cuDue.length;
   const areaN = (a) => (a === "clickup" ? cuDue.length : todo.filter((it) => it.area === a).length);
-  const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, reloadAcct: loadAcctN, setAcct, fixes, doneForYou, can, seeds };
+  // a good count from anywhere since (Money's page, Home's payments) wins over a failed read; an outage's count (toLog null) is a failure too
+  const acctDown = can("money") && (acctN ? acctN.toLog === null : acctFailed);
+  const ctx = { db, commit, reloadDb, songInfo, songInfoErr, songInfoOff, reloadSongInfo, onGo: go, cu, sync, ar: arSum, acct: acctN, acctFailed: acctDown, reloadAcct: loadAcctN, setAcct, fixes, doneForYou, can, seeds };
   // (2026-11-23, 2026-11-24) the EMPIRE and Advance calculator pills of Money, for the one kind of account that has them: a Founder with Money access and every artist (the API refuses everyone else).
   // The Roster page's pointer line (catalog.jsx seeEmpire) is the same decision
   const seeDeals = can("money") && !db.access?.ownOnly && db.access?.role === "founder";

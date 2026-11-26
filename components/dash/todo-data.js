@@ -6,7 +6,7 @@ import { autoAddedOf, dashTasks, dupeIds, possibleOf, songsToUpdate } from "./he
 import { money } from "./ui";
 import { songsWithoutIsrc } from "./isrc-data";
 import { cuCache, syncCache, settleRestored } from "../shared/dash-caches";
-import { SYNC_TABS, loadedOnce, loadedRecently, markLoaded, readFresh } from "../shared/boot";
+import { SYNC_TABS, loadedOnce, loadedRecently, markLoaded, onDataChange, readFresh } from "../shared/boot";
 import { useOnResume } from "../app/resume";
 
 // To do's data: the hooks and the row list the shell reads on every section (the sidebar's one count,
@@ -66,6 +66,20 @@ export function useSyncChecks(tab, on = true) {
     return () => clearTimeout(t);
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
   useOnResume(() => { load(false, true); });
+  // (2026-11-26 review) a save that changed something (Log it, Done ✓, a merge…) makes the checks old: the next Dashboard, To do or Site visit reads
+  // them again (they were kept two minutes whatever happened), and the one on screen reads them once, 3 s after the last of those saves
+  const tabNow = useRef(tab);
+  tabNow.current = tab;
+  useEffect(() => {
+    let t = 0;
+    const off = onDataChange(({ session } = {}) => {
+      if (session) return;
+      syncCache.at = 0;
+      clearTimeout(t);
+      t = setTimeout(() => { if (SYNC_TABS.includes(tabNow.current)) load(); }, 3000);
+    });
+    return () => { off(); clearTimeout(t); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return { data, failed, busy, load };
 }
 

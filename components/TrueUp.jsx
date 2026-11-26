@@ -14,6 +14,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { UploadCloud, RefreshCw, CheckCircle2, AlertTriangle, Copy, Disc3, Check, X } from "lucide-react";
 import { store, emit, useTrueUp, reloadTrueUp, shortDay, plural, fmt } from "./trueup-data";
+import { AskCard } from "./portal/ask";
 export { reloadTrueUp, useTrueUp, trueUpTodoItems } from "./trueup-data";
 
 const longDay = (iso) => (iso ? new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : "");
@@ -43,13 +44,15 @@ export function TrueUpPanel({ kind, ctx }) {
   const { data: d } = useTrueUp("todo");
   if (!d) return <p className="todo-line"><RefreshCw size={14} className="spin" /> Loading…</p>;
   const founder = !!d.canSchedule;
-  if (kind === "trueup-new") return <NotInReport d={d} flash={ctx?.flash} />;
+  // (2026-11-26 review) an ISRC found here is the song facts' too: To do's ISRC row and the finder read them again
+  const reloadSongInfo = ctx?.reloadSongInfo;
+  if (kind === "trueup-new") return <NotInReport d={d} flash={ctx?.flash} reloadSongInfo={reloadSongInfo} />;
   if (kind === "trueup-setup") return <SetupNow d={d} />;
   if (kind === "trueup-schedule") return <Schedule d={d} founder={founder} full />;
   return (
     <div className="todo-sublist tu" data-trueup>
       <TrueUpDrop d={d} flash={ctx?.flash} />
-      <ReportSongs d={d} />
+      <ReportSongs d={d} reloadSongInfo={reloadSongInfo} />
       <Schedule d={d} founder={founder} />
     </div>
   );
@@ -63,6 +66,7 @@ function TrueUpDrop({ d }) {
   const [out, setOut] = useState(null);
   const [all, setAll] = useState(false);
   const [done, setDone] = useState(null);
+  const [askUndo, setAskUndo] = useState(false);
   const [setup, runSetup, stopSetup] = useSetup();
   const last = d.runs?.[0];
   const take = async (list) => {
@@ -143,7 +147,14 @@ function TrueUpDrop({ d }) {
       {done?.run && setup && <SetupResult s={setup} />}
       {done?.undone && <p className="hint del-note" role="status" data-trueup-undone><CheckCircle2 size={14} /> <span>Undone on the site.{done.sheet?.cleared || done.sheet?.rows ? ` On the pub sheet, what it set up is cleared: ${plural(done.sheet.cleared || 0, "Luminate ID")} in column M, ${plural(done.sheet.rows || 0, "STREAM DATA row")}.` : ""}{done.sheet?.kept ? ` ${plural(done.sheet.kept, "row")} changed since ${done.sheet.kept === 1 ? "was" : "were"} left as ${done.sheet.kept === 1 ? "it is" : "they are"}.` : ""}{d.sheetMonthly ? " The STREAM DATA numbers it wrote for songs already there stay until the next update." : ""}</span></p>}
       {done?.error && <p className="hint err-text">{done.error}</p>}
-      {!done && !out && last && <p className="hint tu-last" data-trueup-last>Last update: the {shortDay(last.export_on)} file, {plural(last.counts?.songs || 0, "song")}, saved {shortDay(last.applied_at)}{last.applied_by ? ` by ${last.applied_by}` : ""}. <button className="inline-link" data-trueup-undo disabled={!!busy} onClick={() => undo(last.id)}>Undo</button></p>}
+      {/* (2026-11-26 review) an update from an earlier visit (it can be weeks old) asks first; the Undo right after Apply, above, doesn't */}
+      {!done && !out && last && <p className="hint tu-last" data-trueup-last>Last update: the {shortDay(last.export_on)} file, {plural(last.counts?.songs || 0, "song")}, saved {shortDay(last.applied_at)}{last.applied_by ? ` by ${last.applied_by}` : ""}. <button className="inline-link" data-trueup-undo data-trueup-undo-ask disabled={!!busy} onClick={() => setAskUndo(true)}>Undo</button></p>}
+      {askUndo && last && (
+        <AskCard title={`Undo the ${shortDay(last.export_on)} update?`} goLabel="Undo" busyLabel="Undoing…" plain onClose={() => setAskUndo(false)}
+          go={async () => { await undo(last.id); setAskUndo(false); }}>
+          <p>The {shortDay(last.export_on)} file, {plural(last.counts?.songs || 0, "song")}, saved {shortDay(last.applied_at)}{last.applied_by ? ` by ${last.applied_by}` : ""}.</p>
+        </AskCard>
+      )}
     </div>
   );
 }
@@ -168,7 +179,7 @@ function CopyButton({ songs, label = "Copy all", attr }) {
   const [ok, setOk] = useState(false);
   return <button type="button" className="btn sm" {...attr} onClick={async () => { await copy(songsText(songs)); setOk(true); setTimeout(() => setOk(false), 2500); }}><Copy size={14} /> {ok ? `Copied ${fmt(songs.length)}` : label}</button>;
 }
-function ReportSongs({ d }) {
+function ReportSongs({ d, reloadSongInfo }) {
   const [open, setOpen] = useState(false);
   const many = d.reports.length > 1;
   const all = d.reports.flatMap((r) => r.songs);
@@ -188,13 +199,13 @@ function ReportSongs({ d }) {
           <SongList songs={r.songs} />
         </div>
       )) : <SongList songs={all} attr={{ "data-song-list": "" }} />)}
-      {open && d.noIsrc.length > 0 && <NoIsrc songs={d.noIsrc} />}
+      {open && d.noIsrc.length > 0 && <NoIsrc songs={d.noIsrc} reloadSongInfo={reloadSongInfo} />}
       {!open && d.noIsrc.length > 0 && <p className="hint" data-no-isrc-n>{plural(d.noIsrc.length, "song")} {d.noIsrc.length === 1 ? "has" : "have"} no ISRC yet: open the list to find {d.noIsrc.length === 1 ? "it" : "them"}.</p>}
     </div>
   );
 }
 // the songs with no ISRC, and the ISRC finder that already exists (/api/songs findIsrcs, then one tap on a guess)
-function NoIsrc({ songs }) {
+function NoIsrc({ songs, reloadSongInfo }) {
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState({});
   const [note, setNote] = useState(null);
@@ -210,13 +221,13 @@ function NoIsrc({ songs }) {
         setRes((r) => ({ ...r, ...next }));
         left = left.filter((s, i) => i >= 8 || results[s.placementIds[0]]?.later);
       }
-      await reloadTrueUp();
+      await Promise.all([reloadTrueUp(), reloadSongInfo?.()]);
     } catch (e) { setNote(e.message); }
     finally { setBusy(false); }
   };
   const pick = async (s, c) => {
     setBusy(true);
-    try { await post("/api/songs", { action: "pickIsrc", placementIds: s.placementIds, isrc: c.isrc, source: c.source }); setRes((r) => ({ ...r, [s.key]: { isrc: c.isrc } })); await reloadTrueUp(); }
+    try { await post("/api/songs", { action: "pickIsrc", placementIds: s.placementIds, isrc: c.isrc, source: c.source }); setRes((r) => ({ ...r, [s.key]: { isrc: c.isrc } })); await Promise.all([reloadTrueUp(), reloadSongInfo?.()]); }
     catch (e) { setNote(e.message); }
     finally { setBusy(false); }
   };
@@ -245,7 +256,7 @@ function CopyIsrcs({ songs }) {
   if (!isrcs.length) return null;
   return <button type="button" className="btn ghost sm" data-copy-isrcs onClick={async () => { await copy(isrcs.join("\n")); setOk(true); setTimeout(() => setOk(false), 2500); }}><Copy size={14} /> {ok ? `Copied ${fmt(isrcs.length)}` : `Copy ${plural(isrcs.length, "ISRC")}`}</button>;
 }
-function NotInReport({ d }) {
+function NotInReport({ d, reloadSongInfo }) {
   const list = d.notInReport || [];
   if (!list.length) return <p className="home-muted acct-clear"><CheckCircle2 size={15} /> Every roster song is in the report.</p>;
   const noIsrc = list.filter((s) => !s.isrc);
@@ -255,7 +266,7 @@ function NotInReport({ d }) {
       {/* (2026-11-25 declutter) what the list is ("not in any Luminate file yet (N updates so far)") is the row's own line just above: only what to do stays */}
       <p className="hint" data-not-in-words>Add each one to your Luminate Trend Report (search it by its ISRC).</p>
       <SongList songs={list} max={12} attr={{ "data-new-list": "" }} />
-      {noIsrc.length > 0 && <NoIsrc songs={noIsrc} />}
+      {noIsrc.length > 0 && <NoIsrc songs={noIsrc} reloadSongInfo={reloadSongInfo} />}
       <div className="tu-part" data-recheck>
         <b className="tu-sub">Added them? Drop the new export here to check them off</b>
         <TrueUpDrop d={d} />

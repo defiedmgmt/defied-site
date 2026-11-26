@@ -328,18 +328,31 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
     if (c.sub === "lumAtd") return asOf.lumAtd ? `to ${dayText(asOf.lumAtd)}` : "";
     return "";
   };
+  const search = <input className="arg-search" type="search" placeholder="Search name, artist or handle" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" data-grid-search />;
+  const pickers = (
+    <>
+      {filters.person && <select value={person} onChange={(e) => setPerson(e.target.value)} aria-label="Person" data-filter="person"><option value="">Everyone</option>{people.filter((p) => !p.all).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
+      {genres.length > 0 && <select value={genre} onChange={(e) => setGenre(e.target.value)} aria-label="Genre" data-filter="genre"><option value="">All genres</option>{genres.map((g) => <option key={g}>{g}</option>)}</select>}
+    </>
+  );
   const tools = (
     <>
-      <input className="arg-search" type="search" placeholder="Search name, artist or handle" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" data-grid-search />
+      {search}
       <select value={sort.col ? "" : order} onChange={(e) => setOrder(e.target.value)} aria-label="Sort" data-grid-order>
         {sort.col && <option value="" disabled>Sort: by column</option>}
         <option value="gainers">Sort: Top gainers</option>
         <option value="added">Sort: Newest added</option>
       </select>
-      {filters.person && <select value={person} onChange={(e) => setPerson(e.target.value)} aria-label="Person" data-filter="person"><option value="">Everyone</option>{people.filter((p) => !p.all).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
-      {genres.length > 0 && <select value={genre} onChange={(e) => setGenre(e.target.value)} aria-label="Genre" data-filter="genre"><option value="">All genres</option>{genres.map((g) => <option key={g}>{g}</option>)}</select>}
+      {pickers}
     </>
   );
+  // (2026-11-26 review) the phone sheet's one Sort by: the order the list really has (Top gainers, Newest added or a column, as a header click on a
+  // laptop), and Order only for a column (the two orders have one direction)
+  const sheetSort = (v) => {
+    if (v.startsWith("o:")) return setOrder(v.slice(2));
+    const next = { col: v.slice(2), dir: "desc" };
+    setSortS(next); store.set(`ar-grid:${id}:sort`, next);
+  };
   return (
     <div className="arg" data-ar-grid={id}>
       <div className="arg-tools">
@@ -390,15 +403,18 @@ export function ArGrid({ id, view, rows, asOf = {}, people = [], openKey = null,
           <div className="arg-sheet" role="dialog" aria-label="Sort and filter" data-sheet>
             <div className="arg-sheet-h"><b>Sort &amp; filter</b><button type="button" className="btn ghost sm" onClick={() => setSheet(false)} aria-label="Close"><X size={16} /></button></div>
             <label className="fld"><span>Sort by</span>
-              <select value={sort.col || ""} onChange={(e) => { const next = { col: e.target.value || null, dir: sort.dir }; setSortS(next); store.set(`ar-grid:${id}:sort`, next); }} data-sheet-sort>
-                <option value="">{momentumReady ? "Momentum, then newest" : "Newest first"}</option>
-                {cols.filter((c) => !c.nosort).map((c) => <option key={c.id} value={c.id}>{c.title || c.label}</option>)}
+              <select value={sort.col ? `c:${sort.col}` : `o:${order}`} onChange={(e) => sheetSort(e.target.value)} data-sheet-sort>
+                <option value="o:gainers">Top gainers</option>
+                <option value="o:added">Newest added</option>
+                {cols.filter((c) => !c.nosort).map((c) => <option key={c.id} value={`c:${c.id}`}>{c.title || c.label}</option>)}
               </select>
             </label>
-            <label className="fld"><span>Order</span>
-              <select value={sort.dir} onChange={(e) => { const next = { ...sort, dir: e.target.value }; setSortS(next); store.set(`ar-grid:${id}:sort`, next); }}><option value="desc">Biggest first</option><option value="asc">Smallest first</option></select>
-            </label>
-            <div className="arg-sheet-f">{tools}</div>
+            {sort.col && (
+              <label className="fld"><span>Order</span>
+                <select value={sort.dir} onChange={(e) => { const next = { ...sort, dir: e.target.value }; setSortS(next); store.set(`ar-grid:${id}:sort`, next); }} data-sheet-dir><option value="desc">Biggest first</option><option value="asc">Smallest first</option></select>
+              </label>
+            )}
+            <div className="arg-sheet-f">{search}{pickers}</div>
             <button type="button" className="btn sm" onClick={() => setSheet(false)}>Show {shown.length} {shown.length === 1 ? "row" : "rows"}</button>
           </div>
         </div>
