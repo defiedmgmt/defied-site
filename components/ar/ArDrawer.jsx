@@ -258,11 +258,11 @@ export function ArDrawer({ itemKey, me, founder = false, onClose, onChanged }) {
       {metrics.length > 1 && (
         <div className="ard-switch" role="tablist">{metrics.map((k) => <button key={k} type="button" role="tab" aria-selected={k === shown} className={k === shown ? "on" : ""} onClick={() => setMetric(k)}>{series[k].label}</button>)}</div>
       )}
-      {!shown && <p className="hint" data-chart-none>{r.match === "name" ? "Confirm the Spotify match first: numbers start after a tap." : "No readings yet. The next real update fills this in."}</p>}
+      {/* (2026-11-25 declutter) the person chart: "No readings yet." alone, and no caption under the chart on how the number is read (lib/ar/chart.js CAPTION): the line under it names the series and its source */}
+      {!shown && <p className="hint" data-chart-none>{r.match === "name" ? "Confirm the Spotify match first: numbers start after a tap." : "No readings yet."}</p>}
       {shown && (
         <>
           <BigChart key={shown} points={cur.points} label={cur.label} kind={kindOf(shown, cur)} unit={shown === "songStreams" ? "streams" : UNIT[shown]} songs={shown === "songStreams" ? cur.linked : null} releases={d.releases || NONE} variant={variant} />
-          <p className="hint" data-chart-what>{CAPTION[shown]}</p>
           <p className="hint" data-chart-n>{readingsText(cur)} · {cur.label} · {cur.src}</p>
         </>
       )}

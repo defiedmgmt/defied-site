@@ -37,7 +37,8 @@ function Tile({ k, label, unit, a, onAddLink, profile }) {
       <div className="cat-stat as-tile" data-as={k}>
         <span className="cat-stat-label">{label}{unit && <span className="cat-stat-note"> ({unit})</span>}</span>
         <span className="cat-stat-val">{v == null ? "—" : compact(v)}</span>
-        <span className="as-chg" data-dir={s?.pct > 0 ? "up" : s?.pct < 0 ? "down" : undefined}>{v == null ? "A week of daily numbers first" : pct(s.pct) ? `${pct(s.pct)} vs last week` : "vs last week: next week"}</span>
+        {/* (2026-11-25 declutter) the change, or nothing: no words on why it isn't there yet (no week of numbers, or no last week to compare) */}
+        <span className="as-chg" data-dir={s?.pct > 0 ? "up" : s?.pct < 0 ? "down" : undefined}>{v != null && pct(s.pct) ? `${pct(s.pct)} vs last week` : null}</span>
       </div>
     );
   }
@@ -67,7 +68,8 @@ export function ArtistStats({ nums, title = "Campaign", staff = true, onAddLink,
     <div className="cat-summary as-card" data-artist-stats>
       <div className="as-head">
         <h3>{title}</h3>
-        <span className="hint">{a?.mode === "off" ? (staff ? "Tracking is stopped for this artist (More ▾ to start it again)" : "Not updating right now") : `Updates daily${day ? ` · ${new Date(`${String(day).slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}`}</span>
+        {/* (2026-11-25 declutter) staff: "Tracking is stopped for this artist", with no pointer to where it starts again (More ▾ has Start tracking again) */}
+        <span className="hint">{a?.mode === "off" ? (staff ? "Tracking is stopped for this artist" : "Not updating right now") : `Updates daily${day ? ` · ${new Date(`${String(day).slice(0, 10)}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}`}</span>
       </div>
       <div className="cat-summary-grid as-grid">{TILES.map(([k, label, unit]) => <Tile key={k} k={k} label={label} unit={unit} a={a} onAddLink={onAddLink} profile={profile} />)}</div>
     </div>

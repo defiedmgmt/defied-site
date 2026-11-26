@@ -47,10 +47,12 @@ export function LumHistory({ k, campaign = false }) {
   const shown = all ? weeks : weeks.slice(0, 6);
   return (
     <div className="lum-hist" data-lum-hist={k}>
-      <div className="lum-hist-head"><b>Luminate history</b><span className="hint">all platforms, read only{w?.src && /US only/.test(w.src) ? " · US only" : ""}</span></div>
-      {!weeks.length && !atd ? <p className="hint" data-lum-none>No Luminate numbers for this one (no plays in the files we have, or not added).</p> : <>
-        {w && <p className="lum-hist-week" data-lum-week>{weekText(w.from, w.to)}: <b>{fmt(w.v)}</b> streams{w.pct != null ? <> · <span className={w.pct >= 0 ? "pos" : "neg"}>{pctWord(w.pct / 100)}</span> on the week before</> : " · needs a second week to compare"}</p>}
-        {atd && <p className="hint" data-lum-atd>All-time: {fmt(atd.v)} streams on {weekText(atd.from)}{atd.older ? ` (before ${LUM_BASIS_NOTE}, on its older, narrower count)` : ""}</p>}
+      {/* (2026-11-25 declutter) the source tags only ("all platforms", "US only"), no word on editing; no why after "No Luminate numbers for this one" or after a week with nothing to
+          compare with; an all-time total from before Luminate's change says "(older count)" instead of a sentence */}
+      <div className="lum-hist-head"><b>Luminate history</b><span className="hint">all platforms{w?.src && /US only/.test(w.src) ? " · US only" : ""}</span></div>
+      {!weeks.length && !atd ? <p className="hint" data-lum-none>No Luminate numbers for this one.</p> : <>
+        {w && <p className="lum-hist-week" data-lum-week>{weekText(w.from, w.to)}: <b>{fmt(w.v)}</b> streams{w.pct != null ? <> · <span className={w.pct >= 0 ? "pos" : "neg"}>{pctWord(w.pct / 100)}</span> on the week before</> : null}</p>}
+        {atd && <p className="hint" data-lum-atd>All-time: {fmt(atd.v)} streams on {weekText(atd.from)}{atd.older ? " (older count)" : ""}</p>}
         {weeks.length > 0 && (
           <div className="lum-hist-table" role="table" aria-label="Luminate weeks">
             <div className="lum-hist-row lum-hist-hd" role="row"><span role="columnheader">Week</span><span role="columnheader">Streams</span><span role="columnheader">vs week before</span></div>
@@ -68,7 +70,8 @@ export function LumHistory({ k, campaign = false }) {
             {weeks.length > 6 && <button type="button" className="inline-link lum-hist-more" onClick={() => setAll(!all)}>{all ? "Show fewer weeks" : `Show all ${weeks.length} weeks`}</button>}
           </div>
         )}
-        {olderWeeks && <p className="hint" data-lum-older>{LUM_BASIS_NOTE}: the muted weeks are from before it, on its older, narrower count, so they aren't compared with the later ones.</p>}
+        {/* (2026-11-25 declutter) the fact under the table, without the sentence on why the muted weeks aren't compared */}
+        {olderWeeks && <p className="hint" data-lum-older>{LUM_BASIS_NOTE}.</p>}
       </>}
       {campaign && d.mode != null && <ModeSwitch id={k} mode={d.mode === "auto" ? null : d.mode} onSaved={load} />}
     </div>
