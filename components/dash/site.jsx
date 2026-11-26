@@ -36,7 +36,8 @@ export function SiteAdmin({ ctx, sub, onSub, chip }) {
 }
 
 /* staff: website content (about, roster, staff, notable) -------------- */
-const WEBSITE_SECS = [["roster", "Roster"], ["notable", "Notable releases"], ["staff", "Team"], ["about", "About page"]];
+// (2026-11-26 review) each part named for the public page it edits ("Roster" was also the sidebar tab's name)
+const WEBSITE_SECS = [["roster", "Roster page"], ["notable", "Notable releases"], ["staff", "Team page"], ["about", "About page"]];
 const WEB_SEC_KEY = "dm-web-sec";
 // embedded: inside Site, which has the page's title
 function WebsiteAdmin({ db, commit, sub, onSub, songInfo = null, reloadDb = null, onGo = null, embedded = false }) {
@@ -57,9 +58,10 @@ function WebsiteAdmin({ db, commit, sub, onSub, songInfo = null, reloadDb = null
   return (
     <div className="website-main">
       {!embedded && <div className="admin-head website-head"><h2>Website</h2></div>}
-      <div className="subnav">
+      {/* (2026-11-26 review) a switch inside Website, so a second level: the segmented control To do's List / Calendar uses, not a second row of Site's pills */}
+      <div className="gainer-tabs web-tabs" role="tablist" aria-label="Website">
         {secs.map(([id, label]) => (
-          <button key={id} className={sec === id ? "subpill active" : "subpill"} onClick={(e) => { setSec(id); revealChip(e.currentTarget); }}>{label}</button>
+          <button key={id} type="button" role="tab" aria-selected={sec === id} data-web-tab={id} className={sec === id ? "active" : undefined} onClick={() => setSec(id)}>{label}</button>
         ))}
       </div>
       {sec === "about" && <AboutEditor db={db} commit={commit} />}
@@ -96,6 +98,14 @@ function NotableAdmin({ db, commit }) {
     return saveRow(commit, { ...db, notableReleases }, "notableReleases", o.id, "notable release");
   };
   const del = async (id) => commit({ ...db, notableReleases: list.filter((r) => r.id !== id) });
+  // (2026-11-26 review) the order is the public site's: About features the first releases, an artist's panel lists theirs in it (saved as sort_order)
+  const reorder = async (id, dir) => {
+    const i = list.findIndex((r) => r.id === id), j = i + dir;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    const notableReleases = [...list];
+    [notableReleases[i], notableReleases[j]] = [notableReleases[j], notableReleases[i]];
+    await commit({ ...db, notableReleases });
+  };
   const cols = [
     { key: "cover", label: "", w: "44px", render: (r) => r.cover ? <img className="rel-thumb" src={r.cover} alt="" loading="lazy" decoding="async" /> : <span className="rel-thumb rel-thumb-empty" /> },
     { key: "song", label: "Song", w: "1.2fr" },
@@ -106,7 +116,7 @@ function NotableAdmin({ db, commit }) {
     <div>
       <Editor title="Notable releases" items={list} columns={cols} maxItems={10}
         blank={{ song: "", artist: "", client: "", releaseDate: "", link: "", cover: "" }}
-        onSave={save} onDelete={del}
+        onSave={save} onDelete={del} onReorder={reorder}
         extra={(e, set) => (
           <>
             <SpotifyFill e={e} set={set} />

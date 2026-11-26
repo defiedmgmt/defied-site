@@ -93,8 +93,14 @@ const staffRow = (s) => ({ id: s.id, name: s.name || "", role: s.role || "", cre
 const normEmail = (e) => String(e ?? "").trim().toLowerCase() || null;
 const userRow = (u) => ({ password_changed_at: u.pwAt || null, clickup_user_id: u.cuId || "", id: u.id, email: normEmail(u.email), password_hash: u.hash || null, role: u.role, name: u.name || "", client_id: u.clientId || null, staff_role: u.staffRole || null, access: u.access || {} });
 const submissionRow = (s) => ({ id: s.id, name: s.name || "", email: s.email || "", instagram: s.instagram || "", subject: s.subject || "", message: s.message || "", created_at: s.at || new Date().toISOString(), read: !!s.read });
-const notableRow = (n) => ({ id: n.id, song: n.song || "", artist: n.artist || "", client: n.client || "", cover: n.cover || "", release_date: n.releaseDate || "", link: n.link || "" });
-const sameNotable = (a, b) => ["song", "artist", "client", "cover", "release_date", "link"].every((k) => (a[k] ?? "") === (b[k] ?? ""));
+// (2026-11-26 review) sort_order: the row's place in the list the page sent (migration 023). The About page features the first releases and an
+// artist's panel lists theirs in this order, so a save keeps it (and a move up or down is a change to write); before, the order was only where
+// Postgres happened to store each row, and editing one moved it to the end
+const notableRow = (n, i) => ({ id: n.id, song: n.song || "", artist: n.artist || "", client: n.client || "", cover: n.cover || "", release_date: n.releaseDate || "", link: n.link || "", sort_order: Number.isInteger(i) ? i : null });
+const sameNotable = (a, b) => ["song", "artist", "client", "cover", "release_date", "link", "sort_order"].every((k) => (a[k] ?? "") === (b[k] ?? ""));
+// the notable releases in that order; a database before migration 023: as stored, as before
+const notableRows = () => sql`SELECT * FROM notable_releases ORDER BY sort_order NULLS LAST, id`
+  .catch((err) => { if (err?.code === "42703") return sql`SELECT * FROM notable_releases`; throw err; });
 
 // Everything a staff session's GET returns — and what the size guard weighs.
 // the day the pub sheet's streams are from (streamsOn) is lib/streams-on.js's, shared with the share card
@@ -109,7 +115,7 @@ async function staffPayload() {
     sql`SELECT * FROM staff_bios ORDER BY sort_order NULLS LAST, created_at, id`,
     sql`SELECT * FROM users`,
     sql`SELECT * FROM submissions ORDER BY created_at DESC`,
-    sql`SELECT * FROM notable_releases`,
+    notableRows(),
     sql`SELECT about_text, last_synced_at FROM site_settings WHERE id = 1`,
     rowsOrNoneIfNoTable(sql`SELECT client_id, song_key, song, luminate_id, removed_at FROM not_ours ORDER BY removed_at`),
     readSheetFacts(),
@@ -624,18 +630,18 @@ async function handlePost(req, res, session) {
   if ("notableReleases" in body) {
     // (2026-11-18) the same rule as the songs: an upsert of what's new or changed, and a delete of only the ids the page knew and left out
     // (it was "delete them all and insert them again")
-    const stored = await sql`SELECT * FROM notable_releases`;
+    const stored = await notableRows();
     const plan = planRows({ submitted: body.notableReleases.map(notableRow), known: knownOf(body, "notableReleases"), stored, same: sameNotable });
     if (plan.remove.length) queries.push(sql`DELETE FROM notable_releases WHERE id = ANY(${plan.remove})`);
     for (const n of plan.write) {
       queries.push(sql`
-        INSERT INTO notable_releases (id, song, artist, client, cover, release_date, link)
-        VALUES (${n.id}, ${n.song}, ${n.artist}, ${n.client}, ${n.cover}, ${n.release_date}, ${n.link})
+        INSERT INTO notable_releases (id, song, artist, client, cover, release_date, link, sort_order)
+        VALUES (${n.id}, ${n.song}, ${n.artist}, ${n.client}, ${n.cover}, ${n.release_date}, ${n.link}, ${n.sort_order})
         ON CONFLICT (id) DO UPDATE SET song = EXCLUDED.song, artist = EXCLUDED.artist, client = EXCLUDED.client,
-          cover = EXCLUDED.cover, release_date = EXCLUDED.release_date, link = EXCLUDED.link
+          cover = EXCLUDED.cover, release_date = EXCLUDED.release_date, link = EXCLUDED.link, sort_order = EXCLUDED.sort_order
       `);
     }
-    notables = { plan, read: () => sql`SELECT * FROM notable_releases`, view: (all) => all.map(toNotable) };
+    notables = { plan, read: notableRows, view: (all) => all.map(toNotable) };
   }
   if (body.site) {
     queries.push(sql`UPDATE site_settings SET about_text = ${body.site.about || ""} WHERE id = 1`);

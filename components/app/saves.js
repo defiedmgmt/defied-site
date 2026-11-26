@@ -65,8 +65,9 @@ function applyRows(fresh = [], d) {
 }
 // these GETs have no ORDER BY, so they come back in whatever order Postgres stored the last
 // rewrite; a tab keeps the order it loaded them in (what it shows, and writes back), as saves
-// always have. Clients come back in roster order and submissions newest first.
-const UNORDERED = ["placements", "staff", "users", "notableReleases"];
+// always have. Clients come back in roster order and submissions newest first; (2026-11-26 review)
+// the notable releases in their saved order (sort_order), so the server's order is the one kept.
+const UNORDERED = ["placements", "staff", "users"];
 export function inTabOrder(fresh, tab) {
   const out = { ...fresh };
   for (const k of UNORDERED) {
