@@ -73,7 +73,7 @@ export function PublicNav({ route, menuOpen, setMenuOpen, session }) {
               {route === r && <i className="nav2-ind" style={{ viewTransitionName: "nav-ind" }} aria-hidden="true" />}
             </TLink>
           ))}
-          <TLink href={ROUTE_TO_PATH[authRoute]} className="nav2-auth" {...(route === authRoute ? { "aria-current": "page" } : {})}>{session ? (session.role === "staff" ? "Dashboard" : "Portal") : "Sign in"}</TLink>
+          <TLink href={ROUTE_TO_PATH[authRoute]} className="nav2-auth" {...(route === authRoute ? { "aria-current": "page" } : {})}>{session ? (session.role === "staff" ? "Dashboard" : "My portal") : "Sign in"}</TLink>
         </nav>
         <button
           ref={burgerRef}
@@ -107,7 +107,7 @@ export function PublicNav({ route, menuOpen, setMenuOpen, session }) {
           ))}
         </ol>
         <div className="pm-foot">
-          <TLink href={ROUTE_TO_PATH[authRoute]} onClick={closeMenu} className="pill pill-ghost" {...(route === authRoute ? { "aria-current": "page" } : {})}>{session ? (session.role === "staff" ? "Dashboard" : "Portal") : "Sign in"}</TLink>
+          <TLink href={ROUTE_TO_PATH[authRoute]} onClick={closeMenu} className="pill pill-ghost" {...(route === authRoute ? { "aria-current": "page" } : {})}>{session ? (session.role === "staff" ? "Dashboard" : "My portal") : "Sign in"}</TLink>
           <div className="pm-social">
             <ExtLink href="https://instagram.com/defiedmgmt" label="Instagram" className="hit"><Instagram size={20} /></ExtLink>
             <ExtLink href="https://x.com/defiedmgmt" label="X" className="hit"><XIcon size={18} /></ExtLink>
