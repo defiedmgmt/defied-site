@@ -3334,6 +3334,12 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .acct-src button.acct-books.need{color:var(--d-warn)}
 @media (hover:hover){ .app:not(.pub) .acct-src button.acct-books:hover{background:var(--d-active);border-color:transparent;color:var(--d-ink)} }
 .app:not(.pub) .acct-src:has(> .acct-books) .home-src{margin-right:auto}
+/* (review UX-3) Auto-log's switch on the same row, a Founder's: beside Open the sheet ↗ and Books (not pushed apart from them); off, their quiet look */
+.app:not(.pub) .acct-src:has(> .acct-auto) .home-src{margin-right:auto}
+.app:not(.pub) .acct-src .acct-auto{margin-left:0}
+.app:not(.pub) .acct-src button.acct-auto[data-auto-log=off]{padding:0 10px;border-color:transparent;background:transparent;color:var(--d-ink-3)}
+@media (hover:hover){ .app:not(.pub) .acct-src button.acct-auto[data-auto-log=off]:hover{background:var(--d-active);border-color:transparent;color:var(--d-ink)} }
+@media (max-width:599px){ .app:not(.pub) .acct-src:has(> .acct-auto){justify-content:flex-start} }
 .app:not(.pub) .books{display:flex;flex-direction:column;gap:12px;min-width:0}
 .app:not(.pub) .book-line{display:grid;grid-template-columns:44px minmax(0,1fr);align-items:start;gap:6px 12px;min-width:0}
 .app:not(.pub) .book-year{color:var(--d-ink-2);font-variant-numeric:tabular-nums;line-height:var(--d-ctl-sm,32px)}

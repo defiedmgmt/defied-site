@@ -11,7 +11,7 @@ import { payDay, shortDay } from "./helpers";
 import { HomeWait, monthName } from "./home-data";
 import { fmt, money, useEscape } from "./ui";
 import { ExtLink } from "../shared/ui";
-import { WhosPaid } from "./payers";
+import { WhosPaid, isThisYear } from "./payers";
 import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 import { typedMoney, checkEdit, sheetSplit, coShare, COMMISSION, GENERAL } from "../../lib/log-fields";
 import { MyPaymentsPage } from "./my-payments";
@@ -357,6 +357,8 @@ export function AccountingAdmin({ sub, onSub, onCounts, part = null, startLogAll
       {d.readAt && <span className="home-src">Stripe and the {d.year} accounting sheet · read {clock(d.readAt)}</span>}
       {d.sheetUrl && <ExtLink className="btn ghost sm acct-sheet-link" href={d.sheetUrl}>Open the sheet ↗</ExtLink>}
       {empire && <BooksButton />}
+      {/* (review UX-3) Auto-log's switch where a Founder can always reach it (only a Founder's full read has autoLog), as well as in To log */}
+      {d.autoLog && <AutoLogSwitch state={d.autoLog} />}
     </div>
   ) : null;
   return (
@@ -379,7 +381,7 @@ export function AcctOverview({ d, onSec }) {
   const t = d.tiles, month = monthName(d.month), M = d.months;
   // a month with no rows yet says so, instead of "$0.00 in · $0.00 out" (list A 8)
   const monthEmpty = !t.monthRevenue && !t.monthExpenses;
-  const stats = [["monthNet", `Net · ${month}`, monthEmpty ? "Nothing logged yet this month" : `${money(t.monthRevenue)} in · ${money(t.monthExpenses)} out`], ["yearNet", "Net this year"], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]];
+  const stats = [["monthNet", `Net · ${month}`, monthEmpty ? "Nothing logged yet this month" : `${money(t.monthRevenue)} in · ${money(t.monthExpenses)} out`], ["yearNet", isThisYear(d.year) ? "Net this year" : `Net ${d.year}`], ["checkingBalance", "Business Checking"], ["taxSetAside", "Tax set-aside (this quarter)"]];
   const yr = M && { stripe: cents2(M.reduce((a, m) => a + m.stripe, 0)), sheet: cents2(M.reduce((a, m) => a + m.sheet, 0)) };
   if (yr) yr.diff = cents2(yr.stripe - yr.sheet);
   const nLog = d.counts?.toLog || 0, nCheck = d.counts?.toCheck || 0;
