@@ -4,10 +4,12 @@
 // wrong. Founders only (Money access and the Founder role); anyone else 403, clients 401.
 // (2026-11-26 owner: automatic) Money › Settings also holds Auto-log's one switch (lib/auto-log.js; on unless a Founder turns it off): GET carries
 // autoLog { on }, POST { action: "autoLog", on } sets it (refused on a preview).
+// (2026-11-26 owner: automatic, books2-1126) GET first lets next year's book register itself (lib/accounting-books.js nextBookSoon: the Apps Script's
+// pointer, checked; at most once every 10 minutes on a server), so "Set the 2027 book" and its reason are up to date; GET carries `why` when that check failed.
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
 import { withSheetsQuick } from "../../lib/sheets";
-import { booksState, saveBook } from "../../lib/accounting-books";
+import { booksState, saveBook, nextBookSoon } from "../../lib/accounting-books";
 import { autoLogState, setAutoLog } from "../../lib/auto-log";
 import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 
@@ -20,7 +22,7 @@ export default async function handler(req, res) {
   if (req.access?.role !== "founder") return res.status(403).json({ error: "Only a Founder can set the accounting books." });
   try {
     if (req.method === "GET") {
-      const [books, a] = await Promise.all([withSheetsQuick(() => booksState()), autoLogState()]);
+      const [books, a] = await Promise.all([withSheetsQuick(async () => { await nextBookSoon(); return booksState(); }), autoLogState()]);
       return res.status(200).json({ ...books, autoLog: { on: a.on } });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });

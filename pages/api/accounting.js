@@ -8,11 +8,14 @@
 // auto-logged payments refunded since, until each is marked handled: POST { action: "refundHandled", id }, Founders only. The switch is Money › Settings'
 // (/api/accounting-books). (review AL-N3) While Auto-log is off because it turned itself off (a write that went wrong), a Founder's counts also carry
 // `autoLogOff: { why }`, To do's row, whether or not its ClickUp note went out; it goes once a Founder turns it back on (that clears offWhy).
+// (2026-11-26 owner: automatic, books2-1126) A GET also lets next year's book register itself (lib/accounting-books.js nextBookSoon), after the section's
+// read (its sheet read is then the cached one): at most once every 10 minutes on a server, waited for, never throws.
 import { withSheetsQuick } from "../../lib/sheets";
 import { requireSameOrigin } from "../../lib/session";
 import { requireAccess } from "../../lib/access";
 import { accountingState, markOk } from "../../lib/accounting-section";
 import { autoLogSoon, openRefunds, markRefundHandled, autoLogState } from "../../lib/auto-log";
+import { nextBookSoon } from "../../lib/accounting-books";
 import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 
 export const config = { maxDuration: 60 };
@@ -28,6 +31,7 @@ export default async function handler(req, res) {
       const soon = autoLogSoon({ started: t0 });
       const [st, refunds, al] = await Promise.all([withSheetsQuick(() => accountingState({ fresh: !!req.query.fresh, counts: !!req.query.counts })), founder ? openRefunds() : null, founder ? autoLogState() : null]);
       await soon;
+      await withSheetsQuick(() => nextBookSoon());
       const off = al && !al.on && al.offWhy ? { why: al.offWhy } : null;
       if ((!refunds?.length && !off) || !st.connected || !st.counts) return res.status(200).json(st);
       return res.status(200).json({ ...st, counts: { ...st.counts, ...(refunds?.length ? { refunds } : {}), ...(off ? { autoLogOff: off } : {}) } });

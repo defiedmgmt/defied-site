@@ -39,8 +39,10 @@ export function rowsWord(logged) {
   return years.map((y) => `${rowSpan(logged.filter((x) => x.year === y))} of the ${y} book`).join(", ");
 }
 
-// To do's row (pure): from Dec 1 while next year's book isn't set, and while this year's has none (or can't be read)
+// To do's row (pure): while this year's book is missing (or can't be read), and next year's from Dec 15 while it isn't set (books2-1126: the Apps
+// Script makes it and the site registers it by itself, so it's asked for only if that hasn't happened), or at once when its automatic check failed,
+// with the reason (d.why) as the row's detail
 export function booksTodoItems(d) {
   if (!d?.need) return [];
-  return [{ k: "books", area: "money", t: `Set the ${d.need} book`, cta: "Set", panel: "books", rank: { kind: "fix", value: 0 } }];
+  return [{ k: "books", area: "money", t: `Set the ${d.need} book`, ...(d.why ? { d: String(d.why).slice(0, 240) } : {}), cta: "Set", panel: "books", rank: { kind: "fix", value: 0 } }];
 }

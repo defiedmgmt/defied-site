@@ -103,7 +103,9 @@ export function BooksButton() {
   );
 }
 
-// To do's "Set the 2027 book": the year it needs, pasted right here (the row goes once it's saved)
+// To do's "Set the 2027 book": the year it needs, pasted right here (the row goes once it's saved). (books2-1126) When the book made from the template
+// didn't pass the automatic check, the row's own detail line says why (no hint line here): fixing that book is enough (the site checks it again
+// within the hour, and the ClickUp note says so), or a Founder pastes another book's link here
 export function BooksPanel() {
   const d = useBooks(true);
   if (!d) return wait;

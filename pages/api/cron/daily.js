@@ -27,6 +27,7 @@ import { runPeopleLink } from "../../../lib/people-link";
 import { runAutoAdds } from "../../../lib/auto-add";
 import { runScheduleA, scheduleAOn } from "../../../lib/schedule-a";
 import { runAutoLog } from "../../../lib/auto-log";
+import { syncNextBook } from "../../../lib/accounting-books";
 import { alert, alertDaily, plainWhy, WHOLE_RUN } from "../../../lib/alerts";
 
 // the sheet pull plus the Stripe read behind the ClickUp tasks (see pages/api/home.js)
@@ -90,6 +91,14 @@ async function run(req, res) {
     const r = await runPeopleLink({ by: "the nightly sync", auto: true });
     report.people = r.off ? { off: true } : r.busy ? { busy: true } : r.waiting ? { waiting: "the first Sync people now" } : { created: r.created, sheet: r.sheet, flags: (r.flags || []).length, ...(r.error ? { error: r.error } : {}) };
   } catch (err) { report.peopleError = err.message; }
+  // (2026-11-26 owner: automatic, books2-1126) next year's accounting book (lib/accounting-books.js syncNextBook): from Nov 15, the book the owner's Apps Script
+  // made from the template is checked and registered for its year, with one ClickUp note either way. Once next year's is set (and the rest of the year when this year's
+  // is in the setting) no Sheets read at all; else the book in use's (cached) and the pointer's, and once the check (about six). Skipped past 30 s in (a Founder's
+  // dashboard load does it too). In the report when it did something
+  try {
+    const n = Date.now() - t0 > 30000 ? { skipped: "out of time" } : await syncNextBook({ fresh: true });
+    if (n.set || n.failed || n.error) report.nextBook = n;
+  } catch (err) { report.nextBookError = err.message; }
   // (2026-11-26) Auto-log (lib/auto-log.js): the Stripe payments Log it places with certainty go on the Income tab by themselves (2026-11-26 owner: automatic;
   // unless a Founder turned it off, never without ACCOUNTING_SHEET_WRITES, never on a preview), with one ClickUp note of what it did. Before the ClickUp tasks, so
   // "Log new payments" counts what it added. Skipped with under 15 s of the 45 s Sheets budget left (a page load or tomorrow adds them); in the report when it ran
