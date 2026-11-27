@@ -1,7 +1,7 @@
 // Request payment (2026-11-26), staff with Money only (a co-manager without it is refused; the owner: Money accounts for now).
 //   POST { action: "create", clientId, key, cents?, paydayId? }  records a pay link the page just shared or copied
 //        (key: the pay.defiedmgmt.com/<key> the link used; cents: the amount it asked for, or none)
-//   POST { action: "snooze", clientId }                          Not now: off To do's quiet list for 30 days
+// (2026-11-26 owner: paydays only) Not now ({ action: "snooze" }) went with To do's "gone quiet" reminders: it's an unknown action now (400).
 // Whether a request is paid is worked out on every read from Stripe (lib/pay-requests.js settleRequests): nothing here marks one paid.
 // A preview build says saves are off (the share itself already went out).
 import { requireSameOrigin } from "../../lib/session";
@@ -9,7 +9,7 @@ import { requireAccess } from "../../lib/access";
 import { PREVIEW, PREVIEW_OFF } from "../../lib/preview";
 import { KEY_RE, MAX_CENTS } from "../../lib/pay-requests";
 import { PAYDAY_ID, validDay, isSource } from "../../lib/paydays";
-import { createRequest, snoozeClient, clientExists } from "../../lib/payers-store";
+import { createRequest, clientExists } from "../../lib/payers-store";
 
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -34,11 +34,6 @@ export default async function handler(req, res) {
       if (!(await clientExists(clientId))) return res.status(404).json({ error: "That client isn't on the site any more." });
       const r = await createRequest({ clientId, key, cents, paydayId: pid, by });
       return res.status(200).json({ ok: true, request: { id: r.id, clientId, at: r.at } });
-    }
-    if (body.action === "snooze") {
-      if (PREVIEW) return res.status(503).json({ error: PREVIEW_OFF, off: true });
-      await snoozeClient(clientId, by);
-      return res.status(200).json({ ok: true });
     }
     return res.status(400).json({ error: "Unknown action." });
   } catch (err) {

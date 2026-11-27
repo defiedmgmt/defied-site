@@ -108,11 +108,8 @@ export function todoItems({ db, songInfo, acct, ar, sync, seeds }) {
   // sheet is right; the row goes when it's on again. Its ClickUp note may never have gone out, so this is where it's sure to be seen
   if (acct?.autoLogOff?.why) out.push({ k: "autolog-off", area: "money", t: "Auto-log turned itself off", d: String(acct.autoLogOff.why).replace(/\.\s[\s\S]*$/, ".").slice(0, 140),
     cta: "Open", panel: "autoLogOff", why: String(acct.autoLogOff.why), rank: { kind: "money", value: 0 } });
-  // (2026-11-26) the clients gone quiet (lib/payers.js) and, on its day only (review UX-1: the owner's "a short row on the day"; Money › Paydays keeps the
-  // follow-up), each payday whose commission is still to come in (lib/paydays.js), from Money's counts
-  const quiet = acct?.payers?.quiet || [];
-  if (quiet.length) out.push({ k: "quiet", area: "money", t: quiet.length === 1 ? `${quiet[0].name}: ${quiet[0].why}` : `${quiet.length} clients have gone quiet`,
-    d: quiet.length > 1 ? quiet.map((q) => q.name).join(", ") : undefined, cta: "Open", panel: "quiet", rank: { kind: "money", value: 0 } });
+  // (2026-11-26) on its day only (review UX-1: the owner's "a short row on the day"; Money › Paydays keeps the follow-up), each payday whose commission
+  // is still to come in (lib/paydays.js), from Money's counts. (2026-11-26 owner: paydays only) the only who's-paid reminder: the "gone quiet" row is gone
   for (const p of (acct?.payers?.paydays?.open || []).filter((x) => x.today)) {
     const due = p.people.filter((x) => !x.paid).map((x) => x.name);
     out.push({ k: `payday:${p.id}`, area: "money", t: `${p.name} paid today`, d: due.length ? `Expect commission from ${due.join(", ")}` : undefined,

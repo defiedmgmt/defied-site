@@ -37,7 +37,6 @@ const SongManager = panel(() => import("../portal/ClientPortal"), "SongManager")
 const TrueUpPanel = panel(() => import("../TrueUp"), "TrueUpPanel"); // TRUEUP-HOOK: the monthly Luminate true-up
 const IsrcFinder = panel(() => import("./isrc-finder"), "IsrcFinder"); // r11: the ISRC finder, out of Publishing
 const PaydayCard = panel(() => import("./paydays"), "PaydayCard"); // (2026-11-26) a payday's row, opened (Money › Paydays' own card)
-const QuietList = panel(() => import("./payers"), "QuietList"); // (2026-11-26) the clients gone quiet
 
 // One To do row: the sentence opens it, the button does its one thing; open, the panel below holds
 // exactly the controls it needs (the same ones the tabs used to hold). Home's biggest tasks use it too.
@@ -100,7 +99,6 @@ function TodoPanel({ it, ctx, onClose, viaCta = false }) {
     case "isrc": return <IsrcFinder db={db} songInfo={ctx.songInfo} reloadSongInfo={ctx.reloadSongInfo} />;
     case "messages": return <SubsAdmin db={db} commit={commit} />;
     case "syncfix": return <SyncFix check={it.check} ctx={ctx} />;
-    case "quiet": return <QuietList ctx={ctx} />;
     case "payday": return <PaydayCard compact p={it.payday} onGo={onGo} onChange={() => ctx.reloadAcct?.()} />; // (review UX-4) Got it clears the row and the badge
     case "refund": return <RefundFix r={it.refund} ctx={ctx} />;
     case "autoLogOff": return <AutoLogOffPanel why={it.why} onDone={() => ctx.reloadAcct?.()} />;

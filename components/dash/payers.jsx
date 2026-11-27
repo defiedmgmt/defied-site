@@ -1,4 +1,4 @@
-// Who's paid (Money › Overview, 2026-11-26: in place of Latest payments, the owner) and To do's quiet list. The numbers are the server's
+// Who's paid (Money › Overview, 2026-11-26: in place of Latest payments, the owner). The numbers are the server's
 // (lib/payers-store.js, with GET /api/accounting): commission paid this year and the last day each client paid, by client or by manager.
 import { useState } from "react";
 import { AlertTriangle } from "lucide-react";
@@ -55,37 +55,6 @@ export function WhosPaid({ d }) {
           )}
         </>
       )}
-    </div>
-  );
-}
-
-// To do's "3 clients have gone quiet", opened: each with why, when they last paid, Request payment and Not now (off the list for 30 days)
-export function QuietList({ ctx }) {
-  const keyOf = usePayKeys();
-  const [gone, setGone] = useState(() => new Set());
-  const [err, setErr] = useState(null);
-  const P = ctx.acct?.payers;
-  const list = (P?.quiet || []).filter((q) => !gone.has(q.id));
-  const notNow = async (id) => {
-    setErr(null); setGone((s) => new Set([...s, id]));
-    const r = await fetch("/api/pay-requests", { method: "POST", headers: { "Content-Type": "application/json", "X-Requested-With": "defied-site" }, body: JSON.stringify({ action: "snooze", clientId: id }) }).catch(() => null);
-    const j = r ? await r.json().catch(() => ({})) : {};
-    if (!r?.ok) { setErr(j.error || "Couldn't reach the server. Try again in a minute."); setGone((s) => { const n = new Set(s); n.delete(id); return n; }); return; }
-    ctx.reloadAcct?.();
-  };
-  return (
-    <div className="todo-sublist quiet-list" data-quiet-list>
-      {err && <p className="hint err-text" role="alert">{err}</p>}
-      {list.map((q) => { const r = requestOf(P?.requests, q.id); return (
-        <div key={q.id} className="fix-row quiet-row" data-quiet={q.id}>
-          {/* one client: the row above already says who and why */}
-          <span className="fix-song quiet-who">{(P?.quiet || []).length > 1 ? <><b>{q.name}</b><span className="quiet-why"> · {q.why} · last paid {lastText(q.last)}</span></> : <span className="quiet-why">Last paid {lastText(q.last)}</span>}</span>
-          <span className="fix-acts">
-            <RequestPay clientId={q.id} payKey={keyOf(q.id)} asked={r && !r.paid ? r.at : null} paid={r?.paid || null} />
-            <button type="button" className="quiet-act" data-not-now={q.id} onClick={() => notNow(q.id)}>Not now</button>
-          </span>
-        </div>
-      ); })}
     </div>
   );
 }

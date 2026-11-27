@@ -2494,9 +2494,6 @@ html[data-vt=sent]::view-transition-new(root){animation:.24s ease .1s both vt-fa
 .app:not(.pub) .req-err{flex-basis:100%;margin:0;text-align:right;font-size:12.5px}
 .app:not(.pub) .client-head .req-pay{margin-left:auto;flex:none;margin-top:4px}
 .app:not(.pub) .client-head .req-pay ~ .client-more{margin-left:0}
-.app:not(.pub) .fix-row.quiet-row{grid-template-columns:minmax(0,1fr) auto}
-.app:not(.pub) .quiet-who{white-space:normal}
-.app:not(.pub) .quiet-why{color:var(--d-ink-4)}
 .app:not(.pub) .pd-card{padding:10px 0;border-top:1px solid var(--d-line)}
 .app:not(.pub) .pd-next > .fix-head + .pd-card,.app:not(.pub) .todo-panel .pd-card{border-top:0}
 .app:not(.pub) .pd-card-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;font-size:14px;color:var(--d-ink)}
