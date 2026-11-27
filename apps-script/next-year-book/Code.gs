@@ -295,8 +295,9 @@ function block_(sh, row, rows, width) {
   var vs = rng.getValues(), fs = rng.getFormulas();
   return vs.map(function (r, i) { return r.map(function (v, j) { return fs[i][j] ? fs[i][j] : v; }); });
 }
+// a header row as the site compares it (lib/accounting-books.js checkBook: trimmed, lower case, one space), trailing blanks dropped
 function trimRow_(r) {
-  var out = r.map(function (v) { return String(v).trim(); });
+  var out = r.map(function (v) { return String(v).trim().toLowerCase().replace(/\s+/g, " "); });
   while (out.length && !out[out.length - 1]) out.pop();
   return out;
 }
